@@ -288,6 +288,27 @@ import Testing
         #expect(store.read() == .found(first))
     }
 
+    @Test func whitespaceOnlyPersistedIdentityIsReplacedNotAdopted() {
+        // A corrupt persisted item holding only whitespace must be treated like
+        // any other corrupt value: replaced by a freshly minted id. Classifying
+        // it as `.found` instead deadlocks the repair — the resolver notices the
+        // blank and tries to mint, but the store's duplicate-item adoption path
+        // re-reads the same whitespace value and adopts it, so every launch
+        // advertises an invalid opaque device id and the corrupt item is never
+        // overwritten.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore(seed: "   ")
+
+        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+
+        // A usable minted identity, never the whitespace value.
+        #expect(UUID(uuidString: resolved) != nil)
+        // The corrupt item was overwritten with the minted id.
+        #expect(store.read() == .found(resolved))
+    }
+
     @Test func deviceIdentityMintsFreshWhenMirrorWitnessBelongsToAnotherPhone() {
         // Phone-restore proxy: `UserDefaults` migrated over in the backup —
         // including the mirror AND the old phone's device witness — but the

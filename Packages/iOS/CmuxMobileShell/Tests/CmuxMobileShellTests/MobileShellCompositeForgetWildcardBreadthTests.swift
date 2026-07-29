@@ -549,6 +549,163 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         #expect(remaining.contains { $0.macDeviceID == "mac-a" && $0.instanceTag == "other" })
     }
 
+    /// The wildcard revoke is TAG-BLIND on the broker: it kills bindings for
+    /// every instance tag of the device, including tags this iOS build is not
+    /// compatible with. The build-compatibility store forwards those rows from
+    /// the cleanup enumeration, so its exact-scope delete must not silently
+    /// no-op them: the tombstone still flushes and the forget reports success,
+    /// leaving a local row whose binding is already revoked to resurface as a
+    /// dead entry on a compatible build.
+    @Test func wildcardForgetDeletesRowsWithBuildIncompatibleTags() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // A row tagged for a DIFFERENT build ("other") plus the untagged row the
+        // user forgets. Tagged first so the untagged upsert cannot claim it.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (other)",
+            routes: [try Self.route("100.82.214.113")],
+            instanceTag: "other",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        )
+        let forget = WildcardRecordingForget()
+        // Production rail: this build expects tag "mine", so the "other" row is
+        // incompatible — visible to the cleanup enumeration but historically
+        // silently skipped by the compatibility guard on exact-scope deletes.
+        let compatible = MobileMacBuildCompatibilityPolicy
+            .development(expectedInstanceTag: "mine")
+            .scoping(base)
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: compatible,
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { nil },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: nil)
+        let hidden = try #require(store.hiddenComputers.first {
+            $0.macDeviceID == "mac-a" && $0.instanceTag == nil
+        })
+
+        let ok = await store.forgetHiddenComputer(hidden)
+
+        #expect(ok)
+        // The wildcard revoke killed the "other" binding too, so its local row
+        // must be gone — not silently skipped while the forget reports success.
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
+    }
+
+    /// Hidden markers are stored per (user, team). A forget deletes rows across
+    /// teams, so it must clear each deleted row's marker in THAT row's team
+    /// scope, not only the display scope: a marker left in another team keeps a
+    /// re-registering Mac unexpectedly hidden there, contradicting the forget
+    /// confirmation that it will reappear on its next connect.
+    @Test func forgetClearsHiddenMarkersInEachDeletedRowsOwnTeam() async throws {
+        final class TeamBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var stored: String?
+            var value: String? {
+                get { lock.withLock { stored } }
+                set { lock.withLock { stored = newValue } }
+            }
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // The same pairing saved under two teams.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (team A)",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (team B)",
+            routes: [try Self.route("100.82.214.113")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-b",
+            now: Date(timeIntervalSince1970: 2)
+        )
+        let team = TeamBox()
+        team.value = "team-a"
+        let forget = WildcardRecordingForget()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: TeamScopedPairedMacStore(inner: base, teamIDProvider: { team.value }),
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { team.value },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        // Hide the pairing in BOTH teams, so a per-(user, team) marker exists in
+        // each scope.
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: nil)
+        team.value = "team-b"
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: nil)
+        // Forget from team A. The cleanup deletes BOTH teams' rows.
+        team.value = "team-a"
+        await store.loadPairedMacs()
+        let hidden = try #require(store.hiddenComputers.first {
+            $0.macDeviceID == "mac-a" && $0.instanceTag == nil
+        })
+        let ok = await store.forgetHiddenComputer(hidden)
+        #expect(ok)
+
+        // The still-online Mac re-registers in team B before any rowless-marker
+        // migration runs. The forget promised it would reappear on reconnect, so
+        // team B's marker must be gone with team B's row.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (team B)",
+            routes: [try Self.route("100.82.214.113")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-b",
+            now: Date(timeIntervalSince1970: 3)
+        )
+        team.value = "team-b"
+        await store.loadPairedMacs()
+        #expect(store.pairedMacs.contains { $0.macDeviceID == "mac-a" })
+        #expect(!store.hiddenComputers.contains { $0.macDeviceID == "mac-a" })
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }
