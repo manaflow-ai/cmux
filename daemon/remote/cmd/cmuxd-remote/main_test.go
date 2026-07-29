@@ -1174,6 +1174,28 @@ func TestAuthenticatePersistentDaemonServerReadDeadline(t *testing.T) {
 	}
 }
 
+func TestRPCDispatcherPTYAttachCapacityReturnsUnavailable(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	output := newNotifyingBuffer()
+	server := &rpcServer{
+		frameWriter: &stdioFrameWriter{writer: bufio.NewWriter(output)},
+	}
+	dispatcher := newRPCRequestDispatcher(ctx, cancel, nil, server)
+	for i := 0; i < maxConcurrentPTYAttachRPCsPerConnection; i++ {
+		dispatcher.ptyAttachSlots <- struct{}{}
+	}
+
+	if err := dispatcher.dispatch(rpcRequest{ID: 1, Method: "pty.attach"}); err != nil {
+		t.Fatalf("dispatch over-capacity pty.attach: %v", err)
+	}
+	response := waitForRPCResponseID(t, output, 1, time.Second)
+	errorObject, _ := response["error"].(map[string]any)
+	if got := errorObject["code"]; got != "unavailable" {
+		t.Fatalf("over-capacity pty.attach error code = %v, want unavailable; response=%v", got, response)
+	}
+}
+
 func TestStdioRPCStalledPTYAttachDoesNotBlockHealthyAttach(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
 	t.Cleanup(hub.closeAll)

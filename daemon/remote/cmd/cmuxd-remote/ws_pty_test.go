@@ -687,25 +687,30 @@ func TestAttachRPCBoundsStalledSessionStartOwners(t *testing.T) {
 		}
 	}
 
-	excessResult := make(chan error, 1)
+	excessResult := make(chan rpcResponse, 1)
+	server := &rpcServer{ptyHub: hub}
 	go func() {
-		_, _, _, err := hub.attachRPC(
-			context.Background(),
-			"bounded-start-excess",
-			"attachment",
-			80,
-			24,
-			"sleep 30",
-			"",
-			false,
-			false,
-		)
-		excessResult <- err
+		excessResult <- server.handleRequest(rpcRequest{
+			ID:     1,
+			Method: "pty.attach",
+			Params: map[string]any{
+				"session_id":              "bounded-start-excess",
+				"attachment_id":           "attachment",
+				"client_attachment_token": "token",
+				"cols":                    80,
+				"rows":                    24,
+				"command":                 "sleep 30",
+			},
+		})
 	}()
 	select {
-	case err := <-excessResult:
-		if err == nil || !strings.Contains(err.Error(), "too many PTY sessions") {
-			t.Fatalf("excess PTY start error = %v, want bounded unavailable error", err)
+	case response := <-excessResult:
+		if response.Error == nil || response.Error.Code != "unavailable" {
+			t.Fatalf("excess PTY start response = %+v, want unavailable error", response)
+		}
+		const wantMessage = "too many PTY sessions are already starting"
+		if response.Error.Message != wantMessage {
+			t.Fatalf("excess PTY start message = %q, want %q", response.Error.Message, wantMessage)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("excess PTY start blocked instead of failing immediately")
