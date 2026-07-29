@@ -185,5 +185,19 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
                     effectiveSSHOptions: ["ControlPath=None"]
                 ) == nil
         )
+        #expect(
+            configuration(sshOptions: [
+                "ControlMaster=no",
+                "ControlPath=~/.ssh/custom-%C",
+            ])
+                .reverseRelayControlMasterArguments(
+                    controlCommand: "forward",
+                    forwardSpec: "127.0.0.1:64007:127.0.0.1:54321",
+                    effectiveSSHOptions: [
+                        "ControlMaster=no",
+                        "ControlPath=~/.ssh/custom-%C",
+                    ]
+                ) == nil
+        )
     }
 }

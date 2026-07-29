@@ -23,6 +23,7 @@ public final class NativeSSHConnectionBroker {
     private let clock: any RemoteProxyRetryClock
     private let jitterMilliseconds: @MainActor @Sendable () -> Int
     private let cleanupLauncherOverride: (@MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void)?
+    private let conflictedMasterResetCoordinator: NativeSSHControlMasterResetCoordinator
 
     private var ownerLeases: [UUID: [NativeSSHControlMasterKey: WorkspaceRemoteConfiguration]] = [:]
     private var ownersByControlMaster: [NativeSSHControlMasterKey: Set<UUID>] = [:]
@@ -45,6 +46,10 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
         self.cleanupLauncherOverride = nil
+        self.conflictedMasterResetCoordinator = NativeSSHControlMasterResetCoordinator(
+            sharingOptions: sharingOptions,
+            processRunner: RemoteSessionProcessRunner()
+        )
     }
 
     /// Creates a broker with an injected cleanup launcher.
@@ -63,18 +68,27 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
         self.cleanupLauncherOverride = cleanupLauncher
+        self.conflictedMasterResetCoordinator = NativeSSHControlMasterResetCoordinator(
+            sharingOptions: sharingOptions,
+            processRunner: RemoteSessionProcessRunner()
+        )
     }
 
     nonisolated init(
         sharingOptions: SSHConnectionSharingOptions,
         clock: any RemoteProxyRetryClock,
         jitterMilliseconds: @escaping @MainActor @Sendable () -> Int,
-        cleanupLauncher: @escaping @MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void
+        cleanupLauncher: @escaping @MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void,
+        conflictedMasterResetRunner: any RemoteSessionProcessRunning = RemoteSessionProcessRunner()
     ) {
         self.sharingOptions = sharingOptions
         self.clock = clock
         self.jitterMilliseconds = jitterMilliseconds
         self.cleanupLauncherOverride = cleanupLauncher
+        self.conflictedMasterResetCoordinator = NativeSSHControlMasterResetCoordinator(
+            sharingOptions: sharingOptions,
+            processRunner: conflictedMasterResetRunner
+        )
     }
 
     /// Retains the cmux-owned master used by a configured workspace.
@@ -91,9 +105,21 @@ public final class NativeSSHConnectionBroker {
             configuration: configuration,
             sharingOptions: sharingOptions
         )
-        guard let nextKey else { return configuration }
-        cancelCleanup(for: nextKey)
+        let resetKey = NativeSSHControlMasterResetKey(
+            configuration: configuration,
+            sharingOptions: sharingOptions
+        )
+        guard nextKey != nil || resetKey != nil else { return configuration }
         let leasedConfiguration = configuration.withSSHControlMasterLeaseGeneration(UUID())
+        if let resetKey {
+            conflictedMasterResetCoordinator.retainWorkspace(
+                leasedConfiguration,
+                ownerWorkspaceID: ownerWorkspaceID,
+                key: resetKey
+            )
+        }
+        guard let nextKey else { return leasedConfiguration }
+        cancelCleanup(for: nextKey)
         var leases = ownerLeases[ownerWorkspaceID] ?? [:]
         let isNewMaster = leases[nextKey] == nil
         leases[nextKey] = leasedConfiguration
@@ -112,15 +138,34 @@ public final class NativeSSHConnectionBroker {
     /// - Parameter configuration: Exact owner-scoped configuration being released.
     public func releaseWorkspace(_ configuration: WorkspaceRemoteConfiguration) {
         guard let ownerWorkspaceID = configuration.ownerWorkspaceID,
-              let generation = configuration.sshControlMasterLeaseGeneration,
-              let key = NativeSSHControlMasterKey(
-                configuration: configuration,
-                sharingOptions: sharingOptions
-              ),
+              let generation = configuration.sshControlMasterLeaseGeneration else {
+            return
+        }
+        if let resetKey = NativeSSHControlMasterResetKey(
+            configuration: configuration,
+            sharingOptions: sharingOptions
+        ) {
+            conflictedMasterResetCoordinator.releaseWorkspace(
+                ownerWorkspaceID: ownerWorkspaceID,
+                generation: generation,
+                key: resetKey
+            )
+        }
+        guard let key = NativeSSHControlMasterKey(
+            configuration: configuration,
+            sharingOptions: sharingOptions
+        ),
               ownerLeases[ownerWorkspaceID]?[key]?.sshControlMasterLeaseGeneration == generation else {
             return
         }
         removeLease(ownerWorkspaceID: ownerWorkspaceID, key: key)
+    }
+
+    /// Coalesces an inherited-master reset after OpenSSH confirms a relay bind conflict.
+    func resetConflictedControlMaster(
+        for configuration: WorkspaceRemoteConfiguration
+    ) async -> NativeSSHControlMasterResetOutcome {
+        await conflictedMasterResetCoordinator.reset(for: configuration)
     }
 
     /// Runs one connection attempt after acquiring the endpoint's FIFO permit.

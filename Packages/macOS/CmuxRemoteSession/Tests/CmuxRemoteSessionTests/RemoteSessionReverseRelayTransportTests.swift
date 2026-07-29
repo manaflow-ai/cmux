@@ -10,7 +10,7 @@ struct RemoteSessionReverseRelayTransportTests {
     func sharedControlMasterIsPreferred() async throws {
         let runner = RecordingProcessRunner()
         let launcher = RecordingReverseRelayLauncher()
-        let fixture = try RemoteSessionReverseRelayStartupTests.makeCoordinator(
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             runner: runner,
             reverseRelayLauncher: launcher
         )
@@ -57,12 +57,13 @@ struct RemoteSessionReverseRelayTransportTests {
     func disabledControlMasterUsesStandaloneFallback() async throws {
         let runner = RecordingProcessRunner()
         let launcher = RecordingReverseRelayLauncher()
-        let fixture = try RemoteSessionReverseRelayStartupTests.makeCoordinator(
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             runner: runner,
             reverseRelayLauncher: launcher,
             sshOptions: [
                 "StrictHostKeyChecking=accept-new",
                 "ControlMaster=no",
+                "ControlPath=~/.ssh/custom-%C",
             ]
         )
         let coordinator = fixture.coordinator
@@ -101,7 +102,7 @@ struct RemoteSessionReverseRelayTransportTests {
             return RemoteCommandResult(status: 0, stdout: "", stderr: "")
         }
         let launcher = RecordingReverseRelayLauncher()
-        let fixture = try RemoteSessionReverseRelayStartupTests.makeCoordinator(
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             runner: runner,
             reverseRelayLauncher: launcher,
             clock: clock
@@ -145,7 +146,7 @@ struct RemoteSessionReverseRelayTransportTests {
             return RemoteCommandResult(status: 0, stdout: "", stderr: "")
         }
         let launcher = RecordingReverseRelayLauncher()
-        let fixture = try RemoteSessionReverseRelayStartupTests.makeCoordinator(
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             runner: runner,
             reverseRelayLauncher: launcher,
             sshOptions: [
@@ -153,6 +154,7 @@ struct RemoteSessionReverseRelayTransportTests {
                 "ControlMaster=auto",
                 "ControlPersist=600",
                 "ControlPath=~/.ssh/custom-%C",
+                "ControlPath=\(SSHConnectionSharingOptions().defaultControlPath)",
             ],
             clock: clock
         )
@@ -169,10 +171,60 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(!runner.requests.contains(where: {
             Self.isControlCommand("exit", in: $0.arguments)
         }))
+        let forwardRequest = try #require(runner.requests.first(where: {
+            Self.isControlCommand("forward", in: $0.arguments)
+        }))
+        #expect(forwardRequest.arguments.contains("ControlPath=~/.ssh/custom-%C"))
         #expect(coordinator.queue.sync {
-            coordinator.reverseRelayStartupPhase.canAttemptRecovery
+            !coordinator.reverseRelayStartupPhase.isRecovering &&
+                coordinator.reverseRelayStartupPhase.allowsRelayLaunch
         })
         #expect(launcher.launchCount == 0)
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
+    @Test("A standalone non-bind failure publishes only a generic retry status")
+    func standaloneFailurePublishesSanitizedStatus() async throws {
+        let rawFailure = "Permission denied: secret diagnostic"
+        let host = ReverseRelayRecoveryHost()
+        let clock = ManualBrokerClock()
+        let runner = RecordingProcessRunner { request in
+            if Self.isControlCommand("forward", in: request.arguments) {
+                return RemoteCommandResult(
+                    status: 255,
+                    stdout: "",
+                    stderr: "Control socket connect: No such file or directory"
+                )
+            }
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+        let launcher = RecordingReverseRelayLauncher()
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
+            host: host,
+            runner: runner,
+            reverseRelayLauncher: launcher,
+            clock: clock
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+
+        var launches = launcher.launches.makeAsyncIterator()
+        var statuses = host.daemonStatuses.makeAsyncIterator()
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
+        }
+        _ = try #require(await launches.next())
+        launcher.emitTermination(detail: rawFailure)
+
+        let status = try #require(await statuses.next())
+        #expect(status.detail == String(
+            localized: "remoteSession.reverseRelay.unavailableRetrying",
+            defaultValue: "Remote SSH relay unavailable; retrying in 2 seconds"
+        ))
+        #expect(status.detail?.contains(rawFailure) == false)
+        #expect(await clock.nextRequestedDelay() == 2_000)
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
@@ -191,7 +243,7 @@ struct RemoteSessionReverseRelayTransportTests {
             return RemoteCommandResult(status: 0, stdout: "", stderr: "")
         }
         let launcher = RecordingReverseRelayLauncher()
-        let fixture = try RemoteSessionReverseRelayStartupTests.makeCoordinator(
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             runner: runner,
             reverseRelayLauncher: launcher,
             relayPort: relayPort,

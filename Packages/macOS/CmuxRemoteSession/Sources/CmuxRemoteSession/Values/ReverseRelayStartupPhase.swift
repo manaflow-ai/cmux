@@ -5,8 +5,7 @@ enum ReverseRelayStartupPhase: Sendable {
     case recoveryAvailable
     case exitingConflictedControlMaster(
         token: UUID,
-        task: Task<Void, Never>,
-        cancellation: RemoteProcessCancellationOperation
+        task: Task<Void, Never>
     )
     case recoveryAttempted
 
@@ -32,7 +31,7 @@ enum ReverseRelayStartupPhase: Sendable {
     }
 
     var token: UUID? {
-        guard case .exitingConflictedControlMaster(let token, _, _) = self else {
+        guard case .exitingConflictedControlMaster(let token, _) = self else {
             return nil
         }
         return token

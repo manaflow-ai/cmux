@@ -65,6 +65,26 @@ struct SSHConnectionSharingOptionsTests {
         #expect(options.cmuxOwnedControlPath(in: supplied) == nil)
     }
 
+    @Test("Ownership follows OpenSSH's first repeated ControlPath")
+    func ownershipUsesFirstControlPath() {
+        let customFirst = [
+            "ControlMaster=auto",
+            "ControlPath=~/.ssh/custom-%C",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+        ]
+        let ownedFirst = [
+            "ControlMaster=auto",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+            "ControlPath=~/.ssh/custom-%C",
+        ]
+
+        #expect(options.cmuxOwnedControlPath(in: customFirst) == nil)
+        #expect(
+            options.cmuxOwnedControlPath(in: ownedFirst)
+                == "/tmp/cmux-ssh-501-%C"
+        )
+    }
+
     @Test("Effective custom ssh_config control settings replace cmux defaults")
     func preservesResolvedSSHConfigSettings() {
         let output = """

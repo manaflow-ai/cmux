@@ -103,7 +103,6 @@ extension RemoteSessionCoordinator {
                     return
                 }
                 publishReverseRelayFailureLocked(
-                    detail: detail,
                     remotePath: remotePath
                 )
                 return
@@ -183,18 +182,19 @@ extension RemoteSessionCoordinator {
            ) {
             return
         }
-        scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+        publishReverseRelayFailureLocked(remotePath: remotePath)
     }
 
     private func publishReverseRelayFailureLocked(
-        detail: String,
         remotePath: String
     ) {
         let retryDelay = 2.0
-        let retrySeconds = max(1, Int(retryDelay.rounded()))
         publishDaemonStatus(
             .error,
-            detail: "Remote SSH relay unavailable: \(detail) (retry in \(retrySeconds)s)"
+            detail: String(
+                localized: "remoteSession.reverseRelay.unavailableRetrying",
+                defaultValue: "Remote SSH relay unavailable; retrying in 2 seconds"
+            )
         )
         scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: retryDelay)
     }

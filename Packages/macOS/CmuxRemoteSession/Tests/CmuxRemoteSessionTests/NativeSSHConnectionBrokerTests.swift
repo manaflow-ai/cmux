@@ -68,8 +68,8 @@ struct NativeSSHConnectionBrokerTests {
         #expect(recorder.requests.isEmpty)
     }
 
-    @Test("Unresolved cmux templates remain unowned until ssh -G resolves them")
-    func unresolvedTemplatesAreNotOwned() {
+    @Test("Unresolved templates authorize reset but not last-owner cleanup")
+    func unresolvedTemplatesOnlyAuthorizeReset() {
         let recorder = CleanupRequestRecorder()
         let broker = makeBroker(cleanupRecorder: recorder)
         let templateOptions = sharingOptions.mergingDefaults(into: [])
@@ -86,8 +86,8 @@ struct NativeSSHConnectionBrokerTests {
 
         let firstLease = broker.retainWorkspace(first)
         let secondLease = broker.retainWorkspace(second)
-        #expect(firstLease.sshControlMasterLeaseGeneration == nil)
-        #expect(secondLease.sshControlMasterLeaseGeneration == nil)
+        #expect(firstLease.sshControlMasterLeaseGeneration != nil)
+        #expect(secondLease.sshControlMasterLeaseGeneration != nil)
 
         broker.releaseWorkspace(firstLease)
         broker.releaseWorkspace(secondLease)
@@ -164,6 +164,50 @@ struct NativeSSHConnectionBrokerTests {
         broker.releaseWorkspace(replacementLease)
         #expect(recorder.requests.count == 2)
         #expect(recorder.requests[1].arguments.contains(replacement.sshOptions[2]))
+    }
+
+    @Test("Concurrent owners coalesce one conflicted-master reset")
+    func concurrentOwnersCoalesceConflictReset() async throws {
+        let runner = BlockingControlMasterResetRunner()
+        let broker = NativeSSHConnectionBroker(
+            sharingOptions: sharingOptions,
+            clock: RecordingImmediateClock(),
+            jitterMilliseconds: { 200 },
+            cleanupLauncher: { _ in },
+            conflictedMasterResetRunner: runner
+        )
+        let firstLease = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            destination: "first-alias",
+            sshOptions: resolvedOwnedSSHOptions
+        ))
+        let secondLease = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            destination: "second-alias",
+            sshOptions: resolvedOwnedSSHOptions
+        ))
+
+        let firstReset = Task { @MainActor in
+            await broker.resetConflictedControlMaster(for: firstLease)
+        }
+        var starts = runner.starts.makeAsyncIterator()
+        _ = try #require(await starts.next())
+
+        let secondReset = Task { @MainActor in
+            await broker.resetConflictedControlMaster(for: secondLease)
+        }
+        await Task.yield()
+        #expect(runner.requests.count == 1)
+
+        runner.finish()
+        #expect(await firstReset.value == .reset)
+        #expect(await secondReset.value == .reset)
+        #expect(runner.requests.count == 1)
+        let request = try #require(runner.requests.first)
+        #expect(request.executable == "/bin/zsh")
+        #expect(request.arguments.contains("-O"))
+        #expect(request.arguments.contains("exit"))
+        #expect(request.arguments.contains(resolvedOwnedSSHOptions[2]))
     }
 
     @Test("Cleanup reuses the shared path without negotiating a replacement master")

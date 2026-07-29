@@ -89,10 +89,10 @@ public struct SSHConnectionSharingOptions: Sendable {
                 }
             }
         }
-        let controlMaster = resolver.optionValue(named: "ControlMaster", in: merged)
+        let controlMaster = firstOptionValue(named: "ControlMaster", in: merged)
         let controlMasterDisabled = isDisabled(controlMaster)
         if !controlMasterDisabled,
-           let controlPath = resolver.optionValue(named: "ControlPath", in: merged),
+           let controlPath = firstOptionValue(named: "ControlPath", in: merged),
            isLegacyRelayScopedControlPath(controlPath) {
             merged = merged.map { option in
                 guard resolver.optionKey(option) == "controlpath" else { return option }
@@ -158,11 +158,10 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// - Parameter options: OpenSSH `-o` values to inspect.
     /// - Returns: The cmux-owned path, or `nil` for user-managed paths.
     public func cmuxOwnedControlPath(in options: [String]) -> String? {
-        let resolver = SSHAgentSocketResolver()
-        guard !isDisabled(resolver.optionValue(named: "ControlMaster", in: options)) else {
+        guard !isDisabled(firstOptionValue(named: "ControlMaster", in: options)) else {
             return nil
         }
-        guard let rawPath = resolver.optionValue(named: "ControlPath", in: options) else {
+        guard let rawPath = firstOptionValue(named: "ControlPath", in: options) else {
             return nil
         }
         let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -293,7 +292,31 @@ public struct SSHConnectionSharingOptions: Sendable {
         guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
             return false
         }
-        return ["no", "false", "off"].contains(value)
+        return ["no", "false", "off", "0"].contains(value)
+    }
+
+    /// OpenSSH keeps the first value obtained for command-line configuration
+    /// options. Ownership decisions must inspect the same value that `ssh`
+    /// will use, especially when callers supplied a duplicate option.
+    private func firstOptionValue(named key: String, in options: [String]) -> String? {
+        let loweredKey = key.lowercased()
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let parts = trimmed.split(
+                maxSplits: 1,
+                omittingEmptySubsequences: true,
+                whereSeparator: { $0 == "=" || $0.isWhitespace }
+            )
+            guard parts.count == 2, parts[0].lowercased() == loweredKey else {
+                continue
+            }
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                return value
+            }
+        }
+        return nil
     }
 
     private func shellQuote(_ value: String) -> String {

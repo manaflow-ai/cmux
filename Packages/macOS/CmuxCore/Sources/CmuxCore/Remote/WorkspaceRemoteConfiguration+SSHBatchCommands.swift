@@ -68,6 +68,13 @@ extension WorkspaceRemoteConfiguration {
         forwardSpec: String,
         effectiveSSHOptions: [String]
     ) -> [String]? {
+        if let controlMaster = Self.firstSSHOptionValue(
+            named: "ControlMaster",
+            in: effectiveSSHOptions
+        )?.lowercased(),
+           ["no", "false", "off", "0"].contains(controlMaster) {
+            return nil
+        }
         guard let controlPath = Self.firstSSHOptionValue(
             named: "ControlPath",
             in: effectiveSSHOptions

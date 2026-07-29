@@ -1,11 +1,6 @@
 internal import CmuxFoundation
 internal import Foundation
 
-private enum ConflictedControlMasterExitOutcome: Sendable {
-    case exited
-    case ignored(String)
-}
-
 extension RemoteSessionCoordinator {
     /// Exits a cmux-owned ControlPersist master only after OpenSSH proves that
     /// the configured relay port is already bound.
@@ -28,18 +23,6 @@ extension RemoteSessionCoordinator {
         guard reverseRelayStartupPhase.canAttemptRecovery else {
             return false
         }
-        let effectiveSSHOptions = reverseRelayControlMasterSSHOptions
-        guard SSHConnectionSharingOptions().cmuxOwnedControlPath(
-            in: effectiveSSHOptions
-        ) != nil else {
-            debugLog(
-                "remote.relay.conflictedMaster.exitSkipped " +
-                "reason=control-path-not-owned relayPort=\(relayPort) " +
-                debugConfigSummary()
-            )
-            return false
-        }
-
         guard reverseRelayControlMasterForwardSpec == nil else {
             debugLog(
                 "remote.relay.conflictedMaster.exitSkipped " +
@@ -49,31 +32,14 @@ extension RemoteSessionCoordinator {
             return false
         }
 
-        let arguments = RemoteControlMasterCleanup()
-            .cleanupArguments(
-                configuration: configuration,
-                sshOptionsOverride: effectiveSSHOptions
-            )
-        let request = RemoteProcessRequest(
-            executable: "/usr/bin/ssh",
-            arguments: arguments,
-            environment: configuration.sshProcessEnvironment,
-            timeout: 4
-        )
         let token = UUID()
-        let cancellation = RemoteProcessCancellationOperation()
-        let processRunner = self.processRunner
+        let configuration = self.configuration
+        let connectionBroker = self.connectionBroker
 
         let task = Task { [weak self] in
-            let outcome = await withTaskCancellationHandler {
-                await Self.runConflictedControlMasterExit(
-                    request: request,
-                    processRunner: processRunner,
-                    cancellation: cancellation
-                )
-            } onCancel: {
-                cancellation.cancel()
-            }
+            let outcome = await connectionBroker.resetConflictedControlMaster(
+                for: configuration
+            )
             guard !Task.isCancelled else { return }
             self?.queue.async { [weak self] in
                 self?.finishConflictedControlMasterExitLocked(
@@ -86,8 +52,7 @@ extension RemoteSessionCoordinator {
         }
         reverseRelayStartupPhase = .exitingConflictedControlMaster(
             token: token,
-            task: task,
-            cancellation: cancellation
+            task: task
         )
         debugLog(
             "remote.relay.conflictedMaster.exitBegin " +
@@ -96,40 +61,11 @@ extension RemoteSessionCoordinator {
         return true
     }
 
-    /// Runs blocking `ssh -O exit` without occupying the coordinator queue or
-    /// Swift's cooperative executor.
-    private static func runConflictedControlMasterExit(
-        request: RemoteProcessRequest,
-        processRunner: any RemoteSessionProcessRunning,
-        cancellation: RemoteProcessCancellationOperation
-    ) async -> ConflictedControlMasterExitOutcome {
-        await withCheckedContinuation { continuation in
-            // The process runner is intentionally blocking. Keep that legacy
-            // boundary on a utility thread while the owning Task suspends.
-            DispatchQueue.global(qos: .utility).async {
-                let outcome: ConflictedControlMasterExitOutcome
-                do {
-                    let result = try processRunner.run(request, operation: cancellation)
-                    if result.status == 0 {
-                        outcome = .exited
-                    } else {
-                        let detail = bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                            ?? "ssh exited \(result.status)"
-                        outcome = .ignored(detail)
-                    }
-                } catch {
-                    outcome = .ignored(error.localizedDescription)
-                }
-                continuation.resume(returning: outcome)
-            }
-        }
-    }
-
     /// Re-enters queue confinement and retries only after `ssh -O exit`
     /// completes and this recovery phase still owns the token.
     private func finishConflictedControlMasterExitLocked(
         token: UUID,
-        outcome: ConflictedControlMasterExitOutcome,
+        outcome: NativeSSHControlMasterResetOutcome,
         remotePath: String,
         relayPort: Int
     ) {
@@ -137,7 +73,7 @@ extension RemoteSessionCoordinator {
         reverseRelayStartupPhase = .recoveryAttempted
 
         switch outcome {
-        case .exited:
+        case .reset:
             debugLog(
                 "remote.relay.conflictedMaster.exited " +
                 "relayPort=\(relayPort) \(debugConfigSummary())"
@@ -166,13 +102,11 @@ extension RemoteSessionCoordinator {
     func cancelReverseRelayStartupLocked() {
         guard case .exitingConflictedControlMaster(
             _,
-            let task,
-            let cancellation
+            let task
         ) = reverseRelayStartupPhase else {
             return
         }
         reverseRelayStartupPhase = .recoveryAttempted
         task.cancel()
-        cancellation.cancel()
     }
 }

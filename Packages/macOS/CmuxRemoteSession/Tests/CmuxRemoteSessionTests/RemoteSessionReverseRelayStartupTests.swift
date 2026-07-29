@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import CmuxCore
 import CmuxRemoteDaemon
+import CmuxFoundation
 @testable import CmuxRemoteSession
 @testable import CmuxRemoteWorkspace
 
@@ -37,7 +38,7 @@ struct RemoteSessionReverseRelayStartupTests {
                 stderr: "Control socket connect: No such file or directory"
             )
         }
-        let fixture = try Self.makeCoordinator(host: host, runner: runner)
+        let fixture = try await Self.makeCoordinator(host: host, runner: runner)
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
 
@@ -68,7 +69,7 @@ struct RemoteSessionReverseRelayStartupTests {
         ))
 
         let request = runner.requests.first
-        #expect(request?.executable == "/usr/bin/ssh")
+        #expect(request?.executable == "/bin/zsh")
         #expect(request?.arguments.contains("-O") == true)
         #expect(request?.arguments.contains("exit") == true)
         #expect(request?.arguments.contains("-R") == false)
@@ -98,7 +99,7 @@ struct RemoteSessionReverseRelayStartupTests {
         let launcher = RecordingReverseRelayLauncher()
         let clock = ManualBrokerClock()
         let relayPort = 64_046
-        let fixture = try Self.makeCoordinator(
+        let fixture = try await Self.makeCoordinator(
             runner: runner,
             reverseRelayLauncher: launcher,
             relayPort: relayPort,
@@ -128,10 +129,10 @@ struct RemoteSessionReverseRelayStartupTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
-    @Test("Stop cancels conflicted-master exit without waiting on its timeout")
-    func stopCancelsConflictedMasterExit() async throws {
+    @Test("Stop detaches from a broker-owned reset without waiting")
+    func stopDetachesFromConflictedMasterReset() async throws {
         let runner = BlockingConflictedMasterExitRunner()
-        let fixture = try Self.makeCoordinator(runner: runner)
+        let fixture = try await Self.makeCoordinator(runner: runner)
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
 
@@ -148,16 +149,16 @@ struct RemoteSessionReverseRelayStartupTests {
 
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
 
-        var cancelled = runner.cancelled.makeAsyncIterator()
-        #expect(await cancelled.next() != nil)
         let startupCleared = coordinator.queue.sync {
             !coordinator.reverseRelayStartupPhase.isRecovering &&
                 coordinator.reverseRelayStartupPhase.allowsRelayLaunch &&
                 coordinator.reverseRelayProcess == nil
         }
         #expect(startupCleared)
+        runner.finish()
     }
 
+    @MainActor
     static func makeCoordinator(
         host: any RemoteSessionHosting = NoopRemoteSessionHost(),
         runner: any RemoteSessionProcessRunning,
@@ -175,7 +176,7 @@ struct RemoteSessionReverseRelayStartupTests {
             at: scratchDirectory,
             withIntermediateDirectories: true
         )
-        let configuration = WorkspaceRemoteConfiguration(
+        let rawConfiguration = WorkspaceRemoteConfiguration(
             destination: "user@example.test",
             port: nil,
             identityFile: nil,
@@ -185,15 +186,24 @@ struct RemoteSessionReverseRelayStartupTests {
             relayID: "relay-startup-cancellation",
             relayToken: String(repeating: "a", count: 64),
             localSocketPath: scratchDirectory.appendingPathComponent("relay.sock").path,
+            ownerWorkspaceID: UUID(),
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: false,
             persistentDaemonSlot: nil
         )
+        let connectionBroker = NativeSSHConnectionBroker(
+            sharingOptions: SSHConnectionSharingOptions(),
+            clock: RecordingImmediateClock(),
+            jitterMilliseconds: { 200 },
+            cleanupLauncher: { _ in },
+            conflictedMasterResetRunner: runner
+        )
+        let configuration = connectionBroker.retainWorkspace(rawConfiguration)
         let coordinator = RemoteSessionCoordinator(
             host: host,
             configuration: configuration,
             proxyBroker: SSHOverrideUnusedRemoteProxyBroker(),
-            connectionBroker: NativeSSHConnectionBroker(),
+            connectionBroker: connectionBroker,
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: scratchDirectory
             ),
@@ -292,15 +302,12 @@ private final class BlockingConflictedMasterExitRunner:
     @unchecked Sendable
 {
     let started: AsyncStream<Void>
-    let cancelled: AsyncStream<Void>
 
     private let startedContinuation: AsyncStream<Void>.Continuation
-    private let cancelledContinuation: AsyncStream<Void>.Continuation
     private let release = DispatchSemaphore(value: 0)
 
     init() {
         (started, startedContinuation) = AsyncStream<Void>.makeStream()
-        (cancelled, cancelledContinuation) = AsyncStream<Void>.makeStream()
     }
 
     func run(
@@ -311,27 +318,17 @@ private final class BlockingConflictedMasterExitRunner:
               request.arguments.contains("exit") else {
             return RemoteCommandResult(status: 0, stdout: "", stderr: "")
         }
-        guard let operation else {
-            throw BlockingConflictedMasterExitError.missingCancellationOperation
-        }
-
-        try operation.throwIfCancelled()
-        operation.installCancellationHandler { [cancelledContinuation, release] in
-            cancelledContinuation.yield()
-            release.signal()
-        }
-        defer { operation.clearCancellationHandler() }
         startedContinuation.yield()
         release.wait()
-        throw operation.cancellationError
+        return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+    }
+
+    func finish() {
+        release.signal()
     }
 }
 
-private enum BlockingConflictedMasterExitError: Error {
-    case missingCancellationOperation
-}
-
-private final class ReverseRelayRecoveryHost: RemoteSessionHosting, @unchecked Sendable {
+final class ReverseRelayRecoveryHost: RemoteSessionHosting, @unchecked Sendable {
     let daemonStatuses: AsyncStream<WorkspaceRemoteDaemonStatus>
     private let daemonStatusContinuation: AsyncStream<WorkspaceRemoteDaemonStatus>.Continuation
 
