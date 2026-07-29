@@ -58,7 +58,7 @@ extension CMUXCLI {
         }
         arguments.append(options.destination)
         return CLIProcessRunner.runProcess(
-            executablePath: options.sshExecutablePath,
+            executablePath: "/usr/bin/ssh",
             arguments: arguments,
             timeout: timeout
         )

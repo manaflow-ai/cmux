@@ -5,7 +5,6 @@ extension CMUXCLI {
     struct SSHCommandOptions {
         let destination: String
         let displayDestination: String
-        var sshExecutablePath: String
         let port: Int?
         let identityFile: String?
         let workspaceName: String?
@@ -29,7 +28,6 @@ extension CMUXCLI {
         init(
             destination: String,
             displayDestination: String? = nil,
-            sshExecutablePath: String = "/usr/bin/ssh",
             port: Int?,
             identityFile: String?,
             workspaceName: String?,
@@ -50,7 +48,6 @@ extension CMUXCLI {
         ) {
             self.destination = destination
             self.displayDestination = displayDestination ?? destination
-            self.sshExecutablePath = sshExecutablePath
             self.port = port
             self.identityFile = identityFile
             self.workspaceName = workspaceName

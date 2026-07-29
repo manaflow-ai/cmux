@@ -172,6 +172,7 @@ struct SSHRemoteCommandChainingTests {
             let startupCommand = try #require(restored.terminalStartupCommand)
 
             #expect(restored.sshOptions == testCase.options)
+            #expect(startupCommand.hasPrefix("/usr/bin/ssh "), "\(startupCommand)")
             if let expectedCommandFragment = testCase.expectedCommandFragment {
                 #expect(startupCommand.contains(expectedCommandFragment), "\(startupCommand)")
             } else {

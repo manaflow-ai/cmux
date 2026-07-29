@@ -316,7 +316,7 @@ extension SessionRemoteWorkspaceSnapshot {
         port normalizedPort: Int?,
         sshOptions reconnectSSHOptions: [String]? = nil
     ) -> [String] {
-        var arguments = ["ssh"]
+        var arguments = ["/usr/bin/ssh"]
         if let normalizedPort {
             arguments += ["-p", String(normalizedPort)]
         }

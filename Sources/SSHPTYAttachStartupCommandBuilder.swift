@@ -125,7 +125,7 @@ enum SSHPTYAttachStartupCommandBuilder {
 
     private static func sshForegroundAuthCommand(_ auth: ForegroundAuth) -> String {
         let sharingOptions = SSHConnectionSharingOptions()
-        var arguments = ["ssh"]
+        var arguments = ["/usr/bin/ssh"]
         let options = SSHAgentSocketResolver().removingOptions(
             named: "RemoteCommand",
             from: sharingOptions.mergingDefaults(into: auth.sshOptions)

@@ -9178,10 +9178,6 @@ struct CMUXCLI {
         vmIDForSplitAttach: String? = nil
     ) throws {
         var sshOptions = inputSSHOptions
-        sshOptions.sshExecutablePath = resolveExecutableInSearchPath(
-            "ssh",
-            searchPath: ProcessInfo.processInfo.environment["PATH"]
-        ) ?? "/usr/bin/ssh"
         let sharingOptions = SSHConnectionSharingOptions()
         let usesImplicitManagedInteractiveShell =
             !sshOptions.skipDaemonBootstrap &&
@@ -10249,7 +10245,7 @@ struct CMUXCLI {
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
         )
-        var parts: [String] = [options.sshExecutablePath]
+        var parts: [String] = ["/usr/bin/ssh"]
         if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
             parts += ["-o", "ConnectTimeout=6"]
         }

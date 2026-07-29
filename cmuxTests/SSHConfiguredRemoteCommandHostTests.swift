@@ -75,14 +75,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         var captureEnvironment = ProcessInfo.processInfo.environment
         captureEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        captureEnvironment["PATH"] = "\(harness.binDirectory.path):\(captureEnvironment["PATH"] ?? "/usr/bin:/bin")"
-        captureEnvironment["CMUX_FAKE_SSH_EVENTS"] = harness.eventsFile.path
         captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let captureResult = runProcess(
             executablePath: cliPath,
-            arguments: ["ssh", "--no-focus", "cmux-remotecommand-host"],
+            arguments: [
+                "ssh",
+                "--no-focus",
+                "--ssh-option", "RemoteCommand=sudo su -",
+                "--ssh-option", "RequestTTY=yes",
+                "cmux-remotecommand-host",
+            ],
             environment: captureEnvironment,
             timeout: 20
         )
@@ -95,6 +99,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             requests.first { $0["method"] as? String == "workspace.create" }?["params"] as? [String: Any]
         )
         let startupCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let configureParams = try XCTUnwrap(
+            requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"] as? [String: Any]
+        )
+        XCTAssertEqual(configureParams["configured_remote_command"] as? String, "sudo su -")
+        let executableStartupCommand = try harness.startupCommandUsingFakeSSH(startupCommand)
+
         // Phase 2: the attach leg of the startup script connects back for the
         // remote PTY bridge once foreground auth has succeeded.
         let bridge = try bindLoopbackTCP()
@@ -147,7 +157,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let startupResult = runProcess(
             executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
+            arguments: ["-c", executableStartupCommand],
             environment: harness.startupEnvironment(
                 socketPath: socketPath,
                 workspaceID: workspaceID,
@@ -167,10 +177,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         let events = harness.recordedSSHEvents()
-        XCTAssertTrue(
-            events.contains("invocation kind=config override=absent"),
-            "The PATH-selected SSH executable must resolve configuration and run the startup hops; events: \(events)"
-        )
         XCTAssertTrue(
             events.contains("invocation kind=command override=none"),
             "The foreground auth hop must pass -o RemoteCommand=none so a host-configured RemoteCommand cannot conflict with its command-line command; events: \(events)"
@@ -234,8 +240,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         var captureEnvironment = ProcessInfo.processInfo.environment
         captureEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        captureEnvironment["PATH"] = "\(harness.binDirectory.path):\(captureEnvironment["PATH"] ?? "/usr/bin:/bin")"
-        captureEnvironment["CMUX_FAKE_SSH_EVENTS"] = harness.eventsFile.path
         captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
@@ -273,10 +277,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             for fallback restores: \(forwardedOptions)
             """
         )
+        let executableStartupCommand = try harness.startupCommandUsingFakeSSH(startupCommand)
 
         let startupResult = runProcess(
             executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
+            arguments: ["-c", executableStartupCommand],
             environment: harness.startupEnvironment(
                 socketPath: socketPath,
                 workspaceID: workspaceID,
@@ -297,10 +302,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(startupResult.status, 0, startupResult.stderr)
 
         let events = harness.recordedSSHEvents()
-        XCTAssertTrue(
-            events.contains("invocation kind=config override=custom"),
-            "The PATH-selected SSH executable must resolve configuration and run the startup hops; events: \(events)"
-        )
         XCTAssertTrue(
             events.contains("invocation kind=command override=none"),
             "The bootstrap installer hop must pass -o RemoteCommand=none; events: \(events)"
@@ -342,6 +343,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             command.contains("-o RemoteCommand=none -T cmux-remotecommand-host true"),
             "Restore foreground auth must override a host-configured RemoteCommand before running its command-line `true`; command: \(command)"
         )
+        XCTAssertTrue(
+            command.contains("/usr/bin/ssh -o"),
+            "Restore foreground auth must use the same system OpenSSH executable as config resolution; command: \(command)"
+        )
         XCTAssertFalse(
             command.contains("RemoteCommand=printf caller-command"),
             """
@@ -369,9 +374,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             surfaceID: String
         ) -> [String: String] {
             var environment = ProcessInfo.processInfo.environment
-            // Deliberately remove the fake SSH directory after configuration
-            // resolution. The generated startup command must retain the same
-            // absolute executable instead of resolving bare `ssh` again.
             environment["PATH"] = "/usr/bin:/bin"
             environment["CMUX_BUNDLED_CLI_PATH"] = binDirectory.appendingPathComponent("cmux").path
             environment["CMUX_SOCKET_PATH"] = socketPath
@@ -386,6 +388,70 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return environment
         }
 
+        func startupCommandUsingFakeSSH(_ startupCommand: String) throws -> String {
+            let systemSSHPath = "/usr/bin/ssh"
+            let fakeSSHPath = binDirectory.appendingPathComponent("ssh").path
+            let trimmedCommand = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            let commandURL = URL(fileURLWithPath: trimmedCommand)
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            var isDirectory: ObjCBool = false
+
+            if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
+               !isDirectory.boolValue {
+                let contents = try String(contentsOf: commandURL, encoding: .utf8)
+                guard contents.contains(systemSSHPath) else {
+                    throw NSError(
+                        domain: "SSHConfiguredRemoteCommandHostTests",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Generated startup script did not pin \(systemSSHPath)"]
+                    )
+                }
+                let rewrittenURL = root.appendingPathComponent("startup-with-fake-ssh.sh")
+                try contents
+                    .replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+                    .write(to: rewrittenURL, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o700],
+                    ofItemAtPath: rewrittenURL.path
+                )
+                return rewrittenURL.path
+            }
+
+            guard startupCommand.contains(systemSSHPath) else {
+                let encodedPrefix = "(printf %s "
+                let encodedSuffix = " | base64"
+                if let prefixRange = startupCommand.range(of: encodedPrefix),
+                   let suffixRange = startupCommand.range(
+                       of: encodedSuffix,
+                       range: prefixRange.upperBound..<startupCommand.endIndex
+                   ) {
+                    let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
+                    let encodedScript = String(startupCommand[encodedRange])
+                    if let scriptData = Data(base64Encoded: encodedScript),
+                       let script = String(data: scriptData, encoding: .utf8),
+                       script.contains(systemSSHPath) {
+                        let rewrittenScript = script.replacingOccurrences(
+                            of: systemSSHPath,
+                            with: fakeSSHPath
+                        )
+                        var rewrittenCommand = startupCommand
+                        rewrittenCommand.replaceSubrange(
+                            encodedRange,
+                            with: Data(rewrittenScript.utf8).base64EncodedString()
+                        )
+                        return rewrittenCommand
+                    }
+                }
+                throw NSError(
+                    domain: "SSHConfiguredRemoteCommandHostTests",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Generated startup command did not pin \(systemSSHPath)"]
+                )
+            }
+            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+        }
+
         func recordedSSHEvents() -> [String] {
             ((try? String(contentsOf: eventsFile, encoding: .utf8)) ?? "")
                 .split(separator: "\n")
@@ -397,9 +463,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
-    /// Installs a fake `ssh` simulating a host whose ssh_config sets
-    /// `RequestTTY yes` + `RemoteCommand sudo su -`, and a fake `cmux` for the
-    /// startup script's session-end reporting.
+    /// Installs a fake `ssh` that enforces OpenSSH's configured-command
+    /// conflict semantics, and a fake `cmux` for the startup script's
+    /// session-end reporting. Tests first assert that the production artifact
+    /// pins `/usr/bin/ssh`, then substitute this executable in that artifact.
     func makeRemoteCommandHostHarness(prefix: String) throws -> RemoteCommandHostHarness {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
