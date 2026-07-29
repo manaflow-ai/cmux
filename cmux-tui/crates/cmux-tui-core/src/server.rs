@@ -51,14 +51,18 @@ use crate::surface::{
 };
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
-    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
-    Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind,
-    SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId,
-    WorkspaceMutation, ZoomMode, assign_short_ids,
+    LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel,
+    PairingDecision, PaneId, RenderAttachFrame, Rgb, ScreenId, SidebarPluginStatus, SplitDir,
+    SplitId, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors,
+    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
+    assign_short_ids,
 };
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
+pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
@@ -75,6 +79,9 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
+        VIEWPORT_SPLITS_CAPABILITY,
+        VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+        LAYOUT_UNDO_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
@@ -784,6 +791,15 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
+    NewPaneRight {
+        pane: PaneId,
+        #[serde(default)]
+        width: Option<f32>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
     Split {
         pane: PaneId,
         /// "right" or "down"
@@ -802,6 +818,21 @@ enum Command {
     SetSplitRatio {
         split: SplitId,
         ratio: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
+    },
+    SetViewportPaneWidth {
+        pane: PaneId,
+        width: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
+    },
+    UndoLayout {
+        pane: PaneId,
+        #[serde(default)]
+        revision: Option<u64>,
+        #[serde(default)]
+        confirm_close: bool,
     },
     PaneNeighbor {
         pane: PaneId,
@@ -1097,6 +1128,8 @@ struct Response {
     data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_delivery: Option<ResponseErrorDelivery>,
 }
@@ -2950,11 +2983,26 @@ fn handle_request_with_cancellation(
     let detach_self = matches!(&cmd, Command::DetachClient { client: target } if *target == client);
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
-        Ok(data) => Response { id, ok: true, data: Some(data), error: None, error_delivery: None },
+        Ok(data) => Response {
+            id,
+            ok: true,
+            data: Some(data),
+            error: None,
+            error_code: None,
+            error_delivery: None,
+        },
         Err(error) => {
+            let error_code = response_error_code(&error);
             let error_delivery =
                 error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);
-            Response { id, ok: false, data: None, error: Some(error.to_string()), error_delivery }
+            Response {
+                id,
+                ok: false,
+                data: None,
+                error: Some(error.to_string()),
+                error_code,
+                error_delivery,
+            }
         }
     };
     let response_ok = response.ok;
@@ -2976,6 +3024,16 @@ fn handle_request_with_cancellation(
     sent
 }
 
+fn response_error_code(error: &anyhow::Error) -> Option<String> {
+    error
+        .downcast_ref::<crate::LayoutUndoError>()
+        .map(|error| error.code().to_string())
+        .or_else(|| error.downcast_ref::<LayoutRatioError>().map(|error| error.code().to_string()))
+        .or_else(|| {
+            error.downcast_ref::<ViewportWidthError>().map(|error| error.code().to_string())
+        })
+}
+
 fn send_request_error(writer: &MessageWriter, id: Option<Value>, error: &str) -> bool {
     send_request_error_with_delivery(writer, id, error, None)
 }
@@ -2988,7 +3046,14 @@ fn send_request_error_with_delivery(
 ) -> bool {
     send_response(
         writer,
-        Response { id, ok: false, data: None, error: Some(error.to_string()), error_delivery },
+        Response {
+            id,
+            ok: false,
+            data: None,
+            error: Some(error.to_string()),
+            error_code: None,
+            error_delivery,
+        },
     )
 }
 
@@ -3167,7 +3232,7 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
     };
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
-    Ok(json!({
+    let mut value = json!({
         "layout": node_json(&screen.root, screen.active_pane),
         "panes": pane_ids.iter().map(|pane_id| {
             let surfaces = state
@@ -3177,7 +3242,20 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
                 .unwrap_or_default();
             json!({ "pane": pane_id, "surfaces": surfaces })
         }).collect::<Vec<_>>(),
-    }))
+    });
+    if !screen.viewport_splits.is_empty() {
+        value["viewport_splits"] = json!(
+            screen
+                .viewport_splits
+                .iter()
+                .map(|(split, width)| json!({"split": split, "width": width}))
+                .collect::<Vec<_>>()
+        );
+        if let Some(width) = screen.viewport_base_width {
+            value["viewport_base_width"] = json!(width);
+        }
+    }
+    Ok(value)
 }
 
 fn pane_json(
@@ -3240,7 +3318,7 @@ fn screen_json(
 ) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
-    json!({
+    let mut value = json!({
         "id": screen.id,
         "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
         "name": screen.name,
@@ -3249,7 +3327,20 @@ fn screen_json(
         "zoomed_pane": screen.zoomed_pane,
         "layout": node_json(&screen.root, screen.active_pane),
         "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
-    })
+    });
+    if !screen.viewport_splits.is_empty() {
+        value["viewport_splits"] = json!(
+            screen
+                .viewport_splits
+                .iter()
+                .map(|(split, width)| json!({"split": split, "width": width}))
+                .collect::<Vec<_>>()
+        );
+        if let Some(width) = screen.viewport_base_width {
+            value["viewport_base_width"] = json!(width);
+        }
+    }
+    value
 }
 
 fn workspaces_json(
@@ -3716,16 +3807,22 @@ fn browser_state_json(
     });
     if include_frame {
         value["frame"] = match state.frame.as_ref() {
-            Some(frame) => json!({
-                "seq": frame.seq,
-                "width": frame.css_width,
-                "height": frame.css_height,
-                "data": frame.data_b64,
-            }),
+            Some(frame) => browser_frame_json(frame),
             None => Value::Null,
         };
     }
     value
+}
+
+fn browser_frame_json(frame: &crate::BrowserFrame) -> Value {
+    json!({
+        "seq": frame.seq,
+        "width": frame.css_width,
+        "height": frame.css_height,
+        "image_width": frame.image_width,
+        "image_height": frame.image_height,
+        "data": frame.data_b64,
+    })
 }
 
 fn spawn_attach_notification_stream(
@@ -4754,6 +4851,14 @@ fn handle_command_with_cancellation(
             let surface = mux.new_pane(pane, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
+        Command::NewPaneRight { pane, width, cols, rows } => {
+            let surface = mux.new_pane_right(
+                pane,
+                width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
+                optional_surface_size(cols, rows),
+            )?;
+            Ok(json!({ "surface": surface.id }))
+        }
         Command::Split { pane, dir, cols, rows } => {
             let dir = parse_split_dir(&dir)?;
             let surface = mux.split(pane, dir, optional_surface_size(cols, rows))?;
@@ -4761,16 +4866,49 @@ fn handle_command_with_cancellation(
         }
         Command::SetRatio { pane, dir, ratio } => {
             let dir = parse_split_dir(&dir)?;
-            if !mux.set_ratio(pane, dir, ratio) {
-                anyhow::bail!("unknown pane/split {pane}");
-            }
+            mux.set_ratio_checked(pane, dir, ratio)?;
             Ok(json!({}))
         }
-        Command::SetSplitRatio { split, ratio } => {
-            if !mux.set_split_ratio(split, ratio) {
-                anyhow::bail!("unknown split {split}");
-            }
+        Command::SetSplitRatio { split, ratio, transaction } => {
+            transaction.map_or_else(
+                || mux.set_split_ratio_checked(split, ratio),
+                |transaction| {
+                    mux.set_split_ratio_in_transaction_checked(split, ratio, client, transaction)
+                },
+            )?;
             Ok(json!({}))
+        }
+        Command::SetViewportPaneWidth { pane, width, transaction } => {
+            transaction.map_or_else(
+                || mux.set_viewport_pane_width_checked(pane, width),
+                |transaction| {
+                    mux.set_viewport_pane_width_in_transaction_checked(
+                        pane,
+                        width,
+                        client,
+                        transaction,
+                    )
+                },
+            )?;
+            Ok(json!({}))
+        }
+        Command::UndoLayout { pane, revision, confirm_close } => {
+            match mux.undo_layout(pane, revision, confirm_close)? {
+                LayoutUndoResult::Undone { screen, revision } => Ok(json!({
+                    "undone": true,
+                    "screen": screen,
+                    "revision": revision,
+                })),
+                LayoutUndoResult::ConfirmationRequired { screen, revision, closes_panes } => {
+                    Ok(json!({
+                        "undone": false,
+                        "confirmation_required": true,
+                        "screen": screen,
+                        "revision": revision,
+                        "closes_panes": closes_panes,
+                    }))
+                }
+            }
         }
         Command::PaneNeighbor { pane, dir } => {
             let dir = parse_direction(&dir)?;
@@ -5413,14 +5551,9 @@ fn handle_command_with_cancellation(
                                 }
                             }
                             if let Some(frame) = update.frame {
-                                let value = json!({
-                                    "event": "frame",
-                                    "surface": surface_id,
-                                    "seq": frame.seq,
-                                    "width": frame.css_width,
-                                    "height": frame.css_height,
-                                    "data": frame.data_b64,
-                                });
+                                let mut value = browser_frame_json(&frame);
+                                value["event"] = json!("frame");
+                                value["surface"] = json!(surface_id);
                                 if let Err(error) = writer.send_stream(&value, &outbound_stream) {
                                     handle_attach_send_error(&lifecycle, &error);
                                     break;
@@ -5802,6 +5935,33 @@ mod tests {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         })
+    }
+
+    #[test]
+    fn browser_state_serializes_css_and_encoded_image_dimensions() {
+        let state = crate::BrowserAttachState {
+            url: "https://example.com".to_string(),
+            title: "Example".to_string(),
+            cols: 80,
+            rows: 24,
+            status: crate::BrowserStatus::Live,
+            frame: Some(crate::BrowserFrame {
+                session_id: "browser-session".to_string(),
+                data_b64: "frame".to_string(),
+                css_width: 800,
+                css_height: 600,
+                image_width: 400,
+                image_height: 300,
+                seq: 7,
+            }),
+            frames_stalled: false,
+        };
+
+        let value = browser_state_json(3, &state, true);
+        assert_eq!(value["frame"]["width"], 800);
+        assert_eq!(value["frame"]["height"], 600);
+        assert_eq!(value["frame"]["image_width"], 400);
+        assert_eq!(value["frame"]["image_height"], 300);
     }
 
     #[test]
@@ -6717,6 +6877,89 @@ mod tests {
             handle_command(&mux, 0, unknown.cmd, &test_writer()).unwrap_err().to_string(),
             "unknown split 999999"
         );
+    }
+
+    #[test]
+    fn projected_split_ratio_range_failure_is_not_reported_as_unknown() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
+        let split =
+            handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap()["workspaces"]
+                [0]["screens"][0]["layout"]["split"]
+                .as_u64()
+                .expect("viewport projection exposes a stable split");
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+
+        handle_message(
+            &mux,
+            7,
+            &json!({
+                "id": 21,
+                "cmd": "set-split-ratio",
+                "split": split,
+                "ratio": 0.25
+            })
+            .to_string(),
+            &writer,
+        );
+
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 21);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error_code"], LayoutRatioError::OUT_OF_RANGE_CODE);
+        assert!(response["error"].as_str().unwrap().contains("width must be between"));
+        assert!(!response["error"].as_str().unwrap().contains("unknown split"));
+    }
+
+    #[test]
+    fn viewport_width_failures_have_stable_error_codes() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+
+        for (id, width, code) in [
+            (31, 0.5, ViewportWidthError::COLUMN_MISSING_CODE),
+            (32, 1.1, ViewportWidthError::OUT_OF_RANGE_CODE),
+        ] {
+            handle_message(
+                &mux,
+                7,
+                &json!({
+                    "id": id,
+                    "cmd": "set-viewport-pane-width",
+                    "pane": pane,
+                    "width": width
+                })
+                .to_string(),
+                &writer,
+            );
+            let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+            assert_eq!(response["id"], id);
+            assert_eq!(response["ok"], false);
+            assert_eq!(response["error_code"], code);
+        }
+
+        handle_message(
+            &mux,
+            7,
+            &json!({
+                "id": 33,
+                "cmd": "new-pane-right",
+                "pane": pane,
+                "width": 1.1
+            })
+            .to_string(),
+            &writer,
+        );
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 33);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error_code"], ViewportWidthError::OUT_OF_RANGE_CODE);
     }
 
     #[test]
@@ -8418,6 +8661,9 @@ mod tests {
         for expected in [
             "attach-initial-size",
             "workspace-registry-v1",
+            VIEWPORT_SPLITS_CAPABILITY,
+            VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+            LAYOUT_UNDO_CAPABILITY,
             CLEAR_HISTORY_CAPABILITY,
             CLEAR_HISTORY_KEY_CAPABILITY,
             "surface-subscribe-filter",
@@ -8425,6 +8671,69 @@ mod tests {
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
+    }
+
+    #[test]
+    fn layout_undo_protocol_requires_the_preview_revision_before_closing_a_pane() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let writer = test_writer();
+
+        let preview = handle_command(
+            &mux,
+            0,
+            Command::UndoLayout { pane: right_pane, revision: None, confirm_close: false },
+            &writer,
+        )
+        .unwrap();
+        let revision = preview["revision"].as_u64().expect("preview revision");
+        assert_eq!(preview["undone"].as_bool(), Some(false));
+        assert_eq!(preview["confirmation_required"].as_bool(), Some(true));
+        assert_eq!(preview["closes_panes"], json!([right_pane]));
+
+        let error = handle_command(
+            &mux,
+            0,
+            Command::UndoLayout { pane: right_pane, revision: None, confirm_close: true },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("requires the preview revision"));
+        assert!(mux.surface(right.id).is_some());
+
+        let result = handle_command(
+            &mux,
+            0,
+            Command::UndoLayout { pane: right_pane, revision: Some(revision), confirm_close: true },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(result["undone"].as_bool(), Some(true));
+        assert!(mux.surface(right.id).is_none());
+    }
+
+    #[test]
+    fn layout_undo_protocol_serializes_the_machine_readable_error_code() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+
+        handle_message(
+            &mux,
+            7,
+            &json!({"id": 19, "cmd": "undo-layout", "pane": pane}).to_string(),
+            &writer,
+        );
+
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 19);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error_code"], crate::LayoutUndoError::UNAVAILABLE_CODE);
     }
 
     #[test]

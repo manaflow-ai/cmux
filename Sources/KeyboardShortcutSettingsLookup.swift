@@ -8,14 +8,24 @@ extension KeyboardShortcutSettings {
         shortcutLookupObserver?(action)
         #endif
 
-        if let configuredShortcut = explicitlyConfiguredShortcut(for: action) {
-            return configuredShortcut.isUnbound ? nil : configuredShortcut
+        let managedBySettingsFile = settingsFileStore.isManagedByFile(action)
+        let configuredShortcut = explicitlyConfiguredShortcut(for: action)
+        let resolvedShortcut = effectivePersistedShortcut(
+            configuredShortcut,
+            for: action,
+            managedBySettingsFile: managedBySettingsFile
+        )
+
+        if action == .reopenClosedWorkspace,
+           resolvedShortcut == action.defaultShortcut,
+           configuredShortcut != resolvedShortcut {
+            return defaultShortcutResolvingLegacyConflicts(
+                for: action,
+                explicitlyConfiguredShortcut: explicitlyConfiguredShortcut(for:)
+            )
         }
 
-        return defaultShortcutResolvingLegacyConflicts(
-            for: action,
-            explicitlyConfiguredShortcut: explicitlyConfiguredShortcut(for:)
-        )
+        return resolvedShortcut
     }
 
     static func defaultShortcutResolvingLegacyConflicts(
@@ -40,8 +50,8 @@ extension KeyboardShortcutSettings {
     }
 
     private static func explicitlyConfiguredShortcut(for action: Action) -> StoredShortcut? {
-        if let managedShortcut = settingsFileStore.override(for: action) {
-            return managedShortcut
+        if settingsFileStore.isManagedByFile(action) {
+            return settingsFileStore.override(for: action)
         }
         guard let data = UserDefaults.standard.data(forKey: action.defaultsKey) else {
             return nil
@@ -80,6 +90,14 @@ extension KeyboardShortcutSettings {
 
     static func isManagedBySettingsFile(_ action: Action) -> Bool {
         settingsFileStore.isManagedByFile(action)
+    }
+
+    /// Whether the user persisted a binding for `action`, either in cmux.json
+    /// or the legacy UserDefaults store. Used to preserve the precedence of an
+    /// existing binding when a newly introduced default reuses its keystroke.
+    static func hasExplicitShortcutOverride(for action: Action) -> Bool {
+        settingsFileStore.override(for: action) != nil
+            || UserDefaults.standard.object(forKey: action.defaultsKey) != nil
     }
 
     /// The effective focus predicate gating `action`: the `shortcuts.when`

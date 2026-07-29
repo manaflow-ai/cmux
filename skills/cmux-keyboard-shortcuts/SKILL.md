@@ -35,11 +35,15 @@ fi
 
 ## Shortcut model
 
-- Setting path: `shortcuts.bindings.<actionId>`. Single stroke `"cmd+b"`; chord `["ctrl+b","c"]` where the first stroke needs a modifier unless the key is Space and the second stroke can be bare.
-- Unbind with `null`. `""`, `"none"`, `"clear"`, `"unbound"`, and `"disabled"` are accepted aliases.
-- `selectSurfaceByNumber` and `selectWorkspaceByNumber` take a digit 1-9; `cmd+1` means the whole `cmd+1`..`cmd+9` family.
-- `showHideAllWindows` and `globalSearch` are system-wide: no chords, modifiers required, and macOS may reject reserved combinations. `showHideAllWindows` also needs Settings > Global Hotkey > Enable System-Wide Hotkey; the binding validates in `cmux.json` while the feature is off, so warn the user before calling it usable.
-- `unset` deletes a `cmux.json` override; it does not clear shortcut changes saved through the Settings UI/UserDefaults. For true built-in defaults, clear file overrides then use Settings > Keyboard Shortcuts > Reset Default Shortcuts and verify in the app. That reset intentionally skips the global hotkey, so restore `showHideAllWindows` to `ctrl+opt+cmd+.` from Settings > Global Hotkey.
+- Setting path: `shortcuts.bindings.<actionId>`.
+- Single stroke: `"cmd+b"`.
+- Chord: `["ctrl+b","c"]`. The first stroke needs a modifier unless the key is Space. The second stroke can be bare.
+- Unbind: prefer `null` for explicit unbinds. `""`, `"none"`, `"clear"`, `"unbound"`, and `"disabled"` are accepted aliases, but `null` is the clearest JSON value and matches the templates below.
+- `selectSurfaceByNumber` and `selectWorkspaceByNumber` must use a digit from 1 to 9. `cmd+1` means the full `cmd+1` through `cmd+9` family.
+- `showHideAllWindows` is the only system-wide shortcut. It cannot be a chord, requires modifiers, and may be rejected by macOS if reserved.
+- `globalSearch` is application-scoped and only fires while cmux is active.
+- `showHideAllWindows` also requires Settings > Global Hotkey > Enable System-Wide Hotkey. The binding can validate in `cmux.json` while the feature is disabled, so warn the user to enable that setting before reporting the shortcut as usable.
+- `unset` deletes a `cmux.json` override. It does not clear shortcut changes saved through the Settings UI/UserDefaults. If the user asks for true built-in defaults, tell them to use Settings > Keyboard Shortcuts > Reset Default Shortcuts after clearing file-managed overrides, then verify in the app. For `showHideAllWindows`, use Settings > Global Hotkey to restore the shortcut to `ctrl+opt+cmd+.` because Keyboard Shortcuts > Reset Default Shortcuts intentionally skips the global hotkey.
 - Saving `cmux.json` live reloads. Never tell the user to restart cmux.
 
 ## Workflow

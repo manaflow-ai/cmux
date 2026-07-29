@@ -50,6 +50,12 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.prevSurface`
 - `shortcuts.bindings.moveSurfaceLeft`
 - `shortcuts.bindings.moveSurfaceRight`
+- `shortcuts.bindings.moveSurfaceToPreviousPane`
+- `shortcuts.bindings.moveSurfaceToNextPane`
+- `shortcuts.bindings.moveSurfaceToPaneLeft`
+- `shortcuts.bindings.moveSurfaceToPaneRight`
+- `shortcuts.bindings.moveSurfaceToPaneUp`
+- `shortcuts.bindings.moveSurfaceToPaneDown`
 - `shortcuts.bindings.selectSurfaceByNumber`
 - `shortcuts.bindings.newSurface`
 - `shortcuts.bindings.toggleTerminalCopyMode`
@@ -66,6 +72,9 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.splitRight`
 - `shortcuts.bindings.splitDown`
 - `shortcuts.bindings.toggleSplitZoom`
+- `shortcuts.bindings.increaseWorkspaceTerminalFontSize`
+- `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`
+- `shortcuts.bindings.resetWorkspaceTerminalFontSize`
 - `shortcuts.bindings.equalizeSplits`
 
 ## Canvas

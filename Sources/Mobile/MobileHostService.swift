@@ -1848,6 +1848,12 @@ actor MobileHostConnection {
     private var firstFrameTimeoutTask: Task<Void, Never>?
     private var idleTimeoutTask: Task<Void, Never>?
     private var responseTasks: [UUID: ResponseTask] = [:]
+    /// PTY-writing requests are ordered PER SURFACE: ordering is only a
+    /// property of one terminal, and a connection-wide FIFO would let one
+    /// surface's slow request (a large paste_image) block typing on another.
+    private var orderedRequestQueuesBySurfaceKey: [String: MobileHostOrderedRequestQueue] = [:]
+    private var orderedRequestWorkerTasksBySurfaceKey: [String: Task<Void, Never>] = [:]
+    private var orderedRequestRunningFrameByteCountsBySurfaceKey: [String: Int] = [:]
     private var receiveTask: Task<Void, Never>?
     private var independentEventRevision: UInt64 = 0
     private var independentEventNegotiationInProgress = false
@@ -1991,6 +1997,12 @@ actor MobileHostConnection {
         for task in tasks {
             task.cancel()
         }
+        for (_, workerTask) in orderedRequestWorkerTasksBySurfaceKey {
+            workerTask.cancel()
+        }
+        orderedRequestWorkerTasksBySurfaceKey.removeAll()
+        orderedRequestQueuesBySurfaceKey.removeAll()
+        orderedRequestRunningFrameByteCountsBySurfaceKey.removeAll()
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
         for subscription in previousSubscriptions where !subscription.topics.isEmpty {
@@ -2082,13 +2094,32 @@ actor MobileHostConnection {
         guard !isClosed else {
             return false
         }
+        let decodedRequest = MobileHostRPCEnvelope.decodeRequest(frame)
+        var activeFrameByteCounts = responseTasks.values.map(\.frameByteCount)
+        for (_, queue) in orderedRequestQueuesBySurfaceKey {
+            activeFrameByteCounts.append(contentsOf: queue.frameByteCounts)
+        }
+        activeFrameByteCounts.append(
+            contentsOf: orderedRequestRunningFrameByteCountsBySurfaceKey.values
+        )
         guard responseWorkQuota.allowsAdmission(
             frameByteCount: frame.count,
-            activeFrameByteCounts: responseTasks.values.lazy.map(\.frameByteCount)
+            activeFrameByteCounts: activeFrameByteCounts
         ) else { return false }
+        if case let .success(request) = decodedRequest,
+           request.isOrderedTerminalInput {
+            let surfaceKey = request.orderedInputSurfaceKey
+            orderedRequestQueuesBySurfaceKey[surfaceKey, default: MobileHostOrderedRequestQueue()]
+                .enqueue(MobileHostOrderedRequest(
+                    frameByteCount: frame.count,
+                    decodedRequest: decodedRequest
+                ))
+            startOrderedRequestWorkerIfNeeded(surfaceKey: surfaceKey)
+            return true
+        }
         let taskID = UUID()
         let task = Task { [weak self] in
-            await self?.respond(to: frame)
+            await self?.respond(to: decodedRequest)
             await self?.finishResponseTask(taskID)
         }
         responseTasks[taskID] = ResponseTask(
@@ -2098,9 +2129,71 @@ actor MobileHostConnection {
         return true
     }
 
+    private func startOrderedRequestWorkerIfNeeded(surfaceKey: String) {
+        guard orderedRequestWorkerTasksBySurfaceKey[surfaceKey] == nil else { return }
+        orderedRequestWorkerTasksBySurfaceKey[surfaceKey] = Task { [weak self] in
+            await self?.drainOrderedRequests(surfaceKey: surfaceKey)
+        }
+    }
+
+    private func drainOrderedRequests(surfaceKey: String) async {
+        while !Task.isCancelled, !isClosed,
+              let request = orderedRequestQueuesBySurfaceKey[surfaceKey]?.dequeue() {
+            orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = request.frameByteCount
+            // Serialize authorization + application only. The response write
+            // goes to a tracked concurrent task: a peer that stops reading
+            // stalls the serialized transport writer (issue #8842), and an
+            // inline await here would freeze every later terminal input behind
+            // that stall. Stalled response tasks stay in `responseTasks`, so
+            // their accumulated bytes eventually fail quota admission and
+            // close the connection instead of pinning it forever.
+            switch request.decodedRequest {
+            case let .success(decoded):
+                if let response = await successResponsePayload(for: decoded) {
+                    startResponseSendTask(response)
+                }
+            case .failure:
+                // Decode failures are never enqueued ordered; keep the
+                // defensive path identical to the concurrent one.
+                await respond(to: request.decodedRequest)
+            }
+            orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = nil
+        }
+        orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = nil
+        orderedRequestWorkerTasksBySurfaceKey[surfaceKey] = nil
+        if orderedRequestQueuesBySurfaceKey[surfaceKey]?.isEmpty == false, !isClosed {
+            startOrderedRequestWorkerIfNeeded(surfaceKey: surfaceKey)
+        } else {
+            orderedRequestQueuesBySurfaceKey[surfaceKey] = nil
+            if !hasActiveResponseWork {
+                startIdleTimeout()
+            }
+        }
+    }
+
+    private func startResponseSendTask(_ response: Data) {
+        guard !isClosed else { return }
+        let taskID = UUID()
+        let task = Task { [weak self] in
+            _ = await self?.sendResponse(response)
+            await self?.finishResponseTask(taskID)
+        }
+        responseTasks[taskID] = ResponseTask(
+            frameByteCount: response.count,
+            task: task
+        )
+    }
+
+    private var hasActiveResponseWork: Bool {
+        !responseTasks.isEmpty
+            || !orderedRequestWorkerTasksBySurfaceKey.isEmpty
+            || !orderedRequestRunningFrameByteCountsBySurfaceKey.isEmpty
+            || orderedRequestQueuesBySurfaceKey.values.contains { !$0.isEmpty }
+    }
+
     private func finishResponseTask(_ taskID: UUID) {
         responseTasks[taskID] = nil
-        if responseTasks.isEmpty {
+        if !hasActiveResponseWork {
             startIdleTimeout()
         }
     }
@@ -2137,7 +2230,7 @@ actor MobileHostConnection {
               didDecodeFirstFrame,
               !isClosed,
               subscriptions.isEmpty,
-              responseTasks.isEmpty else {
+              !hasActiveResponseWork else {
             return
         }
         idleTimeoutTask?.cancel()
@@ -2151,7 +2244,7 @@ actor MobileHostConnection {
     }
 
     private func closeIfIdleAfterFrame() async {
-        guard didDecodeFirstFrame, subscriptions.isEmpty, responseTasks.isEmpty else {
+        guard didDecodeFirstFrame, subscriptions.isEmpty, !hasActiveResponseWork else {
             return
         }
         await close(
@@ -2163,44 +2256,18 @@ actor MobileHostConnection {
         )
     }
 
-    private func respond(to frame: Data) async {
+    private func respond(
+        to decodedRequest: Result<MobileHostRPCRequest, MobileHostRPCError>
+    ) async {
         guard !isClosed, !Task.isCancelled else {
             return
         }
-        switch MobileHostRPCEnvelope.decodeRequest(frame) {
+        switch decodedRequest {
         case let .success(request):
-            let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
-            if tracksInteractiveActivity {
-                MobileHostRequestActivity.beginRequest()
-            }
-            defer {
-                if tracksInteractiveActivity {
-                    MobileHostRequestActivity.endRequest()
-                }
-            }
-            if let error = await authorizeRequest(request) {
-                guard !isClosed, !Task.isCancelled else {
-                    return
-                }
-                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
+            guard let response = await successResponsePayload(for: request) else {
                 return
             }
-            guard !isClosed, !Task.isCancelled else {
-                return
-            }
-            await onAuthorizedRequest(request)
-            guard !isClosed, !Task.isCancelled else {
-                return
-            }
-            if let intercepted = await handleSubscriptionRPC(request) {
-                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
-                return
-            }
-            let result = await handleRequest(request)
-            guard !isClosed, !Task.isCancelled else {
-                return
-            }
-            _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result))
+            _ = await sendResponse(response)
         case let .failure(error):
             guard !isClosed, !Task.isCancelled else {
                 return
@@ -2214,6 +2281,47 @@ actor MobileHostConnection {
                 )
             )
         }
+    }
+
+    /// Authorizes and applies one decoded request, returning its encoded
+    /// response envelope, or `nil` when the connection closed or the task was
+    /// cancelled before a response could be produced.
+    private func successResponsePayload(
+        for request: MobileHostRPCRequest
+    ) async -> Data? {
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
+        if tracksInteractiveActivity {
+            MobileHostRequestActivity.beginRequest()
+        }
+        defer {
+            if tracksInteractiveActivity {
+                MobileHostRequestActivity.endRequest()
+            }
+        }
+        if let error = await authorizeRequest(request) {
+            guard !isClosed, !Task.isCancelled else {
+                return nil
+            }
+            return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error)
+        }
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        await onAuthorizedRequest(request)
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        if let intercepted = await handleSubscriptionRPC(request) {
+            return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted)
+        }
+        let result = await handleRequest(request)
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result)
     }
 
     private func handleSubscriptionRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult? {

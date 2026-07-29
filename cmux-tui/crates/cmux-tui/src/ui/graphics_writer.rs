@@ -1,6 +1,6 @@
 use std::io::Write;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -64,7 +64,7 @@ fn submit_snapshot(
     tx: &SyncSender<()>,
     placements: Vec<GraphicPlacement>,
 ) {
-    *slot.lock().unwrap() = Some(placements);
+    *lock_recover(slot) = Some(placements);
     match tx.try_send(()) {
         Ok(()) | Err(TrySendError::Full(())) => {}
         Err(TrySendError::Disconnected(())) => {}
@@ -81,7 +81,7 @@ fn writer_loop(
     let mut graphics = GraphicsState::default();
     while rx.recv().is_ok() {
         loop {
-            let next = slot.lock().unwrap().take();
+            let next = lock_recover(&slot).take();
             let Some(placements) = next else { break };
             for batch in graphics.frame_batches(&placements) {
                 let _guard = stdout_lock.lock();
@@ -92,6 +92,10 @@ fn writer_loop(
             }
         }
     }
+}
+
+fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 struct DoneOnDrop(SyncSender<()>);
@@ -105,7 +109,19 @@ impl Drop for DoneOnDrop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmux_tui_core::Rect;
+    use cmux_tui_core::{BrowserFrame, Rect};
+
+    fn test_frame(seq: u64, data_b64: &str) -> Arc<BrowserFrame> {
+        Arc::new(BrowserFrame {
+            session_id: "test".to_string(),
+            data_b64: data_b64.to_string(),
+            css_width: 10,
+            css_height: 5,
+            image_width: 10,
+            image_height: 5,
+            seq,
+        })
+    }
 
     #[test]
     fn snapshot_slot_is_latest_wins_and_shutdown_is_clean() {
@@ -117,8 +133,8 @@ mod tests {
             vec![GraphicPlacement {
                 surface: 1,
                 rect: Rect { x: 0, y: 0, width: 10, height: 5 },
-                seq: 1,
-                data_b64: "AAAA".to_string(),
+                source_crop_px: None,
+                frame: test_frame(1, "AAAA"),
             }],
         );
         submit_snapshot(
@@ -127,14 +143,14 @@ mod tests {
             vec![GraphicPlacement {
                 surface: 1,
                 rect: Rect { x: 1, y: 1, width: 11, height: 6 },
-                seq: 2,
-                data_b64: "BBBB".to_string(),
+                source_crop_px: None,
+                frame: test_frame(2, "BBBB"),
             }],
         );
 
         let latest = slot.lock().unwrap().take().expect("latest snapshot");
         assert_eq!(latest.len(), 1);
-        assert_eq!(latest[0].seq, 2);
+        assert_eq!(latest[0].frame.seq, 2);
         assert_eq!(latest[0].rect.x, 1);
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(rx.try_recv().is_err());
