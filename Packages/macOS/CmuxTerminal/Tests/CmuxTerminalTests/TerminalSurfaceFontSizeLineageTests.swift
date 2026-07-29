@@ -921,6 +921,67 @@ private func setFontBindingResult(_ result: Bool)
     }
 
     @Test
+    func configurationReloadPreservesAbsoluteTerminalLocalFontInput() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(13, isExplicitOverride: true)
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        registry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: surface.id
+        )
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        beginFontState(runtimeSurface, 13, true, 26)
+        defer {
+            endFontState()
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        let state =
+            surface.captureFontSizeConfigurationReloadState(
+                magnificationPercent: 100,
+                targetConfiguredRuntimePoints: 26,
+                targetMagnificationPercent: 200
+            )
+        #expect(
+            surface.performExplicitInputBindingAction(
+                "set_font_size:20"
+            )
+        )
+        #expect(
+            surface.reconcileFontSizeAfterConfigurationReload(
+                from: state,
+                configuredRuntimePoints: 26,
+                magnificationPercent: 200
+            ) == .alreadySatisfied
+        )
+
+        #expect(
+            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(
+                runtimeSurface
+            ) == 20
+        )
+        #expect(
+            try #require(
+                surface.fontSizeLineageSnapshot(
+                    magnificationPercent: 200
+                )
+            ) == TerminalFontSizeLineage(
+                basePoints: 10,
+                isExplicitOverride: true
+            )
+        )
+    }
+
+    @Test
     func configurationReloadKeepsClampedIncreaseExplicit() throws {
         try assertConfigurationReloadKeepsClampedInputExplicit(
             startingRuntimePoints:
