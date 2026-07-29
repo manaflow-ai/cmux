@@ -56,23 +56,18 @@ final class DynamicNotchNotificationTrayModel {
         return true
     }
 
-    /// Replaces superseded rows and inserts the new row in one observable
-    /// mutation so the presentation never passes through an empty state.
+    /// Refreshes one notification identity and moves it to the front in one
+    /// observable mutation. Different notification IDs always accumulate.
     @discardableResult
-    func upsert(
-        _ notification: TerminalNotification,
-        superseding identifiers: Set<UUID>
-    ) -> [TerminalNotification] {
-        var removed: [TerminalNotification] = []
+    func upsert(_ notification: TerminalNotification) -> TerminalNotification? {
+        var replaced: TerminalNotification?
         notifications.removeAll { existing in
-            guard identifiers.contains(existing.id) || existing.id == notification.id else {
-                return false
-            }
-            removed.append(existing)
+            guard existing.id == notification.id else { return false }
+            replaced = existing
             return true
         }
         notifications.insert(notification, at: 0)
-        return removed
+        return replaced
     }
 
     func notification(id: UUID) -> TerminalNotification? {

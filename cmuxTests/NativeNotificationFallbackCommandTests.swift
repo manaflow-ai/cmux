@@ -171,7 +171,7 @@ struct NativeNotificationFallbackCommandTests {
         let authorizationAttempted = BoolRecorder()
         var presentedIDs: [UUID] = []
         store.configureDynamicNotchDelivery { mutation in
-            guard case .upsert(let notification, _) = mutation else { return }
+            guard case .upsert(let notification) = mutation else { return }
             presentedIDs.append(notification.id)
         }
         store.configureNotificationAuthorizationHandlerForTesting { _ in
@@ -238,15 +238,13 @@ struct NativeNotificationFallbackCommandTests {
         let secondID = store.notifications[0].id
 
         #expect(mutations.count == 2)
-        guard case .upsert(let first, let firstSuperseding) = mutations[0],
-              case .upsert(let second, let secondSuperseding) = mutations[1] else {
+        guard case .upsert(let first) = mutations[0],
+              case .upsert(let second) = mutations[1] else {
             Issue.record("Expected two upsert mutations")
             return
         }
         #expect(first.id == firstID)
-        #expect(firstSuperseding.isEmpty)
         #expect(second.id == secondID)
-        #expect(secondSuperseding.isEmpty)
     }
 
     @Test
@@ -271,7 +269,7 @@ struct NativeNotificationFallbackCommandTests {
         let nativeScheduled = BoolRecorder()
         var presentedIDs: [UUID] = []
         store.configureDynamicNotchDelivery { mutation in
-            guard case .upsert(let notification, _) = mutation else { return }
+            guard case .upsert(let notification) = mutation else { return }
             presentedIDs.append(notification.id)
         }
         store.configureNotificationAuthorizationHandlerForTesting { completion in

@@ -232,49 +232,33 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
 
     func apply(_ mutation: DynamicNotchNotificationMutation) {
         switch mutation {
-        case .upsert(let notification, let superseding):
-            upsert(notification, superseding: superseding)
+        case .upsert(let notification):
+            upsert(notification)
         case .dismiss(let identifiers):
             dismiss(ids: identifiers)
         }
     }
 
     func present(_ notification: TerminalNotification) {
-        upsert(notification, superseding: [])
+        upsert(notification)
     }
 
     func dismiss(id: UUID, responseAction: String = "dismissed") {
         resolve(id: id, responseAction: responseAction, values: [:])
     }
 
-    private func upsert(
-        _ notification: TerminalNotification,
-        superseding identifiers: Set<UUID>
-    ) {
+    private func upsert(_ notification: TerminalNotification) {
         if let activePresentation {
-            guard
-                activePresentation.model.notification(id: notification.id) == nil
-                    || identifiers.contains(notification.id)
-            else {
-                return
-            }
             let duration = Double(
                 activePresentation.model.appearance(for: notification)
                     .dimension(.animationDuration)
             )
-            let removed = activePresentation.model.upsert(
-                notification,
-                superseding: identifiers
-            )
+            activePresentation.model.upsert(notification)
             for display in activePresentation.displays.values {
                 withAnimation(.snappy(duration: duration)) {
-                    display.model.upsert(
-                        notification,
-                        superseding: identifiers
-                    )
+                    display.model.upsert(notification)
                 }
             }
-            resolveSuperseded(removed, in: activePresentation)
             reconcileDisplays(in: activePresentation, revealNewDisplays: false)
             synchronizeAppearance(in: activePresentation)
             scheduleTimeout(for: notification, in: activePresentation)
@@ -287,7 +271,7 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         let canonicalModel = DynamicNotchNotificationTrayModel(
             globalAppearance: appearanceProvider()
         )
-        canonicalModel.upsert(notification, superseding: identifiers)
+        canonicalModel.upsert(notification)
         let activePresentation = ActivePresentation(model: canonicalModel)
         self.activePresentation = activePresentation
 
@@ -441,22 +425,6 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         guard let activePresentation else { return }
         reconcileDisplays(in: activePresentation, revealNewDisplays: true)
         handlePointerMoved(NSEvent.mouseLocation, in: activePresentation)
-    }
-
-    private func resolveSuperseded(
-        _ notifications: [TerminalNotification],
-        in activePresentation: ActivePresentation
-    ) {
-        for notification in notifications {
-            activePresentation.timeoutTasks
-                .removeValue(forKey: notification.id)?
-                .cancel()
-            writeResponse(
-                action: "replaced",
-                values: [:],
-                notification: notification
-            )
-        }
     }
 
     private func scheduleTimeout(

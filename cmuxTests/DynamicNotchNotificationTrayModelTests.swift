@@ -42,20 +42,17 @@ struct DynamicNotchNotificationTrayModelTests {
         #expect(model.notifications == [notification])
     }
 
-    @Test("Atomic upsert replaces a row without an empty intermediate tray")
-    func atomicUpsertReplacesSupersededRow() {
+    @Test("Same-identifier upsert refreshes without replacing another row")
+    func sameIdentifierUpsertRefreshesOneRow() {
         let model = DynamicNotchNotificationTrayModel()
         let first = makeNotification(title: "Step 1")
-        let replacement = makeNotification(title: "Step 2")
+        let replacement = makeNotification(id: first.id, title: "Step 2")
         #expect(model.enqueue(first))
         model.transition(to: .expanded)
 
-        let removed = model.upsert(
-            replacement,
-            superseding: [first.id]
-        )
+        let removed = model.upsert(replacement)
 
-        #expect(removed == [first])
+        #expect(removed == first)
         #expect(model.notifications == [replacement])
         #expect(model.phase == .expanded)
     }
@@ -135,11 +132,12 @@ struct DynamicNotchNotificationTrayModelTests {
     }
 
     private func makeNotification(
+        id: UUID = UUID(),
         title: String,
         appearance: DynamicNotchAppearanceOverrides = DynamicNotchAppearanceOverrides()
     ) -> TerminalNotification {
         TerminalNotification(
-            id: UUID(),
+            id: id,
             tabId: UUID(),
             surfaceId: UUID(),
             title: title,
