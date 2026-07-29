@@ -18,6 +18,7 @@ struct WorkspaceGroupNumberedSelectionTests {
             prefix: "cmux-workspace-group-numbered-selection"
         )
         KeyboardShortcutSettings.resetAll()
+        KeyboardShortcutSettings.clearShortcut(for: .selectSurfaceByNumber)
         KeyboardShortcutSettings.setShortcut(
             StoredShortcut(key: "1", command: false, shift: false, option: false, control: true),
             for: .selectWorkspaceByNumber
@@ -51,6 +52,8 @@ struct WorkspaceGroupNumberedSelectionTests {
         }
 
         #expect(visibleWorkspaceRowIds == [ungroupedWorkspace.id, memberWorkspace.id])
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         manager.selectWorkspace(ungroupedWorkspace)
         let event = try #require(NSEvent.keyEvent(
             with: .keyDown,
@@ -65,6 +68,11 @@ struct WorkspaceGroupNumberedSelectionTests {
             keyCode: 19
         ))
 
+        #expect(appDelegate.routableNumberedConfiguredShortcutDigit(
+            event: event,
+            action: .selectWorkspaceByNumber
+        ) == 2)
+        #expect(appDelegate.preferredMainWindowContextForShortcutRouting(event: event)?.tabManager === manager)
         #expect(appDelegate.debugHandleCustomShortcut(event: event))
         #expect(manager.selectedTabId == memberWorkspace.id)
         #expect(manager.selectedTabId != group.anchorWorkspaceId)
