@@ -768,21 +768,6 @@ enum AgentResumeCommandBuilder {
 struct SessionRestorableAgentSnapshot: Codable, Sendable {
     static let maxInlineStartupInputBytes = 900
 
-    struct PreparedStartupInput: Sendable {
-        let text: String
-        private let launcherScriptURL: URL?
-
-        init(text: String, launcherScriptURL: URL? = nil) {
-            self.text = text
-            self.launcherScriptURL = launcherScriptURL
-        }
-
-        func removeLauncherScript(fileManager: FileManager = .default) {
-            guard let launcherScriptURL else { return }
-            try? fileManager.removeItem(at: launcherScriptURL)
-        }
-    }
-
     var kind: RestorableAgentKind
     var sessionId: String
     var workingDirectory: String?
@@ -854,7 +839,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true,
         allowOversizedInlineInput: Bool = false
-    ) -> PreparedStartupInput? {
+    ) -> PreparedAgentStartupInput? {
         preparedStartupInput(
             command: command,
             fileManager: fileManager,
@@ -890,14 +875,14 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         allowLauncherScript: Bool = true,
         allowOversizedInlineInput: Bool = false,
         requireLauncherScript: Bool = false
-    ) -> PreparedStartupInput? {
+    ) -> PreparedAgentStartupInput? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
         guard requireLauncherScript || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
-            return PreparedStartupInput(text: inlineInput)
+            return PreparedAgentStartupInput(text: inlineInput)
         }
         guard requireLauncherScript || !allowOversizedInlineInput else {
-            return PreparedStartupInput(text: inlineInput)
+            return PreparedAgentStartupInput(text: inlineInput)
         }
         guard allowLauncherScript else { return nil }
         guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
@@ -915,7 +900,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             try? fileManager.removeItem(at: scriptURL)
             return nil
         }
-        return PreparedStartupInput(text: scriptInput, launcherScriptURL: scriptURL)
+        return PreparedAgentStartupInput(text: scriptInput, launcherScriptURL: scriptURL)
     }
 }
 

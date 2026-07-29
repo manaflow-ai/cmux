@@ -1417,6 +1417,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
 		A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
 		B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */; };
+		901600000000000000000019 /* PreparedAgentStartupInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90160000000000000000001A /* PreparedAgentStartupInput.swift */; };
 		D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */; };
 		DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */; };
 		D1F0A01100000000000000B1 /* PresenceNudgeSubscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A01100000000000000B2 /* PresenceNudgeSubscriber.swift */; };
@@ -3851,6 +3852,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B79500060000000000000002 /* PortScanPublicationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanPublicationState.swift; sourceTree = "<group>"; };
 		A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
 		B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalyticsPropertiesTests.swift; sourceTree = "<group>"; };
+		90160000000000000000001A /* PreparedAgentStartupInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedAgentStartupInput.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClient.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClientTests.swift; sourceTree = "<group>"; };
 		D1F0A01100000000000000B2 /* PresenceNudgeSubscriber.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceNudgeSubscriber.swift; sourceTree = "<group>"; };
@@ -5217,6 +5219,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				901600000000000000000004 /* AgentConversationForkRequest.swift */,
 				9016B0000000000000000002 /* AgentConversationForkTargetHarness.swift */,
 				901600000000000000000006 /* AgentConversationSource.swift */,
+				90160000000000000000001A /* PreparedAgentStartupInput.swift */,
 				901600000000000000000008 /* CommandPaletteArgumentChoiceView.swift */,
 				901600000000000000000012 /* CommandPaletteDebugFormatting.swift */,
 				901600000000000000000014 /* CommandPaletteOverlayContainerView.swift */,
@@ -8742,6 +8745,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B79500080000000000000001 /* PortScanPublicationBuffer.swift in Sources */,
 				B79500060000000000000001 /* PortScanPublicationState.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
+				901600000000000000000019 /* PreparedAgentStartupInput.swift in Sources */,
 				D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */,
 				D1F0A01100000000000000B1 /* PresenceNudgeSubscriber.swift in Sources */,
 				D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */,

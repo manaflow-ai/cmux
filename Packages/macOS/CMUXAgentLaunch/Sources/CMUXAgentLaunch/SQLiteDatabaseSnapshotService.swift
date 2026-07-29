@@ -1,33 +1,48 @@
 import Foundation
 import SQLite3
 
-/// Errors produced while creating a transactionally consistent SQLite snapshot.
-public enum SQLiteDatabaseSnapshotError: Error, Equatable, Sendable {
-    case snapshotTooLarge(maximumBytes: Int)
-    case sqlite(String)
-}
-
 /// Copies a live SQLite database through SQLite's online backup API.
 ///
 /// The resulting file represents one consistent source transaction and does not
 /// depend on separately copied WAL or shared-memory sidecars.
+///
+/// ```swift
+/// try SQLiteDatabaseSnapshotService().copyDatabase(
+///     from: liveDatabasePath,
+///     to: snapshotPath,
+///     maximumBytes: 128 * 1_024 * 1_024
+/// )
+/// ```
 public struct SQLiteDatabaseSnapshotService {
+    private let fileManager: FileManager
     private let pagesPerStep: Int32
     private let stepObserver: (() throws -> Void)?
 
-    public init() {
+    /// Creates a database snapshot service.
+    /// - Parameter fileManager: Filesystem dependency used to remove temporary sidecars.
+    public init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
         pagesPerStep = 64
         stepObserver = nil
     }
 
     init(
+        fileManager: FileManager = .default,
         pagesPerStep: Int32,
         stepObserver: @escaping () throws -> Void
     ) {
+        self.fileManager = fileManager
         self.pagesPerStep = max(1, pagesPerStep)
         self.stepObserver = stepObserver
     }
 
+    /// Copies one consistent transaction from a live SQLite database.
+    /// - Parameters:
+    ///   - sourcePath: Path to the live source database.
+    ///   - destinationPath: Path where the standalone snapshot is created.
+    ///   - maximumBytes: Optional upper bound for the logical database image.
+    /// - Throws: ``SQLiteDatabaseSnapshotError`` or ``CancellationError`` when
+    ///   the snapshot cannot complete.
     public func copyDatabase(
         from sourcePath: String,
         to destinationPath: String,
@@ -152,7 +167,6 @@ public struct SQLiteDatabaseSnapshotService {
     }
 
     private func removeSnapshotSidecars(destinationPath: String) throws {
-        let fileManager = FileManager.default
         for suffix in ["-wal", "-shm"] {
             let sidecarPath = destinationPath + suffix
             guard fileManager.fileExists(atPath: sidecarPath) else { continue }
