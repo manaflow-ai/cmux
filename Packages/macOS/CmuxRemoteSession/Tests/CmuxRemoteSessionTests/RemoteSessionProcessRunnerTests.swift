@@ -86,6 +86,32 @@ struct RemoteSessionProcessRunnerTests {
         #expect(result.status == 0)
     }
 
+    @Test("An unexpected stdin write error fails the runner")
+    func unexpectedStdinWriteErrorFailsRunner() {
+        let runner = RemoteSessionProcessRunner(writeStdin: { _, _ in
+            throw POSIXError(.EIO)
+        })
+
+        #expect {
+            try runner.run(
+                RemoteProcessRequest(
+                    executable: "/bin/sleep",
+                    arguments: ["30"],
+                    stdin: Data("payload".utf8),
+                    timeout: 5
+                ),
+                operation: nil
+            )
+        } throws: { error in
+            let nsError = error as NSError
+            let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? POSIXError
+            return nsError.domain == "cmux.remote.process"
+                && nsError.code == 3
+                && nsError.localizedDescription.hasPrefix("Failed to write stdin for sleep:")
+                && underlyingError?.code == .EIO
+        }
+    }
+
     @Test("Streams a local file through stdin")
     func streamsFileStdin() throws {
         let fileManager = FileManager.default
