@@ -1089,11 +1089,8 @@ final class TerminalNotificationStore: ObservableObject {
         let cwd = workspace?.surfaceTabBarDirectory
             ?? workspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let panelId: UUID? = surfaceId.flatMap { surfaceId in
-            if workspace?.panels[surfaceId] != nil {
-                return surfaceId
-            }
-            return workspace?.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+        let panelId = surfaceId.flatMap {
+            workspace?.surfaceOwnershipTarget(for: $0)?.containerPanelID
         }
         let scrollPosition: TerminalNotificationScrollPosition?
         if surfaceId != nil {
