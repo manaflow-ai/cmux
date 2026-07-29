@@ -702,6 +702,11 @@ actor MobileCoreRPCSession {
         guard activeWrite?.connectionID == connectionID,
               activeWrite?.requestID == requestID else { return }
         activeWrite = nil
+        // Resume coalesced waiters only on a real transition of the CURRENT
+        // write: a stale completion callback from an older write generation
+        // must not satisfy the recovery gate or the queued-demand watchdog
+        // for a newer cancelled write.
+        resumeWriteResolutionWaiters()
     }
 
     private func startCancelledActiveWriteResolution(requestID: String) {
@@ -850,7 +855,6 @@ actor MobileCoreRPCSession {
         requestID: String
     ) {
         clearActiveWrite(connectionID: connectionID, requestID: requestID)
-        resumeWriteResolutionWaiters()
     }
 
     private func cancelledActiveWriteDidFail(
