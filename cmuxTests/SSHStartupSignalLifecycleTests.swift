@@ -373,6 +373,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let remoteCLI = remoteBin.appendingPathComponent("cmux")
         let localCLILog = root.appendingPathComponent("local-cmux.log")
         let remoteCLILog = root.appendingPathComponent("remote-cmux.log")
+        let readinessAttemptLog = root.appendingPathComponent(
+            "remote-readiness-attempts.log"
+        )
 
         try fileManager.createDirectory(at: remoteBin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -385,6 +388,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try writeShellFile(at: remoteCLI, lines: [
             "#!/bin/sh",
             "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_REMOTE_CLI_LOG}\"",
+            "case \"$*\" in",
+            "  *'rpc workspace.remote.terminal_session_connected '*)",
+            "    cmux_test_attempt=0",
+            "    if [ -r \"${CMUX_TEST_READINESS_ATTEMPT_LOG}\" ]; then",
+            "      cmux_test_attempt=$(cat \"${CMUX_TEST_READINESS_ATTEMPT_LOG}\")",
+            "    fi",
+            "    cmux_test_attempt=$((cmux_test_attempt + 1))",
+            "    printf '%s\\n' \"$cmux_test_attempt\" > \"${CMUX_TEST_READINESS_ATTEMPT_LOG}\"",
+            "    if [ \"$cmux_test_attempt\" -eq 1 ]; then exit 1; fi",
+            "    ;;",
+            "esac",
             "exit 0",
         ])
         try writeShellFile(at: fakeSSH, lines: [
@@ -444,6 +458,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "33333333-3333-3333-3333-333333333333"
         environment["CMUX_TEST_LOCAL_CLI_LOG"] = localCLILog.path
         environment["CMUX_TEST_REMOTE_CLI_LOG"] = remoteCLILog.path
+        environment["CMUX_TEST_READINESS_ATTEMPT_LOG"] =
+            readinessAttemptLog.path
 
         let result = runProcess(
             executablePath: "/bin/sh",
@@ -461,6 +477,99 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "rpc workspace.remote.terminal_session_connected"
             ),
             "Readiness must not depend on tty(1) succeeding: \(remoteCalls)"
+        )
+        XCTAssertEqual(
+            remoteCalls
+                .split(separator: "\n")
+                .filter {
+                    $0.contains(
+                        "rpc workspace.remote.terminal_session_connected"
+                    )
+                }
+                .count,
+            2,
+            "A transient readiness failure must be retried before the remote command continues: \(remoteCalls)"
+        )
+    }
+
+    func testSuccessfulMoshReportsAuthoritativeTerminalLifecycle() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-mosh-terminal-liveness-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeMosh = root.appendingPathComponent("mosh")
+        let cliLog = root.appendingPathComponent("cmux.log")
+        let moshLog = root.appendingPathComponent("mosh.log")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_CLI_LOG}\"",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "cat >/dev/null 2>&1 || true",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeMosh, lines: [
+            "#!/bin/sh",
+            "if [ \"${1:-}\" = '--help' ]; then",
+            "  printf '%s\\n' '  --experimental-remote-ip=(local|remote|proxy)'",
+            "  exit 0",
+            "fi",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_MOSH_LOG}\"",
+            "exit 0",
+        ])
+        for executable in [fakeCLI, fakeSSH, fakeMosh] {
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: executable.path
+            )
+        }
+
+        let startupCommand = try generatedSSHStartupCommand(
+            additionalArguments: ["--transport", "mosh"]
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] =
+            "33333333-3333-3333-3333-333333333333"
+        environment["CMUX_TEST_CLI_LOG"] = cliLog.path
+        environment["CMUX_TEST_MOSH_LOG"] = moshLog.path
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(fileManager.fileExists(atPath: moshLog.path))
+        let cliCalls = (try? String(contentsOf: cliLog, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            cliCalls.contains(
+                "rpc workspace.remote.terminal_session_launching"
+            ),
+            "Mosh must register an attempt before claiming readiness: \(cliCalls)"
+        )
+        XCTAssertTrue(
+            cliCalls.contains(
+                "rpc workspace.remote.terminal_session_connected"
+            ),
+            "Successful Mosh startup must become authoritatively connected: \(cliCalls)"
         )
     }
 
@@ -946,7 +1055,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         sshOptions: [String] = [
             "ControlMaster no",
             "ControlPath /tmp/cmux-ssh-%C",
-        ]
+        ],
+        additionalArguments: [String] = []
     ) throws -> String {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-pane-close")
@@ -1017,6 +1127,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         for option in sshOptions {
             arguments += ["--ssh-option", option]
         }
+        arguments += additionalArguments
         arguments.append("cmux-macmini")
 
         let result = runProcess(
