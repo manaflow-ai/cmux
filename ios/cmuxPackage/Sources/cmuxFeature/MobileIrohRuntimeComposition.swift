@@ -874,8 +874,14 @@ public final class MobileIrohRuntimeComposition:
             let broker = try makeBrokerBundle(
                 accountID: pendingRevocation.accountID,
                 tokenSource: CmxIrohBrokerTokenSource(
-                    accessToken: { accessToken },
-                    refreshToken: { refreshToken }
+                    // The pair was captured together up front, so it is coherent
+                    // by construction.
+                    credentialPair: {
+                        CmxIrohBrokerCredentials(
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                    }
                 )
             ).client
             let released = await recoverSignOutQuarantine(
@@ -1019,19 +1025,18 @@ public final class MobileIrohRuntimeComposition:
                 let broker = try makeBrokerBundle(
                     accountID: pendingRevocation.accountID,
                     tokenSource: CmxIrohBrokerTokenSource(
-                        accessToken: { [weak auth] in
+                        // ONE currentTokens() call per fetch: both tokens come
+                        // from the same read, never assembled across two calls a
+                        // session transition could land between.
+                        credentialPair: { [weak auth] in
                             guard let auth,
                                   let tokens = try? await auth.currentTokens() else {
                                 return nil
                             }
-                            return tokens.accessToken
-                        },
-                        refreshToken: { [weak auth] in
-                            guard let auth,
-                                  let tokens = try? await auth.currentTokens() else {
-                                return nil
-                            }
-                            return tokens.refreshToken
+                            return CmxIrohBrokerCredentials(
+                                accessToken: tokens.accessToken,
+                                refreshToken: tokens.refreshToken
+                            )
                         }
                     )
                 ).client
@@ -1173,8 +1178,14 @@ public final class MobileIrohRuntimeComposition:
               let broker = try? makeBrokerBundle(
                   accountID: pendingRevocation.accountID,
                   tokenSource: CmxIrohBrokerTokenSource(
-                      accessToken: { accessToken },
-                      refreshToken: { refreshToken }
+                      // The pair was captured together up front, so it is
+                      // coherent by construction.
+                      credentialPair: {
+                          CmxIrohBrokerCredentials(
+                              accessToken: accessToken,
+                              refreshToken: refreshToken
+                          )
+                      }
                   )
               ).client else { return }
         do {
@@ -1364,15 +1375,16 @@ public final class MobileIrohRuntimeComposition:
         let brokerBundle = try makeBrokerBundle(
             accountID: accountID,
             tokenSource: CmxIrohBrokerTokenSource(
-                accessToken: { [weak auth] in
+                // ONE currentTokens() call per fetch: both tokens come from the
+                // same read, never assembled across two calls a session
+                // transition could land between.
+                credentialPair: { [weak auth] in
                     guard let auth,
                           let tokens = try? await auth.currentTokens() else { return nil }
-                    return tokens.accessToken
-                },
-                refreshToken: { [weak auth] in
-                    guard let auth,
-                          let tokens = try? await auth.currentTokens() else { return nil }
-                    return tokens.refreshToken
+                    return CmxIrohBrokerCredentials(
+                        accessToken: tokens.accessToken,
+                        refreshToken: tokens.refreshToken
+                    )
                 }
             )
         )
@@ -2624,12 +2636,6 @@ extension MobileIrohRuntimeComposition {
         pinnedSession session: AuthenticatedSessionSnapshot
     ) -> CmxIrohBrokerTokenSource {
         CmxIrohBrokerTokenSource(
-            accessToken: { [weak self] in
-                await self?.pinnedBrokerCredentials(session)?.accessToken
-            },
-            refreshToken: { [weak self] in
-                await self?.pinnedBrokerCredentials(session)?.refreshToken
-            },
             credentialPair: { [weak self] in
                 await self?.pinnedBrokerCredentials(session)
             }

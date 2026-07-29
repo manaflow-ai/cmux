@@ -104,8 +104,14 @@ extension MobileHostIrohRuntime {
             let rawBroker = try CmxIrohTrustBrokerClient(
                 baseURL: brokerBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
-                    accessToken: { accessToken },
-                    refreshToken: { refreshToken }
+                    // The pair was captured together up front, so it is coherent
+                    // by construction.
+                    credentialPair: {
+                        CmxIrohBrokerCredentials(
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                    }
                 ),
                 backpressureMode: .callerOwned
             )

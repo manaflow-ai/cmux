@@ -17,23 +17,27 @@ public struct CmxIrohBrokerCredentials: Sendable {
 }
 
 /// Supplies the short-lived Stack credentials required by native API calls.
+///
+/// The ONLY construction input is `credentialPair`, which must return BOTH
+/// tokens from ONE capture. Making the pair the required source removes the
+/// torn-credential hazard structurally: a source assembled from two
+/// independent token reads (where a session transition between them pairs one
+/// session's access token with another's refresh token) is no longer
+/// expressible. The single-token accessors are derived from the pair for
+/// callers that need one token.
 public struct CmxIrohBrokerTokenSource: Sendable {
     public let accessToken: @Sendable () async -> String?
     public let refreshToken: @Sendable () async -> String?
-    /// Preferred source: returns BOTH tokens from ONE snapshot so a request can
-    /// never mix an old access token with a rotated refresh token. When `nil`,
-    /// the two independent closures above are read in sequence instead (their
-    /// only use now is legacy callers and tests that predate the pair).
-    public let credentialPair: (@Sendable () async -> CmxIrohBrokerCredentials?)?
+    /// Both tokens from ONE snapshot, so a request can never mix an old access
+    /// token with a rotated refresh token.
+    public let credentialPair: @Sendable () async -> CmxIrohBrokerCredentials?
 
     public init(
-        accessToken: @escaping @Sendable () async -> String?,
-        refreshToken: @escaping @Sendable () async -> String?,
-        credentialPair: (@Sendable () async -> CmxIrohBrokerCredentials?)? = nil
+        credentialPair: @escaping @Sendable () async -> CmxIrohBrokerCredentials?
     ) {
-        self.accessToken = accessToken
-        self.refreshToken = refreshToken
         self.credentialPair = credentialPair
+        self.accessToken = { await credentialPair()?.accessToken }
+        self.refreshToken = { await credentialPair()?.refreshToken }
     }
 }
 
@@ -372,24 +376,15 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         method: String,
         body: Data?
     ) async throws -> Response {
-        // Build the request from ONE credential snapshot when the source offers
-        // it. Reading access then refresh through two independent snapshot calls
-        // lets a force refresh land between them and pair a stale access token
-        // with a rotated refresh token, which the broker rejects. The two-closure
-        // path remains for legacy callers/tests that predate `credentialPair`.
-        let accessToken: String?
-        let refreshToken: String?
-        if let credentialPair = tokenSource.credentialPair {
-            let pair = await credentialPair()
-            accessToken = pair?.accessToken
-            refreshToken = pair?.refreshToken
-        } else {
-            accessToken = await tokenSource.accessToken()
-            refreshToken = await tokenSource.refreshToken()
-        }
-        guard let accessToken, let refreshToken else {
+        // Build the request from ONE credential snapshot. Reading access then
+        // refresh through two independent calls lets a force refresh land
+        // between them and pair a stale access token with a rotated refresh
+        // token, which the broker rejects.
+        guard let pair = await tokenSource.credentialPair() else {
             throw CmxIrohTrustBrokerClientError.missingAuthentication
         }
+        let accessToken = pair.accessToken
+        let refreshToken = pair.refreshToken
         guard Self.isSafeHeaderValue(accessToken), Self.isSafeHeaderValue(refreshToken) else {
             throw CmxIrohTrustBrokerClientError.invalidAuthentication
         }
