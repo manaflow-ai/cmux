@@ -113,7 +113,7 @@ public struct SurfaceSwitcherAccessibilityPreviewView: View {
         if configuration.browserState == .failOnce, !didFailOnceRetry {
             didFailOnceRetry = true
             Task { @MainActor in
-                try? await ContinuousClock().sleep(for: .milliseconds(1_500))
+                try? await ContinuousClock().sleep(for: .milliseconds(800))
                 guard !Task.isCancelled else { return }
                 browserStreamCount = max(configuration.retryBrowserStreamCount, 1)
                 browserRefreshState = .idle

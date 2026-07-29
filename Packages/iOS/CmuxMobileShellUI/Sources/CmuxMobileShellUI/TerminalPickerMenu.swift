@@ -8,7 +8,6 @@ struct TerminalPickerMenu: View, Equatable {
     let value: TerminalPickerMenuValue
     let actions: TerminalPickerMenuActions
     let terminalTheme: TerminalTheme
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isSwitcherPresented = false
     @State private var compactDetent = PresentationDetent.fraction(0.72)
     #if DEBUG
@@ -41,11 +40,7 @@ struct TerminalPickerMenu: View, Equatable {
                 terminalTheme: terminalTheme,
                 dismiss: dismiss
             )
-            .frame(
-                width: horizontalSizeClass == .regular
-                    ? SurfaceSwitcherMetrics.regularPopoverWidth
-                    : nil
-            )
+            .frame(width: SurfaceSwitcherMetrics.regularPopoverWidth)
             .frame(maxHeight: SurfaceSwitcherMetrics.regularPopoverMaxHeight)
             .preferredColorScheme(terminalTheme.terminalColorScheme)
             .presentationCompactAdaptation(.sheet)
