@@ -196,6 +196,16 @@ import Testing
         #expect(state.endpoint == .terminal)
         #expect(state.sourceSurfaceID == "terminal-a")
     }
+
+    @Test func missingLayoutForcesTerminalRouteBeforeReconnect() {
+        var state = PaneZoomPresentationState()
+        state.presentPaneMap(from: "terminal-a")
+
+        state.layoutAvailabilityDidChange(hasLayout: false)
+
+        #expect(state.endpoint == .terminal)
+        #expect(state.sourceSurfaceID == "terminal-a")
+    }
 }
 
 @Suite struct PaneMapReorderStateTests {
