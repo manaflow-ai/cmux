@@ -30,6 +30,7 @@ const POST = makeAppSessionHandoffHandler({
   projectId: "12345678-1234-4123-8123-123456789abc",
   stackServerApp: { getUser },
   now: () => 1_721_955_600_000,
+  rateLimitId: "app-session-handoff",
 });
 
 function handoffRequest(
