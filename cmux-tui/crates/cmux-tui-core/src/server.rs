@@ -2984,6 +2984,13 @@ fn handle_connection_message(
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
 ) -> bool {
+    if crate::resource_router::is_resource_protocol_message(message) {
+        let response = match crate::resource_router::handle_resource_message(mux, message) {
+            Ok(response) => response,
+            Err(error) => crate::resource_router::malformed_resource_response(message, error),
+        };
+        return writer.send_control(&response).is_ok();
+    }
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
         Err(error) => return send_request_error(writer, None, &format!("bad request: {error}")),
@@ -5847,11 +5854,6 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "terminal_revision":terminal_revision,
             "refetch":"terminal-events-or-list-terminals",
         }),
-        MuxEvent::ResourceChanged { generation, revision } => json!({
-            "event":"resource-changed",
-            "generation":generation,
-            "revision":revision.to_string(),
-        }),
         MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
         MuxEvent::ClientAttached { client, transport, name, kind } => json!({
             "event": "client-attached",
@@ -5967,6 +5969,42 @@ mod tests {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         })
+    }
+
+    fn captured_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
+        let outbound = Arc::new(BoundedOutbound::default());
+        (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
+    }
+
+    #[test]
+    fn resource_protocol_responses_are_identical_for_unix_and_websocket_clients() {
+        let mux = test_mux();
+        let request = serde_json::to_string(&json!({
+            "protocol":"cmux.protocol/1",
+            "type":"request",
+            "id":"transport-parity",
+            "operation":"session.ping",
+            "params":{"machine":"current","session":"current"},
+        }))
+        .unwrap();
+        let mut responses = Vec::new();
+        for transport in [ClientTransport::Unix, ClientTransport::WebSocket] {
+            let (writer, outbound) = captured_writer();
+            let client = mux.control_clients.register(transport, writer.clone());
+            let scheduler =
+                Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+            assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+            responses.push(outbound.try_pop().expect("one resource response"));
+            disconnect_client(&mux, client, false);
+        }
+
+        assert_eq!(responses[0], responses[1]);
+        let response: Value = serde_json::from_str(&responses[0]).unwrap();
+        assert_eq!(response["protocol"], "cmux.protocol/1");
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "transport-parity");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"], json!({}));
     }
 
     #[test]

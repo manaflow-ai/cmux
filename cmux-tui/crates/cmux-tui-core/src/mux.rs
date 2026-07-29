@@ -6,7 +6,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -255,12 +255,6 @@ pub enum MuxEvent {
         generation: String,
         terminal_revision: u64,
     },
-    /// One protocol-v1 resource patch committed and its in-memory projection
-    /// was applied. Consumers may now read this exact durable revision.
-    ResourceChanged {
-        generation: String,
-        revision: u64,
-    },
     /// A screen's pane geometry changed. Clients should re-fetch layout.
     LayoutChanged(ScreenId),
     /// A control connection attached its first surface.
@@ -374,6 +368,7 @@ pub struct ResourceNotification {
     pub level: NotificationLevel,
     pub terminal_id: Option<TerminalPublicId>,
     pub created_at_ms: u64,
+    pub(crate) surface: Option<SurfaceId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -955,6 +950,7 @@ pub struct Mux {
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
+    resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Fences the interval between accepting a browser daemon-handoff request
     /// and queueing its acknowledgement. ClientRegistry consults this under
@@ -1223,6 +1219,7 @@ impl Mux {
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
             notification_ledger: Mutex::new(VecDeque::new()),
+            resource_machine_service: OnceLock::new(),
             terminal_adoptions: Mutex::new(HashSet::new()),
             daemon_handoff_pending: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
@@ -2305,12 +2302,8 @@ impl Mux {
             &plan.deltas,
         )?;
         plan.apply(&mut state, &commit);
-        let generation = registry.generation().to_string();
         drop(state);
         drop(registry);
-        if !commit.replayed {
-            self.emit(MuxEvent::ResourceChanged { generation, revision: commit.revision });
-        }
         Ok(commit)
     }
 
@@ -2694,9 +2687,173 @@ impl Mux {
         )
     }
 
+    pub(crate) fn resource_move_workspace_selected(
+        &self,
+        selectors: crate::ResourceSelectors,
+        index: usize,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let fingerprint = serde_json::json!({
+            "operation": "workspace.move",
+            "selectors": selectors,
+            "index": index,
+        });
+        self.commit_resource_mutation_plan(
+            mutation,
+            "workspace.move",
+            &fingerprint,
+            expected_generation,
+            expected_revision,
+            move |state, registry| {
+                let resolved = self
+                    .resolve_resource_path_in_state(
+                        state,
+                        registry,
+                        crate::ResourceTarget::Workspace,
+                        &selectors,
+                    )
+                    .map_err(anyhow::Error::new)?;
+                let target = resolved
+                    .path
+                    .workspace
+                    .expect("workspace target resolution returns a workspace");
+                let slot =
+                    resolved.workspace.expect("workspace target resolution returns a live slot");
+                let old_index = state
+                    .workspace_index(slot)
+                    .with_context(|| format!("workspace {target} has no live slot"))?;
+                let new_index = index.min(state.workspaces.len().saturating_sub(1));
+                let changed = new_index != old_index;
+                let active_slot =
+                    state.workspaces.get(state.active_workspace).map(|workspace| workspace.id);
+                let mut order = state
+                    .workspaces
+                    .iter()
+                    .map(|workspace| workspace.public_id.clone())
+                    .collect::<Vec<_>>();
+                if changed {
+                    let moved = order.remove(old_index);
+                    order.insert(new_index, moved);
+                }
+                let changes = if changed {
+                    vec![ResourceChange::SetWorkspaceOrder { workspace_ids: order.clone() }]
+                } else {
+                    let workspace = &state.workspaces[old_index];
+                    vec![ResourceChange::UpsertWorkspace {
+                        workspace: RegistryWorkspace {
+                            id: workspace.id,
+                            public_id: workspace.public_id.clone(),
+                            key: workspace.key.clone(),
+                            name: workspace.name.clone(),
+                            group_key: self.session.clone(),
+                        },
+                        position: old_index,
+                        active_screen: workspace
+                            .screens
+                            .get(workspace.active_screen)
+                            .map(|screen| screen.public_id.clone()),
+                    }]
+                };
+                let result = serde_json::json!({
+                    "workspace": target.as_str(),
+                    "index": new_index,
+                    "changed": changed,
+                });
+                let deltas = serde_json::json!([{
+                    "kind": "workspace.moved",
+                    "workspace": target.as_str(),
+                    "index": new_index,
+                    "changed": changed,
+                }]);
+                let order_entries = usize::from(changed) * order.len();
+                Ok(ResourceMutationPlan::new(
+                    ResourcePatch { changes },
+                    result,
+                    deltas,
+                    move |state| {
+                        if changed {
+                            state.move_workspace(old_index, new_index);
+                            for (workspace_index, _, _) in state.split_screens.values_mut() {
+                                *workspace_index = if *workspace_index == old_index {
+                                    new_index
+                                } else if old_index < new_index
+                                    && (old_index + 1..=new_index).contains(workspace_index)
+                                {
+                                    workspace_index.saturating_sub(1)
+                                } else if new_index < old_index
+                                    && (new_index..old_index).contains(workspace_index)
+                                {
+                                    workspace_index.saturating_add(1)
+                                } else {
+                                    *workspace_index
+                                };
+                            }
+                            state.active_workspace = active_slot
+                                .and_then(|slot| state.workspace_index(slot))
+                                .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+                        }
+                        state.workspace_revision = state.workspace_revision.saturating_add(1);
+                    },
+                )
+                .with_metrics(ResourceMutationMetrics {
+                    touched_resources: 1,
+                    order_entries,
+                    terminal_queries: 0,
+                    changed_rows: if changed { order.len() } else { 1 },
+                }))
+            },
+        )
+    }
+
     pub fn registry_identity(&self) -> (String, String) {
         let registry = self.workspace_registry.lock().unwrap();
         (registry.registry_id().to_string(), registry.generation().to_string())
+    }
+
+    pub fn install_resource_machine_service(
+        &self,
+        service: Arc<dyn crate::ResourceMachineService>,
+    ) -> anyhow::Result<()> {
+        self.resource_machine_service
+            .set(service)
+            .map_err(|_| anyhow::anyhow!("resource machine service is already installed"))
+    }
+
+    pub(crate) fn resource_machine_service(
+        self: &Arc<Self>,
+    ) -> Arc<dyn crate::ResourceMachineService> {
+        self.resource_machine_service
+            .get_or_init(|| {
+                Arc::new(crate::resource_api::LocalResourceMachineService::new(Arc::downgrade(
+                    self,
+                )))
+            })
+            .clone()
+    }
+
+    pub(crate) fn local_resource_context(
+        &self,
+    ) -> anyhow::Result<crate::resource_api::LocalResourceContext> {
+        let registry = self.workspace_registry.lock().unwrap();
+        let topology = registry.resource_topology_snapshot()?;
+        Ok(crate::resource_api::LocalResourceContext {
+            machine_id: registry.machine_id().clone(),
+            session_id: registry.session_id().clone(),
+            session_name: self.session.clone(),
+            generation: topology.generation,
+            revision: topology.revision,
+        })
+    }
+
+    pub(crate) fn with_resource_projection<R>(
+        &self,
+        project: impl FnOnce(&WorkspaceRegistry, &State) -> anyhow::Result<R>,
+    ) -> anyhow::Result<R> {
+        let registry = self.workspace_registry.lock().unwrap();
+        let state = self.state.lock().unwrap();
+        project(&registry, &state)
     }
 
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
@@ -4448,6 +4605,7 @@ impl Mux {
                 level,
                 terminal_id,
                 created_at_ms: now_ms(),
+                surface,
             });
             while ledger.len() > NOTIFICATION_LEDGER_CAPACITY {
                 ledger.pop_front();

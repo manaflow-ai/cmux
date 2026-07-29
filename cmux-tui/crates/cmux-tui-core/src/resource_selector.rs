@@ -54,14 +54,44 @@ impl ResourceTarget {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ResourceSelectors {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub screen: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pane: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tab: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub browser: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub split: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notification: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frontend_projection: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pairing_request: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidebar_view: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_notice: Option<String>,
 }
 
 impl ResourceSelectors {
@@ -101,6 +131,17 @@ impl ResourceSelectors {
             .or_else(|| {
                 (self.browser.is_some() && target != ResourceTarget::Browser).then_some("browser")
             })
+            .or_else(|| self.client.is_some().then_some("client"))
+            .or_else(|| self.split.is_some().then_some("split"))
+            .or_else(|| self.stream.is_some().then_some("stream"))
+            .or_else(|| self.notification.is_some().then_some("notification"))
+            .or_else(|| self.agent.is_some().then_some("agent"))
+            .or_else(|| self.frontend_projection.is_some().then_some("frontend_projection"))
+            .or_else(|| self.pairing_request.is_some().then_some("pairing_request"))
+            .or_else(|| self.sidebar_view.is_some().then_some("sidebar_view"))
+            .or_else(|| self.provider_scope.is_some().then_some("provider_scope"))
+            .or_else(|| self.provider_action.is_some().then_some("provider_action"))
+            .or_else(|| self.provider_notice.is_some().then_some("provider_notice"))
     }
 }
 

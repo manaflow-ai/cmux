@@ -15,7 +15,9 @@ mod mux;
 mod pairing;
 pub mod provider_management;
 pub mod resource;
+mod resource_api;
 mod resource_mutation;
+mod resource_router;
 mod resource_selector;
 mod short_id;
 mod surface;
@@ -49,6 +51,10 @@ pub use mux::{
     ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use resource_api::{
+    ResourceMachineRequest, ResourceMachineService, ResourceProviderNoticeItem,
+    ResourceProviderNoticeStream,
+};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;
 pub use surface::{
