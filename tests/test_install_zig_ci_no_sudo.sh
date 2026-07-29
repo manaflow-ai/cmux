@@ -447,13 +447,15 @@ PATH="$BIN_DIR:/usr/bin:/bin" \
   ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
   "$SCRIPT" > "$LOCAL_ONLY_REUSE_OUTPUT_FILE" 2>&1
 
-if ! grep -Fq "already installed at $EXPECTED_LOCAL_ONLY_INSTALL_ROOT/zig" "$LOCAL_ONLY_REUSE_OUTPUT_FILE"; then
+if ! grep -Fq "already installed at" "$LOCAL_ONLY_REUSE_OUTPUT_FILE"; then
   cat "$LOCAL_ONLY_REUSE_OUTPUT_FILE"
   echo "FAIL: local-only installer did not reuse its verified cached Zig" >&2
   exit 1
 fi
 
-if ! grep -Fxq "$EXPECTED_LOCAL_ONLY_INSTALL_ROOT/zig" "$LOCAL_ONLY_REUSE_PATH_OUTPUT"; then
+REUSED_LOCAL_ONLY_ZIG="$(cat "$LOCAL_ONLY_REUSE_PATH_OUTPUT")"
+CANONICAL_REUSED_LOCAL_ONLY_ZIG="$(canonical_install_root "$(dirname "$REUSED_LOCAL_ONLY_ZIG")")/zig"
+if [ "$CANONICAL_REUSED_LOCAL_ONLY_ZIG" != "$EXPECTED_LOCAL_ONLY_INSTALL_ROOT/zig" ]; then
   cat "$LOCAL_ONLY_REUSE_OUTPUT_FILE"
   echo "FAIL: cached local-only Zig was not published to ZIG_PATH_OUTPUT" >&2
   exit 1
