@@ -2061,6 +2061,7 @@ import Testing
             "Initial Snapshot",
             "Leading Snapshot",
             "Trailing Snapshot",
+            "Deferred Fresh Snapshot",
         ])
         await router.holdWorkspaceListRequest(number: 2)
         await router.holdWorkspaceListRequest(number: 3)
@@ -2097,13 +2098,15 @@ import Testing
             actionCapabilities: .none,
             displayName: "Mac B"
         )
+        let clock = ControlPoolManualClock()
         let shell = MobileShellComposite(
             runtime: runtime,
             isSignedIn: true,
             pairedMacStore: pairedStore,
             presence: IdlePresence(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
-            teamIDProvider: { "team-1" }
+            teamIDProvider: { "team-1" },
+            controlPlaneSchedulingClock: clock
         )
         shell.secondaryMacSubscriptions["mac-b"] = subscription
         shell.startSecondaryEventConsumer(subscription, displayName: "Mac B")
@@ -2147,8 +2150,19 @@ import Testing
             shell.workspacesByMac["mac-b"]?.workspaces.first?.name
                 == "Trailing Snapshot"
         })
+        #expect(try await pollUntil {
+            subscription.deferredRefreshTask != nil
+        })
+        clock.advance(by: .milliseconds(499))
         for _ in 0 ..< 16 { await Task.yield() }
         #expect(await router.count(of: "workspace.list") == 3)
+        clock.advance(by: .milliseconds(1))
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 4))
+        #expect(try await pollUntil {
+            shell.workspacesByMac["mac-b"]?.workspaces.first?.name
+                == "Deferred Fresh Snapshot"
+        })
+        #expect(await router.count(of: "workspace.list") == 4)
         #expect(shell.secondaryMacSubscriptions["mac-b"] === subscription)
 
         subscription.detachKeepingClient()

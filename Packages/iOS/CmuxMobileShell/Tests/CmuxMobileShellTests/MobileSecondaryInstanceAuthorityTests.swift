@@ -387,7 +387,10 @@ import Testing
         }
     }
 
-    @Test func promotionDoesNotOverwriteWorkspaceEventWithEarlierSnapshot() async throws {
+    @Test(arguments: [false, true])
+    func promotionDoesNotOverwriteNewerForegroundWorkspaceState(
+        stateSyncProjectionRaces: Bool
+    ) async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
@@ -585,20 +588,49 @@ import Testing
         #expect(shell.selectedWorkspace?.rpcWorkspaceID.rawValue
             == "live-workspace")
         #expect(shell.macSwitchRestoreBaseline?.macDeviceID == "mac-a")
-        let targetTransport = try #require(targetTransportBox.get())
-        await targetTransport.deliver(
-            try promotionWorkspaceUpdatedEventFrame()
-        )
-        #expect(await targetRouter.waitForCount(
-            of: "mobile.workspace.list",
-            atLeast: 1
-        ))
+        let expectedFreshTitle: String
+        if stateSyncProjectionRaces {
+            expectedFreshTitle = "State Sync Fresh Snapshot"
+            shell.applyRemoteWorkspaceList(
+                MobileSyncWorkspaceListResponse(
+                    workspaces: [
+                        .init(
+                            id: "live-workspace",
+                            windowID: nil,
+                            title: expectedFreshTitle,
+                            currentDirectory: nil,
+                            isSelected: true,
+                            isPinned: nil,
+                            groupID: nil,
+                            preview: nil,
+                            previewAt: nil,
+                            lastActivityAt: nil,
+                            hasUnread: nil,
+                            terminals: []
+                        ),
+                    ],
+                    groups: [],
+                    createdWorkspaceID: nil,
+                    createdTerminalID: nil
+                )
+            )
+        } else {
+            expectedFreshTitle = "Event Fresh Snapshot"
+            let targetTransport = try #require(targetTransportBox.get())
+            await targetTransport.deliver(
+                try promotionWorkspaceUpdatedEventFrame()
+            )
+            #expect(await targetRouter.waitForCount(
+                of: "mobile.workspace.list",
+                atLeast: 1
+            ))
+        }
 
         await targetRouter.releaseAllHeld()
         #expect(await switchTask.value)
         #expect(try await pollUntil {
             shell.workspacesByMac["mac-b"]?.workspaces.first?.name
-                == "Event Fresh Snapshot"
+                == expectedFreshTitle
         })
         #expect(shell.workspacesByMac["mac-b"]?.workspaces.first?.name
             != "Stale Promotion Snapshot")

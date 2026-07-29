@@ -816,6 +816,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Advances before every foreground `workspace.updated` refetch. Promotion
     /// rejects its own handoff snapshot when a newer event races that fetch.
     var workspaceListEventGeneration: UInt64 = 0
+    /// Advances whenever the shared foreground list application seam runs,
+    /// including mobile state-sync snapshots and deltas.
+    var foregroundWorkspaceStateRevision: UInt64 = 0
     @ObservationIgnored var workspaceChangesSummaryDebounceTask: Task<Void, Never>?
     @ObservationIgnored var workspaceChangesSummaryDebounceTaskID: UUID?
     @ObservationIgnored var workspaceChangesSummaryFetchTask: Task<Void, Never>?
@@ -5056,6 +5059,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         subscription.workspaceRefreshGeneration &+= 1
         subscription.refreshPending = true
+        if let deferredRefreshTask = subscription.deferredRefreshTask {
+            return deferredRefreshTask
+        }
         if let refreshTask = subscription.refreshTask {
             return refreshTask
         }
@@ -5136,15 +5142,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // during either request without creating an unbounded scan
                 // train under a hot `workspace.updated` stream.
                 if completedPassCount >= 2 {
-                    subscription.refreshPending = false
                     break
                 }
             } while subscription.refreshPending
 
             guard subscription.refreshOperationID == operationID else { return }
+            let needsDeferredRefresh =
+                subscription.refreshPending && !refreshFailed
             subscription.refreshTask = nil
             subscription.refreshOperationID = nil
-            subscription.refreshPending = false
+            subscription.refreshPending = needsDeferredRefresh
+            if needsDeferredRefresh {
+                self.scheduleDeferredSecondaryWorkspaceRefresh(
+                    subscription,
+                    displayName: displayName
+                )
+            }
             guard refreshFailed,
                   self.secondaryMacSubscriptions[macID] === subscription,
                   !subscription.isTransitioningToFocus else {
@@ -5161,6 +5174,48 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         subscription.refreshTask = refreshTask
         return refreshTask
+    }
+
+    /// Preserve one edge that arrives during a trailing full-list fetch without
+    /// immediately chaining another owner. Events during this short pause
+    /// coalesce, limiting sustained churn to one leading/trailing pair per
+    /// half-second while guaranteeing a post-edge snapshot.
+    private func scheduleDeferredSecondaryWorkspaceRefresh(
+        _ subscription: SecondaryMacSubscription,
+        displayName: String?
+    ) {
+        let macDeviceID = subscription.macDeviceID
+        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+              !subscription.isTransitioningToFocus,
+              subscription.deferredRefreshTask == nil else {
+            return
+        }
+        let operationID = UUID()
+        let clock = controlPlaneSchedulingClock
+        subscription.deferredRefreshOperationID = operationID
+        subscription.deferredRefreshTask = Task { @MainActor [weak self] in
+            do {
+                try await clock.sleep(for: .milliseconds(500))
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  subscription.deferredRefreshOperationID == operationID,
+                  self.secondaryMacSubscriptions[macDeviceID]
+                    === subscription,
+                  !subscription.isTransitioningToFocus else {
+                return
+            }
+            subscription.deferredRefreshTask = nil
+            subscription.deferredRefreshOperationID = nil
+            subscription.refreshPending = false
+            let refresh = self.enqueueSecondaryWorkspaceRefresh(
+                subscription,
+                displayName: displayName
+            )
+            await refresh?.value
+        }
     }
 
     /// Coalesced full-list refresh for a secondary Mac driven by
@@ -10037,6 +10092,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         groupsAreAuthoritative: Bool = true,
         changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope = .fullSnapshot
     ) {
+        foregroundWorkspaceStateRevision &+= 1
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
         // Write the foreground Mac's per-Mac state; `workspaces` / `workspaceGroups`
         // recompute from the source of truth automatically (no explicit merge or

@@ -66,6 +66,10 @@ final class SecondaryMacSubscription {
     /// Identifies the current per-Mac workspace refresh owner so an older task
     /// cannot clear a replacement after cancellation or role transition.
     var refreshOperationID: UUID?
+    /// Coalescing pause between bounded leading/trailing refresh owners. A hot
+    /// event stream gets periodic freshness without a tight request train.
+    var deferredRefreshTask: Task<Void, Never>?
+    var deferredRefreshOperationID: UUID?
     var refreshPending = false
     /// Increments for every workspace event, including events coalesced behind
     /// an in-flight refresh, so independent catch-up fetches cannot overwrite
@@ -111,6 +115,9 @@ final class SecondaryMacSubscription {
         refreshTask?.cancel()
         refreshTask = nil
         refreshOperationID = nil
+        deferredRefreshTask?.cancel()
+        deferredRefreshTask = nil
+        deferredRefreshOperationID = nil
         let client = self.client
         Task { await client.disconnect() }
     }
@@ -122,5 +129,8 @@ final class SecondaryMacSubscription {
         refreshTask?.cancel()
         refreshTask = nil
         refreshOperationID = nil
+        deferredRefreshTask?.cancel()
+        deferredRefreshTask = nil
+        deferredRefreshOperationID = nil
     }
 }

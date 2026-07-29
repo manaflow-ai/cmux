@@ -379,6 +379,7 @@ extension MobileShellComposite {
             return false
         }
         let snapshotEventGeneration = workspaceListEventGeneration
+        let snapshotStateRevision = foregroundWorkspaceStateRevision
         let authoritativeWorkspaceAttempt = await fetchSecondaryWorkspaces(
             on: sub.client,
             macDeviceID: macID
@@ -401,7 +402,8 @@ extension MobileShellComposite {
         // A workspace event that raced the fetch already owns a fresh
         // foreground refetch. Never overwrite its result with this older
         // response.
-        if workspaceListEventGeneration == snapshotEventGeneration {
+        if workspaceListEventGeneration == snapshotEventGeneration,
+           foregroundWorkspaceStateRevision == snapshotStateRevision {
             workspacesByMac[macID] = MacWorkspaceState(
                 macDeviceID: macID,
                 displayName: displayName,
@@ -409,6 +411,7 @@ extension MobileShellComposite {
                 status: .connected,
                 actionCapabilities: sub.actionCapabilities
             )
+            foregroundWorkspaceStateRevision &+= 1
         }
         selectWorkspaceOnCurrentForegroundMac()
         // The old foreground snapshot remains live through its new control
