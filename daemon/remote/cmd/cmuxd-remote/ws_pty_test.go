@@ -28,6 +28,19 @@ import (
 	"nhooyr.io/websocket"
 )
 
+type doneObservedContext struct {
+	context.Context
+	observed chan<- struct{}
+}
+
+func (c doneObservedContext) Done() <-chan struct{} {
+	select {
+	case c.observed <- struct{}{}:
+	default:
+	}
+	return c.Context.Done()
+}
+
 func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server, *wsPTYHub) {
 	t.Helper()
 	stderr := &bytes.Buffer{}
@@ -234,11 +247,11 @@ func TestAttachRPCConcurrentSameSessionStartsOnce(t *testing.T) {
 		return openPTY()
 	}
 
-	attach := func(attachmentID string) <-chan error {
+	attach := func(ctx context.Context, attachmentID string) <-chan error {
 		result := make(chan error, 1)
 		go func() {
 			_, _, _, err := hub.attachRPC(
-				context.Background(),
+				ctx,
 				"shared-session",
 				attachmentID,
 				80,
@@ -253,13 +266,32 @@ func TestAttachRPCConcurrentSameSessionStartsOnce(t *testing.T) {
 		return result
 	}
 
-	firstResult := attach("first-attachment")
+	firstResult := attach(context.Background(), "first-attachment")
 	select {
 	case <-startEntered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("first attach never attempted PTY allocation")
 	}
-	secondResult := attach("second-attachment")
+
+	secondWaiting := make(chan struct{}, 1)
+	secondResult := attach(
+		doneObservedContext{Context: context.Background(), observed: secondWaiting},
+		"second-attachment",
+	)
+	select {
+	case <-secondWaiting:
+	case <-time.After(time.Second):
+		close(releaseStart)
+		<-firstResult
+		<-secondResult
+		t.Fatal("second attach did not join the in-flight session start")
+	}
+	if got := startCount.Load(); got != 1 {
+		close(releaseStart)
+		<-firstResult
+		<-secondResult
+		t.Fatalf("PTY start count before release = %d, want 1", got)
+	}
 	close(releaseStart)
 
 	if err := <-firstResult; err != nil {
