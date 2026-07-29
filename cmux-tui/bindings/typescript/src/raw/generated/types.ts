@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96. */
+/* cmux-tui mux protocol 10, IR d5b3f1b4afa1f85602b7de0c6e91dcbd390a9d802f46a4ad65b15298b158ee43. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -183,6 +183,23 @@ export type Layout = ({ "type": "leaf" } & {
   "panes": Array<Id>;
   "type": "stack";
 });
+
+export type LayoutUndoConfirmationRequired = {
+  "closes_panes": Array<Id>;
+  "confirmation_required": true;
+  "revision": bigint;
+  "screen": Id;
+  "undone": false;
+};
+
+export type LayoutUndoResult = (LayoutUndoUndone) | (LayoutUndoConfirmationRequired);
+
+export type LayoutUndoUndone = {
+  "confirmation_required"?: false;
+  "revision": bigint;
+  "screen": Id;
+  "undone": true;
+};
 
 export type ListAgentsResult = {
   "agents": Array<AgentRecord>;
@@ -414,7 +431,33 @@ export type TerminalEventsResult = {
   "terminal_revision": bigint;
 };
 
+export type TerminalKey = "unidentified" | "backquote" | "backslash" | "bracket-left" | "bracket-right" | "comma" | "digit0" | "digit1" | "digit2" | "digit3" | "digit4" | "digit5" | "digit6" | "digit7" | "digit8" | "digit9" | "equal" | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" | "minus" | "period" | "quote" | "semicolon" | "slash" | "backspace" | "enter" | "space" | "tab" | "delete" | "end" | "home" | "insert" | "page-down" | "page-up" | "arrow-down" | "arrow-left" | "arrow-right" | "arrow-up" | "numpad0" | "numpad1" | "numpad2" | "numpad3" | "numpad4" | "numpad5" | "numpad6" | "numpad7" | "numpad8" | "numpad9" | "numpad-add" | "numpad-backspace" | "numpad-comma" | "numpad-decimal" | "numpad-divide" | "numpad-enter" | "numpad-equal" | "numpad-multiply" | "numpad-subtract" | "numpad-up" | "numpad-down" | "numpad-right" | "numpad-left" | "numpad-begin" | "numpad-home" | "numpad-end" | "numpad-insert" | "numpad-delete" | "numpad-page-up" | "numpad-page-down" | "escape" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" | "f13" | "f14" | "f15" | "f16" | "f17" | "f18" | "f19" | "f20";
+
+export type TerminalKeyAction = "press" | "release" | "repeat";
+
+export type TerminalKeyInput = {
+  "action"?: (TerminalKeyAction) | null;
+  "base_layout_codepoint"?: (string) | null;
+  "composing"?: boolean;
+  "consumed_mods": TerminalModifiers;
+  "key": TerminalKey;
+  "macos_option_as_alt": boolean;
+  "mods": TerminalModifiers;
+  "shifted_codepoint"?: (string) | null;
+  "unshifted_codepoint"?: (string) | null;
+  "utf8": string;
+};
+
 export type TerminalLifecycle = "launching" | "adopting" | "running" | "exited" | "tombstoned";
+
+export type TerminalModifiers = {
+  "alt": boolean;
+  "caps_lock": boolean;
+  "control": boolean;
+  "num_lock": boolean;
+  "shift": boolean;
+  "super": boolean;
+};
 
 export type TerminalPlacement = {
   "generation": string;

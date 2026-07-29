@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-import cmux
-from cmux import (
+import cmux.raw as cmux
+from cmux.raw import (
     CmuxClient,
     LayoutLeaf,
     LivePane,

@@ -1,0 +1,405 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  Client,
+  ExternalMachineSpecifier,
+  MutationIndeterminateError,
+  ProviderCredential,
+  machineId,
+  paneId,
+  providerNoticeId,
+  providerScopeId,
+  RendererGrant,
+  ResourceError,
+  StreamError,
+  decimalString,
+  exact,
+  screenId,
+  sessionId,
+  shell,
+  shellExecutable,
+  tabId,
+  terminalId,
+  workspaceId,
+  type Transport,
+  type Unsubscribe,
+} from "../src/index.js";
+import { CmuxClient } from "../src/raw/index.js";
+
+const HEX_A = "a".repeat(32);
+const HEX_B = "b".repeat(32);
+const HEX_C = "c".repeat(32);
+const SESSION = sessionId(`session_${HEX_A}`);
+const WORKSPACE = workspaceId(`ws_${HEX_B}`);
+const TERMINAL = terminalId(`term_${HEX_C}`);
+const MACHINE = machineId(`machine_${HEX_A}`);
+const SCREEN = screenId(`screen_${HEX_C}`);
+const PANE = paneId(`pane_${HEX_A}`);
+const TAB = tabId(`tab_${HEX_B}`);
+const PROVIDER_SCOPE = providerScopeId(`provider_scope_${HEX_A}`);
+const PROVIDER_NOTICE = providerNoticeId(`provider_notice_${HEX_B}`);
+
+type Envelope = Record<string, unknown>;
+
+class FakeTransport implements Transport {
+  readonly requests: Envelope[] = [];
+  private readonly messages = new Set<(json: string) => void>();
+  private readonly closes = new Set<() => void>();
+  private readonly errors = new Set<(error: Error) => void>();
+
+  constructor(
+    private readonly responder: (
+      request: Envelope,
+      transport: FakeTransport,
+    ) => void,
+  ) {}
+
+  send(json: string): void {
+    const request = JSON.parse(json) as Envelope;
+    this.requests.push(request);
+    this.responder(request, this);
+  }
+
+  onMessage(handler: (json: string) => void): Unsubscribe {
+    this.messages.add(handler);
+    return () => this.messages.delete(handler);
+  }
+
+  onClose(handler: () => void): Unsubscribe {
+    this.closes.add(handler);
+    return () => this.closes.delete(handler);
+  }
+
+  onError(handler: (error: Error) => void): Unsubscribe {
+    this.errors.add(handler);
+    return () => this.errors.delete(handler);
+  }
+
+  close(): void {}
+
+  emit(envelope: Envelope): void {
+    const json = JSON.stringify(envelope);
+    for (const handler of this.messages) handler(json);
+  }
+
+  ok(request: Envelope, result: unknown): void {
+    this.emit({
+      protocol: "cmux.protocol/1",
+      type: "response",
+      id: request.id,
+      ok: true,
+      result,
+    });
+  }
+}
+
+test("resource root, raw boundary, exact commands, and idempotency keys", async () => {
+  const randomValues = [HEX_A, HEX_B, HEX_C];
+  const transport = new FakeTransport((request, current) => {
+    current.ok(request, {
+      value: {
+        kind: "terminal",
+        workspace_id: WORKSPACE,
+        screen_id: SCREEN,
+        pane_id: PANE,
+        tab_id: TAB,
+        terminal_id: TERMINAL,
+      },
+      generation: "generation-a",
+      revision: "18446744073709551615",
+      replayed: false,
+    });
+  });
+  const client = new Client({
+    transport,
+    randomHex128: () => randomValues.shift()!,
+  });
+  const workspace = client.session(SESSION).workspace(WORKSPACE);
+  const created = await workspace.run({ command: exact(["printf", "%s", "$HOME"]) });
+  await workspace.run({ command: shell("printf %s \"$HOME\"") });
+  await workspace.run({
+    command: shellExecutable("/bin/zsh", "echo $(uname)"),
+  });
+
+  assert.equal(typeof Client, "function");
+  assert.equal(typeof CmuxClient, "function");
+  assert.equal(created.value.terminal?.id, TERMINAL);
+  assert.equal(created.revision, "18446744073709551615");
+  assert.deepEqual(
+    transport.requests.map((request) => request.idempotency_key),
+    [`ts-${HEX_A}`, `ts-${HEX_B}`, `ts-${HEX_C}`],
+  );
+  const common = { machine: "current", session: SESSION, workspace: WORKSPACE };
+  assert.deepEqual(transport.requests[0]?.params, {
+    ...common,
+    argv: ["printf", "%s", "$HOME"],
+  });
+  assert.deepEqual(transport.requests[1]?.params, {
+    ...common,
+    shell: "printf %s \"$HOME\"",
+  });
+  assert.deepEqual(transport.requests[2]?.params, {
+    ...common,
+    argv: ["/bin/zsh", "-lc", "echo $(uname)"],
+  });
+  client.close();
+});
+
+test("structured errors preserve fields", async () => {
+  const transport = new FakeTransport((request, current) => {
+    current.emit({
+      protocol: "cmux.protocol/1",
+      type: "response",
+      id: request.id,
+      ok: false,
+      error: {
+        code: "selector.not_found",
+        message: "session is gone",
+        details: { session: SESSION },
+        retryable: false,
+      },
+    });
+  });
+  const client = new Client({ transport });
+  await assert.rejects(
+    () => client.session(SESSION).ping(),
+    (error: unknown) => {
+      assert.ok(error instanceof ResourceError);
+      assert.equal(error.code, "selector.not_found");
+      assert.equal(error.message, "session is gone");
+      assert.deepEqual(error.details, { session: SESSION });
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+  client.close();
+});
+
+test("optional fields and expected revisions reach the wire", async () => {
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "notification.list" || request.operation === "agent.list") {
+      current.ok(request, []);
+      return;
+    }
+    if (request.operation === "provider_notice.acknowledge") {
+      current.ok(request, {});
+      return;
+    }
+    current.emit({
+      protocol: "cmux.protocol/1",
+      type: "response",
+      id: request.id,
+      ok: false,
+      error: {
+        code: "operation.failed",
+        message: "fixture stop",
+        details: { operation: request.operation, reason: "fixture" },
+        retryable: false,
+      },
+    });
+  });
+  const client = new Client({ transport });
+  await assert.rejects(
+    () => client.machine(MACHINE).rename("renamed", {
+      confirmClose: true,
+      expectedRevision: decimalString("7"),
+      idempotencyKey: "machine-rename",
+    }),
+    ResourceError,
+  );
+  await assert.rejects(
+    () => client.session(SESSION).workspace(WORKSPACE).screen(SCREEN).undoLayout({
+      confirmClose: true,
+      expectedRevision: decimalString("8"),
+      idempotencyKey: "screen-undo",
+    }),
+    ResourceError,
+  );
+  const session = client.session(SESSION);
+  assert.deepEqual(await session.listNotifications({ limit: 7 }), []);
+  assert.deepEqual(
+    await session.listAgents({ terminalId: TERMINAL, state: "working" }),
+    [],
+  );
+  await client.providerScope(PROVIDER_SCOPE).notice(PROVIDER_NOTICE).acknowledge(
+    decimalString("18446744073709551615"),
+  );
+
+  const request = (operation: string): Envelope =>
+    transport.requests.find((item) => item.operation === operation)!;
+  assert.deepEqual(request("machine.rename").params, {
+    machine: MACHINE,
+    name: "renamed",
+    confirm_close: true,
+    expected_revision: "7",
+  });
+  assert.equal(
+    (request("screen.layout.undo").params as Envelope).confirm_close,
+    true,
+  );
+  assert.equal(
+    (request("screen.layout.undo").params as Envelope).expected_revision,
+    "8",
+  );
+  assert.equal((request("notification.list").params as Envelope).limit, 7);
+  assert.equal(
+    (request("agent.list").params as Envelope).terminal_id,
+    TERMINAL,
+  );
+  assert.equal((request("agent.list").params as Envelope).state, "working");
+  assert.equal(
+    (request("provider_notice.acknowledge").params as Envelope).sequence,
+    "18446744073709551615",
+  );
+  client.close();
+});
+
+test("indeterminate mutations are typed and never retried", async () => {
+  const transport = new FakeTransport((request, current) => {
+    current.emit({
+      protocol: "cmux.protocol/1",
+      type: "response",
+      id: request.id,
+      ok: false,
+      error: {
+        code: "mutation.indeterminate",
+        message: "external effect may have completed",
+        details: {
+          idempotency_key: request.idempotency_key,
+          operation: request.operation,
+          recovery: "inspect_state_then_retry_with_new_key",
+        },
+        retryable: false,
+      },
+    });
+  });
+  const client = new Client({ transport });
+  await assert.rejects(
+    () => client.machine(MACHINE).rename("external", {
+      idempotencyKey: "external-rename",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof MutationIndeterminateError);
+      assert.equal(error.code, "mutation.indeterminate");
+      assert.equal(error.retryable, false);
+      assert.deepEqual(error.details, {
+        idempotency_key: "external-rename",
+        operation: "machine.rename",
+        recovery: "inspect_state_then_retry_with_new_key",
+      });
+      return true;
+    },
+  );
+  assert.equal(transport.requests.length, 1);
+  client.close();
+});
+
+test("stream cancellation uses the opened route and purges buffered items", async () => {
+  let openedStream = "";
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id as string;
+    }
+    current.ok(request, {});
+  });
+  const client = new Client({
+    transport,
+    randomHex128: () => HEX_B,
+  });
+  const stream = await client.session(SESSION).events();
+  for (let index = 0; index < 2; index += 1) {
+    transport.emit({
+      protocol: "cmux.protocol/1",
+      type: "stream_item",
+      stream_id: openedStream,
+      sequence: String(index),
+      item: { kind: "future", index },
+    });
+  }
+  const first = await stream.next();
+  assert.equal(first.done, false);
+  assert.deepEqual(first.value?.value, {
+    kind: "future",
+    raw: { kind: "future", index: 0 },
+  });
+  await stream.cancel();
+  assert.deepEqual(await stream.next(), { done: true, value: undefined });
+  const cancel = transport.requests.find(
+    (request) => request.operation === "stream.cancel",
+  );
+  assert.deepEqual(cancel?.params, {
+    machine: "current",
+    session: SESSION,
+    stream: openedStream,
+  });
+  client.close();
+});
+
+test("stream overflow is isolated and sends best-effort selector cancellation", async () => {
+  let openedStream = "";
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+      return;
+    }
+    current.ok(request, {});
+  });
+  const client = new Client({
+    transport,
+    randomHex128: () => HEX_C,
+  });
+  const session = client.session(SESSION);
+  const stream = await session.events();
+  for (let index = 0; index <= 256; index += 1) {
+    transport.emit({
+      protocol: "cmux.protocol/1",
+      type: "stream_item",
+      stream_id: openedStream,
+      sequence: String(index),
+      item: { kind: "changed", data: { index } },
+    });
+  }
+  await assert.rejects(() => stream.next(), StreamError);
+
+  const ping = await session.ping();
+  assert.deepEqual(ping, {});
+  const cancel = transport.requests.find(
+    (request) => request.operation === "stream.cancel",
+  );
+  assert.deepEqual(cancel?.params, {
+    machine: "current",
+    session: SESSION,
+    stream: openedStream,
+  });
+  assert.equal(cancel?.idempotency_key, undefined);
+  client.close();
+});
+
+test("credentials and renderer grants are redacted and one-use", () => {
+  const specifier = new ExternalMachineSpecifier("provider://machine-secret");
+  assert.equal(String(specifier), "<redacted>");
+  assert.equal(specifier.take(), "provider://machine-secret");
+  assert.throws(() => specifier.take(), /already consumed/);
+
+  const credential = new ProviderCredential("token", "provider-secret");
+  assert.equal(String(credential), "<redacted>");
+  assert.equal(JSON.stringify(credential), "\"<redacted>\"");
+  assert.deepEqual(credential.toWire(), {
+    name: "token",
+    value: "provider-secret",
+  });
+  assert.throws(() => credential.toWire(), /already consumed/);
+
+  const grant = new RendererGrant(
+    "renderer-secret",
+    "unix:///tmp/renderer.sock",
+    TERMINAL,
+    ["render"],
+    1_000,
+  );
+  assert.equal(String(grant), "<redacted>");
+  assert.equal(grant.take(), "renderer-secret");
+  assert.throws(() => grant.take(), /already consumed/);
+});

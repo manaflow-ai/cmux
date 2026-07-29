@@ -4,7 +4,7 @@ import {
   WebSocketTransport,
   type WebSocketConstructor,
   type WebSocketLike,
-} from "../src/websocket-transport.js";
+} from "../src/raw/websocket-transport.js";
 
 class FakeWebSocket implements WebSocketLike {
   static readonly instances: FakeWebSocket[] = [];

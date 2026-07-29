@@ -4,14 +4,14 @@ import unittest
 import inspect
 from typing import Any, Mapping
 
-from cmux._generated import codec
-from cmux._generated._schema import SCHEMA
-from cmux._generated.codec import (
+from cmux.raw._generated import codec
+from cmux.raw._generated._schema import SCHEMA
+from cmux.raw._generated.codec import (
     decode_command_result,
     decode_event,
     encode_request,
 )
-from cmux._generated.client import GeneratedClientMixin
+from cmux.raw._generated.client import GeneratedClientMixin
 
 
 class _RecordingClient(GeneratedClientMixin):

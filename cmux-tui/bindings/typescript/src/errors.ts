@@ -1,6 +1,3 @@
-import type { CmuxCommand } from "./generated/commands.js";
-import type { CmuxAuthority } from "./generated/metadata.js";
-
 export class CmuxError extends Error {
   constructor(message: string) {
     super(message);
@@ -8,14 +5,35 @@ export class CmuxError extends Error {
   }
 }
 
-export class CmuxCommandError extends CmuxError {
-  readonly commandId: unknown;
-  readonly response: unknown;
+/** Every structured protocol error field is retained. */
+export class ResourceError<
+  Code extends string = string,
+  Details = unknown,
+> extends CmuxError {
+  readonly code: Code;
+  readonly details: Details;
+  readonly retryable: boolean;
 
-  constructor(message: string, commandId?: unknown, response?: unknown) {
+  constructor(code: Code, message: string, details: Details, retryable: boolean) {
     super(message);
-    this.commandId = commandId;
-    this.response = response;
+    this.code = code;
+    this.details = details;
+    this.retryable = retryable;
+  }
+}
+
+export interface MutationIndeterminateDetails {
+  readonly idempotency_key: string;
+  readonly operation: string;
+  readonly recovery: "inspect_state_then_retry_with_new_key";
+}
+
+export class MutationIndeterminateError extends ResourceError<
+  "mutation.indeterminate",
+  MutationIndeterminateDetails
+> {
+  constructor(message: string, details: MutationIndeterminateDetails) {
+    super("mutation.indeterminate", message, details, false);
   }
 }
 
@@ -24,20 +42,22 @@ export class CmuxProtocolError extends CmuxError {}
 export class CmuxTimeoutError extends CmuxError {}
 export class CmuxAbortError extends CmuxError {}
 
-/** A command was blocked locally because its authority was not enabled. */
-export class CmuxAuthorityError extends CmuxError {
-  readonly command: CmuxCommand;
-  readonly requiredAuthority: CmuxAuthority;
-  readonly grantedAuthorities: readonly CmuxAuthority[];
+export class StreamError extends CmuxError {
+  readonly reason: string;
+  readonly error: ResourceError | undefined;
+  readonly recovery: string | undefined;
 
   constructor(
-    command: CmuxCommand,
-    requiredAuthority: CmuxAuthority,
-    grantedAuthorities: readonly CmuxAuthority[],
+    reason: string,
+    options: { error?: ResourceError; recovery?: string } = {},
   ) {
-    super(`${command} requires ${requiredAuthority} authority`);
-    this.command = command;
-    this.requiredAuthority = requiredAuthority;
-    this.grantedAuthorities = Object.freeze([...grantedAuthorities]);
+    super(
+      `stream ended: ${reason}`
+        + (options.error ? `: ${options.error.message}` : "")
+        + (options.recovery ? ` (${options.recovery})` : ""),
+    );
+    this.reason = reason;
+    this.error = options.error;
+    this.recovery = options.recovery;
   }
 }

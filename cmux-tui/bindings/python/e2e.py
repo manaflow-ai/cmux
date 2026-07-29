@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cmux import CommandError, CmuxClient, TimeoutError as CmuxTimeoutError  # noqa: E402
+from cmux.raw import CommandError, CmuxClient, TimeoutError as CmuxTimeoutError  # noqa: E402
 
 
 def main() -> int:

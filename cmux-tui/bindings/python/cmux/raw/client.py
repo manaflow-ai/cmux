@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import threading
 import weakref
 from collections import deque
@@ -17,7 +16,7 @@ from ._generated.codec import (
 )
 from ._generated.metadata import COMMANDS, CommandMetadata
 from ._generated.models import AnyEvent, MISSING, MissingType, ReadScrollbackResult
-from .errors import (
+from ..errors import (
     AuthorityError,
     CmuxConnectionError,
     CmuxError,
@@ -25,23 +24,12 @@ from .errors import (
     ProtocolError,
     TimeoutError,
 )
-from .transport import DEFAULT_MAX_LINE_BYTES, JsonLineConnection
+from ..client_defaults import default_socket_path, env_socket_path
+from ..transport import DEFAULT_MAX_LINE_BYTES, JsonLineConnection
 
 
 DEFAULT_MAX_PRE_ACK_EVENTS = 256
 DEFAULT_MAX_IGNORED_FRAMES = 256
-
-
-def default_socket_path(session: str = "main") -> str:
-    runtime = os.environ.get("XDG_RUNTIME_DIR")
-    if not runtime:
-        runtime = os.environ.get("TMPDIR") or "/tmp"
-    return os.path.join(runtime, f"cmux-tui-{os.getuid()}", f"{session}.sock")
-
-
-def env_socket_path() -> Optional[str]:
-    return os.environ.get("CMUX_TUI_SOCKET") or os.environ.get("CMUX_MUX_SOCKET")
-
 
 def _json_value(value: Any) -> Any:
     if value is MISSING:

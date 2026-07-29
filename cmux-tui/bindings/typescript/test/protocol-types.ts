@@ -11,7 +11,7 @@ import type {
   KnownCmuxEvent,
   SerializedButNotEmittedEvent,
   Tree,
-} from "cmux/browser";
+} from "cmux/raw";
 
 const surface: Id = 18_446_744_073_709_551_615n;
 

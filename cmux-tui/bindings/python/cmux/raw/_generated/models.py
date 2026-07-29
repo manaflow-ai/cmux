@@ -85,6 +85,126 @@ class SplitDirection(str, Enum):
     RIGHT = 'right'
     DOWN = 'down'
 
+class TerminalKey(str, Enum):
+    UNIDENTIFIED = 'unidentified'
+    BACKQUOTE = 'backquote'
+    BACKSLASH = 'backslash'
+    BRACKET_LEFT = 'bracket-left'
+    BRACKET_RIGHT = 'bracket-right'
+    COMMA = 'comma'
+    DIGIT0 = 'digit0'
+    DIGIT1 = 'digit1'
+    DIGIT2 = 'digit2'
+    DIGIT3 = 'digit3'
+    DIGIT4 = 'digit4'
+    DIGIT5 = 'digit5'
+    DIGIT6 = 'digit6'
+    DIGIT7 = 'digit7'
+    DIGIT8 = 'digit8'
+    DIGIT9 = 'digit9'
+    EQUAL = 'equal'
+    A = 'a'
+    B = 'b'
+    C = 'c'
+    D = 'd'
+    E = 'e'
+    F = 'f'
+    G = 'g'
+    H = 'h'
+    I = 'i'
+    J = 'j'
+    K = 'k'
+    L = 'l'
+    M = 'm'
+    N = 'n'
+    O = 'o'
+    P = 'p'
+    Q = 'q'
+    R = 'r'
+    S = 's'
+    T = 't'
+    U = 'u'
+    V = 'v'
+    W = 'w'
+    X = 'x'
+    Y = 'y'
+    Z = 'z'
+    MINUS = 'minus'
+    PERIOD = 'period'
+    QUOTE = 'quote'
+    SEMICOLON = 'semicolon'
+    SLASH = 'slash'
+    BACKSPACE = 'backspace'
+    ENTER = 'enter'
+    SPACE = 'space'
+    TAB = 'tab'
+    DELETE = 'delete'
+    END = 'end'
+    HOME = 'home'
+    INSERT = 'insert'
+    PAGE_DOWN = 'page-down'
+    PAGE_UP = 'page-up'
+    ARROW_DOWN = 'arrow-down'
+    ARROW_LEFT = 'arrow-left'
+    ARROW_RIGHT = 'arrow-right'
+    ARROW_UP = 'arrow-up'
+    NUMPAD0 = 'numpad0'
+    NUMPAD1 = 'numpad1'
+    NUMPAD2 = 'numpad2'
+    NUMPAD3 = 'numpad3'
+    NUMPAD4 = 'numpad4'
+    NUMPAD5 = 'numpad5'
+    NUMPAD6 = 'numpad6'
+    NUMPAD7 = 'numpad7'
+    NUMPAD8 = 'numpad8'
+    NUMPAD9 = 'numpad9'
+    NUMPAD_ADD = 'numpad-add'
+    NUMPAD_BACKSPACE = 'numpad-backspace'
+    NUMPAD_COMMA = 'numpad-comma'
+    NUMPAD_DECIMAL = 'numpad-decimal'
+    NUMPAD_DIVIDE = 'numpad-divide'
+    NUMPAD_ENTER = 'numpad-enter'
+    NUMPAD_EQUAL = 'numpad-equal'
+    NUMPAD_MULTIPLY = 'numpad-multiply'
+    NUMPAD_SUBTRACT = 'numpad-subtract'
+    NUMPAD_UP = 'numpad-up'
+    NUMPAD_DOWN = 'numpad-down'
+    NUMPAD_RIGHT = 'numpad-right'
+    NUMPAD_LEFT = 'numpad-left'
+    NUMPAD_BEGIN = 'numpad-begin'
+    NUMPAD_HOME = 'numpad-home'
+    NUMPAD_END = 'numpad-end'
+    NUMPAD_INSERT = 'numpad-insert'
+    NUMPAD_DELETE = 'numpad-delete'
+    NUMPAD_PAGE_UP = 'numpad-page-up'
+    NUMPAD_PAGE_DOWN = 'numpad-page-down'
+    ESCAPE = 'escape'
+    F1 = 'f1'
+    F2 = 'f2'
+    F3 = 'f3'
+    F4 = 'f4'
+    F5 = 'f5'
+    F6 = 'f6'
+    F7 = 'f7'
+    F8 = 'f8'
+    F9 = 'f9'
+    F10 = 'f10'
+    F11 = 'f11'
+    F12 = 'f12'
+    F13 = 'f13'
+    F14 = 'f14'
+    F15 = 'f15'
+    F16 = 'f16'
+    F17 = 'f17'
+    F18 = 'f18'
+    F19 = 'f19'
+    F20 = 'f20'
+
+class TerminalKeyAction(str, Enum):
+    PRESS = 'press'
+    RELEASE = 'release'
+    REPEAT = 'repeat'
+
 class TerminalLifecycle(str, Enum):
     LAUNCHING = 'launching'
     ADOPTING = 'adopting'
@@ -311,6 +431,25 @@ class LayoutStack:
     expanded: Id
     panes: List[Id]
     type: Literal['stack']
+
+
+@dataclass(frozen=True)
+class LayoutUndoConfirmationRequired:
+    __cmux_schema_path__: ClassVar[str] = 'types/LayoutUndoConfirmationRequired'
+    screen: Id
+    closes_panes: List[Id]
+    confirmation_required: Literal[True]
+    revision: int
+    undone: Literal[False]
+
+
+@dataclass(frozen=True)
+class LayoutUndoUndone:
+    __cmux_schema_path__: ClassVar[str] = 'types/LayoutUndoUndone'
+    screen: Id
+    revision: int
+    undone: Literal[True]
+    confirmation_required: Union[Literal[False], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -592,6 +731,32 @@ class TerminalEventsResult:
 
 
 @dataclass(frozen=True)
+class TerminalKeyInput:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalKeyInput'
+    consumed_mods: TerminalModifiers
+    key: TerminalKey
+    macos_option_as_alt: bool
+    mods: TerminalModifiers
+    utf8: str
+    action: Union[TerminalKeyAction, None, MissingType] = field(default=MISSING)
+    base_layout_codepoint: Union[str, None, MissingType] = field(default=MISSING)
+    composing: Union[bool, MissingType] = field(default=MISSING)
+    shifted_codepoint: Union[str, None, MissingType] = field(default=MISSING)
+    unshifted_codepoint: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalModifiers:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalModifiers'
+    alt: bool
+    caps_lock: bool
+    control: bool
+    num_lock: bool
+    shift: bool
+    super: bool
+
+
+@dataclass(frozen=True)
 class TerminalPlacement:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalPlacement'
     surface: Id
@@ -777,6 +942,13 @@ class BrowserWheelRequest:
     x_px: float
     y_px: float
     delta_y_px: float
+
+
+@dataclass(frozen=True)
+class ClearHistoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/clear-history/request'
+    surface: Id
+    fallback_key: Union[TerminalKeyInput, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -999,6 +1171,15 @@ class NewPaneRequest:
     pane: Id
     cols: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class NewPaneRightRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/new-pane-right/request'
+    pane: Id
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+    width: Union[float, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1283,6 +1464,15 @@ class SetSplitRatioRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-split-ratio/request'
     split: Id
     ratio: float
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetViewportPaneWidthRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-viewport-pane-width/request'
+    pane: Id
+    width: float
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1334,6 +1524,14 @@ class SwapPaneRequest:
 class TerminalEventsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-events/request'
     after_revision: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class UndoLayoutRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/undo-layout/request'
+    pane: Id
+    confirm_close: Union[bool, MissingType] = field(default=MISSING)
+    revision: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1846,6 +2044,7 @@ DeclarativeLayout = Union[DeclarativeLayoutLeaf, DeclarativeLayoutSplit, Declara
 Id = int
 JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
+LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 
 KnownEvent = Union[BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
@@ -1867,6 +2066,8 @@ __all__ = [
     'PaneDirection',
     'RenderUnderline',
     'SplitDirection',
+    'TerminalKey',
+    'TerminalKeyAction',
     'TerminalLifecycle',
     'AgentRecord',
     'AppliedPane',
@@ -1893,6 +2094,8 @@ __all__ = [
     'LayoutLeaf',
     'LayoutSplit',
     'LayoutStack',
+    'LayoutUndoConfirmationRequired',
+    'LayoutUndoUndone',
     'ListAgentsResult',
     'ListTerminalsResult',
     'LivePane',
@@ -1922,6 +2125,8 @@ __all__ = [
     'Tab',
     'TerminalColors',
     'TerminalEventsResult',
+    'TerminalKeyInput',
+    'TerminalModifiers',
     'TerminalPlacement',
     'TerminalRecord',
     'TerminalRegistryEvent',
@@ -1942,6 +2147,7 @@ __all__ = [
     'BrowserNavigateRequest',
     'BrowserReloadRequest',
     'BrowserWheelRequest',
+    'ClearHistoryRequest',
     'ClearWindowTitleRequest',
     'ClosePaneRequest',
     'CloseProviderManagedWorkspaceRequest',
@@ -1970,6 +2176,7 @@ __all__ = [
     'MoveWorkspaceRequest',
     'NewBrowserTabRequest',
     'NewPaneRequest',
+    'NewPaneRightRequest',
     'NewScreenRequest',
     'NewTabRequest',
     'NewWorkspaceRequest',
@@ -2005,6 +2212,7 @@ __all__ = [
     'SetDefaultColorsRequest',
     'SetRatioRequest',
     'SetSplitRatioRequest',
+    'SetViewportPaneWidthRequest',
     'SetWindowTitleRequest',
     'ShutdownDaemonRequest',
     'SidebarPluginRequest',
@@ -2012,6 +2220,7 @@ __all__ = [
     'SubscribeRequest',
     'SwapPaneRequest',
     'TerminalEventsRequest',
+    'UndoLayoutRequest',
     'VtStateRequest',
     'WaitForRequest',
     'ZoomPaneRequest',
@@ -2065,5 +2274,6 @@ __all__ = [
     'Id',
     'JsonValue',
     'Layout',
+    'LayoutUndoResult',
     'Pane',
 ]

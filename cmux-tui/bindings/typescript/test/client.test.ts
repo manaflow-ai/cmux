@@ -4,17 +4,17 @@ import {
   CmuxClient,
   CmuxStream,
   type BrowserStreamEvent,
-} from "../src/client.js";
+} from "../src/raw/client.js";
 import {
   CmuxAbortError,
   CmuxCommandError,
   CmuxProtocolError,
   CmuxTimeoutError,
-} from "../src/errors.js";
+} from "../src/raw/errors.js";
 import type {
   DecodedResizedEvent,
   TreeDeltaEvent,
-} from "../src/protocol/index.js";
+} from "../src/raw/protocol/index.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
 import { stringifyWireJson } from "../src/wire-json.js";
 

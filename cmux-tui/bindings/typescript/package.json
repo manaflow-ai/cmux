@@ -1,7 +1,7 @@
 {
   "name": "cmux",
-  "version": "0.4.0",
-  "description": "Typed TypeScript client for cmux-tui frontends",
+  "version": "1.0.0",
+  "description": "Typed TypeScript resource client for cmux",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/manaflow-ai/cmux.git",
@@ -28,9 +28,14 @@
       "default": "./dist/src/browser.js"
     },
     "./node": {
-      "types": "./dist/src/index.d.ts",
-      "import": "./dist/src/index.js",
-      "default": "./dist/src/index.js"
+      "types": "./dist/src/node.d.ts",
+      "import": "./dist/src/node.js",
+      "default": "./dist/src/node.js"
+    },
+    "./raw": {
+      "types": "./dist/src/raw/index.d.ts",
+      "import": "./dist/src/raw/index.js",
+      "default": "./dist/src/raw/index.js"
     }
   },
   "sideEffects": false,

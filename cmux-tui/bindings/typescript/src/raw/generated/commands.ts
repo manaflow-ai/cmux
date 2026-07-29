@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96. */
+/* cmux-tui mux protocol 10, IR d5b3f1b4afa1f85602b7de0c6e91dcbd390a9d802f46a4ad65b15298b158ee43. */
 
 
 import type * as T from "./types.js";
@@ -121,6 +121,14 @@ export interface BrowserWheelRequest extends CmuxRequestBase {
   "y_px": number;
 }
 export type BrowserWheelResult = T.EmptyResult;
+
+/** Protocol v9; authority: control. */
+export interface ClearHistoryRequest extends CmuxRequestBase {
+  cmd: "clear-history";
+  "fallback_key"?: (T.TerminalKeyInput) | null;
+  "surface": T.Id;
+}
+export type ClearHistoryResult = T.EmptyResult;
 
 /** Protocol v6; authority: control. */
 export interface ClearWindowTitleRequest extends CmuxRequestBase {
@@ -356,6 +364,16 @@ export interface NewPaneRequest extends CmuxRequestBase {
   "rows"?: (number) | null;
 }
 export type NewPaneResult = T.SurfaceResult;
+
+/** Protocol v9; authority: control. */
+export interface NewPaneRightRequest extends CmuxRequestBase {
+  cmd: "new-pane-right";
+  "cols"?: (number) | null;
+  "pane": T.Id;
+  "rows"?: (number) | null;
+  "width"?: (number) | null;
+}
+export type NewPaneRightResult = T.SurfaceResult;
 
 /** Protocol v5; authority: control. */
 export interface NewScreenRequest extends CmuxRequestBase {
@@ -657,8 +675,18 @@ export interface SetSplitRatioRequest extends CmuxRequestBase {
   cmd: "set-split-ratio";
   "ratio": number;
   "split": T.Id;
+  "transaction"?: (bigint) | null;
 }
 export type SetSplitRatioResult = T.EmptyResult;
+
+/** Protocol v9; authority: control. */
+export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
+  cmd: "set-viewport-pane-width";
+  "pane": T.Id;
+  "transaction"?: (bigint) | null;
+  "width": number;
+}
+export type SetViewportPaneWidthResult = T.EmptyResult;
 
 /** Protocol v6; authority: control. */
 export interface SetWindowTitleRequest extends CmuxRequestBase {
@@ -715,6 +743,15 @@ export interface TerminalEventsRequest extends CmuxRequestBase {
   "after_revision"?: bigint;
 }
 
+/** Protocol v9; authority: control. */
+export interface UndoLayoutRequest extends CmuxRequestBase {
+  cmd: "undo-layout";
+  "confirm_close"?: boolean;
+  "pane": T.Id;
+  "revision"?: (bigint) | null;
+}
+export type UndoLayoutResult = T.LayoutUndoResult;
+
 /** Protocol v5; authority: control. */
 export interface VtStateRequest extends CmuxRequestBase {
   cmd: "vt-state";
@@ -750,6 +787,7 @@ export type CmuxRequest =
   | BrowserNavigateRequest
   | BrowserReloadRequest
   | BrowserWheelRequest
+  | ClearHistoryRequest
   | ClearWindowTitleRequest
   | ClosePaneRequest
   | CloseProviderManagedWorkspaceRequest
@@ -778,6 +816,7 @@ export type CmuxRequest =
   | MoveWorkspaceRequest
   | NewBrowserTabRequest
   | NewPaneRequest
+  | NewPaneRightRequest
   | NewScreenRequest
   | NewTabRequest
   | NewWorkspaceRequest
@@ -812,6 +851,7 @@ export type CmuxRequest =
   | SetDefaultColorsRequest
   | SetRatioRequest
   | SetSplitRatioRequest
+  | SetViewportPaneWidthRequest
   | SetWindowTitleRequest
   | ShutdownDaemonRequest
   | SidebarPluginRequest
@@ -819,6 +859,7 @@ export type CmuxRequest =
   | SubscribeRequest
   | SwapPaneRequest
   | TerminalEventsRequest
+  | UndoLayoutRequest
   | VtStateRequest
   | WaitForRequest
   | ZoomPaneRequest;
@@ -911,6 +952,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "clear-history": {
+    request: ClearHistoryRequest;
+    result: ClearHistoryResult;
+    authority: "control";
+    since: 9;
+    capability: "clear-history-v1";
     stream: null;
   };
   "clear-window-title": {
@@ -1135,6 +1184,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 9;
     capability: null;
+    stream: null;
+  };
+  "new-pane-right": {
+    request: NewPaneRightRequest;
+    result: NewPaneRightResult;
+    authority: "control";
+    since: 9;
+    capability: "viewport-splits-v1";
     stream: null;
   };
   "new-screen": {
@@ -1409,6 +1466,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "set-viewport-pane-width": {
+    request: SetViewportPaneWidthRequest;
+    result: SetViewportPaneWidthResult;
+    authority: "control";
+    since: 9;
+    capability: "viewport-column-resize-v1";
+    stream: null;
+  };
   "set-window-title": {
     request: SetWindowTitleRequest;
     result: SetWindowTitleResult;
@@ -1463,6 +1528,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 9;
     capability: null;
+    stream: null;
+  };
+  "undo-layout": {
+    request: UndoLayoutRequest;
+    result: UndoLayoutResult;
+    authority: "control";
+    since: 9;
+    capability: "layout-undo-v1";
     stream: null;
   };
   "vt-state": {

@@ -4,7 +4,7 @@ import json
 import select
 import socket
 import threading
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 from .errors import CmuxConnectionError, ProtocolError, TimeoutError
 
@@ -52,7 +52,7 @@ class JsonLineConnection:
     def closed(self) -> bool:
         return self._closed
 
-    def set_timeout(self, timeout: float) -> None:
+    def set_timeout(self, timeout: Optional[float]) -> None:
         self.timeout = timeout
         self._socket.settimeout(timeout)
 

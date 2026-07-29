@@ -47,48 +47,43 @@ try {
   }));
   writeFileSync(join(consumer, "consumer.ts"), `
 import {
-  CmuxAbortError,
-  CmuxAuthorityError,
-  CmuxClient,
-  COMMAND_METADATA,
-  type BrowserStreamEvent,
-  type CmuxAuthority,
-  type CmuxStream,
+  Client,
+  decimalString,
+  exact,
+  selectCurrent,
+  sessionId,
+  terminalId,
+  type MutationResult,
+  type Terminal,
   type Transport,
-} from "cmux/browser";
+} from "cmux";
+import { WebSocketTransport } from "cmux/browser";
+import { NodeClient } from "cmux/node";
+import { CmuxClient, COMMAND_METADATA } from "cmux/raw";
 
 declare const transport: Transport;
-const client = new CmuxClient({ transport, timeoutMs: 5_000 });
-const provider = new CmuxClient({
-  transport,
-  authorities: ["frontend"],
-  enableProviderAuthority: true,
-});
-const authorities: readonly CmuxAuthority[] = provider.authorities;
-const pasteSince: 7 = COMMAND_METADATA.send.fields.paste.since;
-const filtered = client.subscribe({ surface: 18446744073709551615n });
-const lifetime = new AbortController();
-const stream: Promise<CmuxStream<BrowserStreamEvent>> = client.attachBrowserSurface(
-  18446744073709551615n,
-  { signal: lifetime.signal, idleTimeoutMs: 30_000 },
+const client = new Client({ transport, timeoutMs: 5_000 });
+const session = client.session(sessionId("session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+const terminal = session.terminal(terminalId("term_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+const write: Promise<MutationResult<Record<string, unknown>>> = terminal.write(
+  "printf",
+  { idempotencyKey: "consumer-write", expectedRevision: decimalString("7") },
 );
-void stream.then(async (events) => {
-  const read = new AbortController();
-  const event = await events.next({ signal: read.signal, timeoutMs: 1_000 });
-  switch (event.event) {
-    case "browser-state":
-      console.log(event.url);
-      break;
-    case "unknown":
-      console.log(event.wireEvent, event.raw);
-      break;
-  }
-});
-void CmuxAbortError;
-void CmuxAuthorityError;
-void authorities;
-void filtered;
-void pasteSince;
+const current = selectCurrent();
+const command = exact(["printf", "%s", "$HOME"]);
+const browser = new WebSocketTransport("ws://127.0.0.1/cmux");
+const node = new NodeClient({ session: "main" });
+const raw = CmuxClient;
+void COMMAND_METADATA;
+void browser;
+void client;
+void command;
+void current;
+void node;
+void raw;
+void session;
+void terminal;
+void write;
 `);
 
   execFileSync("npm", [
@@ -103,32 +98,45 @@ void pasteSince;
   const compiler = resolve(project, "node_modules/typescript/bin/tsc");
   execFileSync(process.execPath, [compiler, "-p", join(consumer, "tsconfig.json")], {
     cwd: consumer,
-    stdio: "pipe",
+    stdio: "inherit",
   });
 
   const installedRoot = join(consumer, "node_modules/cmux");
   const installed = JSON.parse(readFileSync(join(installedRoot, "package.json"), "utf8"));
   assert.equal(installed.name, "cmux");
   assert.deepEqual(installed.dependencies ?? {}, {});
+  assert.deepEqual(Object.keys(installed.exports).sort(), [".", "./browser", "./node", "./raw"]);
 
-  const browserEntry = join(installedRoot, "dist/src/browser.js");
-  const visited = browserDependencyGraph(browserEntry);
-  assert.ok(visited.some((path) => path.endsWith("/browser.js")));
-  assert.ok(!visited.some((path) => path.endsWith("/node-client.js")));
-  assert.ok(!visited.some((path) => path.endsWith("/node-transport.js")));
+  for (const entry of ["index.js", "browser.js"]) {
+    const graph = dependencyGraph(join(installedRoot, "dist/src", entry));
+    assert.ok(!graph.some((path) => path.includes("/raw/")));
+    assert.ok(!graph.some((path) => path.includes("/generated/")));
+    assert.ok(!graph.some((path) => path.endsWith("/node-transport.js")));
+    assert.ok(!graph.some((path) => path.endsWith("/node.js")));
+  }
 
-  const runtimeType = execFileSync(process.execPath, [
+  const runtimeTypes = execFileSync(process.execPath, [
     "--input-type=module",
     "--eval",
-    "import('cmux/browser').then(({ CmuxClient }) => process.stdout.write(typeof CmuxClient))",
+    `Promise.all([
+      import("cmux"),
+      import("cmux/browser"),
+      import("cmux/node"),
+      import("cmux/raw"),
+    ]).then(([root, browser, node, raw]) => process.stdout.write([
+      typeof root.Client,
+      typeof browser.WebSocketTransport,
+      typeof node.NodeClient,
+      typeof raw.CmuxClient,
+    ].join(",")))`,
   ], { cwd: consumer, encoding: "utf8" });
-  assert.equal(runtimeType, "function");
-  console.log("clean browser-only npm consumer compile passed");
+  assert.equal(runtimeTypes, "function,function,function,function");
+  console.log("clean root/browser/node/raw npm consumer compile passed");
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
 
-function browserDependencyGraph(entry) {
+function dependencyGraph(entry) {
   const pending = [entry];
   const visited = new Set();
   const importPattern = /(?:import|export)\s+(?:[^"'()]*?\sfrom\s*)?["']([^"']+)["']/g;
@@ -142,7 +150,7 @@ function browserDependencyGraph(entry) {
       assert.ok(!specifier.startsWith("node:"), `${file} imports ${specifier}`);
       if (!specifier.startsWith(".")) continue;
       const target = resolve(dirname(file), specifier);
-      assert.ok(existsSync(target), `missing browser dependency ${target}`);
+      assert.ok(existsSync(target), `missing dependency ${target}`);
       pending.push(target);
     }
   }

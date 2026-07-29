@@ -3,8 +3,8 @@ import {
   type CmuxClientOptions,
 } from "./client.js";
 import type { CmuxAuthority } from "./generated/metadata.js";
-import { defaultSocketPath, envSocketPath, UnixSocketTransport } from "./node-transport.js";
-import type { Transport } from "./transport.js";
+import { defaultSocketPath, envSocketPath, UnixSocketTransport } from "../node-transport.js";
+import type { Transport } from "../transport.js";
 
 /** Node.js client configuration, including Unix-socket defaults. */
 export interface ClientOptions {

@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   decodeCommandResult,
   decodeProtocolEvent,
-} from "../src/protocol-codec.js";
+} from "../src/raw/protocol-codec.js";
 
 test("command decoding distinguishes required nullable from omission", () => {
   assert.throws(

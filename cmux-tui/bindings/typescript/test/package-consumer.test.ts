@@ -8,7 +8,7 @@ import {
   type JsonObject,
   type Transport,
   type Unsubscribe,
-} from "cmux/browser";
+} from "cmux/raw";
 
 class ConsumerTransport implements Transport {
   readonly sent: string[] = [];

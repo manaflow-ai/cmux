@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { CmuxClient } from "../src/node-client.js";
+import { CmuxClient } from "../src/raw/node-client.js";
 
 test("Unix transport preserves JSON-lines request and response framing", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cmux-typescript-"));

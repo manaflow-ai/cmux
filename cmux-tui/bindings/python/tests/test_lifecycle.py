@@ -5,8 +5,8 @@ import time
 import unittest
 from typing import Callable, Iterable
 
-from cmux import AuthorityError, CmuxClient, CommandError, CursorStyle, ProtocolError
-from cmux import TimeoutError as CmuxTimeoutError
+from cmux.raw import AuthorityError, CmuxClient, CommandError, CursorStyle, ProtocolError
+from cmux.raw import TimeoutError as CmuxTimeoutError
 
 from support import UnixJsonServer, receive_frame, send_frame
 

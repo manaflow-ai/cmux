@@ -1,4 +1,4 @@
-import { decodeBase64, encodeBase64 } from "./base64.js";
+import { decodeBase64, encodeBase64 } from "../base64.js";
 import {
   CmuxAbortError,
   CmuxAuthorityError,
@@ -82,8 +82,8 @@ import {
   PROFILES,
   type CmuxAuthority,
 } from "./generated/metadata.js";
-import type { Transport, Unsubscribe } from "./transport.js";
-import { parseWireJson, stringifyWireJson } from "./wire-json.js";
+import type { Transport, Unsubscribe } from "../transport.js";
+import { parseWireJson, stringifyWireJson } from "../wire-json.js";
 
 export interface CmuxClientOptions {
   transport: Transport;

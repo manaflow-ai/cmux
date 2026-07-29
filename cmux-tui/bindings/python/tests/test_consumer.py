@@ -3,8 +3,8 @@ from __future__ import annotations
 import base64
 import unittest
 
-from cmux import CmuxClient, MISSING
-from cmux._generated.client import GeneratedClientMixin
+from cmux.raw import CmuxClient, MISSING
+from cmux.raw._generated.client import GeneratedClientMixin
 
 
 class RecordingClient(GeneratedClientMixin):

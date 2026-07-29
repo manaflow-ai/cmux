@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96. */
+/* cmux-tui mux protocol 10, IR d5b3f1b4afa1f85602b7de0c6e91dcbd390a9d802f46a4ad65b15298b158ee43. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96" as const;
+export const SDK_IR_SHA256 = "d5b3f1b4afa1f85602b7de0c6e91dcbd390a9d802f46a4ad65b15298b158ee43" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -206,6 +206,22 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Browser surfaces only; values are CSS pixels.",
       "The bounded disposable input queue drops newest input when full."
+    ]
+  },
+  "clear-history": {
+    "authority": "control",
+    "since": 9,
+    "capability": "clear-history-v1",
+    "fields": {
+      "fallback_key": {
+        "since": 9,
+        "capability": "clear-history-key-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "PTY surfaces only.",
+      "Failed responses classify error_delivery as known-not-delivered or ambiguous."
     ]
   },
   "clear-window-title": {
@@ -495,6 +511,14 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 9,
     "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": []
+  },
+  "new-pane-right": {
+    "authority": "control",
+    "since": 9,
+    "capability": "viewport-splits-v1",
     "fields": {},
     "stream": null,
     "constraints": []
@@ -862,6 +886,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "set-viewport-pane-width": {
+    "authority": "control",
+    "since": 9,
+    "capability": "viewport-column-resize-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "width must be finite."
+    ]
+  },
   "set-window-title": {
     "authority": "control",
     "since": 6,
@@ -995,6 +1029,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Consumers apply only contiguous revisions for one registry_id and generation."
+    ]
+  },
+  "undo-layout": {
+    "authority": "control",
+    "since": 9,
+    "capability": "layout-undo-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Clients must reject incomplete or contradictory result variants."
     ]
   },
   "vt-state": {
@@ -2452,6 +2496,107 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     }
   },
+  "LayoutUndoConfirmationRequired": {
+    "additional_properties": false,
+    "fields": {
+      "closes_panes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
+      "confirmation_required": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": true
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "screen": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "undone": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": false
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LayoutUndoResult": {
+    "kind": "untagged_union",
+    "variants": [
+      {
+        "kind": "ref",
+        "name": "LayoutUndoUndone"
+      },
+      {
+        "kind": "ref",
+        "name": "LayoutUndoConfirmationRequired"
+      }
+    ]
+  },
+  "LayoutUndoUndone": {
+    "additional_properties": false,
+    "fields": {
+      "confirmation_required": {
+        "default": false,
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "literal",
+          "value": false
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "screen": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "undone": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": true
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ListAgentsResult": {
     "additional_properties": false,
     "fields": {
@@ -3831,6 +3976,234 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TerminalKey": {
+    "kind": "enum",
+    "values": [
+      "unidentified",
+      "backquote",
+      "backslash",
+      "bracket-left",
+      "bracket-right",
+      "comma",
+      "digit0",
+      "digit1",
+      "digit2",
+      "digit3",
+      "digit4",
+      "digit5",
+      "digit6",
+      "digit7",
+      "digit8",
+      "digit9",
+      "equal",
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "f",
+      "g",
+      "h",
+      "i",
+      "j",
+      "k",
+      "l",
+      "m",
+      "n",
+      "o",
+      "p",
+      "q",
+      "r",
+      "s",
+      "t",
+      "u",
+      "v",
+      "w",
+      "x",
+      "y",
+      "z",
+      "minus",
+      "period",
+      "quote",
+      "semicolon",
+      "slash",
+      "backspace",
+      "enter",
+      "space",
+      "tab",
+      "delete",
+      "end",
+      "home",
+      "insert",
+      "page-down",
+      "page-up",
+      "arrow-down",
+      "arrow-left",
+      "arrow-right",
+      "arrow-up",
+      "numpad0",
+      "numpad1",
+      "numpad2",
+      "numpad3",
+      "numpad4",
+      "numpad5",
+      "numpad6",
+      "numpad7",
+      "numpad8",
+      "numpad9",
+      "numpad-add",
+      "numpad-backspace",
+      "numpad-comma",
+      "numpad-decimal",
+      "numpad-divide",
+      "numpad-enter",
+      "numpad-equal",
+      "numpad-multiply",
+      "numpad-subtract",
+      "numpad-up",
+      "numpad-down",
+      "numpad-right",
+      "numpad-left",
+      "numpad-begin",
+      "numpad-home",
+      "numpad-end",
+      "numpad-insert",
+      "numpad-delete",
+      "numpad-page-up",
+      "numpad-page-down",
+      "escape",
+      "f1",
+      "f2",
+      "f3",
+      "f4",
+      "f5",
+      "f6",
+      "f7",
+      "f8",
+      "f9",
+      "f10",
+      "f11",
+      "f12",
+      "f13",
+      "f14",
+      "f15",
+      "f16",
+      "f17",
+      "f18",
+      "f19",
+      "f20"
+    ]
+  },
+  "TerminalKeyAction": {
+    "kind": "enum",
+    "values": [
+      "press",
+      "release",
+      "repeat"
+    ]
+  },
+  "TerminalKeyInput": {
+    "additional_properties": false,
+    "constraints": [
+      "consumed_mods must be a subset of mods.",
+      "unshifted_codepoint, shifted_codepoint, and base_layout_codepoint contain exactly one Unicode scalar when present.",
+      "utf8 contains no control characters.",
+      "macos_option_as_alt may be false only when Alt is active and consumed."
+    ],
+    "fields": {
+      "action": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalKeyAction"
+        }
+      },
+      "base_layout_codepoint": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "composing": {
+        "default": false,
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "consumed_mods": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalModifiers"
+        }
+      },
+      "key": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalKey"
+        }
+      },
+      "macos_option_as_alt": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "mods": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalModifiers"
+        }
+      },
+      "shifted_codepoint": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "unshifted_codepoint": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "utf8": {
+        "constraints": [
+          {
+            "max_length": 4096
+          }
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "TerminalLifecycle": {
     "kind": "enum",
     "values": [
@@ -3840,6 +4213,60 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "exited",
       "tombstoned"
     ]
+  },
+  "TerminalModifiers": {
+    "additional_properties": false,
+    "fields": {
+      "alt": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "caps_lock": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "control": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "num_lock": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "shift": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "super": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
   },
   "TerminalPlacement": {
     "additional_properties": false,
@@ -4792,6 +5219,37 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "float64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "clear-history": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "fallback_key": {
+          "capability": "clear-history-key-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 9,
+          "type": {
+            "kind": "ref",
+            "name": "TerminalKeyInput"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
           }
         }
       },
@@ -5887,6 +6345,63 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SurfaceResult"
+    }
+  },
+  "new-pane-right": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Omitted width defaults to two thirds.",
+        "cols and rows affect sizing only when both are present."
+      ],
+      "fields": {
+        "cols": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "rows": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "width": {
+          "constraints": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.1
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float32"
           }
         }
       },
@@ -7369,6 +7884,58 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "ref",
             "name": "Id"
           }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "set-viewport-pane-width": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "width": {
+          "constraints": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.1
+            }
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "float32"
+          }
         }
       },
       "kind": "object"
@@ -7611,6 +8178,47 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TerminalEventsResult"
+    }
+  },
+  "undo-layout": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "confirm_close requires the exact preview revision."
+      ],
+      "fields": {
+        "confirm_close": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "revision": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "LayoutUndoResult"
     }
   },
   "vt-state": {

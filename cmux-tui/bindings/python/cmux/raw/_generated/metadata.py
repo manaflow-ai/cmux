@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = '2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96'
+IR_SHA256 = 'd5b3f1b4afa1f85602b7de0c6e91dcbd390a9d802f46a4ad65b15298b158ee43'
 
 
 @dataclass(frozen=True)
@@ -180,6 +180,18 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
             'x_px': CommandFieldMetadata(None, None),
             'y_px': CommandFieldMetadata(None, None),
+        },
+    ),
+    'clear-history': CommandMetadata(
+        'clear-history',
+        'control',
+        9,
+        'clear-history-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'fallback_key': CommandFieldMetadata(9, 'clear-history-key-v1'),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'clear-window-title': CommandMetadata(
@@ -537,6 +549,20 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+        },
+    ),
+    'new-pane-right': CommandMetadata(
+        'new-pane-right',
+        'control',
+        9,
+        'viewport-splits-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
         },
     ),
     'new-screen': CommandMetadata(
@@ -982,6 +1008,20 @@ COMMANDS = {
         {
             'ratio': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-viewport-pane-width': CommandMetadata(
+        'set-viewport-pane-width',
+        'control',
+        9,
+        'viewport-column-resize-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'pane': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
         },
     ),
     'set-window-title': CommandMetadata(
@@ -1068,6 +1108,19 @@ COMMANDS = {
         None,
         {
             'after_revision': CommandFieldMetadata(None, None),
+        },
+    ),
+    'undo-layout': CommandMetadata(
+        'undo-layout',
+        'control',
+        9,
+        'layout-undo-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'confirm_close': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'revision': CommandFieldMetadata(None, None),
         },
     ),
     'vt-state': CommandMetadata(

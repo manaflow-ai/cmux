@@ -1,50 +1,81 @@
-from ._generated import *
-from ._generated import __all__ as _generated_all
-from .client import (
-    AttachStream,
-    CmuxClient,
-    EventStream,
-    MISSING,
-    MissingType,
-    default_socket_path,
-    env_socket_path,
-)
-from .convenience import (
-    SurfaceContext,
-    active_live_pty,
-    find_surface,
-    render_row_text,
-)
+"""Dependency-free Python SDK for the cmux resource API."""
+
+from . import aio
+from .client_defaults import default_socket_path, env_socket_path
 from .errors import (
-    AuthorityError,
     CmuxConnectionError,
     CmuxError,
-    CommandError,
+    MutationIndeterminateDetails,
+    MutationIndeterminateError,
     ProtocolError,
+    ResourceError,
+    StreamError,
     TimeoutError,
+)
+from .ids import *
+from .ids import __all__ as _id_all
+from .models import *
+from .models import __all__ as _model_all
+from .options import *
+from .options import __all__ as _option_all
+from .resources import (
+    Agent,
+    Browser,
+    Client,
+    ConnectedClient,
+    CreatedPath,
+    FrontendProjection,
+    Machine,
+    Notification,
+    PairingRequest,
+    Pane,
+    ProviderAction,
+    ProviderNotice,
+    ProviderScope,
+    Screen,
+    Session,
+    SidebarView,
+    Tab,
+    Terminal,
+    Workspace,
 )
 
 __all__ = list(
     dict.fromkeys(
         (
-            "AttachStream",
-            "CmuxClient",
-            "EventStream",
-            "MISSING",
-            "MissingType",
-            "default_socket_path",
-            "env_socket_path",
-            "SurfaceContext",
-            "active_live_pty",
-            "find_surface",
-            "render_row_text",
-            "AuthorityError",
+            "Agent",
+            "Browser",
+            "Client",
             "CmuxConnectionError",
             "CmuxError",
-            "CommandError",
+            "ConnectedClient",
+            "CreatedPath",
+            "FrontendProjection",
+            "Machine",
+            "MutationIndeterminateDetails",
+            "MutationIndeterminateError",
+            "Notification",
+            "PairingRequest",
+            "Pane",
             "ProtocolError",
+            "ProviderAction",
+            "ProviderNotice",
+            "ProviderScope",
+            "ResourceError",
+            "Screen",
+            "Session",
+            "SidebarView",
+            "StreamError",
+            "Tab",
+            "Terminal",
             "TimeoutError",
-            *_generated_all,
+            "Workspace",
+            "aio",
+            "default_socket_path",
+            "env_socket_path",
+            *_id_all,
+            *_model_all,
+            *_option_all,
         )
     )
 )

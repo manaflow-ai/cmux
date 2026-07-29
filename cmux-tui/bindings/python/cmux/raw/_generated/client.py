@@ -45,6 +45,9 @@ class GeneratedClientMixin:
     def browser_wheel(self, surface: Id, x_px: float, y_px: float, delta_y_px: float) -> EmptyResult:
         return self._invoke_command('browser-wheel', BrowserWheelRequest(surface=surface, x_px=x_px, y_px=y_px, delta_y_px=delta_y_px))
 
+    def clear_history(self, surface: Id, *, fallback_key: Union[TerminalKeyInput, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('clear-history', ClearHistoryRequest(surface=surface, fallback_key=fallback_key))
+
     def clear_window_title(self) -> EmptyResult:
         return self._invoke_command('clear-window-title', ClearWindowTitleRequest())
 
@@ -128,6 +131,9 @@ class GeneratedClientMixin:
 
     def new_pane(self, pane: Id, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-pane', NewPaneRequest(pane=pane, cols=cols, rows=rows))
+
+    def new_pane_right(self, pane: Id, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-pane-right', NewPaneRightRequest(pane=pane, cols=cols, rows=rows, width=width))
 
     def new_screen(self, workspace: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-screen', NewScreenRequest(workspace=workspace, cols=cols, rows=rows))
@@ -228,8 +234,11 @@ class GeneratedClientMixin:
     def set_ratio(self, pane: Id, dir: SplitDirection, ratio: float) -> EmptyResult:
         return self._invoke_command('set-ratio', SetRatioRequest(pane=pane, dir=dir, ratio=ratio))
 
-    def set_split_ratio(self, split: Id, ratio: float) -> EmptyResult:
-        return self._invoke_command('set-split-ratio', SetSplitRatioRequest(split=split, ratio=ratio))
+    def set_split_ratio(self, split: Id, ratio: float, *, transaction: Union[int, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('set-split-ratio', SetSplitRatioRequest(split=split, ratio=ratio, transaction=transaction))
+
+    def set_viewport_pane_width(self, pane: Id, width: float, *, transaction: Union[int, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('set-viewport-pane-width', SetViewportPaneWidthRequest(pane=pane, width=width, transaction=transaction))
 
     def set_window_title(self, title: str) -> EmptyResult:
         return self._invoke_command('set-window-title', SetWindowTitleRequest(title=title))
@@ -252,6 +261,9 @@ class GeneratedClientMixin:
     def terminal_events(self, *, after_revision: Union[int, MissingType] = MISSING) -> TerminalEventsResult:
         return self._invoke_command('terminal-events', TerminalEventsRequest(after_revision=after_revision))
 
+    def undo_layout(self, pane: Id, *, confirm_close: Union[bool, MissingType] = MISSING, revision: Union[int, None, MissingType] = MISSING) -> LayoutUndoResult:
+        return self._invoke_command('undo-layout', UndoLayoutRequest(pane=pane, confirm_close=confirm_close, revision=revision))
+
     def vt_state(self, surface: Id) -> VtStateResult:
         return self._invoke_command('vt-state', VtStateRequest(surface=surface))
 
@@ -273,6 +285,7 @@ GeneratedClientMixin.browser_mouse.__cmux_command__ = COMMANDS['browser-mouse']
 GeneratedClientMixin.browser_navigate.__cmux_command__ = COMMANDS['browser-navigate']
 GeneratedClientMixin.browser_reload.__cmux_command__ = COMMANDS['browser-reload']
 GeneratedClientMixin.browser_wheel.__cmux_command__ = COMMANDS['browser-wheel']
+GeneratedClientMixin.clear_history.__cmux_command__ = COMMANDS['clear-history']
 GeneratedClientMixin.clear_window_title.__cmux_command__ = COMMANDS['clear-window-title']
 GeneratedClientMixin.close_pane.__cmux_command__ = COMMANDS['close-pane']
 GeneratedClientMixin.close_provider_managed_workspace.__cmux_command__ = COMMANDS['close-provider-managed-workspace']
@@ -301,6 +314,7 @@ GeneratedClientMixin.move_terminal.__cmux_command__ = COMMANDS['move-terminal']
 GeneratedClientMixin.move_workspace.__cmux_command__ = COMMANDS['move-workspace']
 GeneratedClientMixin.new_browser_tab.__cmux_command__ = COMMANDS['new-browser-tab']
 GeneratedClientMixin.new_pane.__cmux_command__ = COMMANDS['new-pane']
+GeneratedClientMixin.new_pane_right.__cmux_command__ = COMMANDS['new-pane-right']
 GeneratedClientMixin.new_screen.__cmux_command__ = COMMANDS['new-screen']
 GeneratedClientMixin.new_tab.__cmux_command__ = COMMANDS['new-tab']
 GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
@@ -335,6 +349,7 @@ GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-s
 GeneratedClientMixin.set_default_colors.__cmux_command__ = COMMANDS['set-default-colors']
 GeneratedClientMixin.set_ratio.__cmux_command__ = COMMANDS['set-ratio']
 GeneratedClientMixin.set_split_ratio.__cmux_command__ = COMMANDS['set-split-ratio']
+GeneratedClientMixin.set_viewport_pane_width.__cmux_command__ = COMMANDS['set-viewport-pane-width']
 GeneratedClientMixin.set_window_title.__cmux_command__ = COMMANDS['set-window-title']
 GeneratedClientMixin.shutdown_daemon.__cmux_command__ = COMMANDS['shutdown-daemon']
 GeneratedClientMixin.sidebar_plugin.__cmux_command__ = COMMANDS['sidebar-plugin']
@@ -342,6 +357,7 @@ GeneratedClientMixin.split.__cmux_command__ = COMMANDS['split']
 GeneratedClientMixin.subscribe.__cmux_command__ = COMMANDS['subscribe']
 GeneratedClientMixin.swap_pane.__cmux_command__ = COMMANDS['swap-pane']
 GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-events']
+GeneratedClientMixin.undo_layout.__cmux_command__ = COMMANDS['undo-layout']
 GeneratedClientMixin.vt_state.__cmux_command__ = COMMANDS['vt-state']
 GeneratedClientMixin.wait_for.__cmux_command__ = COMMANDS['wait-for']
 GeneratedClientMixin.zoom_pane.__cmux_command__ = COMMANDS['zoom-pane']
