@@ -164,6 +164,7 @@ impl SurfaceSessionScope {
             | MuxEvent::WindowTitleRequested(_)
             | MuxEvent::FrontendProjectionChanged { .. }
             | MuxEvent::TerminalRegistryChanged { .. }
+            | MuxEvent::ResourceChanged { .. }
             | MuxEvent::PairingRequested(_)
             | MuxEvent::PairingResolved { .. }
             | MuxEvent::Empty => true,

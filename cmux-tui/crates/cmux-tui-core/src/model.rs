@@ -585,7 +585,7 @@ mod tests {
 }
 
 /// A split-tree leaf: an ordered list of tabs (surfaces) with one active.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pane {
     pub id: PaneId,
     pub public_id: PanePublicId,
@@ -606,7 +606,7 @@ impl Pane {
 
 /// One split-tree of panes. A workspace can hold many screens; exactly
 /// one is visible at a time (the status bar switches between them).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Screen {
     pub id: ScreenId,
     pub public_id: ScreenPublicId,
@@ -913,7 +913,7 @@ impl Screen {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Workspace {
     pub id: WorkspaceId,
     pub public_id: WorkspacePublicId,
@@ -934,6 +934,7 @@ impl Workspace {
 
 /// The full mutable session state, exposed to [`crate::Mux::with_state`]
 /// closures.
+#[derive(Clone)]
 pub struct State {
     pub workspaces: Vec<Workspace>,
     pub(crate) workspace_index_by_id: HashMap<WorkspaceId, usize>,

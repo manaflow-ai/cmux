@@ -32,6 +32,9 @@ use crate::resource::{
     ContentPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId, SplitPublicId,
     TabResourceIdentity, WorkspacePublicId,
 };
+use crate::resource_mutation::{
+    StatePatch, diff_resource_projection, ensure_split_public_ids, project_resource_state,
+};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_runtime::TerminalHostIdentity;
@@ -39,8 +42,9 @@ use crate::terminal_host_runtime::TerminalHostIdentity;
 use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryCommit, RegistryLayoutNode, RegistrySnapshot,
-    RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace, ResourceTopologySnapshot,
-    TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+    RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace, ResourceChange,
+    ResourcePatchCommit, ResourceTopologySnapshot, TerminalLifecycle, TerminalRegistrySnapshot,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -248,6 +252,12 @@ pub enum MuxEvent {
         registry_id: String,
         generation: String,
         terminal_revision: u64,
+    },
+    /// One protocol-v1 resource patch committed and its in-memory projection
+    /// was applied. Consumers may now read this exact durable revision.
+    ResourceChanged {
+        generation: String,
+        revision: u64,
     },
     /// A screen's pane geometry changed. Clients should re-fetch layout.
     LayoutChanged(ScreenId),
@@ -2189,6 +2199,132 @@ impl Mux {
                 group_key: self.session.clone(),
             })
             .collect()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn commit_resource_state_mutation(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        prepare: impl FnOnce(&mut State) -> anyhow::Result<(Value, Value, Option<ResourceChange>)>,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(replay) = registry.replay_resource_patch(mutation, operation, fingerprint)? {
+            return Ok(replay);
+        }
+
+        let current_workspaces = registry.snapshot()?;
+        let current_topology = registry.resource_topology_snapshot()?;
+        let mut state = self.state.lock().unwrap();
+        let mut state_patch = StatePatch::prepare(&state);
+        let (result, deltas, force_if_unchanged) = prepare(state_patch.state_mut())?;
+        Self::rebuild_split_screen_index(state_patch.state_mut());
+        ensure_split_public_ids(state_patch.state_mut())?;
+        let desired = project_resource_state(state_patch.state(), &self.session, &registry)?;
+        let patch = diff_resource_projection(
+            &current_workspaces,
+            &current_topology,
+            &desired,
+            &registry,
+            force_if_unchanged,
+        )?;
+        let commit = registry.commit_resource_patch(
+            mutation,
+            operation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            &patch,
+            &result,
+            &deltas,
+        )?;
+        if !commit.replayed {
+            state_patch.apply(&mut state, commit.revision);
+        }
+        let generation = registry.generation().to_string();
+        drop(state);
+        drop(registry);
+        if !commit.replayed {
+            self.emit(MuxEvent::ResourceChanged { generation, revision: commit.revision });
+        }
+        Ok(commit)
+    }
+
+    pub(crate) fn resource_create_empty_workspace(
+        &self,
+        name: Option<String>,
+        requested_key: Option<String>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        if let Some(name) = name.as_deref() {
+            Self::validate_workspace_name(name)?;
+        }
+        if let Some(key) = requested_key.as_deref() {
+            Self::validate_workspace_key(key)?;
+            anyhow::ensure!(
+                crate::workspace_registry::is_canonical_workspace_key(key),
+                "workspace key must be a lowercase UUID"
+            );
+        }
+        let workspace = self.next_id();
+        let public_id = WorkspacePublicId::random()?;
+        let generated_key = Self::new_workspace_key()?;
+        let fingerprint = serde_json::json!({
+            "operation": "workspace.create",
+            "name": name,
+            "requested_key": requested_key,
+            "initial_content": "empty",
+        });
+        self.commit_resource_state_mutation(
+            mutation,
+            "workspace.create",
+            &fingerprint,
+            expected_generation,
+            expected_revision,
+            move |state| {
+                anyhow::ensure!(
+                    state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
+                    "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
+                );
+                let key = requested_key.clone().unwrap_or_else(|| generated_key.clone());
+                anyhow::ensure!(
+                    state.workspace_by_key(&key).is_none(),
+                    "workspace key already exists: {key}"
+                );
+                let name = name.clone().unwrap_or_else(|| Self::default_workspace_name(state));
+                let index = state.workspaces.len();
+                state.push_workspace(Workspace {
+                    id: workspace,
+                    public_id: public_id.clone(),
+                    key: key.clone(),
+                    name: name.clone(),
+                    screens: Vec::new(),
+                    active_screen: 0,
+                });
+                state.active_workspace = index;
+                state.workspace_revision = state.workspace_revision.saturating_add(1);
+                Ok((
+                    serde_json::json!({
+                        "workspace": public_id.as_str(),
+                        "workspace_slot": workspace,
+                        "key": key,
+                        "name": name,
+                        "index": index,
+                    }),
+                    serde_json::json!([{
+                        "kind": "workspace.created",
+                        "workspace": public_id.as_str(),
+                        "index": index,
+                    }]),
+                    None,
+                ))
+            },
+        )
     }
 
     pub fn registry_identity(&self) -> (String, String) {
@@ -9811,6 +9947,80 @@ mod tests {
         topology.panes.clear();
         topology.tabs.clear();
         assert!(restore_resource_state(snapshot, topology).unwrap().state.workspaces.is_empty());
+    }
+
+    #[test]
+    fn resource_state_patch_commits_before_infallible_projection_and_replays_once() {
+        let mux = test_mux();
+        let mutation = WorkspaceMutation::new("create-once", "test-client").unwrap();
+        let first = mux
+            .resource_create_empty_workspace(Some("API".into()), None, None, Some(0), &mutation)
+            .unwrap();
+        assert_eq!(first.revision, 1);
+        assert!(!first.replayed);
+        let public_id =
+            WorkspacePublicId::parse(first.result["workspace"].as_str().unwrap()).unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.resource_revision, 1);
+            assert_eq!(state.workspaces.len(), 1);
+            assert_eq!(state.workspaces[0].public_id, public_id);
+            assert_eq!(state.workspaces[0].name, "API");
+        });
+        let durable = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+        assert_eq!(durable.revision, 1);
+        assert_eq!(durable.active_workspace, Some(public_id.clone()));
+
+        let replay = mux
+            .resource_create_empty_workspace(Some("API".into()), None, None, Some(0), &mutation)
+            .unwrap();
+        assert!(replay.replayed);
+        assert_eq!(replay.revision, 1);
+        assert_eq!(replay.result, first.result);
+        mux.with_state(|state| {
+            assert_eq!(state.resource_revision, 1);
+            assert_eq!(state.workspaces.len(), 1);
+        });
+    }
+
+    #[test]
+    fn resource_state_patch_failure_leaves_memory_and_database_unchanged() {
+        let mux = test_mux();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+        let error = mux
+            .resource_create_empty_workspace(
+                Some("Never visible".into()),
+                None,
+                None,
+                Some(0),
+                &WorkspaceMutation::new("fail-create", "test-client").unwrap(),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("forced resource patch failure"));
+        mux.with_state(|state| {
+            assert!(state.workspaces.is_empty());
+            assert_eq!(state.resource_revision, 0);
+        });
+        let registry = mux.workspace_registry.lock().unwrap();
+        assert_eq!(registry.resource_topology_snapshot().unwrap().revision, 0);
+        assert!(registry.snapshot().unwrap().workspaces.is_empty());
+        registry.set_resource_patch_failure(false).unwrap();
+    }
+
+    #[test]
+    fn resource_idempotency_is_session_global_and_rejects_changed_input() {
+        let mux = test_mux();
+        let first = WorkspaceMutation::new("global-key", "client-a").unwrap();
+        mux.resource_create_empty_workspace(Some("One".into()), None, None, Some(0), &first)
+            .unwrap();
+        let reused = WorkspaceMutation::new("global-key", "client-b").unwrap();
+        let error = mux
+            .resource_create_empty_workspace(Some("Two".into()), None, None, Some(1), &reused)
+            .unwrap_err();
+        assert!(error.to_string().contains("idempotency.conflict"));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 1);
+            assert_eq!(state.workspaces[0].name, "One");
+        });
     }
 
     #[test]

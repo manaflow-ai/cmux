@@ -5820,6 +5820,11 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "terminal_revision":terminal_revision,
             "refetch":"terminal-events-or-list-terminals",
         }),
+        MuxEvent::ResourceChanged { generation, revision } => json!({
+            "event":"resource-changed",
+            "generation":generation,
+            "revision":revision.to_string(),
+        }),
         MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
         MuxEvent::ClientAttached { client, transport, name, kind } => json!({
             "event": "client-attached",

@@ -158,6 +158,19 @@ pub(super) fn migrate_resource_mutations_to_session_scope(
 }
 
 impl WorkspaceRegistry {
+    pub fn replay_resource_patch(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+    ) -> anyhow::Result<Option<ResourcePatchCommit>> {
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        validate_identifier("resource operation", operation)?;
+        let fingerprint = canonical_json(fingerprint)?;
+        resource_patch_replay(&self.connection, mutation, operation, &fingerprint)
+    }
+
     pub fn terminal_resource_id(
         &self,
         terminal_id: &str,
@@ -626,7 +639,7 @@ pub(super) fn collect_screen_split_public_ids(
 }
 
 pub(super) fn resource_patch_replay(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     mutation: &WorkspaceMutation,
     operation: &str,
     fingerprint: &str,
