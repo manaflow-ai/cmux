@@ -604,16 +604,16 @@ final class cmuxUITests: XCTestCase {
         }
 
         let start = source.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
         )
         let end = app.coordinate(withNormalizedOffset: .zero).withOffset(
             CGVector(dx: targetFrame.midX, dy: targetFrame.midY)
         )
         start.press(
-            forDuration: 0.35,
+            forDuration: 0.8,
             thenDragTo: end,
             withVelocity: .slow,
-            thenHoldForDuration: 0.8
+            thenHoldForDuration: 1
         )
 
         guard let after = waitForUsableFrame(of: source, timeout: 3) else {
