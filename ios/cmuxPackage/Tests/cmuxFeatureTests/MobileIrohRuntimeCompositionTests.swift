@@ -945,6 +945,73 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(await fixture.outboxStore.writeCount() == 1)
         try await fixture.expectOriginalRepositoriesRemain()
     }
+
+    /// Regression: a forget must reuse the ONE coherent credential pair it
+    /// captured up front for every broker leg. Re-snapshotting per request
+    /// performs a network token mint for the discovery AND for every
+    /// sequential revoke, so forgetting a computer with many bindings turns
+    /// one destructive tap into an unbounded chain of Stack requests that can
+    /// stall for minutes or fail during a Stack outage even though the pinned
+    /// credentials in hand are still valid. Each leg only needs the CHEAP
+    /// local session check (generation + account) before reusing the pair.
+    @Test
+    func forgetReusesPinnedCredentialPairAcrossBrokerLegs() async throws {
+        let macDeviceID = "123e4567-e89b-42d3-a456-426614174099"
+        let discovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: "123e4567-e89b-42d3-a456-426614174080",
+                deviceID: macDeviceID,
+                appInstanceID: "123e4567-e89b-42d3-a456-426614174081",
+                endpointID: String(repeating: "b", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                tag: "one"
+            ),
+            mobileIrohBinding(
+                bindingID: "123e4567-e89b-42d3-a456-426614174082",
+                deviceID: macDeviceID,
+                appInstanceID: "123e4567-e89b-42d3-a456-426614174083",
+                endpointID: String(repeating: "c", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                tag: "two"
+            ),
+            mobileIrohBinding(
+                bindingID: "123e4567-e89b-42d3-a456-426614174084",
+                deviceID: macDeviceID,
+                appInstanceID: "123e4567-e89b-42d3-a456-426614174085",
+                endpointID: String(repeating: "d", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                tag: "three"
+            ),
+        ])
+        let capture = MobileIrohBrokerCapture()
+        let fixture = try await MobileIrohSignOutFixture.make(
+            brokerFactory: { tokenSource in
+                let broker = MobileIrohCredentialFetchingBroker(
+                    tokenSource: tokenSource,
+                    discovery: discovery
+                )
+                capture.set(broker)
+                return broker
+            }
+        )
+        let baseline = await fixture.authClient.observedMintedAccessTokenCount()
+
+        try await fixture.composition.forgetComputer(
+            macDeviceID: macDeviceID,
+            instanceTag: nil,
+            expectedAccountID: fixture.accountID
+        )
+
+        let broker = try #require(capture.get())
+        // All three bindings of the device were revoked through the broker.
+        #expect(await broker.revokedBindingIDs().count == 3)
+        // Exactly ONE token mint pins the whole forget (the up-front session
+        // snapshot). The discovery and the three revokes reuse that pair.
+        #expect(await fixture.authClient.observedMintedAccessTokenCount() - baseline == 1)
+    }
 }
 
 private actor MobileIrohTerminalLaneSendStream: CmxIrohSendStream {
@@ -1096,12 +1163,19 @@ private struct MobileIrohSignOutFixture {
     var tag: String { Self.tag }
     var bindingID: String { Self.bindingID }
 
-    /// - Parameter resolvableDeviceID: When `false`, the composition's durable
-    ///   device-id resolver returns `nil`, simulating an unavailable identity
-    ///   store (Keychain locked before first unlock). Activation must then
-    ///   defer instead of registering a binding under an ephemeral id, so no
-    ///   endpoint is bound.
-    static func make(resolvableDeviceID: Bool = true) async throws -> Self {
+    /// - Parameters:
+    ///   - resolvableDeviceID: When `false`, the composition's durable
+    ///     device-id resolver returns `nil`, simulating an unavailable identity
+    ///     store (Keychain locked before first unlock). Activation must then
+    ///     defer instead of registering a binding under an ephemeral id, so no
+    ///     endpoint is bound.
+    ///   - brokerFactory: Overrides the composition's broker factory so a test
+    ///     can observe the token source handed to each direct broker (e.g. the
+    ///     forget flow's). `nil` keeps the fixture's standard revocation broker.
+    static func make(
+        resolvableDeviceID: Bool = true,
+        brokerFactory: MobileIrohRuntimeComposition.BrokerFactory? = nil
+    ) async throws -> Self {
         let suiteName = "MobileIrohRuntimeCompositionTests.signout.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -1224,7 +1298,7 @@ private struct MobileIrohSignOutFixture {
                 endpointFactoryModes.record(mode)
                 return endpointFactory
             },
-            brokerFactory: { _ in broker },
+            brokerFactory: brokerFactory ?? { _ in broker },
             deviceID: { resolvableDeviceID ? stableDeviceID : nil },
             tag: tag,
             now: { Date(timeIntervalSince1970: 1_000) },
@@ -1501,6 +1575,79 @@ private actor MobileIrohCompletionProbe {
     func isFinished() -> Bool { finished }
 }
 
+/// A broker fake that mirrors ``CmxIrohTrustBrokerClient``'s `performRequest`
+/// credential handling: every request first fetches ONE credential pair from
+/// the token source and fails without it. Lets a test observe how many token
+/// reads (and so how many network mints) a multi-leg broker operation causes.
+private actor MobileIrohCredentialFetchingBroker: CmxIrohClientBrokerServing {
+    private let tokenSource: CmxIrohBrokerTokenSource
+    private let discovery: CmxIrohDiscoveryResponse
+    private var revoked: [String] = []
+
+    init(
+        tokenSource: CmxIrohBrokerTokenSource,
+        discovery: CmxIrohDiscoveryResponse
+    ) {
+        self.tokenSource = tokenSource
+        self.discovery = discovery
+    }
+
+    private func fetchCredentialPair() async throws {
+        guard let credentialPair = tokenSource.credentialPair,
+              await credentialPair() != nil else {
+            throw MobileIrohSignOutTestError.unavailable
+        }
+    }
+
+    func register(
+        prepared _: CmxIrohPreparedRegistration,
+        signer _: CmxIrohRegistrationSigner
+    ) throws -> CmxIrohRegistrationResponse {
+        throw MobileIrohSignOutTestError.unavailable
+    }
+
+    func discover() async throws -> CmxIrohDiscoveryResponse {
+        try await fetchCredentialPair()
+        return discovery
+    }
+
+    func issuePairGrant(
+        initiatorBindingID _: String,
+        acceptorBindingID _: String
+    ) throws -> CmxIrohPairGrantResponse {
+        throw MobileIrohSignOutTestError.unavailable
+    }
+
+    func issueRelayToken(
+        bindingID _: String,
+        endpointID _: CmxIrohPeerIdentity
+    ) throws -> CmxIrohRelayTokenResponse {
+        throw MobileIrohSignOutTestError.unavailable
+    }
+
+    func revoke(bindingID: String) async throws {
+        try await fetchCredentialPair()
+        revoked.append(bindingID)
+    }
+
+    func revokedBindingIDs() -> [String] { revoked }
+}
+
+/// Hands the broker constructed inside a `@Sendable` factory closure back to
+/// the test that installed the factory.
+private final class MobileIrohBrokerCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var broker: MobileIrohCredentialFetchingBroker?
+
+    func set(_ broker: MobileIrohCredentialFetchingBroker) {
+        lock.withLock { self.broker = broker }
+    }
+
+    func get() -> MobileIrohCredentialFetchingBroker? {
+        lock.withLock { broker }
+    }
+}
+
 private final class MobileIrohAuthKeyValueStore: CMUXAuthKeyValueStore {
     private var storage: [String: Any] = [:]
 
@@ -1586,12 +1733,19 @@ private actor MobileIrohTestAuthClient: AuthClient {
         refresh = nil
     }
     func revokeSession(accessToken _: String?, refreshToken _: String?) {}
+    /// Counts network token mints. `freshAccessToken` is the SDK's "resolve a
+    /// usable access token for this refresh token" call: with no access hint it
+    /// must mint over the network, which is exactly the cost a test wants to
+    /// count when proving an operation reuses its pinned credentials.
     func freshAccessToken(
         accessToken: String?,
         refreshToken _: String
     ) -> String? {
-        accessToken
+        mintedAccessTokenCount += 1
+        return accessToken ?? access
     }
+    func observedMintedAccessTokenCount() -> Int { mintedAccessTokenCount }
+    private var mintedAccessTokenCount = 0
 }
 
 private func mobileIrohBinding(
