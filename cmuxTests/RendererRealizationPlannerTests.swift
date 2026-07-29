@@ -348,7 +348,7 @@ private final class RendererRealizationSchedulerHarness {
         notificationCenter: notificationCenter,
         surfaceProvider: { [unowned self] in
             snapshotCount += 1
-            return surfaces
+            return surfaces.map { $0 as any RendererRealizationSurface }
         },
         surfaceLookup: { [unowned self] id in
             surfaces.first { $0.id == id }
@@ -365,12 +365,11 @@ private final class RendererRealizationSchedulerHarness {
     )
 
     init(surfaceCount: Int) {
-        var currentTime: TimeInterval = 1_000
         self.surfaces = (0..<surfaceCount).map { _ in
-            RendererRealizationTestSurface(now: { currentTime })
+            RendererRealizationTestSurface(now: { 1_000 })
         }
         for surface in surfaces {
-            surface.now = { [weak self] in self?.now ?? currentTime }
+            surface.now = { [weak self] in self?.now ?? 1_000 }
         }
     }
 
@@ -386,8 +385,7 @@ private final class RendererRealizationSchedulerHarness {
     func postVisibilityChange(for surface: RendererRealizationTestSurface) {
         notificationCenter.post(
             name: .terminalPortalVisibilityDidChange,
-            object: surface,
-            userInfo: [GhosttyNotificationKey.surfaceId: surface.id]
+            object: surface
         )
     }
 

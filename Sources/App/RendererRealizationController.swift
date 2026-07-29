@@ -58,6 +58,7 @@ final class RendererRealizationController {
     private let settingsProvider: () -> RendererRealizationSettings.Values
     private let nowProvider: () -> Date
     private let sleepFor: @MainActor (Duration) async throws -> Void
+    private let visibilityCoalescingWindow: Duration
     private let safetyTimerEnabled: Bool
     private let timerQueue = DispatchQueue(label: "com.cmux.renderer-realization", qos: .utility)
     private let systemMemoryPressureRetryPasses = 2
@@ -74,7 +75,7 @@ final class RendererRealizationController {
         self.init(
             notificationCenter: .default,
             surfaceProvider: {
-                GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces()
+                GhosttyApp.terminalSurfaceRegistry.allTerminalSurfacesUnordered()
             },
             surfaceLookup: { id in
                 GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: id)
@@ -86,6 +87,7 @@ final class RendererRealizationController {
             sleepFor: { duration in
                 try await ContinuousClock().sleep(for: duration)
             },
+            visibilityCoalescingWindow: .milliseconds(16),
             safetyTimerEnabled: true
         )
     }
@@ -98,6 +100,7 @@ final class RendererRealizationController {
         settingsProvider: @escaping () -> RendererRealizationSettings.Values,
         nowProvider: @escaping () -> Date,
         sleepFor: @escaping @MainActor (Duration) async throws -> Void,
+        visibilityCoalescingWindow: Duration = .milliseconds(16),
         safetyTimerEnabled: Bool = false
     ) {
         self.notificationCenter = notificationCenter
@@ -106,6 +109,7 @@ final class RendererRealizationController {
         self.settingsProvider = settingsProvider
         self.nowProvider = nowProvider
         self.sleepFor = sleepFor
+        self.visibilityCoalescingWindow = visibilityCoalescingWindow
         self.safetyTimerEnabled = safetyTimerEnabled
     }
 
@@ -197,23 +201,19 @@ final class RendererRealizationController {
         now: Date,
         onRetryResult: (@MainActor (RendererRealizationMemoryPressureReclaimResult, Date) -> Void)? = nil
     ) -> RendererRealizationMemoryPressureReclaimResult {
-        let result = evaluate(
+        evaluate(
             now: now,
             trigger: .systemMemoryPressure,
             remainingSystemMemoryPressureRetries: systemMemoryPressureRetryPasses,
             onSystemMemoryPressureRetryResult: onRetryResult
         )
-        scheduleNextReclaimDeadline(now: now)
-        return result
     }
 
     /// Run one reclamation pass. Internal so a unit/integration test can drive it
     /// deterministically without the timer.
     @discardableResult
     func evaluate(now: Date) -> Int {
-        let reclaimedCount = evaluate(now: now, trigger: .scheduled).reclaimedCount
-        scheduleNextReclaimDeadline(now: now)
-        return reclaimedCount
+        evaluate(now: now, trigger: .scheduled).reclaimedCount
     }
 
     /// Returns the next future eligibility deadline for any hidden realized
@@ -259,7 +259,10 @@ final class RendererRealizationController {
         }
 
         let settings = settingsProvider()
-        guard settings.enabled else { return .empty }
+        guard settings.enabled else {
+            cancelReclaimDeadlineTask()
+            return .empty
+        }
 
         let inputs = surfaces.compactMap { surface -> RendererRealizationPlannerInput? in
             guard surface.hasLiveSurface else { return nil }
@@ -277,7 +280,6 @@ final class RendererRealizationController {
             now: now.timeIntervalSince1970,
             trigger: trigger
         )
-        guard !selected.isEmpty else { return .empty }
         var reclaimedCount = 0
         var retryCandidateCount = 0
         for surface in surfaces where selected.contains(surface.id) {
@@ -305,6 +307,11 @@ final class RendererRealizationController {
                 onRetryResult: onSystemMemoryPressureRetryResult
             )
         }
+        scheduleNextReclaimDeadline(
+            inputs: inputs,
+            settings: settings,
+            now: now
+        )
         return result
     }
 
@@ -326,22 +333,14 @@ final class RendererRealizationController {
             if retryResult.reclaimedCount > 0 {
                 onRetryResult?(retryResult, self.nowProvider())
             }
-            self.scheduleNextReclaimDeadline(now: self.nowProvider())
         }
     }
 
-    private func scheduleNextReclaimDeadline(now: Date) {
-        let settings = settingsProvider()
-        let inputs = surfaceProvider().compactMap {
-            surface -> RendererRealizationPlannerInput? in
-            guard surface.hasLiveSurface else { return nil }
-            return RendererRealizationPlannerInput(
-                surfaceId: surface.id,
-                isVisible: surface.isRendererPortalVisible,
-                isRealized: surface.isRendererRealized,
-                lastVisibleAt: surface.rendererLastVisibleAt
-            )
-        }
+    private func scheduleNextReclaimDeadline(
+        inputs: [RendererRealizationPlannerInput],
+        settings: RendererRealizationSettings.Values,
+        now: Date
+    ) {
         guard let deadline = Self.nextScheduledReclaimDeadline(
             inputs: inputs,
             settings: settings,
@@ -377,14 +376,19 @@ final class RendererRealizationController {
     }
 
     /// A workspace transition can hide and reveal many portals synchronously.
-    /// Coalesce their notifications into one global planner pass after the
-    /// current actor batch instead of scanning and sorting the registry once
-    /// per surface.
+    /// Coalesce their notifications across one display frame into one global
+    /// planner pass instead of scanning and ranking the registry once per
+    /// surface or once per actor batch.
     private func schedulePortalVisibilityEvaluation() {
         guard portalVisibilityEvaluationTask == nil else { return }
         portalVisibilityEvaluationTask = Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self, !Task.isCancelled else { return }
+            guard let self else { return }
+            do {
+                try await self.sleepFor(self.visibilityCoalescingWindow)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             self.portalVisibilityEvaluationTask = nil
             self.evaluate(now: self.nowProvider())
         }
