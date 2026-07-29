@@ -199,6 +199,46 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         ).response
     }
 
+    /// Enqueues one authorized request and returns before its response arrives.
+    ///
+    /// This path deliberately does not retry an `authorizationFailed` response:
+    /// retrying would place the repeated request behind later pipelined work and
+    /// break application order. The terminal-input caller uses it only on Iroh
+    /// transport-admission routes, where no bearer-token refresh is needed.
+    ///
+    /// Sequential calls from one caller enqueue transport writes in call order.
+    ///
+    /// - Parameters:
+    ///   - requestData: The encoded JSON-RPC request.
+    ///   - timeoutNanoseconds: An optional end-to-end request deadline.
+    /// - Returns: A handle that separately awaits the response settlement.
+    /// - Throws: An encoding, authorization, connection, or enqueue error.
+    public func sendRequestPipelined(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64? = nil
+    ) async throws -> MobileCoreRPCPipelinedRequest {
+        let deadline = RPCRequestDeadline(
+            timeoutNanoseconds: timeoutNanoseconds
+                ?? runtime.rpcRequestTimeoutNanoseconds
+        )
+        let (id, augmented) = try Self.requestWithGuaranteedID(requestData)
+        let authenticated = try await requestDataWithAuth(
+            augmented,
+            deadline: deadline,
+            hostStatusStackToken: nil
+        )
+        try Task.checkCancellation()
+        try await session.beginSend(
+            payload: authenticated.data,
+            requestID: id,
+            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+        )
+        return MobileCoreRPCPipelinedRequest(
+            requestID: id,
+            session: session
+        )
+    }
+
     /// Sends an authorized request and then proves host identity with the same
     /// Stack token that authorized its successful response.
     ///

@@ -86,6 +86,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let terminalScreenAnchorCapability = "terminal.render_grid.screen_anchor.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
+    static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
     static let workspaceActionsCapability = "workspace.actions.v1"
     static let workspaceChangesCapability = "workspace.changes.v1"
@@ -982,6 +983,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// stream's continuation.
     private var terminalLiveFontTokensBySurfaceID: [String: UUID]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
+    private var terminalInputRPCPipeline: MobileTerminalInputRPCPipeline
     private var rawTerminalInputDrainWaiters: [CheckedContinuation<Void, Never>]
     private var isRawTerminalInputDrainLoopRunning: Bool
     private var pairingAttemptID: UUID
@@ -1218,6 +1220,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontContinuationsBySurfaceID = [:]
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
+        self.terminalInputRPCPipeline = MobileTerminalInputRPCPipeline()
         self.rawTerminalInputDrainWaiters = []
         self.isRawTerminalInputDrainLoopRunning = false
         self.pairingAttemptID = UUID()
@@ -1389,6 +1392,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             Task { await refresher.cancelInFlightRestores() }
         }
         rawTerminalInputBuffer.clear()
+        terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
         reportedViewportSizesByTerminalKey = [:]
         terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
@@ -5431,6 +5435,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
+        terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
@@ -5967,6 +5972,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspacesByMac[offlineForegroundKey] = offline
         }
         rawTerminalInputBuffer.clear()
+        terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
     }
 
@@ -6090,6 +6096,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
+        terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
         clearPairingError()
         clearPairingVersionWarning()
@@ -6651,10 +6658,56 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let generation = connectionGeneration
         if let terminalLaneCoordinator {
-            switch await terminalLaneCoordinator.sendInput(
-                text,
+            let laneResult: MobileTerminalLaneCoordinator.InputResult
+            if terminalInputRPCPipeline.hasAmbiguousFailure(
                 surfaceID: terminalID.rawValue
             ) {
+                // An earlier pipelined request for this surface failed without
+                // a host response; the host may still apply it late. Refuse
+                // the lane and stay on the ordered RPC path, which remains
+                // correctly ordered with a late apply, until the next
+                // connection-lifecycle reset.
+                laneResult = .unavailable
+            } else if terminalInputRPCPipeline.hasUnsettledRequests(
+                surfaceID: terminalID.rawValue
+            ) {
+                if await terminalLaneCoordinator.isOutputReady(
+                    surfaceID: terminalID.rawValue
+                ) {
+                    await terminalInputRPCPipeline.waitUntilAllSettled(
+                        surfaceID: terminalID.rawValue
+                    )
+                    // The barrier can also resume via a connection-lifecycle
+                    // clear() (sign-out, reconnect, new pairing attempt). The
+                    // captured generation/client are then stale; fail closed
+                    // instead of writing this chunk into a lane that may still
+                    // belong to the previous connection.
+                    guard generation == connectionGeneration,
+                          client === remoteClient else {
+                        return
+                    }
+                    if terminalInputRPCPipeline.hasAmbiguousFailure(
+                        surfaceID: terminalID.rawValue
+                    ) {
+                        // A request settled by the barrier just failed without
+                        // a host response; same late-apply hazard as above.
+                        laneResult = .unavailable
+                    } else {
+                        laneResult = await terminalLaneCoordinator.sendInput(
+                            text,
+                            surfaceID: terminalID.rawValue
+                        )
+                    }
+                } else {
+                    laneResult = .unavailable
+                }
+            } else {
+                laneResult = await terminalLaneCoordinator.sendInput(
+                    text,
+                    surfaceID: terminalID.rawValue
+                )
+            }
+            switch laneResult {
             case .sent:
                 return
             case .failed:
@@ -6666,28 +6719,65 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 break
             }
         }
+        let params = terminalInputParameters(
+            text: text,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+        if activeRoute?.kind == .iroh,
+           supportedHostCapabilities.contains(
+               Self.terminalInputOrderedCapability
+           ) {
+            do {
+                try await terminalInputRPCPipeline.enqueue(
+                    surfaceID: terminalID.rawValue,
+                    makeRequest: {
+                        try await client.sendRequestPipelined(
+                            MobileCoreRPCClient.requestData(
+                                method: "terminal.input",
+                                params: params
+                            )
+                        )
+                    },
+                    settlementHandler: { [weak self, weak client] result in
+                        guard let self, let client else { return }
+                        switch result {
+                        case let .success(responseData):
+                            guard self.isCurrentRemoteOperation(
+                                client: client,
+                                generation: generation
+                            ) else { return }
+                            self.handleTerminalInputResponse(
+                                responseData,
+                                surfaceID: terminalID.rawValue
+                            )
+                        case let .failure(error):
+                            self.handleTerminalInputFailure(
+                                error,
+                                client: client,
+                                generation: generation
+                            )
+                        }
+                    }
+                )
+            } catch {
+                // A generation change mid-enqueue (pipeline clear) surfaces as
+                // CancellationError; that is a benign teardown, not an
+                // operational failure, regardless of whether the caller also
+                // rotated connectionGeneration.
+                if error is CancellationError { return }
+                handleTerminalInputFailure(
+                    error,
+                    client: client,
+                    generation: generation
+                )
+            }
+            return
+        }
         do {
             #if DEBUG
             mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
             #endif
-            let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
-            var params: [String: Any] = [
-                "workspace_id": remoteWorkspaceID.rawValue,
-                "surface_id": terminalID.rawValue,
-                "text": text,
-                "client_id": clientID,
-            ]
-            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
-                params["viewport_columns"] = viewportSize.columns
-                params["viewport_rows"] = viewportSize.rows
-                // Carry the dedicated-report generation so the Mac's fence can
-                // reject this piggyback if it arrives after a newer report or
-                // a clear (request tasks can reorder in transit).
-                if let generation = viewportReportGenerationsBySurfaceID[terminalID.rawValue] {
-                    params["viewport_generation"] = Int(clamping: generation)
-                }
-            }
             let responseData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.input",
@@ -6697,15 +6787,55 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
         } catch {
-            guard generation == connectionGeneration else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            handleMacAvailabilityFailureIfCurrent(
-                after: error,
-                expectedClient: client,
-                expectedGeneration: generation
+            handleTerminalInputFailure(
+                error,
+                client: client,
+                generation: generation
             )
-            applyOperationalError(error)
         }
+    }
+
+    private func terminalInputParameters(
+        text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) -> [String: Any] {
+        let key = viewportKey(
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+        let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
+        var params: [String: Any] = [
+            "workspace_id": remoteWorkspaceID.rawValue,
+            "surface_id": terminalID.rawValue,
+            "text": text,
+            "client_id": clientID,
+        ]
+        if let viewportSize = reportedViewportSizesByTerminalKey[key] {
+            params["viewport_columns"] = viewportSize.columns
+            params["viewport_rows"] = viewportSize.rows
+            if let generation = viewportReportGenerationsBySurfaceID[
+                terminalID.rawValue
+            ] {
+                params["viewport_generation"] = Int(clamping: generation)
+            }
+        }
+        return params
+    }
+
+    private func handleTerminalInputFailure(
+        _ error: any Error,
+        client: MobileCoreRPCClient,
+        generation: UUID
+    ) {
+        guard generation == connectionGeneration else { return }
+        guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+        handleMacAvailabilityFailureIfCurrent(
+            after: error,
+            expectedClient: client,
+            expectedGeneration: generation
+        )
+        applyOperationalError(error)
     }
 
     /// - Returns: `true` when the Mac acknowledged the paste, `false` when there
