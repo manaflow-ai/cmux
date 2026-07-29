@@ -335,9 +335,18 @@ final class cmuxUITests: XCTestCase {
         _ = try await revived.start()
         defer { revived.stop() }
 
-        let reconnected = app.staticTexts["Reconnected to your Mac."]
-        XCTAssertTrue(
-            reconnected.waitForExistence(timeout: 90),
+        // ToastCardView combines its children into the single "MobileToast"
+        // accessibility element, so the message is only reachable through
+        // that element's label, never as a descendant static text.
+        let reconnectedShown = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                toast.exists && toast.label.contains("Reconnected to your Mac.")
+            },
+            object: app
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [reconnectedShown], timeout: 90),
+            .completed,
             "Recovering the host must toast success while the Notifications tab is selected"
         )
         XCTAssertTrue(notificationsTab.isSelected)
