@@ -90,11 +90,20 @@ struct WorkspaceMacSelectionScope {
         guard let target = displayPairedMacs.first(where: { $0.id == id }) else {
             return false
         }
+        // The live connection is authoritative; stored isActive lags promotion.
+        if !foregroundMachineIDs.isEmpty {
+            let sameDevice = !foregroundMachineIDs.isDisjoint(
+                with: Set(aliasIndex.filterMachineIDs(for: target.id).map {
+                    MobilePairedMac.pairingIdentity(from: $0).macDeviceID
+                })
+            )
+            return !(sameDevice
+                && Self.normalizedTag(target.instanceTag) == Self.normalizedTag(foregroundInstanceTag))
+        }
         if let active = displayPairedMacs.first(where: \.isActive) {
             return active.id != target.id
         }
-        let targetIDs = aliasIndex.filterMachineIDs(for: target.id)
-        return foregroundMachineIDs.isDisjoint(with: targetIDs)
+        return true
     }
 
     /// Empty/whitespace tags read as "no tag", matching the store's authority
@@ -198,7 +207,15 @@ struct WorkspaceMacSelectionScope {
     var canRenderGroupsForSelection: Bool {
         switch visibleSelection {
         case .machine(let id):
-            return !foregroundMachineIDs.isDisjoint(with: selectedDeviceIDs(for: id))
+            // Groups belong to the exact foreground BUILD: device match alone
+            // would render the foreground's groups under the sibling selection.
+            guard !foregroundMachineIDs.isDisjoint(with: selectedDeviceIDs(for: id)) else {
+                return false
+            }
+            guard let selectedTag = MobilePairedMac.pairingIdentity(from: id).instanceTag else {
+                return true
+            }
+            return Self.normalizedTag(selectedTag) == Self.normalizedTag(foregroundInstanceTag)
         case .all, .automatic:
             return visibleRowsAreOnlyForegroundMac
         }

@@ -3815,9 +3815,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         return macs.filter { mac in
             guard !mac.macDeviceID.isEmpty else { return false }
-            if foregroundIDSet.contains(cmxCanonicalDeviceID(mac.macDeviceID)),
-               MobileMacInstanceTagAuthority.sameStoredAuthority(mac.instanceTag, activeTag) {
-                return false
+            if foregroundIDSet.contains(cmxCanonicalDeviceID(mac.macDeviceID)) {
+                // Exclude the exact foreground pairing, and ALSO any legacy
+                // untagged row on the foreground device: its pairing id is the
+                // bare device id — the foreground's own aggregate key — so a
+                // secondary keyed by it would overwrite the foreground state.
+                if MobileMacInstanceTagAuthority.sameStoredAuthority(mac.instanceTag, activeTag)
+                    || mac.instanceTag == nil {
+                    return false
+                }
             }
             guard let endpointID = Self.irohEndpointID(
                 for: mac,

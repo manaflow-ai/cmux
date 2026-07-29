@@ -49,7 +49,9 @@ struct MacComputerDetailView: View {
         }
     }
     private var connectionStatus: MobileMacConnectionStatus? {
-        MobileShellComposite.exactPairingConnectionStatus(
+        store.macConnectionStatuses[
+            MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag)
+        ] ?? MobileShellComposite.exactPairingConnectionStatus(
             deviceStatus: store.macConnectionStatuses[macDeviceID],
             connectedMacDeviceID: store.connectedMacDeviceID,
             connectedMacInstanceTag: store.connectedMacInstanceTag,

@@ -54,29 +54,37 @@ extension MobileShellComposite {
         guard let scopeEntries = macDeviceIDs, !scopeEntries.isEmpty else {
             return notificationFeedStatus
         }
-        let macDeviceIDs = Set(scopeEntries.map {
-            MobilePairedMac.pairingIdentity(from: $0).macDeviceID
-        })
-
-        var connectedMacDeviceIDs = Set(secondaryMacSubscriptions.values.map(\.macDeviceID))
-        if remoteClient != nil, let foregroundID = normalizedForegroundNotificationFeedMacID() {
-            connectedMacDeviceIDs.insert(foregroundID)
+        // Entries are bare device ids or pairing ids. Every availability signal
+        // matches the exact pairing so a build-scoped selection never reads
+        // ready/connected off its sibling.
+        func matches(deviceID: String, tag: String?) -> Bool {
+            scopeEntries.contains { entry in
+                MobileWorkspaceListFilter.machineEntryMatches(
+                    entry, deviceID: deviceID, rowTag: tag
+                )
+            }
         }
-        let capableMacDeviceIDs = Set(notificationFeedTargets().map(\.macDeviceID))
-        let hasConnectedMac = !connectedMacDeviceIDs.isDisjoint(with: macDeviceIDs)
-        let hasCapableMac = !capableMacDeviceIDs.isDisjoint(with: macDeviceIDs)
-        let snapshotDeviceIDs = Set(notificationFeedSnapshotsByMac.keys.map {
-            MobilePairedMac.pairingIdentity(from: $0).macDeviceID
-        })
-        let hasSnapshot = !snapshotDeviceIDs.isDisjoint(with: macDeviceIDs)
-        let successfulDeviceIDs = Set(notificationFeedSuccessfulMacIDs.map {
-            MobilePairedMac.pairingIdentity(from: $0).macDeviceID
-        })
-        let hasSuccessfulSnapshot = !successfulDeviceIDs.isDisjoint(with: macDeviceIDs)
-        let refreshingDeviceIDs = Set(notificationFeedRefreshTasksByMac.keys.map {
-            MobilePairedMac.pairingIdentity(from: $0).macDeviceID
-        })
-        let isRefreshing = !refreshingDeviceIDs.isDisjoint(with: macDeviceIDs)
+        func ownerKeyMatches(_ ownerKey: String) -> Bool {
+            let identity = MobilePairedMac.pairingIdentity(from: ownerKey)
+            return matches(
+                deviceID: identity.macDeviceID,
+                tag: identity.instanceTag ?? notificationFeedInstanceTag(forOwnerKey: ownerKey)
+            )
+        }
+        var hasConnectedMac = secondaryMacSubscriptions.values.contains {
+            matches(deviceID: $0.macDeviceID, tag: $0.authenticatedInstanceTag ?? $0.storedInstanceTag)
+        }
+        if !hasConnectedMac, remoteClient != nil,
+           let foregroundID = normalizedForegroundNotificationFeedMacID(),
+           matches(deviceID: foregroundID, tag: activeMacInstanceTag) {
+            hasConnectedMac = true
+        }
+        let hasCapableMac = notificationFeedTargets().contains {
+            matches(deviceID: $0.macDeviceID, tag: $0.instanceTag)
+        }
+        let hasSnapshot = notificationFeedSnapshotsByMac.keys.contains(where: ownerKeyMatches)
+        let hasSuccessfulSnapshot = notificationFeedSuccessfulMacIDs.contains(where: ownerKeyMatches)
+        let isRefreshing = notificationFeedRefreshTasksByMac.keys.contains(where: ownerKeyMatches)
 
         guard hasConnectedMac else { return .unavailable }
         guard hasCapableMac else { return .requiresMacUpdate }
