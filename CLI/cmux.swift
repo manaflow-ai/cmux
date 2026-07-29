@@ -24427,42 +24427,62 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
             let shouldEstablishActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
-            var establishedLifecycle: AgentHibernationLifecycleState = .idle
+            let pendingBackgroundWorkBoundary: ClaudeHookSessionStore.PendingBackgroundWorkBoundary
+            if isClearSessionStart {
+                pendingBackgroundWorkBoundary = .inheritAcrossClear
+            } else if shouldEstablishActiveSession {
+                pendingBackgroundWorkBoundary = .discardTransfer
+            } else {
+                pendingBackgroundWorkBoundary = .unchanged
+            }
+            var establishedLifecycle: AgentHibernationLifecycleState?
+            var sessionStoreMutationFailed = false
             if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
                 // Only /clear or replacement of a stopped owner establishes a
                 // boundary. SessionStart does not start a turn; /clear carries
                 // independently observed background work that survives the boundary.
-                let updatedLifecycle = try? sessionStore.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    pid: claudePid,
-                    launchCommand: launchCommand,
-                    isRestorable: false,
-                    agentLifecycle: shouldEstablishActiveSession ? .idle : .unknown,
-                    markActive: shouldEstablishActiveSession,
-                    turnId: parsedInput.turnId,
-                    pendingBackgroundWorkBoundary: isClearSessionStart
-                        ? .inheritAcrossClear
-                        : .discardTransfer
-                )
-                if shouldEstablishActiveSession {
-                    establishedLifecycle = updatedLifecycle ?? .idle
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
+                do {
+                    let updatedLifecycle = try sessionStore.upsert(
+                        sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        kind: "claude",
-                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                        sessionId: sessionId,
                         cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
+                        pid: claudePid,
                         launchCommand: launchCommand,
-                        observedPermissionMode: observedHookPermissionMode
+                        isRestorable: false,
+                        agentLifecycle: shouldEstablishActiveSession ? .idle : .unknown,
+                        markActive: shouldEstablishActiveSession,
+                        turnId: parsedInput.turnId,
+                        pendingBackgroundWorkBoundary: pendingBackgroundWorkBoundary
+                    )
+                    if shouldEstablishActiveSession, let updatedLifecycle {
+                        establishedLifecycle = updatedLifecycle
+                        publishAgentSurfaceResumeBinding(
+                            client: client,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            kind: "claude",
+                            displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                            sessionId: sessionId,
+                            cwd: parsedInput.cwd,
+                            launchCommand: launchCommand,
+                            observedPermissionMode: observedHookPermissionMode
+                        )
+                    }
+                } catch {
+                    sessionStoreMutationFailed = true
+                    telemetry.breadcrumb(
+                        "claude-hook.session-start.store-error",
+                        data: [
+                            "error": String(describing: error),
+                            "session_id": sessionId,
+                            "workspace_id": workspaceId,
+                        ]
                     )
                 }
             }
+            let didEstablishActiveSession = establishedLifecycle != nil
             // Register PID for stale-session detection and OSC suppression.
             // The active-session gate protects the accepted idle boundary from
             // late pre-clear events.
@@ -24472,23 +24492,31 @@ struct CMUXCLI {
             // cleanup clears only authoritative targets, so a fallback-pane
             // registration would leave a stale agent PID on a pane the fork
             // never owned.
-            let shouldRegisterPID = isForkSessionLaunch
-                ? resolvedSurface.isAuthoritative
-                : shouldEstablishActiveSession ||
-                    shouldApplyClaudeHookVisibleMutation(
-                        sessionStore: sessionStore,
-                        parsedInput: parsedInput,
-                        workspaceId: workspaceId,
-                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                        telemetry: telemetry
-                    )
+            let shouldRegisterPID: Bool
+            if isForkSessionLaunch {
+                shouldRegisterPID = resolvedSurface.isAuthoritative
+            } else if sessionStoreMutationFailed {
+                shouldRegisterPID = false
+            } else if didEstablishActiveSession {
+                shouldRegisterPID = true
+            } else if !shouldEstablishActiveSession {
+                shouldRegisterPID = shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                    telemetry: telemetry
+                )
+            } else {
+                shouldRegisterPID = false
+            }
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             }
-            if shouldEstablishActiveSession, !suppressVisibleMutations {
+            if let establishedLifecycle, !suppressVisibleMutations {
                 if isClearSessionStart {
                     _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                 }
