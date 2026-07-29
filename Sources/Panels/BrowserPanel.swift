@@ -718,10 +718,15 @@ func browserNewTabNavigationSeed(
     from request: URLRequest,
     bypassInsecureHTTPHostOnce: String? = nil
 ) -> BrowserNewTabNavigationSeed? {
-    guard let url = request.url else { return nil }
+    guard let originalURL = request.url else { return nil }
+    let url = originalURL.isFileURL
+        ? originalURL.standardizedFileURL.resolvingSymlinksInPath()
+        : originalURL
+    var initialRequest = request
+    initialRequest.url = url
     return BrowserNewTabNavigationSeed(
         url: url,
-        initialRequest: request,
+        initialRequest: initialRequest,
         bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
     )
 }
