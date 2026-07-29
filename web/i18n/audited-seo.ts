@@ -315,6 +315,49 @@ export function landingPageSeoCopy(
   };
 }
 
+/**
+ * Selects bounded metadata using only platform-specific browser download copy.
+ * Generic site fallbacks describe the macOS terminal and must not leak into
+ * Windows or Linux search results.
+ */
+export function browserDownloadSeoCopy(
+  locale: string,
+  t: SeoMessageLookup,
+  browserLabel: string,
+) {
+  const metaTitle = t("metaTitle");
+  const name = t("name");
+  const subtitle = completeMetadataSentence(locale, t("subtitle"));
+  const installBody = completeMetadataSentence(locale, t("installBody"));
+  const requirements = completeMetadataSentence(locale, t("requirements"));
+
+  return {
+    title: seoTitle(locale, metaTitle, {
+      minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
+      fallbackCandidates: [
+        `${metaTitle} — ${browserLabel}`,
+        `${name} — ${browserLabel}`,
+      ],
+      appendLocalizedContext: false,
+    }),
+    description: seoDescription(
+      locale,
+      completeMetadataSentence(locale, t("metaDescription")),
+      {
+        minLength: 110,
+        fallbackCandidates: [
+          subtitle,
+          installBody,
+          joinMetadataSentences(locale, subtitle, requirements),
+          joinMetadataSentences(locale, installBody, requirements),
+          joinMetadataSentences(locale, subtitle, installBody),
+        ],
+        appendLocalizedContext: false,
+      },
+    ),
+  };
+}
+
 export function docsPageSeoCopy(
   locale: string,
   pageKey: AuditedDocsPageKey,
