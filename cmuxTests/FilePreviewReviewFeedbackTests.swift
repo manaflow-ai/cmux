@@ -4,7 +4,6 @@ import Carbon.HIToolbox
 import Foundation
 import Quartz
 import Testing
-import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -446,8 +445,10 @@ struct FilePreviewReviewFeedbackTests {
 }
 
 @MainActor
-final class FilePreviewSaveShortcutTests: XCTestCase {
-    func testSavingTextViewUsesChordedSaveShortcut() async throws {
+@Suite(.serialized)
+struct FilePreviewSaveShortcutTests {
+    @Test
+    func savingTextViewUsesChordedSaveShortcut() async throws {
         KeyboardShortcutSettings.resetAll()
         defer { KeyboardShortcutSettings.resetAll() }
 
@@ -479,10 +480,15 @@ final class FilePreviewSaveShortcutTests: XCTestCase {
         try "original".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
+        let saveRecorder = FilePreviewSaveRecorder()
         let panel = FilePreviewPanel(
             workspaceId: UUID(),
             filePath: url.path,
-            startFileWatcher: false
+            startFileWatcher: false,
+            textSaver: { content, _, _ in
+                await saveRecorder.record(content)
+                return .saved
+            }
         )
         defer { panel.close() }
         await panel.loadTextContent().value
@@ -493,19 +499,19 @@ final class FilePreviewSaveShortcutTests: XCTestCase {
         panel.attachTextView(textView)
         panel.updateTextContent(textView.string)
 
-        let prefixEvent = try XCTUnwrap(
+        let prefixEvent = try #require(
             keyEvent(key: "k", keyCode: UInt16(kVK_ANSI_K))
         )
-        let suffixEvent = try XCTUnwrap(
+        let suffixEvent = try #require(
             keyEvent(key: "s", keyCode: UInt16(kVK_ANSI_S))
         )
 
-        XCTAssertTrue(textView.performKeyEquivalent(with: prefixEvent))
-        XCTAssertFalse(panel.isSaving)
-        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "original")
-        XCTAssertTrue(textView.performKeyEquivalent(with: suffixEvent))
-        await waitForPanelSave(panel)
-        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "saved by chord")
+        #expect(textView.performKeyEquivalent(with: prefixEvent))
+        #expect(!panel.isSaving)
+        #expect(try String(contentsOf: url, encoding: .utf8) == "original")
+        #expect(textView.performKeyEquivalent(with: suffixEvent))
+        let savedContent = await waitForSavedContent(in: saveRecorder)
+        #expect(savedContent == "saved by chord")
     }
 
     private func keyEvent(key: String, keyCode: UInt16) -> NSEvent? {
@@ -523,12 +529,26 @@ final class FilePreviewSaveShortcutTests: XCTestCase {
         )
     }
 
-    private func waitForPanelSave(_ panel: FilePreviewPanel) async {
-        let deadline = Date().addingTimeInterval(2)
-        while panel.isSaving, Date() < deadline {
+    private func waitForSavedContent(
+        in recorder: FilePreviewSaveRecorder
+    ) async -> String? {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if let content = await recorder.content {
+                return content
+            }
             await Task.yield()
         }
-        XCTAssertFalse(panel.isSaving, "Timed out waiting for panel save")
+        return await recorder.content
+    }
+}
+
+private actor FilePreviewSaveRecorder {
+    private(set) var content: String?
+
+    func record(_ content: String) {
+        self.content = content
     }
 }
 
