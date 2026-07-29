@@ -6,8 +6,8 @@ import Testing
 
 @Suite("Inherited reverse-forward recovery")
 struct RemoteSessionInheritedForwardRecoveryTests {
-    @Test("Metadata probe requires exact relay identity and slot")
-    func metadataProbeMatchesExactLeaseIdentity() throws {
+    @Test("Persistent metadata probe accepts rotated auth for the exact slot")
+    func persistentMetadataProbeUsesDurableSlotIdentity() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "cmux-relay-probe-\(UUID().uuidString)",
@@ -53,6 +53,54 @@ struct RemoteSessionInheritedForwardRecoveryTests {
         {"relay_id":"another-relay","relay_token":"\(token)"}
         """.write(to: authFile, atomically: true, encoding: .utf8)
         try "ssh-test".write(
+            to: slotFile,
+            atomically: true,
+            encoding: .utf8
+        )
+        #expect(try Self.runShellScript(script, home: home) == 0)
+
+        try FileManager.default.removeItem(at: authFile)
+        #expect(try Self.runShellScript(script, home: home) == 64)
+    }
+
+    @Test("Nonpersistent metadata probe requires exact relay credentials")
+    func nonpersistentMetadataProbeUsesTransientCredentials() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-relay-probe-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let relayDirectory = home
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("relay", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: relayDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+        let authFile = relayDirectory.appendingPathComponent("64044.auth")
+        let slotFile = relayDirectory.appendingPathComponent("64044.slot")
+        let token = String(repeating: "a", count: 64)
+        try """
+        {"relay_id":"relay-startup-cancellation","relay_token":"\(token)"}
+        """.write(to: authFile, atomically: true, encoding: .utf8)
+        let script =
+            RemoteSessionCoordinator.remoteRelayMetadataOwnershipProbeScript(
+                relayPort: 64_044,
+                relayID: "relay-startup-cancellation",
+                relayToken: token,
+                persistentDaemonSlot: nil
+            )
+
+        #expect(try Self.runShellScript(script, home: home) == 0)
+
+        try """
+        {"relay_id":"another-relay","relay_token":"\(token)"}
+        """.write(to: authFile, atomically: true, encoding: .utf8)
+        #expect(try Self.runShellScript(script, home: home) == 64)
+
+        try FileManager.default.removeItem(at: authFile)
+        try "unexpected-slot".write(
             to: slotFile,
             atomically: true,
             encoding: .utf8
