@@ -316,7 +316,7 @@ extension Workspace {
         terminalLifecycleID: UUID?,
         attemptID: UUID?,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)?,
-        beforeWorkspaceMutation: @MainActor @Sendable () -> Bool = { true }
+        beforeWorkspaceMutation: @escaping @MainActor @Sendable () -> Bool = { true }
     ) -> Bool {
         let applyConnection: @MainActor @Sendable () -> Bool = {
             guard beforeWorkspaceMutation() else { return false }

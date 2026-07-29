@@ -971,7 +971,7 @@ extension TerminalController: ControlWorkspaceContext {
         lifecycleID: String?,
         lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
-        let lifecycleOwner = switch (sessionID, lifecycleID) {
+        let lifecycleOwner: RemotePTYLifecycleWrapperEndOwner? = switch (sessionID, lifecycleID) {
         case let (.some(sessionID), .some(lifecycleID)):
             remoteProxyBroker.ptyLifecycleOwnerForWrapperEnd(
                 sessionID: sessionID,
