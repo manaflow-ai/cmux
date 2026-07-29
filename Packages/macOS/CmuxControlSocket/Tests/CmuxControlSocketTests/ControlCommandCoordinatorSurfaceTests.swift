@@ -211,6 +211,50 @@ struct ControlCommandCoordinatorSurfaceTests {
         ))
     }
 
+    @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.clear",
+            params: ["agent_session_ended": .bool(true)]
+        ))
+        #expect(context.resumeClearAgentSessionEnded == true)
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(2),
+            method: "surface.resume.clear",
+            params: [:]
+        ))
+        #expect(context.resumeClearAgentSessionEnded == false)
+    }
+
+    @Test(
+        "surface resume clear rejects malformed session-end provenance",
+        arguments: [JSONValue.null, .int(1), .string("true")]
+    )
+    func surfaceResumeClearRejectsMalformedSessionEndProvenance(value: JSONValue) {
+        let context = FakeSurfaceControlCommandContext()
+        context.resumeStrings = ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: "localized boolean validation"
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.clear",
+            params: ["agent_session_ended": value]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "localized boolean validation",
+            data: nil
+        ))
+        #expect(context.resumeClearAgentSessionEnded == nil)
+    }
+
     @Test func paneCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let context = FakeSurfaceControlCommandContext()
         context.paneCreateResolution = .dockUnsupportedType(
