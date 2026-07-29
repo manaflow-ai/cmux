@@ -1,5 +1,8 @@
 use serde_json::Value;
 
+/// One-hop package launcher metadata used to replay the current invocation.
+pub const LAUNCHER_COMMAND_ENV: &str = "CMUX_TUI_LAUNCHER_COMMAND";
+
 /// The build identity that must match between a local client and server.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReleaseIdentity {

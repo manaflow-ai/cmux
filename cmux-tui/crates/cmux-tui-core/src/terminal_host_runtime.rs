@@ -3249,6 +3249,7 @@ mod unix {
         for (key, value) in &launch.extra_env {
             command.env(key, value);
         }
+        command.env_remove(crate::release::LAUNCHER_COMMAND_ENV);
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }

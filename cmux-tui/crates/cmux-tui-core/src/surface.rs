@@ -1761,6 +1761,7 @@ impl Surface {
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
+        cmd.env_remove(crate::release::LAUNCHER_COMMAND_ENV);
         let cwd = opts
             .cwd
             .clone()

@@ -13,7 +13,7 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
-use cmux_tui_core::release::ReleaseIdentity;
+use cmux_tui_core::release::{LAUNCHER_COMMAND_ENV, ReleaseIdentity};
 use cmux_tui_core::server::{
     PROTOCOL_VERSION, SERVER_SHUTDOWN_CAPABILITY, SERVER_SHUTDOWN_INCOMPLETE_ERROR,
     SERVER_SHUTDOWN_TIMEOUT,
@@ -57,7 +57,6 @@ const LEGACY_HELPER_CANCEL_MARGIN: Duration = Duration::from_millis(100);
 const LEGACY_HELPER_REAPER_CAPACITY: usize = 64;
 #[cfg(unix)]
 const LEGACY_HELPER_REAPER_RETRY_MAX: Duration = Duration::from_secs(1);
-const LAUNCHER_COMMAND_ENV: &str = "CMUX_TUI_LAUNCHER_COMMAND";
 const MAX_LAUNCHER_COMMAND_BYTES: usize = 4096;
 
 type TransportReader = BufReader<Box<dyn transport::Stream>>;
