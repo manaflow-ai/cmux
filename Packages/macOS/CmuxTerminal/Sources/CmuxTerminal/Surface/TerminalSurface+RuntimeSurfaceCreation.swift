@@ -18,7 +18,7 @@ extension TerminalSurface {
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
         claudeShim: ClaudeCommandShim?
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
-        var baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
+        let baseConfig = runtimeCreationConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
         let magnificationPercent = globalFontMagnificationPercent()
         surfaceConfig.font_size = CmuxSurfaceConfigTemplate.runtimeFontSize(
@@ -30,8 +30,18 @@ extension TerminalSurface {
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
         ))
-        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceHost: view, surfaceController: self))
+        let rendererRealization = rendererRealization
+        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
+            surfaceHost: view,
+            surfaceController: self,
+            rendererMailboxDidDrain: { surfaceID in
+                Task { @MainActor in
+                    rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
+                }
+            }
+        ))
         surfaceConfig.userdata = callbackContext.toOpaque()
+        surfaceConfig.renderer_event_cb = terminalRendererEventCallback
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
@@ -78,6 +88,10 @@ extension TerminalSurface {
             protectedStartupEnvironmentKeys.insert(key)
         }
 
+        if let resolvedUserShell = engine.resolvedUserShell {
+            setManagedEnvironmentValue("SHELL", resolvedUserShell)
+        }
+
         let socketPath = spawnPolicyProvider.controlSocketPath()
         Self.applyManagedCmuxContextEnvironment(
             Self.cmuxContextEnvironment(
@@ -110,6 +124,10 @@ extension TerminalSurface {
         }
 
         let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
+        for (key, value) in spawnPolicy.socketAuthenticationEnvironment
+            where !key.isEmpty && !value.isEmpty {
+            setManagedEnvironmentValue(key, value)
+        }
         let claudeHooksEnabled = spawnPolicy.claudeHooksEnabled
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
@@ -142,7 +160,12 @@ extension TerminalSurface {
             setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }
 
-        if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+        if let cliBinURL = Bundle.main.resourceURL?.appendingPathComponent("bin") {
+            let cliBinPath = cliBinURL.path
+            let ghosttyCLIPath = cliBinURL.appendingPathComponent("ghostty").path
+            if FileManager.default.isExecutableFile(atPath: ghosttyCLIPath) {
+                setManagedEnvironmentValue("GHOSTTY_BIN", ghosttyCLIPath)
+            }
             let currentPath = env["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["PATH"]
@@ -179,6 +202,7 @@ extension TerminalSurface {
             )
         }
 
+        var managedShellCommand: String?
         if spawnPolicy.shellIntegrationEnabled,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
            Self.shellIntegrationDirectoryExists(integrationDir) {
@@ -191,18 +215,14 @@ extension TerminalSurface {
                 protectedKeys: &protectedStartupEnvironmentKeys
             )
 
-            let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
-                ?? getenv("SHELL").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["SHELL"]
-                ?? "/bin/zsh"
-            if let command = Self.applyManagedShellSpecificStartupEnvironment(
-                shell: shell,
-                integrationDir: integrationDir,
-                userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,
-                to: &env,
-                protectedKeys: &protectedStartupEnvironmentKeys
-            ) {
-                if baseConfig.command?.isEmpty != false { baseConfig.command = command }
+            if let shell = engine.resolvedUserShell {
+                managedShellCommand = Self.applyManagedShellSpecificStartupEnvironment(
+                    shell: shell,
+                    integrationDir: integrationDir,
+                    userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,
+                    to: &env,
+                    protectedKeys: &protectedStartupEnvironmentKeys
+                )
             }
         }
         env = Self.mergedStartupEnvironment(
@@ -233,12 +253,13 @@ extension TerminalSurface {
             }
             return baseConfig.workingDirectory
         }()
-        let resolvedCommand: String? = {
-            if let initialCommand, !initialCommand.isEmpty {
-                return initialCommand
-            }
-            return baseConfig.command
-        }()
+        let resolvedCommand = TerminalLaunchCommandPolicy().resolve(
+            initialCommand: initialCommand,
+            surfaceCommand: baseConfig.command,
+            hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
+            managedShellCommand: managedShellCommand,
+            resolvedShell: engine.resolvedUserShell
+        )
         let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedInitialInput: String? = {
             if let runtimeInitialInput, !runtimeInitialInput.isEmpty {

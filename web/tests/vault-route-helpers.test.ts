@@ -9,6 +9,7 @@ import {
   withAuthedVaultApiRoute,
   withVaultApiRoute,
 } from "../services/vault/routeHelpers";
+import type { AuthedUser } from "../services/vms/auth";
 
 let exporter: InMemorySpanExporter;
 let provider: BasicTracerProvider;
@@ -88,7 +89,107 @@ describe("Vault route helper", () => {
       console.error = originalError;
     }
   });
+
+  test("blocks cross-site cookie-authenticated mutation requests before the handler", async () => {
+    const handler = mock(async () => Response.json({ ok: true }));
+
+    const response = await withAuthedVaultApiRoute(
+      new Request("https://cmux.test/api/vault/test", {
+        method: "POST",
+        headers: {
+          origin: "https://evil.test",
+          "sec-fetch-site": "cross-site",
+        },
+      }),
+      "/api/vault/test",
+      { "cmux.vault.operation": "test" },
+      "/api/vault/test failed",
+      {},
+      handler,
+      async () => testUser,
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "forbidden" });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  test("blocks cookie-authenticated mutation requests without an origin", async () => {
+    const handler = mock(async () => Response.json({ ok: true }));
+
+    const response = await withAuthedVaultApiRoute(
+      new Request("https://cmux.test/api/vault/test", { method: "POST" }),
+      "/api/vault/test",
+      { "cmux.vault.operation": "test" },
+      "/api/vault/test failed",
+      {},
+      handler,
+      async () => testUser,
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "forbidden" });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  test("allows same-origin cookie-authenticated mutation requests", async () => {
+    const handler = mock(async () => Response.json({ ok: true }));
+
+    const response = await withAuthedVaultApiRoute(
+      new Request("https://cmux.test/api/vault/test", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+      }),
+      "/api/vault/test",
+      { "cmux.vault.operation": "test" },
+      "/api/vault/test failed",
+      {},
+      handler,
+      async () => testUser,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test("allows bearer-authenticated mutation requests without an origin", async () => {
+    const handler = mock(async () => Response.json({ ok: true }));
+
+    const response = await withAuthedVaultApiRoute(
+      new Request("https://cmux.test/api/vault/test", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+      }),
+      "/api/vault/test",
+      { "cmux.vault.operation": "test" },
+      "/api/vault/test failed",
+      { allowCookie: false },
+      handler,
+      async () => testUser,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
 });
+
+const testUser: AuthedUser = {
+  id: "user-vault-test",
+  displayName: null,
+  primaryEmail: "user@example.test",
+  billingCustomerType: "user",
+  billingTeamId: "user-vault-test",
+  selectedTeamId: null,
+  teams: [],
+  teamIds: [],
+  userBillingPlanId: null,
+  billingPlanId: null,
+};
 
 function latestVaultTestSpan() {
   return exporter

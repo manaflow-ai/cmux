@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Combine
 import CmuxWorkspaces
 import Foundation
@@ -24,7 +25,18 @@ final class MobileWorkspaceListObserver {
     private var groupsCancellable: AnyCancellable?
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
-    private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
+    private struct WorkspaceCancellableEntry {
+        let objectID: ObjectIdentifier
+        let cancellable: AnyCancellable
+    }
+    private var perWorkspaceCancellables: [UUID: WorkspaceCancellableEntry] = [:]
+    private struct DescriptionProjectionCacheEntry {
+        let objectID: ObjectIdentifier
+        let signature: Int
+    }
+    private var descriptionProjectionCache: [UUID: DescriptionProjectionCacheEntry] = [:]
+    private var subscriptionsChangeObserver: NSObjectProtocol?
+    private var pipelinesAttached = false
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
@@ -33,13 +45,74 @@ final class MobileWorkspaceListObserver {
     /// per 80 ms. Hash-diff suppresses no-op rebroadcasts.
     private let throttleMilliseconds: Int = 80
 
+    #if DEBUG
+    /// Test seam: fidelity tests exercise the pipelines without a live phone
+    /// connection, so they force presence on instead of registering a real
+    /// mobile subscriber.
+    static var subscriberPresenceOverrideForTesting: Bool?
+    var pipelinesAttachedForTesting: Bool { pipelinesAttached }
+    #endif
+
+    /// Whether any mobile client currently subscribes to `workspace.updated`.
+    /// The observer's entire publisher graph (five global streams plus ~a dozen
+    /// per-workspace streams, all throttled on the main run loop) and the
+    /// full-list summary hash it computes per delivery exist only to feed that
+    /// event, so with no subscriber the graph stays detached and agent-driven
+    /// workspace churn costs the main thread nothing here.
+    private var hasWorkspaceListSubscribers: Bool {
+        #if DEBUG
+        if let override = Self.subscriberPresenceOverrideForTesting { return override }
+        #endif
+        return MobileHostService.hasEventSubscribers(topic: "workspace.updated")
+    }
+
     init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
-        attach(to: tabManager)
+        subscriptionsChangeObserver = NotificationCenter.default.addObserver(
+            forName: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reconcilePipelines()
+            }
+        }
+        reconcilePipelines()
+    }
+
+    deinit {
+        if let subscriptionsChangeObserver {
+            NotificationCenter.default.removeObserver(subscriptionsChangeObserver)
+        }
+    }
+
+    private func reconcilePipelines() {
+        guard let tabManager else { return }
+        let wantsPipelines = hasWorkspaceListSubscribers
+        if wantsPipelines, !pipelinesAttached {
+            pipelinesAttached = true
+            attach(to: tabManager)
+        } else if !wantsPipelines, pipelinesAttached {
+            pipelinesAttached = false
+            detachPipelines()
+        }
+    }
+
+    private func detachPipelines() {
+        #if DEBUG
+        cmuxDebugLog("mobile.observer detach: no workspace.updated subscribers")
+        #endif
+        tabsCancellable = nil
+        selectionCancellable = nil
+        groupsCancellable = nil
+        notificationsCancellable = nil
+        unreadIndicatorsCancellable = nil
+        perWorkspaceCancellables.removeAll()
+        descriptionProjectionCache.removeAll()
     }
 
     private func attach(to tabManager: TabManager) {
@@ -50,6 +123,7 @@ final class MobileWorkspaceListObserver {
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
+            descriptionSignatures: currentDescriptionSignatures(for: tabManager.tabs),
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
         lastSummaryHash = initial
@@ -140,6 +214,7 @@ final class MobileWorkspaceListObserver {
         for tabs: [Workspace],
         notificationStore: TerminalNotificationStore?
     ) -> [UUID: Int] {
+        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-preview-signatures", "workspaces=\(tabs.count) hasStore=\(notificationStore != nil)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let notificationStore else { return [:] }
         var signatures: [UUID: Int] = [:]
         for workspace in tabs {
@@ -156,10 +231,25 @@ final class MobileWorkspaceListObserver {
     }
 
     private func refreshPerWorkspaceSubscriptions(tabs: [Workspace]) {
-        let currentIDs = Set(tabs.map(\.id))
-        // Drop subscriptions for workspaces that vanished.
-        for id in perWorkspaceCancellables.keys where !currentIDs.contains(id) {
+        let currentObjectIDsByWorkspaceID = Dictionary(
+            uniqueKeysWithValues: tabs.map { ($0.id, ObjectIdentifier($0)) }
+        )
+        // Drop subscriptions for workspaces that vanished or were replaced by
+        // restored workspace objects with the same durable id.
+        let staleWorkspaceIDs = perWorkspaceCancellables.compactMap { id, entry in
+            currentObjectIDsByWorkspaceID[id] == entry.objectID ? nil : id
+        }
+        for id in staleWorkspaceIDs {
             perWorkspaceCancellables.removeValue(forKey: id)
+            descriptionProjectionCache.removeValue(forKey: id)
+            MobileStateSyncHost.shared.invalidateDescriptionProjection(workspaceID: id)
+        }
+        let removedCachedProjectionIDs = descriptionProjectionCache.keys.filter {
+            currentObjectIDsByWorkspaceID[$0] == nil
+        }
+        for id in removedCachedProjectionIDs {
+            perWorkspaceCancellables.removeValue(forKey: id)
+            descriptionProjectionCache.removeValue(forKey: id)
         }
         // Merge the per-workspace publishers behind the mobile workspace
         // list: terminal set, terminal titles, workspace title, and displayed
@@ -173,6 +263,16 @@ final class MobileWorkspaceListObserver {
                 // so without this a terminal rename never re-emits to the phone.
                 workspace.$panelCustomTitles.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$title.map { _ in () }.eraseToAnyPublisher(),
+                // Description and color are durable workspace identity shown in
+                // the phone sidebar. Mac-side edits must invalidate mobile rows.
+                workspace.$customDescription
+                    .handleEvents(receiveOutput: { [weak self, workspaceID = workspace.id] _ in
+                        self?.descriptionProjectionCache.removeValue(forKey: workspaceID)
+                        MobileStateSyncHost.shared.invalidateDescriptionProjection(workspaceID: workspaceID)
+                    })
+                    .map { _ in () }
+                    .eraseToAnyPublisher(),
+                workspace.$customColor.map { _ in () }.eraseToAnyPublisher(),
                 // Pin/unpin is iOS-facing (the phone shows a Pinned section), and
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
@@ -185,6 +285,16 @@ final class MobileWorkspaceListObserver {
                 workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+                // Todo status override + checklist are workspace-list-facing
+                // (status lane, checklist progress) and live in their own
+                // sub-model, so a pure todo mutation would otherwise never
+                // re-emit to external listeners.
+                workspace.todoState.$statusOverride.map { _ in () }.eraseToAnyPublisher(),
+                workspace.todoState.$checklist.map { _ in () }.eraseToAnyPublisher(),
+                workspace.currentDirectoryChangeRevisionPublisher()
+                    .map { _ in () }
+                    .eraseToAnyPublisher(),
+                workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
                 // set; bonsplit selection state is not `@Published`, so this counter
                 // is the only signal the observer gets for a reorder.
@@ -192,18 +302,23 @@ final class MobileWorkspaceListObserver {
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            perWorkspaceCancellables[workspace.id] = merged.sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
-            }
+            perWorkspaceCancellables[workspace.id] = WorkspaceCancellableEntry(
+                objectID: ObjectIdentifier(workspace),
+                cancellable: merged.sink { [weak self] _ in
+                    self?.emitIfNeeded(force: false)
+                }
+            )
         }
     }
 
     private func emitIfNeeded(force: Bool) {
+        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let tabManager else { return }
         let hash = Self.summaryHash(
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
+            descriptionSignatures: currentDescriptionSignatures(for: tabManager.tabs),
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
         if !force, hash == lastSummaryHash {
@@ -218,6 +333,10 @@ final class MobileWorkspaceListObserver {
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
         MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+        // v2 phones get per-record deltas instead of the empty invalidation
+        // above. Same tick, same throttle; a no-op diff emits nothing, and the
+        // call returns immediately when no phone subscribed to the delta topic.
+        MobileStateSyncHost.shared.broadcastIfSubscribed()
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
@@ -235,12 +354,59 @@ final class MobileWorkspaceListObserver {
     /// preview (notification id + timestamp). Folding it in means a new notification
     /// (or a cleared one) re-emits to the phone, which renders the preview + relative
     /// time. Workspaces with no notification are simply absent from the map.
+    private func currentDescriptionSignatures(for tabs: [Workspace]) -> [UUID: Int] {
+        var signatures: [UUID: Int] = [:]
+        signatures.reserveCapacity(tabs.count)
+        for workspace in tabs {
+            signatures[workspace.id] = cachedDescriptionSignature(for: workspace)
+        }
+        return signatures
+    }
+
+    private func cachedDescriptionSignature(
+        for workspace: Workspace
+    ) -> Int {
+        let objectID = ObjectIdentifier(workspace)
+        if let cached = descriptionProjectionCache[workspace.id],
+           cached.objectID == objectID {
+            return cached.signature
+        }
+        let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
+        let signature = Self.descriptionSignature(for: projection)
+        descriptionProjectionCache[workspace.id] = DescriptionProjectionCacheEntry(
+            objectID: objectID,
+            signature: signature
+        )
+        return signature
+    }
+
+    private static func descriptionSignatures(for tabs: [Workspace]) -> [UUID: Int] {
+        var signatures: [UUID: Int] = [:]
+        signatures.reserveCapacity(tabs.count)
+        for workspace in tabs {
+            let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
+            signatures[workspace.id] = descriptionSignature(for: projection)
+        }
+        return signatures
+    }
+
+    private static func descriptionSignature(
+        for projection: MobileWorkspaceDescriptionProjection
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(projection.value)
+        hasher.combine(projection.isTruncated)
+        return hasher.finalize()
+    }
+
     private static func summaryHash(
         for tabs: [Workspace],
         groups: [WorkspaceGroup],
         selectedTabID: UUID?,
+        descriptionSignatures: [UUID: Int],
         previewSignatures: [UUID: Int]
     ) -> Int {
+        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-summary-hash", "workspaces=\(tabs.count) groups=\(groups.count) previews=\(previewSignatures.count) selected=\(selectedTabID.map { String($0.uuidString.prefix(5)) } ?? "nil")"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         var hasher = Hasher()
         hasher.combine(tabs.count)
         hasher.combine(selectedTabID)
@@ -259,6 +425,8 @@ final class MobileWorkspaceListObserver {
         for workspace in tabs {
             hasher.combine(workspace.id)
             hasher.combine(workspace.title)
+            hasher.combine(descriptionSignatures[workspace.id])
+            hasher.combine(workspace.customColor)
             hasher.combine(workspace.isPinned)
             // Group membership is iOS-facing (the phone nests members under the
             // group header), and a pure move-into/out-of-group need not change the
@@ -274,9 +442,13 @@ final class MobileWorkspaceListObserver {
             hasher.combine(panelIDs)
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))
-                hasher.combine(workspace.panelDirectories[id])
+                hasher.combine(workspace.reportedPanelDirectory(panelId: id))
             }
-            hasher.combine(workspace.currentDirectory)
+            hasher.combine(workspace.presentedCurrentDirectory)
+            // Todo mutations change the list-facing shape; without these the
+            // hash-diff would suppress the re-emit the publishers above fire.
+            hasher.combine(workspace.todoState.statusOverride)
+            hasher.combine(workspace.todoState.checklist)
             // Hash every panelDirectories entry (including ids not yet in
             // `panels`) so a directory update is detected even before its panel
             // registers. The ordered loop above already covers in-panel
@@ -301,6 +473,7 @@ final class MobileWorkspaceListObserver {
             for: tabs,
             groups: groups,
             selectedTabID: selectedTabID,
+            descriptionSignatures: descriptionSignatures(for: tabs),
             previewSignatures: previewSignatures
         )
     }

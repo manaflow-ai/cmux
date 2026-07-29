@@ -24,6 +24,17 @@ The heartbeat response returns `heartbeatIntervalMs` (15s) and
 hardcoding it. An instance that misses heartbeats for the timeout window is
 flipped offline by the Durable Object alarm with `reason: "timeout"`.
 
+Every server boundary reduces Iroh routes to the EndpointID plus an exact
+managed relay URL. Direct addresses and private-network hints remain on the
+device or move endpoint-to-endpoint after admission. Existing LAN, Tailscale,
+and custom-network route bodies pass through unchanged for compatibility.
+
+Presence still sends the full sanitized route body in `online`, `routes`, and
+snapshot frames. Current iOS clients write that body into their paired-Mac store
+and reconnect without a registry round trip. Replacing it with a routes-changed
+signal requires a new client protocol plus an authenticated fetch or local
+rendezvous path, so that protocol change is intentionally separate.
+
 Devices are owner-bound, mirroring the registry route: the first authenticated
 user to announce a `deviceId` owns it, and a heartbeat for that device from a
 different team member is rejected with `403 device_owner_mismatch`, so a

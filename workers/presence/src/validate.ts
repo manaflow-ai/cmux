@@ -4,6 +4,7 @@
 // presence layer.
 
 import type { HeartbeatInput, PresenceRoute } from "./core";
+import { sanitizePublishedRoutes } from "./routePrivacy";
 
 export const MAX_REQUEST_BYTES = 16 * 1024;
 export const MAX_TAG_LENGTH = 64;
@@ -89,9 +90,9 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
   // rejected rather than coerced like the registry route does, because under
   // presence semantics a silent coercion would either wipe pushed routes
   // (treat-as-empty) or mask a client bug (treat-as-absent). Entry filtering
-  // mirrors the registry: keep only plain objects, bounded by MAX_ROUTES;
-  // semantic `CmxAttachRoute` validation stays client-owned so new route kinds
-  // flow through without a worker ship.
+  // mirrors the registry: keep only plain objects, bounded by MAX_ROUTES.
+  // Legacy route semantics stay client-owned. Iroh routes are then reduced to
+  // EndpointID plus an approved managed relay URL.
   let routes: PresenceRoute[] | undefined;
   if (body.routes !== undefined) {
     if (!Array.isArray(body.routes)) return { ok: false, error: "invalid_routes" };
@@ -109,6 +110,7 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       if (routeBytes > MAX_ROUTES_TOTAL_BYTES) break;
       routes.push(entry as PresenceRoute);
     }
+    routes = sanitizePublishedRoutes(routes);
   }
 
   return {

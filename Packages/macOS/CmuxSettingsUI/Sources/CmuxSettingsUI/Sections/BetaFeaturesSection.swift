@@ -12,6 +12,8 @@ public struct BetaFeaturesSection: View {
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
+    @State private var workspaceTodoControls: DefaultsValueModel<Bool>
+    @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
@@ -19,6 +21,8 @@ public struct BetaFeaturesSection: View {
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
+        _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
+        _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
 
     public var body: some View {
@@ -38,6 +42,10 @@ public struct BetaFeaturesSection: View {
                 customSidebarsRow
                 SettingsCardDivider()
                 remoteTmuxRow
+                SettingsCardDivider()
+                workspaceTodoControlsRow
+                SettingsCardDivider()
+                workspaceTodosChecklistStyleRow
             }
         }
         .task { startObservingSettings() }
@@ -50,8 +58,51 @@ public struct BetaFeaturesSection: View {
             extensions,
             customSidebars,
             remoteTmux,
+            workspaceTodoControls,
+            workspaceTodosChecklistStyle,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    @ViewBuilder
+    private var workspaceTodoControlsRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("sidebar.beta.workspaceTodos.controls.enabled"),
+            searchAnchorID: "setting:betaFeatures:workspace-todo-controls",
+            String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"),
+            subtitle: workspaceTodoControls.current
+                ? String(localized: "settings.betaFeatures.workspaceTodoControls.subtitleOn", defaultValue: "Shows Add Checklist Item and workspace status controls.")
+                : String(localized: "settings.betaFeatures.workspaceTodoControls.subtitleOff", defaultValue: "Keeps workspace todo summaries read-only unless remote rollout enables the controls.")
+        ) {
+            Toggle("", isOn: Binding(get: { workspaceTodoControls.current }, set: { workspaceTodoControls.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaWorkspaceTodoControlsToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceTodosChecklistStyleRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("sidebar.beta.workspaceTodos.checklistStyle"),
+            searchAnchorID: "setting:betaFeatures:workspace-todos-checklist-style",
+            String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"),
+            subtitle: workspaceTodosChecklistStyle.current == .popover
+                ? String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitlePopover", defaultValue: "Clicking a row's checklist summary opens an anchored popover.")
+                : String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitleInline", defaultValue: "Clicking a row's checklist summary expands the items inline under the row."),
+            controlWidth: 196
+        ) {
+            Picker(String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), selection: Binding(
+                get: { workspaceTodosChecklistStyle.current },
+                set: { workspaceTodosChecklistStyle.set($0) }
+            )) {
+                Text(String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.popover", defaultValue: "Popover")).tag(WorkspaceTodoChecklistStyle.popover)
+                Text(String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.inline", defaultValue: "Inline")).tag(WorkspaceTodoChecklistStyle.inline)
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("SettingsBetaWorkspaceTodosChecklistStylePicker")
+        }
     }
 
     @ViewBuilder
@@ -138,6 +189,7 @@ public struct BetaFeaturesSection: View {
                 .accessibilityIdentifier("SettingsBetaRemoteTmuxToggle")
         }
     }
+
 }
 
 /// Small warning callout with a yellow triangle, used at the top of

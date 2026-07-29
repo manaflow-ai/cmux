@@ -8,6 +8,7 @@ import Foundation
 /// sign-out wipe is final.
 actor GatedUpsertStore: MobilePairedMacStoring {
     private let inner: MobilePairedMacStore
+    private let failUpsert: Bool
     private let failRemove: Bool
     private var enteredContinuation: CheckedContinuation<Void, Never>?
     private var entered = false
@@ -15,8 +16,13 @@ actor GatedUpsertStore: MobilePairedMacStoring {
     private var released = false
     private var gateArmed = true
 
-    init(inner: MobilePairedMacStore, failRemove: Bool = false) {
+    init(
+        inner: MobilePairedMacStore,
+        failUpsert: Bool = false,
+        failRemove: Bool = false
+    ) {
         self.inner = inner
+        self.failUpsert = failUpsert
         self.failRemove = failRemove
     }
 
@@ -38,8 +44,9 @@ actor GatedUpsertStore: MobilePairedMacStoring {
 
     func upsert(
         macDeviceID: String, displayName: String?, routes: [CmxAttachRoute],
-        markActive: Bool, stackUserID: String?, teamID: String?, now: Date
+        instanceTag: String? = nil, markActive: Bool, stackUserID: String?, teamID: String?, now: Date
     ) async throws {
+        if failUpsert { throw NSError(domain: "GatedUpsertStore", code: 2) }
         if gateArmed {
             gateArmed = false
             entered = true
@@ -49,7 +56,8 @@ actor GatedUpsertStore: MobilePairedMacStoring {
         }
         try await inner.upsert(
             macDeviceID: macDeviceID, displayName: displayName, routes: routes,
-            markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+            instanceTag: instanceTag, markActive: markActive,
+            stackUserID: stackUserID, teamID: teamID, now: now)
     }
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {

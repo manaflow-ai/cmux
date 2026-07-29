@@ -26,6 +26,57 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.20": {
+    title: "Native AppKit Sidebar, Browser Design Mode, TUI Mouse Forwarding",
+    features: [
+      {
+        title: "Native AppKit Sidebar",
+        description:
+          "The workspace sidebar is rebuilt on native AppKit rows and is now on by default: faster scrolling in large workspace lists, precise hover and selection, and full fidelity with your sidebar settings.",
+      },
+      {
+        title: "Browser Design Mode",
+        description:
+          "Visually edit pages inside the browser pane, annotate elements, and hand the annotated changes straight to an agent to implement.",
+      },
+      {
+        title: "Mouse Input for TUI Apps",
+        description:
+          "cmux now forwards mouse input to TUI applications running in the terminal, so tools that own the pointer respond to clicks, drags, and scrolls as expected.",
+      },
+      {
+        title: "Stability and Performance",
+        description:
+          "Codex YOLO mode and Pi sessions survive restore, typing latency from title churn is fixed, sidebar scroll livelocks and popover resize crashes are gone, and remote ssh-tmux panes size and focus correctly.",
+      },
+    ],
+  },
+  "0.64.18": {
+    title:
+      "Saved Workspace Layouts, Fork Conversation, Per-Monitor Window Memory",
+    features: [
+      {
+        title: "Saved Workspace Layouts",
+        description:
+          "Capture the current split arrangement as a named layout, reopen it from the new-workspace menu anytime, and set a default layout that every new workspace starts from.",
+      },
+      {
+        title: "Fork Conversation",
+        description:
+          "Right-click an agent terminal to fork the conversation into a new split, tab, or workspace, so you can explore a tangent without losing the original session.",
+      },
+      {
+        title: "Per-Monitor Window Memory",
+        description:
+          "cmux remembers window position and size per monitor configuration and refits windows when displays change, so docking and undocking a laptop no longer scrambles your setup.",
+      },
+      {
+        title: "Stability and Performance",
+        description:
+          "A coordinated memory-pressure response with automatic scrollback compression, fixes for macOS 27 launch crashes and SSH panes dying after sleep, runaway scrolling with high-resolution mice, and a Sparkle update that no longer kills running agents on macOS 26.",
+      },
+    ],
+  },
   "0.64.17": {
     title:
       "Global Font Magnification, Remote tmux Mirroring, Diff Viewer Branch Picker",

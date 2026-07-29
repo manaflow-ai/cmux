@@ -5,8 +5,8 @@
 # since the previous beta instead of a hand-maintained changelog top entry.
 #
 #   internal (default): terse, dev-facing bullets, keeps the PR number.
-#   external:           a cleaned DRAFT (no PR numbers, no conventional prefix)
-#                       for human curation before a founders cut.
+#   external:           cleaned user-facing bullets (no PR numbers, no
+#                       conventional prefix), suitable for the external beta lane.
 #
 # Output is the bullet list only (no "### Internal" heading), suitable to pass to
 # `set-testflight-notes.sh --notes "$(...)"`. An empty or unreachable range emits
@@ -63,7 +63,7 @@ fi
 
 # iOS-affecting paths: mirror the push-trigger filter in ios-testflight.yml so the
 # notes only mention changes that could be in this build.
-PATHS="ios Packages/iOS Packages/Shared Sources/Mobile vendor/stack-auth-swift-sdk-prerelease scripts/ghosttykit-checksums.txt"
+PATHS="ios Packages/iOS Packages/Shared Sources/Mobile vendor/stack-auth-swift-sdk-prerelease ghostty ghostty.h scripts/ensure-ghosttykit.sh scripts/ghosttykit-checksums.txt scripts/install-zig-ci.sh scripts/validate-xcframework-archive.py .github/workflows/ios-testflight.yml"
 
 # First-line subjects of non-merge commits in range touching those paths. Squash
 # merges carry the PR title + "(#N)" as the subject, which is exactly what we want.
@@ -95,8 +95,8 @@ while IFS= read -r subject; do
   fi
 
   if [[ "$AUDIENCE" == "external" ]]; then
-    # Clean for founders: strip "(#N)" / "#N", and a leading conventional prefix
-    # like "ios:" / "fix(mobile):". Keep it a DRAFT; a human curates wording.
+    # Clean for founders/external beta: strip "(#N)" / "#N", and a leading
+    # conventional prefix like "ios:" / "fix(mobile):".
     clean="$(printf '%s' "$subject" \
       | sed -E 's/ *\(#[0-9]+\)//g; s/ +#[0-9]+//g' \
       | sed -E 's/^[a-z]+(\([^)]*\))?(!)?: *//')"

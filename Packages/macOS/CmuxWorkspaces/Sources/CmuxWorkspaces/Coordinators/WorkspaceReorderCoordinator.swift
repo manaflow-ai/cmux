@@ -166,9 +166,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex, isDragOperation: isDragOperation)
     }
 
-    /// Explicit group drops are planned by the sidebar in the intended target
-    /// group's row-space. Preserve that slot here instead of reclamping against
-    /// the dragged workspace's current group or global pin tier.
+    /// Preserve explicit group-drop row space from the sidebar.
     private func explicitGroupWorkspaceReorderPlan(tabId: UUID, toIndex targetIndex: Int) -> WorkspaceReorderPlanItem? {
         guard let currentIndex = model.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         if model.tabs.count <= 1 {
@@ -184,7 +182,6 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         if model.tabs.count <= 1 {
             return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: currentIndex)
         }
-
         let workspace = model.tabs[currentIndex]
         let clamped = model.clampedReorderIndex(for: workspace, targetIndex: targetIndex)
         return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: clamped)
@@ -192,14 +189,16 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// The before/after-relative reorder plan, or `nil` when unknown.
     public func workspaceReorderPlan(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> WorkspaceReorderPlanItem? {
-        guard model.tabs.contains(where: { $0.id == tabId }) else { return nil }
+        guard let currentIndex = model.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         if let beforeId {
             guard let idx = model.tabs.firstIndex(where: { $0.id == beforeId }) else { return nil }
-            return workspaceReorderPlan(tabId: tabId, toIndex: idx)
+            let targetIndex = currentIndex < idx ? idx - 1 : idx
+            return workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
         }
         if let afterId {
             guard let idx = model.tabs.firstIndex(where: { $0.id == afterId }) else { return nil }
-            return workspaceReorderPlan(tabId: tabId, toIndex: idx + 1)
+            let targetIndex = currentIndex < idx ? idx : idx + 1
+            return workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
         }
         return nil
     }

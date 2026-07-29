@@ -11,17 +11,18 @@ import Foundation
 /// height, and the font that produced that cell). The negotiation stays
 /// self-healing because the two directions are decoupled:
 ///
-/// - **Reported rows** are always the row CAPACITY at the user's BASE font
-///   (``capacityRows(atBaseFontSize:)``). The report does not depend on the
+/// - **Reported rows and columns** are always the CAPACITY at the user's BASE
+///   font (``capacityRows(atBaseFontSize:)`` and
+///   ``capacityColumns(atBaseFontSize:)``). The report does not depend on the
 ///   fitted font, so the daemon's min-per-axis grid can rise back up the
 ///   moment the constraining device grows — a report derived from the fitted
 ///   font would make the negotiated minimum a one-way ratchet the phone could
 ///   never escape.
 /// - **Rendered rows** track the effective grid:
 ///   ``fitFontSize(forEffectiveRows:)`` picks the font whose cell height
-///   makes exactly the granted rows fill the container, and the columns
-///   re-report at that rendered font (columns must never exceed what the
-///   rendered font can actually show).
+///   makes exactly the granted rows fill the container. Callers can use
+///   ``maximumFontSize(forEffectiveColumns:atBaseFontSize:)`` to keep that
+///   vertical fit from exceeding the granted column width.
 public struct TerminalRowCapacityFit {
     /// Rows past which a mismatch between the rendered grid and the effective
     /// grid triggers a re-fit. One row of slack is inherent to cell flooring;
@@ -34,6 +35,10 @@ public struct TerminalRowCapacityFit {
     public let cellPixelHeight: CGFloat
     /// The font currently rendering (the one the cell was measured at).
     public let liveFontSize: Float32
+    /// The grid container width in device pixels, when horizontal capacity is measured.
+    private let containerPixelWidth: CGFloat?
+    /// The measured cell width in device pixels at ``liveFontSize``, when horizontal capacity is measured.
+    private let cellPixelWidth: CGFloat?
 
     /// Creates a fit over one geometry measurement, or nil when any input is
     /// not measurable yet (pre-layout zeroes).
@@ -42,6 +47,26 @@ public struct TerminalRowCapacityFit {
         self.containerPixelHeight = containerPixelHeight
         self.cellPixelHeight = cellPixelHeight
         self.liveFontSize = liveFontSize
+        self.containerPixelWidth = nil
+        self.cellPixelWidth = nil
+    }
+
+    /// Creates a fit over one two-axis geometry measurement, or nil when any
+    /// input is not measurable yet (pre-layout zeroes).
+    public init?(
+        containerPixelHeight: CGFloat,
+        cellPixelHeight: CGFloat,
+        containerPixelWidth: CGFloat,
+        cellPixelWidth: CGFloat,
+        liveFontSize: Float32
+    ) {
+        guard containerPixelHeight > 0, cellPixelHeight > 0, liveFontSize > 0,
+              containerPixelWidth > 0, cellPixelWidth > 0 else { return nil }
+        self.containerPixelHeight = containerPixelHeight
+        self.cellPixelHeight = cellPixelHeight
+        self.liveFontSize = liveFontSize
+        self.containerPixelWidth = containerPixelWidth
+        self.cellPixelWidth = cellPixelWidth
     }
 
     /// Whether the rendered grid is far enough from the effective grid to be
@@ -63,6 +88,17 @@ public struct TerminalRowCapacityFit {
         return max(1, Int((containerPixelHeight / baseCellHeight).rounded(.down)))
     }
 
+    /// The column capacity this device should REPORT: how many columns fit in
+    /// the container at the user's base font. Cell width scales linearly with
+    /// the font point size, so the base-font cell width is derived from the
+    /// measured live cell without a second libghostty round trip.
+    public func capacityColumns(atBaseFontSize baseFontSize: Float32) -> Int? {
+        guard let containerPixelWidth, let cellPixelWidth, baseFontSize > 0 else { return nil }
+        let baseCellWidth = cellPixelWidth * CGFloat(baseFontSize) / CGFloat(liveFontSize)
+        guard baseCellWidth > 0 else { return nil }
+        return max(1, Int((containerPixelWidth / baseCellWidth).rounded(.down)))
+    }
+
     /// The font size at which exactly `effectiveRows` rows fill the container.
     ///
     /// Solves `floor(containerPx / cellPx(font)) == effectiveRows` using the
@@ -75,5 +111,19 @@ public struct TerminalRowCapacityFit {
         let targetCellHeight = containerPixelHeight / (CGFloat(effectiveRows) + 0.25)
         let ratio = targetCellHeight / cellPixelHeight
         return liveFontSize * Float32(ratio)
+    }
+
+    /// The largest font size that can render at least `effectiveColumns`
+    /// columns in the measured container without horizontal overflow.
+    public func maximumFontSize(
+        forEffectiveColumns effectiveColumns: Int,
+        atBaseFontSize baseFontSize: Float32
+    ) -> Float32? {
+        guard let containerPixelWidth, let cellPixelWidth,
+              effectiveColumns > 0, baseFontSize > 0 else { return nil }
+        let baseCellWidth = cellPixelWidth * CGFloat(baseFontSize) / CGFloat(liveFontSize)
+        guard baseCellWidth > 0 else { return nil }
+        let targetCellWidth = containerPixelWidth / CGFloat(effectiveColumns)
+        return baseFontSize * Float32(targetCellWidth / baseCellWidth)
     }
 }

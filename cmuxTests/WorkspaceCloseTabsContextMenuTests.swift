@@ -108,35 +108,41 @@ struct WorkspaceCloseTabsContextMenuTests {
     }
 
     @Test
-    func repeatedCloseAttemptDuringPendingConfirmationPreservesRecentlyClosedHistory() throws {
-        try withCleanClosedHistory {
-            let fixture = try makeWorkspaceWithFourConfirmingTabs()
-            let tabId = fixture.tabIds[2]
+    func repeatedCloseAttemptDuringPendingConfirmationPreservesRecentlyClosedHistory() async throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
 
-            var promptCount = 0
-            var repeatedCloseAttempted = false
-            fixture.manager.confirmCloseHandler = { _, _, _ in
-                promptCount += 1
-                if !repeatedCloseAttempted {
-                    repeatedCloseAttempted = true
-                    #expect(!fixture.workspace.requestCloseTabRecordingHistory(tabId, force: false))
-                }
-                return true
+        let fixture = try makeWorkspaceWithFourConfirmingTabs()
+        let tabId = fixture.tabIds[2]
+        let panelId = try #require(fixture.workspace.panelIdFromSurfaceId(tabId))
+        let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
+        fixture.workspace.bonsplitController.selectTab(tabId)
+        fixture.workspace.focusPanel(panelId)
+        fixture.workspace.markCloseHistoryEligible(panelId: panelId)
+
+        var promptCount = 0
+        var repeatedCloseAttempted = false
+        fixture.manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            if !repeatedCloseAttempted {
+                repeatedCloseAttempted = true
+                #expect(!fixture.workspace.requestCloseTabRecordingHistory(tabId, force: false))
             }
-
-            #expect(!fixture.workspace.requestCloseTabRecordingHistory(tabId, force: false))
-            drainMainQueue()
-            drainMainQueue()
-            drainMainQueue()
-
-            #expect(promptCount == 1)
-            #expect(repeatedCloseAttempted)
-            #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)
-
-            let entry = try #require(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
-            #expect(entry.title == "Tab 3")
-            #expect(entry.detail == "Tab")
+            return true
         }
+
+        #expect(!fixture.workspace.splitTabBar(fixture.workspace.bonsplitController, shouldCloseTab: tab, inPane: fixture.paneId))
+        await waitForMainActorWork(timeout: 10) {
+            promptCount == 1 && fixture.workspace.panelIdFromSurfaceId(tabId) == nil
+        }
+
+        #expect(promptCount == 1)
+        #expect(repeatedCloseAttempted)
+        #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)
+
+        let entry = try #require(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
+        #expect(entry.title == "Tab 3")
+        #expect(entry.detail == "Tab")
     }
 
     private struct Fixture {
@@ -147,7 +153,17 @@ struct WorkspaceCloseTabsContextMenuTests {
     }
 
     private func makeWorkspaceWithFourConfirmingTabs() throws -> Fixture {
-        let manager = TabManager()
+        let suiteName = "WorkspaceCloseTabsContextMenuTests.fixture.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        let catalog = SettingCatalog()
+        defaults.set(true, forKey: catalog.app.warnBeforeClosingTab.userDefaultsKey)
+        defaults.set(true, forKey: catalog.app.warnBeforeClosingTabXButton.userDefaultsKey)
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: UserDefaultsSettingsClient(defaults: defaults),
+            closeTabWarningDefaults: defaults
+        )
         let workspace = try #require(manager.selectedWorkspace)
         let firstPanelId = try #require(workspace.focusedPanelId)
         let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
@@ -215,5 +231,29 @@ struct WorkspaceCloseTabsContextMenuTests {
         ClosedItemHistoryStore.shared.removeAll()
         defer { ClosedItemHistoryStore.shared.removeAll() }
         try body()
+    }
+
+    private func waitForMainQueueWork(
+        timeout: TimeInterval = 4,
+        until condition: () -> Bool
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return }
+            drainMainQueue()
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+    }
+
+    private func waitForMainActorWork(
+        timeout: TimeInterval,
+        until condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return }
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        } while Date() < deadline
     }
 }

@@ -5,7 +5,7 @@ import Foundation
 /// `ForEach` gathers row identifiers on every list diff, so the id must be
 /// cheap to create and hash. Keep the discriminator as a byte so SwiftUI's
 /// per-scroll list diff avoids enum-payload hash/equality witnesses.
-nonisolated struct SidebarWorkspaceRenderItemID: Hashable {
+struct SidebarWorkspaceRenderItemID: Hashable {
     private let kind: UInt8
     private let uuid: UUID
 

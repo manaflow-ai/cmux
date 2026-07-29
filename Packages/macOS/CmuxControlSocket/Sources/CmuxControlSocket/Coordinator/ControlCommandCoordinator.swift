@@ -42,6 +42,10 @@ public final class ControlCommandCoordinator {
     @ObservationIgnored
     public var handles: ControlHandleRegistry
 
+    @ObservationIgnored
+    nonisolated let simulatorOperationAdmissionGate =
+        ControlSimulatorOperationAdmissionGate(maximumConcurrentOperations: 4)
+
     /// Creates a coordinator.
     ///
     /// - Parameters:
@@ -71,7 +75,9 @@ public final class ControlCommandCoordinator {
         if let result = handleAppFocus(request) { return result }
         if let result = handleFeed(request) { return result }
         if let result = handleNotification(request) { return result }
+        if let result = handleLayout(request) { return result }
         if let result = handleWorkspaceGroup(request) { return result }
+        if let result = handleWorkspaceTodo(request) { return result }
         if let result = handlePane(request) { return result }
         if let result = handleCanvas(request) { return result }
         if let result = handleMobileHost(request) { return result }
@@ -141,6 +147,25 @@ public final class ControlCommandCoordinator {
             return surfaceSendText(request.params, context: context)
         case "surface.send_key":
             return surfaceSendKey(request.params, context: context)
+        case "simulator.type":
+            return simulatorType(request.params, context: context)
+        case "simulator.web_inspector.targets",
+             "simulator.web_inspector.attach",
+             "simulator.web_inspector.send",
+             "simulator.web_inspector.highlight",
+             "simulator.web_inspector.release":
+            return simulatorWebInspector(request, context: context)
+        case "simulator.context", "simulator.prepare_screenshot",
+             "simulator.select_device", "simulator.recover",
+             "simulator.gesture", "simulator.multi_touch", "simulator.tap", "simulator.swipe",
+             "simulator.button", "simulator.rotate", "simulator.core_animation",
+             "simulator.memory_warning", "simulator.event_log", "simulator.tools",
+             "simulator.camera.configure", "simulator.camera.switch",
+             "simulator.camera.mirror", "simulator.camera.status",
+             "simulator.permissions.read", "simulator.permissions.set",
+             "simulator.ui.status", "simulator.ui.set",
+             "simulator.accessibility", "simulator.foreground":
+            return simulatorOperation(request, context: context)
         default:
             return nil
         }

@@ -118,6 +118,27 @@ extension TerminalController {
         }
     }
 
+    /// Resolves a UUID-addressed panel's owner inside the deferred mutation so
+    /// agent runtime updates follow a pane that moved after the socket request.
+    nonisolated func controlSidebarSchedulePanelOwnedMutation(
+        target: ControlSidebarTabTarget,
+        panelID: UUID?,
+        mutation: @escaping @MainActor (TerminalController, Workspace) -> Void
+    ) {
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let self else { return }
+            var tab = self.controlSidebarResolveMutationTab(target)
+            if let panelID, case .workspace = target,
+               tab?.panels.keys.contains(panelID) != true,
+               let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: panelID) {
+                tab = owner.workspace
+            }
+            guard let tab else { return }
+            if let panelID, !tab.panels.keys.contains(panelID) { return }
+            mutation(self, tab)
+        }
+    }
+
     /// The enqueue halves of the deleted file-private
     /// `schedulePanelMetadataMutation(args:options:missingPanelUsage:mutation:)`
     /// (the parse-level head moved into the coordinator's
@@ -155,6 +176,74 @@ extension TerminalController {
             guard let surfaceId = surfaceIdFromOptions ?? tab.focusedPanelId else { return }
             guard validSurfaceIds.contains(surfaceId) else { return }
             mutation(tab, surfaceId)
+        }
+    }
+
+    nonisolated func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
+        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
+            replaceKey: TerminalMutationReplaceKey(
+                tabId: scope.workspaceID,
+                surfaceId: scope.panelID,
+                kind: .directory
+            )
+        ) {
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+                  let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            guard validSurfaceIds.contains(scope.panelID) else { return }
+            self.controlSidebarApplyDirectoryReport(
+                tabManager: tabManager,
+                tab: tab,
+                surfaceId: scope.panelID,
+                directory: directory,
+                displayLabel: displayLabel
+            )
+        }
+    }
+
+    func controlSidebarUpdateDirectory(
+        tabArg: String?,
+        panelArg: String?,
+        directory: String,
+        displayLabel: String?
+    ) -> ControlSidebarPanelWriteResolution {
+        controlSidebarResolvePanelWrite(
+            tabArg: tabArg,
+            panelArg: panelArg,
+            prune: true,
+            requireLiveSurface: true
+        ) { tab, surfaceId in
+            controlSidebarApplyDirectoryReport(
+                tabManager: AppDelegate.shared?.tabManagerFor(tabId: tab.id) ?? tabManager,
+                tab: tab,
+                surfaceId: surfaceId,
+                directory: directory,
+                displayLabel: displayLabel
+            )
+        }
+    }
+
+    private func controlSidebarApplyDirectoryReport(
+        tabManager: TabManager?,
+        tab: Workspace,
+        surfaceId: UUID,
+        directory: String,
+        displayLabel: String?
+    ) {
+        if let tabManager {
+            tabManager.updateReportedSurfaceDirectory(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                directory: directory,
+                displayLabel: displayLabel
+            )
+        } else if tab.isRemoteTerminalSurface(surfaceId) {
+            _ = tab.updateRemotePanelDirectoryWithMetadata(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
+        } else {
+            _ = tab.updatePanelDirectory(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
         }
     }
 

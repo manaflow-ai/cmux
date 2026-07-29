@@ -520,16 +520,14 @@ struct DockSocketLifecycleTests {
                     #expect(urlResult["workspace_id"] as? String == windowId.uuidString)
                     #expect(urlResult["surface_id"] as? String == dockSurfaceId.uuidString)
 
-                    let navigateResult = try await v2ResultOnSocketWorker(
-                        method: "browser.navigate",
-                        params: [
+                    await #expect(throws: (any Error).self) {
+                        try await v2ResultOnSocketWorker(method: "browser.navigate", params: [
                             "workspace_id": windowId.uuidString,
                             "surface_id": dockSurfaceId.uuidString,
                             "url": "about:blank",
-                        ]
-                    )
-                    #expect(navigateResult["workspace_id"] as? String == windowId.uuidString)
-                    #expect(navigateResult["surface_id"] as? String == dockSurfaceId.uuidString)
+                            "expected_url": "https://stale.invalid",
+                        ])
+                    }
 
                     let appDelegate = try #require(AppDelegate.shared)
                     let secondManager = TabManager(autoWelcomeIfNeeded: false)
@@ -748,9 +746,8 @@ struct DockSocketLifecycleTests {
         let store = workspace.dockSplit
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
-
-        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId)
-
+        let runtimeSurface = try #require((store.panels[panelId] as? TerminalPanel)?.surface)
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId, runtimeSurface: runtimeSurface)
         #expect(!store.containsPanel(panelId))
         #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
     }

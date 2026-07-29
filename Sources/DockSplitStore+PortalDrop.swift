@@ -62,18 +62,23 @@ extension DockSplitStore {
         // Internal Dock drag. A center drop onto the source pane is a no-op.
         if zone == .center, sourcePane == paneId { return true }
         let movedTab = TabID(uuid: tabId)
+        let didMove: Bool
         switch zone {
         case .center:
-            return bonsplitController.moveTab(movedTab, toPane: paneId)
+            didMove = bonsplitController.moveTab(movedTab, toPane: paneId)
         case .left:
-            return bonsplitController.splitPane(paneId, orientation: .horizontal, movingTab: movedTab, insertFirst: true) != nil
+            didMove = bonsplitController.splitPane(paneId, orientation: .horizontal, movingTab: movedTab, insertFirst: true) != nil
         case .right:
-            return bonsplitController.splitPane(paneId, orientation: .horizontal, movingTab: movedTab, insertFirst: false) != nil
+            didMove = bonsplitController.splitPane(paneId, orientation: .horizontal, movingTab: movedTab, insertFirst: false) != nil
         case .top:
-            return bonsplitController.splitPane(paneId, orientation: .vertical, movingTab: movedTab, insertFirst: true) != nil
+            didMove = bonsplitController.splitPane(paneId, orientation: .vertical, movingTab: movedTab, insertFirst: true) != nil
         case .bottom:
-            return bonsplitController.splitPane(paneId, orientation: .vertical, movingTab: movedTab, insertFirst: false) != nil
+            didMove = bonsplitController.splitPane(paneId, orientation: .vertical, movingTab: movedTab, insertFirst: false) != nil
         }
+        if didMove {
+            scheduleDockPortalReconcile(reason: "dock.portalPaneDrop")
+        }
+        return didMove
     }
 
     private static func externalDropDestination(

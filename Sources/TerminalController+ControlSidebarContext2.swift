@@ -38,7 +38,7 @@ extension TerminalController {
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
-            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard).acceptsPassiveReports else {
                 tabManager.clearSurfaceGitBranch(tabId: scope.workspaceID, surfaceId: scope.panelID)
                 return
             }
@@ -55,7 +55,7 @@ extension TerminalController {
         guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else {
             return false
         }
-        guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+        guard SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard).acceptsPassiveReports else {
             tab.gitBranch = nil
             return true
         }
@@ -123,7 +123,7 @@ extension TerminalController {
             return
         }
         controlSidebarSchedulePanelMetadataMutation(target: target) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: .standard).acceptsPassiveReports else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
@@ -162,7 +162,7 @@ extension TerminalController {
         actionTarget: String?
     ) {
         controlSidebarSchedulePanelMetadataMutation(target: target) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: .standard).acceptsPassiveReports else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
@@ -215,52 +215,6 @@ extension TerminalController {
         }
         tab.recomputeListeningPorts()
         return .done
-    }
-
-    nonisolated func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
-        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
-            replaceKey: TerminalMutationReplaceKey(
-                tabId: scope.workspaceID,
-                surfaceId: scope.panelID,
-                kind: .directory
-            )
-        ) {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
-                  let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
-                return
-            }
-            let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-            guard validSurfaceIds.contains(scope.panelID) else { return }
-            tabManager.updateSurfaceDirectory(
-                tabId: scope.workspaceID,
-                surfaceId: scope.panelID,
-                directory: directory,
-                displayLabel: displayLabel
-            )
-        }
-    }
-
-    func controlSidebarUpdateDirectory(
-        tabArg: String?,
-        panelArg: String?,
-        directory: String,
-        displayLabel: String?
-    ) -> ControlSidebarPanelWriteResolution {
-        guard let tabManager else { return .tabNotFound }
-        return controlSidebarResolvePanelWrite(
-            tabArg: tabArg,
-            panelArg: panelArg,
-            prune: true,
-            requireLiveSurface: true
-        ) { tab, surfaceId in
-            tabManager.updateSurfaceDirectory(
-                tabId: tab.id,
-                surfaceId: surfaceId,
-                directory: directory,
-                displayLabel: displayLabel
-            )
-        }
     }
 
     /// The dedupe compare-and-set runs at DRAIN time, inside the enqueued
@@ -419,13 +373,13 @@ extension TerminalController {
 
         let focusedPanel: ControlSidebarFocusedPanelInfo?
         if let focused = tab.focusedPanelId,
-           let focusedDir = tab.panelDirectories[focused] {
+           let focusedDir = tab.reportedPanelDirectory(panelId: focused) {
             focusedPanel = ControlSidebarFocusedPanelInfo(panelID: focused, directory: focusedDir)
         } else {
             focusedPanel = nil
         }
 
-        let gitBranch = tab.gitBranch.map {
+        let gitBranch = tab.presentedGitBranch.map {
             ControlSidebarGitBranchInfo(branch: $0.branch, isDirty: $0.isDirty)
         }
 
@@ -445,7 +399,7 @@ extension TerminalController {
         return ControlSidebarStateSnapshot(
             tabID: tab.id,
             customColor: tab.customColor,
-            currentDirectory: tab.currentDirectory,
+            currentDirectory: tab.presentedCurrentDirectory ?? "",
             focusedPanel: focusedPanel,
             gitBranch: gitBranch,
             firstPullRequest: firstPullRequest,

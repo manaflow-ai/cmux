@@ -95,6 +95,61 @@ import Testing
         #expect(meta.branch == nil)
     }
 
+    @Test func checkedOutBranchReadsCheckedOutBranch() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("feature/current")
+        let service = GitMetadataService()
+
+        let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
+
+        #expect(branch == .branch("feature/current"))
+    }
+
+    @Test func checkedOutBranchIsDetachedForDetachedHead() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeDetachedHead(commit: String(repeating: "1", count: 40))
+        let service = GitMetadataService()
+
+        let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
+
+        #expect(branch == .detached)
+    }
+
+    @Test func checkedOutBranchIsUnreadableForMissingHead() async throws {
+        let fixture = try GitRepositoryFixture()
+        let service = GitMetadataService()
+
+        let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
+
+        #expect(branch == .unreadable)
+    }
+
+    @Test func checkedOutBranchIsUnreadableForMalformedHead() async throws {
+        let fixture = try GitRepositoryFixture()
+        try "not a ref and not a sha\n".write(
+            to: fixture.gitDirectory.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let service = GitMetadataService()
+
+        let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
+
+        #expect(branch == .unreadable)
+    }
+
+    @Test func checkedOutBranchIsNotARepositoryOutsideRepositories() async throws {
+        let service = GitMetadataService()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-nonrepo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let branch = await service.checkedOutBranch(forDirectory: directory.path)
+
+        #expect(branch == .notARepository)
+    }
+
     // MARK: Dirty detection (index v2)
 
     @Test func cleanWorkingTreeIsNotDirty() async throws {

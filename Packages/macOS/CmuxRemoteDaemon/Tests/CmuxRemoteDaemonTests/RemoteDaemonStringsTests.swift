@@ -11,6 +11,7 @@ struct RemoteDaemonCapabilityTests {
         #expect(RemoteDaemonCapability.ptyPersistentDaemon.rawValue == "pty.session.persistent_daemon")
         #expect(RemoteDaemonCapability.ptyWriteNotification.rawValue == "pty.write.notification")
         #expect(RemoteDaemonCapability.ptyResizeNotification.rawValue == "pty.resize.notification")
+        #expect(RemoteDaemonCapability.ptyInputSeqAck.rawValue == "pty.input.seq_ack")
     }
 
     @Test("the persistent PTY family is the PTY capability set")

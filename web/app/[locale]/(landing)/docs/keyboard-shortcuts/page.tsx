@@ -1,8 +1,7 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
-import { Link } from "@/i18n/navigation";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { Callout } from "@/app/[locale]/components/callout";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { KeyboardShortcuts } from "@/app/[locale]/keyboard-shortcuts";
@@ -23,12 +22,11 @@ const shortcutChordExample = `{
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.keyboardShortcuts" });
-  return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/keyboard-shortcuts"),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "keyboardShortcuts",
+    path: "/docs/keyboard-shortcuts",
+  });
 }
 
 export default function KeyboardShortcutsPage() {

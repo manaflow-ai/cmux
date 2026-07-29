@@ -75,6 +75,26 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(workspace["has_custom_title"] == .bool(false))
     }
 
+    @Test func workspaceCloseReportsKnownTeardownFailureDistinctly() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let windowID = UUID()
+        context.closeResolution = .closeFailed(windowID: windowID)
+
+        guard case .err(let code, let message, .object(let data)) = coordinator.handle(request(
+            "workspace.close",
+            ["workspace_id": .string(workspaceID.uuidString)]
+        )) else {
+            Issue.record("unexpected workspace.close result")
+            return
+        }
+
+        #expect(code == "internal_error")
+        #expect(message == "close failed")
+        #expect(data["window_id"] == .string(windowID.uuidString))
+        #expect(data["workspace_id"] == .string(workspaceID.uuidString))
+    }
+
     @Test func workspaceGroupAddForwardsPlacementAndReference() throws {
         let (coordinator, context) = coordinator()
         let groupID = UUID()
@@ -164,5 +184,54 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(code == "invalid_params")
         #expect(message == "Invalid placement")
         #expect(context.addWorkspaceToGroupCall == nil)
+    }
+
+    @Test func terminalSessionEndForwardsLifecycleRetirementIntent() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+        let lifecycleID = "11111111-2222-3333-4444-555555555555"
+        context.terminalSessionEndResolution = .resolved(
+            windowID: nil,
+            workspaceID: workspaceID,
+            remoteStatus: .object([:])
+        )
+
+        guard case .ok = coordinator.handle(request("workspace.remote.terminal_session_end", [
+            "workspace_id": .string(workspaceID.uuidString),
+            "surface_id": .string(surfaceID.uuidString),
+            "session_id": .string(sessionID),
+            "lifecycle_id": .string(lifecycleID),
+            "lifecycle_only": .bool(true),
+        ])) else {
+            Issue.record("unexpected terminal_session_end result")
+            return
+        }
+
+        #expect(context.terminalSessionEndCall?.workspaceID == workspaceID)
+        #expect(context.terminalSessionEndCall?.surfaceID == surfaceID)
+        #expect(context.terminalSessionEndCall?.relayPort == nil)
+        #expect(context.terminalSessionEndCall?.sessionID == sessionID)
+        #expect(context.terminalSessionEndCall?.lifecycleID == lifecycleID)
+        #expect(context.terminalSessionEndCall?.lifecycleOnly == true)
+    }
+
+    @Test func lifecycleOnlySessionEndRejectsMissingGeneration() throws {
+        let (coordinator, context) = coordinator()
+        guard case .err(let code, _, _) = coordinator.handle(request(
+            "workspace.remote.terminal_session_end",
+            [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string(UUID().uuidString),
+                "lifecycle_only": .bool(true),
+            ]
+        )) else {
+            Issue.record("incomplete lifecycle-only request was accepted")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(context.terminalSessionEndCall == nil)
     }
 }

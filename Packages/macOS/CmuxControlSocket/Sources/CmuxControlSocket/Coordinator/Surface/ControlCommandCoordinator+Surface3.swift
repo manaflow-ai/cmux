@@ -46,6 +46,17 @@ extension ControlCommandCoordinator {
         }
 
         let source = publicResumeSource(params)
+        let remoteWorkspaceID = uuid(params, "_cmux_remote_workspace_id")
+        if hasNonNull(params, "_cmux_remote_workspace_id"), remoteWorkspaceID == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surfaceSplitOff.error.invalidWorkspaceId",
+                    defaultValue: "Missing or invalid workspace_id"
+                ),
+                data: nil
+            )
+        }
         let inputs = ControlSurfaceResumeSetInputs(
             name: optionalTrimmedRawString(params, "name"),
             kind: optionalTrimmedRawString(params, "kind"),
@@ -55,7 +66,9 @@ extension ControlCommandCoordinator {
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             source: source,
             environment: stringMap(params, "environment"),
-            autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false
+            autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
+            remoteWorkspaceID: remoteWorkspaceID,
+            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params
         )
         return surfaceResumeResult(
             context?.controlSurfaceResumeSet(
@@ -100,15 +113,36 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: Self.surfaceWindowUnavailableMessage, data: nil)
         }
+        let agentSessionEnded: Bool
+        switch params["agent_session_ended"] {
+        case .none:
+            agentSessionEnded = false
+        case .some(.bool(let value)):
+            agentSessionEnded = value
+        case .some:
+            return .err(
+                code: "invalid_params",
+                message: surfaceResumeStrings().agentSessionEndedMustBeBoolean,
+                data: nil
+            )
+        }
         let resolution = context?.controlSurfaceResumeClear(
             routing: routing,
             explicitTargetID: surfaceResumeExplicitTargetID(params),
             hasResolvedWindowID: uuid(params, "window_id") != nil,
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
-            expectedSource: optionalTrimmedRawString(params, "source")
+            expectedSource: optionalTrimmedRawString(params, "source"),
+            agentSessionEnded: agentSessionEnded
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
+    }
+
+    /// The localized surface-resume strings supplied by the app bundle.
+    private func surfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        context?.controlSurfaceResumeStrings() ?? ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: ""
+        )
     }
 
     /// Shapes the shared `surface.resume.*` result.
@@ -122,6 +156,12 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Surface not found", data: nil)
         case .emptyResumeCommand:
             return .err(code: "invalid_params", message: "Resume command is empty", data: nil)
+        case .approvalPending(let message):
+            return .err(
+                code: "busy",
+                message: message,
+                data: .object(["retryable": .bool(true)])
+            )
         case .setFailed:
             return .err(code: "internal_error", message: "Failed to set resume binding", data: nil)
         case .result(let snapshot):
@@ -160,6 +200,10 @@ extension ControlCommandCoordinator {
             "auto_resume": .bool(binding.autoResume),
             "approval_policy": orNull(binding.approvalPolicyRawValue),
             "approval_record_id": orNull(binding.approvalRecordID),
+            "execution_location": .string(binding.executionLocationRawValue),
+            "remote_workspace_id": orNull(binding.remoteWorkspaceID?.uuidString),
+            "remote_surface_id": orNull(binding.remoteSurfaceID?.uuidString),
+            "remote_pty_session_id": orNull(binding.remotePTYSessionID),
             "updated_at": .double(binding.updatedAt),
         ])
     }
@@ -362,7 +406,7 @@ extension ControlCommandCoordinator {
 
     /// The shared workspace/requested-surface field block the report/kick payloads
     /// echo (the legacy `v2OrNull` requested-surface shape).
-    private func surfaceReportSurfaceFields(
+    func surfaceReportSurfaceFields(
         workspaceID: UUID,
         requestedSurfaceID: UUID?
     ) -> [String: JSONValue] {

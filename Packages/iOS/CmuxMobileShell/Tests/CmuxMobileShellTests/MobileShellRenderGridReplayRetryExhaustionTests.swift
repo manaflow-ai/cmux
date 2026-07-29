@@ -4,7 +4,7 @@ import Testing
 @testable import CmuxMobileShell
 
 @MainActor
-@Test func renderGridReplayRetryExhaustionStopsLiveEventReplayRequests() async throws {
+@Test func renderGridReplayRetryExhaustionFailsOpenForLiveEvent() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
@@ -57,12 +57,13 @@ import Testing
         !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
     }
     #expect(replaySettled)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
     let replayCountAfterExhaustion = await router.count(of: "mobile.terminal.replay")
 
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,
         seq: 100,
-        text: "delta-after-exhaustion",
+        text: "drop-that-fails-open",
         columns: 40,
         full: false
     ))
@@ -73,10 +74,17 @@ import Testing
         recordIssueOnTimeout: false
     )
     #expect(!replayAfterExhaustion)
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 101,
+        text: "delta-after-exhaustion",
+        columns: 40,
+        full: true
+    ))
     let deltaDelivered = try await pollUntil(attempts: 50) {
         collector.lines.contains { $0.contains("delta-after-exhaustion") }
     }
-    #expect(!deltaDelivered)
+    #expect(deltaDelivered)
     collector.unmount()
 }
 

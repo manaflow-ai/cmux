@@ -1,6 +1,5 @@
 import { useTranslations, useLocale } from "next-intl";
 import { HeroScreenshot } from "@/app/[locale]/components/hero-screenshot";
-import Balancer from "react-wrap-balancer";
 import { TypingTagline } from "@/app/[locale]/typing";
 import { DownloadButton } from "@/app/[locale]/components/download-button";
 import { GitHubButton } from "@/app/[locale]/components/github-button";
@@ -8,12 +7,14 @@ import { WaitlistCallout } from "@/app/[locale]/components/waitlist-callout";
 import { FaqPlatformAnswer } from "@/app/[locale]/components/faq-platform-answer";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { BrandLogoLink } from "@/app/[locale]/components/brand-logo-link";
+import { remoteTmuxDocsLocales } from "@/i18n/locale-availability";
 import {
   testimonials,
   getTestimonialSubtitle,
   getTestimonialTranslation,
 } from "@/app/[locale]/testimonials";
 import { Link } from "@/i18n/navigation";
+import NextLink from "next/link";
 
 export default function Home() {
   return <HomeContent />;
@@ -25,9 +26,12 @@ function HomeContent() {
   const tt = useTranslations("testimonials");
   const tst = useTranslations("testimonialSubtitles");
   const locale = useLocale();
+  const hasLocalizedRemoteTmuxDocs = remoteTmuxDocsLocales.includes(
+    locale as (typeof remoteTmuxDocsLocales)[number],
+  );
 
   const linkClass =
-    "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
+    "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
   // FAQPage structured data, built from the same FAQ copy rendered below so the
   // Q&As are eligible for Google rich results and AI answer engines.
@@ -83,19 +87,17 @@ function HomeContent() {
           </span>
         </p>
         <p
-          className="text-base text-muted lg:-mr-32 xl:-mr-48"
+          className="text-base text-muted text-balance lg:-mr-32 xl:-mr-48"
           data-dev="subtitle"
           style={{ lineHeight: 1.5 }}
         >
-          <Balancer>
-            {t.rich("subtitle", {
-              cliLink: (chunks) => (
-                <Link href="/docs/api" className={linkClass}>
-                  {chunks}
-                </Link>
-              ),
-            })}
-          </Balancer>
+          {t.rich("subtitle", {
+            cliLink: (chunks) => (
+              <Link href="/docs/api" className={linkClass}>
+                {chunks}
+              </Link>
+            ),
+          })}
         </p>
 
         {/* Download */}
@@ -397,9 +399,15 @@ function HomeContent() {
               <p className="text-muted">
                 {t.rich("faqTmuxA", {
                   link: (chunks) => (
-                    <Link href="/docs/remote-tmux" className={linkClass}>
-                      {chunks}
-                    </Link>
+                    hasLocalizedRemoteTmuxDocs ? (
+                      <Link href="/docs/remote-tmux" className={linkClass}>
+                        {chunks}
+                      </Link>
+                    ) : (
+                      <NextLink href="/docs/remote-tmux" className={linkClass}>
+                        {chunks}
+                      </NextLink>
+                    )
                   ),
                 })}
               </p>
@@ -543,14 +551,14 @@ function HomeContent() {
         </div>
         <div className="flex justify-center gap-4 mt-6">
           <Link
-            href="/docs"
-            className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-border hover:decoration-foreground"
+            href="/docs/getting-started"
+            className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-link-underline hover:decoration-foreground"
           >
             {tc("readTheDocs")}
           </Link>
           <Link
             href="/docs/changelog"
-            className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-border hover:decoration-foreground"
+            className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-link-underline hover:decoration-foreground"
           >
             {tc("viewChangelog")}
           </Link>

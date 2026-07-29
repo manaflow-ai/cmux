@@ -57,6 +57,8 @@ extension ControlCommandCoordinator {
             return surfaceSendKey(request.params, context: context)
         case "surface.report_tty": return surfaceReportTTY(request.params)
         case "surface.report_pwd": return surfaceReportPWD(request.params)
+        case "surface.report_git_branch": return surfaceReportGitBranch(request.params)
+        case "surface.clear_git_branch": return surfaceClearGitBranch(request.params)
         case "surface.report_shell_state":
             return surfaceReportShellState(request.params)
         case "surface.ports_kick":
@@ -167,6 +169,16 @@ extension ControlCommandCoordinator {
                     item["initial_command"] = orNull(surface.initialCommand)
                     item["tmux_start_command"] = orNull(surface.tmuxStartCommand)
                     item["resume_binding"] = surfaceResumeBindingPayload(surface.resumeBinding)
+                }
+                if surface.typeRawValue == "simulator" {
+                    item["simulator_id"] = orNull(surface.simulatorDeviceID)
+                    item["runtime_id"] = orNull(surface.simulatorRuntimeIdentifier)
+                    item["device_type_id"] = orNull(surface.simulatorDeviceTypeIdentifier)
+                    item["device_name"] = orNull(surface.simulatorDeviceName)
+                    item["state"] = orNull(surface.simulatorDeviceState)
+                }
+                if let dockScope = surface.dockScopeRawValue {
+                    item["dock_scope"] = .string(dockScope)
                 }
                 return .object(item)
             }
@@ -346,6 +358,7 @@ extension ControlCommandCoordinator {
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
+            remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
             clientUnsupportedRemoteTmuxOptions: stringArray(params, "remote_tmux_unsupported_options") ?? [],
             requestedFocus: bool(params, "focus") ?? false,
@@ -392,7 +405,8 @@ extension ControlCommandCoordinator {
             return remoteRoutedCreationResult(
                 windowID: windowID,
                 workspaceID: workspaceID,
-                typeRawValue: typeRawValue
+                typeRawValue: typeRawValue,
+                operation: .splitWindow
             )
         case .created(let windowID, let workspaceID, let paneID, let surfaceID, let typeRawValue):
             return .ok(.object([
@@ -500,6 +514,7 @@ extension ControlCommandCoordinator {
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
+            remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
             requestedPaneID: uuid(params, "pane_id"),
             requestedFocus: bool(params, "focus") ?? false,
@@ -535,6 +550,15 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .paneNotFound:
             return .err(code: "not_found", message: "Pane not found", data: nil)
+        case .mirrorPaneTargetUnsupportedType(let typeRawValue, let message):
+            return .err(
+                code: "invalid_params",
+                message: message,
+                data: .object([
+                    "type": .string(typeRawValue),
+                    "target": .string("remote-tmux-pane"),
+                ])
+            )
         case .createFailed:
             return .err(code: "internal_error", message: "Failed to create surface", data: nil)
         case .mirrorUnsupportedOptions(let unsupported):
@@ -543,7 +567,8 @@ extension ControlCommandCoordinator {
             return remoteRoutedCreationResult(
                 windowID: windowID,
                 workspaceID: workspaceID,
-                typeRawValue: typeRawValue
+                typeRawValue: typeRawValue,
+                operation: .newWindow
             )
         case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
             return .ok(.object([

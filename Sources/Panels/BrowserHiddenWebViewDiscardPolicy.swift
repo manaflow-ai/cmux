@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated enum BrowserHiddenWebViewDiscardPolicy {
+enum BrowserHiddenWebViewDiscardPolicy {
     struct ResolvedPolicy: Equatable {
         let isEnabled: Bool
         let hiddenDelay: TimeInterval

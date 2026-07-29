@@ -39,6 +39,16 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
         return probedTrackedPathEventGenerations.count >= minimumCount
     }
 
+    func waitForProbe(count minimumCount: Int = 1, maxYields: Int = 5_000) async -> Bool {
+        for _ in 0..<maxYields {
+            if probedDirectories.count >= minimumCount {
+                return true
+            }
+            await Task.yield()
+        }
+        return probedDirectories.count >= minimumCount
+    }
+
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
         await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
     }

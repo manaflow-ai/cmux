@@ -1,7 +1,7 @@
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
-import { Link } from "@/i18n/navigation";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { Callout } from "@/app/[locale]/components/callout";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 
@@ -11,12 +11,11 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.sessionRestore" });
-  return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/session-restore"),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "sessionRestore",
+    path: "/docs/session-restore",
+  });
 }
 
 export default async function SessionRestorePage({
@@ -106,6 +105,12 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
             <td>OMP</td>
             <td><code>omp</code></td>
             <td><code>omp --session &lt;id&gt;</code></td>
+            <td>{t("none")}</td>
+          </tr>
+          <tr>
+            <td>Campfire</td>
+            <td><code>campfire</code></td>
+            <td><code>campfire --session &lt;id&gt;</code></td>
             <td>{t("none")}</td>
           </tr>
           <tr>

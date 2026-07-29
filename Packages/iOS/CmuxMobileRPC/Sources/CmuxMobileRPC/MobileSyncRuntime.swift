@@ -36,6 +36,14 @@ public protocol MobileSyncRuntime: Sendable {
     /// skips background subscribe/poll so scripted-transport tests do not
     /// consume responses intended for foreground methods.
     var supportsServerPushEvents: Bool { get }
+    /// Optional Iroh-only source for independently framed server events.
+    /// A nil provider preserves control-stream delivery for every route.
+    var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { get }
+    /// Optional source for one independent, sequence-aware terminal lane per
+    /// mounted surface. A nil provider preserves control/event delivery.
+    var terminalLaneProvider: MobileTerminalLaneProvider? { get }
+    /// Optional source for low-priority raw artifact bytes on an admitted Iroh peer.
+    var artifactLaneProvider: MobileArtifactLaneProvider? { get }
     /// Bounded deadline, in nanoseconds, for the render-grid liveness
     /// watchdog's subscription probe (an idempotent `mobile.events.subscribe`
     /// re-assert). A healthy idle terminal legitimately pushes no events, so
@@ -43,9 +51,23 @@ public protocol MobileSyncRuntime: Sendable {
     /// declaring the stream dead; the deadline bounds how long a dead
     /// transport can stall that verdict.
     var livenessProbeTimeoutNanoseconds: UInt64 { get }
+
+    /// Hard ceiling on one automatic reconnect attempt (stored-Mac redial)
+    /// end to end. An Iroh dial can hang far past any per-transport connect
+    /// timeout (relay DNS churn, hole-punch stalls), and an unbounded attempt
+    /// wedges the recovery owner: no failure is ever recorded, no backoff
+    /// retry is ever scheduled, and every other trigger defers to the
+    /// "in-flight" attempt forever. At the deadline the attempt is abandoned
+    /// and settled as timed out so the automatic backoff retry loop keeps
+    /// running.
+    var reconnectAttemptDeadlineNanoseconds: UInt64 { get }
 }
 
 public extension MobileSyncRuntime {
+    var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { nil }
+    var terminalLaneProvider: MobileTerminalLaneProvider? { nil }
+    var artifactLaneProvider: MobileArtifactLaneProvider? { nil }
+
     /// Returns a cached Stack access token for best-effort status probes.
     var stackAccessTokenForStatusProvider: @Sendable () async -> String? {
         { nil }
@@ -59,4 +81,9 @@ public extension MobileSyncRuntime {
     /// while keeping dead-stream recovery within a few seconds of the silence
     /// threshold instead of the full ``rpcRequestTimeoutNanoseconds``.
     var livenessProbeTimeoutNanoseconds: UInt64 { 3_000_000_000 }
+
+    /// Default reconnect-attempt ceiling: comfortably above a slow relay dial
+    /// (transport connects bound themselves near 15s) while turning a hung
+    /// dial into a settled, retryable failure within half a minute.
+    var reconnectAttemptDeadlineNanoseconds: UInt64 { 30_000_000_000 }
 }

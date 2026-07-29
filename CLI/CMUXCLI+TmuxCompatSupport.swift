@@ -317,30 +317,6 @@ extension CMUXCLI {
         return Int(trimmed)
     }
 
-    func tmuxResizePaneToCells(
-        workspaceId: String,
-        paneId: String,
-        targetCells: Int,
-        currentCellsKey: String,
-        cellSizeKey: String,
-        client: SocketClient
-    ) throws {
-        guard targetCells > 0 else { return }
-        let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
-        let panes = panePayload["panes"] as? [[String: Any]] ?? []
-        guard let matchingPane = panes.first(where: { ($0["id"] as? String) == paneId }),
-              let cellSize = intFromAny(matchingPane[cellSizeKey]), cellSize > 0 else {
-            return
-        }
-        let axis = currentCellsKey == "columns" ? "horizontal" : "vertical"
-        _ = try client.sendV2(method: "pane.resize", params: [
-            "workspace_id": workspaceId,
-            "pane_id": paneId,
-            "absolute_axis": axis,
-            "target_pixels": targetCells * cellSize
-        ])
-    }
-
     func tmuxInitialDividerPosition(
         workspaceId: String,
         paneId: String,

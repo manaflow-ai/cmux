@@ -42,7 +42,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     private let deviceID: String
     private let tokenSource: TokenSource
     private let teamIDProvider: @Sendable () async -> String?
-    private let session: URLSession
+    private let session: CmxCredentialedHTTPSession
     private let requestTimeout: TimeInterval
 
     /// - Parameters:
@@ -51,7 +51,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ///   - tokenSource: Supplies the Stack access/refresh tokens.
     ///   - teamIDProvider: Supplies the team id to scope to, or `nil` to let the
     ///     server use the Stack-selected team.
-    ///   - session: The URLSession used for API calls.
+    ///   - sessionConfiguration: URL loading configuration. Redirect rejection,
+    ///     cookie isolation, and cache isolation are enforced by the service.
     ///   - requestTimeout: Per-request deadline, bounding the worst-case latency
     ///     of a registry call so it never stalls the reconnect refresh.
     public init(
@@ -59,14 +60,14 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         deviceID: String,
         tokenSource: TokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
-        session: sending URLSession = .shared,
+        sessionConfiguration: sending URLSessionConfiguration = .ephemeral,
         requestTimeout: TimeInterval = 5
     ) {
         self.apiBaseURL = apiBaseURL
         self.deviceID = deviceID
         self.tokenSource = tokenSource
         self.teamIDProvider = teamIDProvider
-        self.session = session
+        self.session = CmxCredentialedHTTPSession(configuration: sessionConfiguration)
         self.requestTimeout = requestTimeout
     }
 
@@ -78,21 +79,167 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ///
     /// A cmux-GENERATED persisted UUID (NOT `identifierForVendor`, which resets
     /// when the last cmux app is removed, and NOT a hardware fingerprint).
-    /// Persisted in `UserDefaults` so it survives relaunch and reinstall, is
-    /// cross-platform, and is user-renamable via its display name. Mirrors the
-    /// Mac side's `MobileHostIdentity.deviceID()`. The phone sends this id when
-    /// it registers itself as a device; the key-pinning phase will anchor a
-    /// pinned key to it for revoke.
-    /// - Parameter defaults: Persistence store (injected for tests).
+    /// Stored in a device-only Keychain item so it survives an app reinstall
+    /// (iOS `UserDefaults` does not): the iroh binding slot is keyed on
+    /// `(user, device, tag)`, so a returning phone must present the same device
+    /// id to overwrite its own binding in place instead of stranding a new one.
+    /// `UserDefaults` mirrors an authoritative Keychain id only for downgrade and
+    /// temporarily locked-Keychain recovery. It is never adopted when Keychain
+    /// confirms the item is absent because app backups can restore UserDefaults
+    /// onto different hardware. Mirrors the Mac side's
+    /// `MobileHostIdentity.deviceID()`.
+    ///
+    /// This is the best-effort read used by non-binding callers (the device
+    /// registry HTTP client, which only reads the team's Macs). It never returns
+    /// `nil`: when the store is unreadable and no mirror exists it yields a
+    /// process-stable ephemeral id. Do NOT use it to register an iroh binding —
+    /// that path must use ``durableDeviceID(defaults:)`` and defer while it is
+    /// `nil`, so a throwaway id never becomes a stranded `(user, device, tag)`
+    /// binding.
+    /// - Parameter defaults: Legacy persistence store (injected for tests).
     public static func deviceID(defaults: UserDefaults = .standard) -> String {
-        if let existing = defaults.string(forKey: deviceIDKey),
-           !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return existing
-        }
-        let generated = UUID().uuidString.lowercased()
-        defaults.set(generated, forKey: deviceIDKey)
-        return generated
+        deviceID(store: KeychainDeviceIdentityStore(), defaults: defaults)
     }
+
+    /// Testable core of ``deviceID(defaults:)`` with an injectable identity store.
+    static func deviceID(store: any DeviceIdentityStoring, defaults: UserDefaults) -> String {
+        switch resolveDurableDeviceID(store: store, defaults: defaults) {
+        case .durable(let id):
+            return id
+        case .unavailable:
+            // The store is unreadable with no mirror, or a fresh mint could not be
+            // persisted. This best-effort path (registry reads only, never binding
+            // registration) returns a process-stable ephemeral id so repeated
+            // lookups agree within the launch; it is never persisted, so a later
+            // launch that can read/persist adopts or mints the durable id.
+            return ephemeralFallbackID
+        }
+    }
+
+    /// This iOS device's *durable* identity for registering an iroh binding, or
+    /// `nil` when no durable id can be produced right now.
+    ///
+    /// Returns `nil` in exactly two cases: the Keychain is unreadable (locked
+    /// before first unlock) with no legacy `UserDefaults` mirror, or a fresh id
+    /// could not be persisted to the Keychain. In both, using the value would
+    /// create a throwaway `(user, device, tag)` binding that changes on the next
+    /// launch and orphans the retained one. Callers must defer/retry activation
+    /// until this returns a value instead of registering with an ephemeral id.
+    /// - Parameter defaults: Legacy persistence store (injected for tests).
+    public static func durableDeviceID(defaults: UserDefaults = .standard) -> String? {
+        durableDeviceID(store: KeychainDeviceIdentityStore(), defaults: defaults)
+    }
+
+    /// Testable core of ``durableDeviceID(defaults:)`` with an injectable store.
+    static func durableDeviceID(store: any DeviceIdentityStoring, defaults: UserDefaults) -> String? {
+        switch resolveDurableDeviceID(store: store, defaults: defaults) {
+        case .durable(let id):
+            return id
+        case .unavailable:
+            return nil
+        }
+    }
+
+    /// The outcome of resolving the device id from the authoritative store.
+    enum DurableDeviceIDResolution: Equatable, Sendable {
+        /// A durable id is available: read from the store, recovered from its
+        /// mirror while the store is temporarily unreadable, or freshly minted
+        /// AND confirmed persisted.
+        case durable(String)
+        /// No durable id can be produced right now — the store is unreadable with
+        /// no mirror, or a fresh mint could not be persisted.
+        case unavailable
+    }
+
+    /// Resolve the device id from the authoritative store. Keychain is
+    /// authoritative because it survives an app reinstall, keeping the iroh
+    /// `(user, device, tag)` slot stable.
+    static func resolveDurableDeviceID(
+        store: any DeviceIdentityStoring,
+        defaults: UserDefaults
+    ) -> DurableDeviceIDResolution {
+        switch store.read() {
+        case .found(let stored):
+            let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                // Present but blank: treat as corrupt and re-mint.
+                return adoptOrGenerateDeviceID(store: store, defaults: defaults)
+            }
+            // Re-mirror to UserDefaults so a later downgrade to a build that reads
+            // only UserDefaults finds the same id. Write only when it differs, so
+            // the authoritative read path stays free of needless churn.
+            if defaults.string(forKey: deviceIDKey) != trimmed {
+                defaults.set(trimmed, forKey: deviceIDKey)
+            }
+            return .durable(trimmed)
+        case .absent:
+            return adoptOrGenerateDeviceID(store: store, defaults: defaults)
+        case .unavailable:
+            // Fail closed: the store exists but is unreadable right now (a
+            // background launch before first unlock leaves the Keychain locked).
+            // Minting a new id here would strand the phone's existing
+            // (user, device, tag) binding — the exact bug this store prevents.
+            // Reuse the legacy UserDefaults mirror if it is readable; otherwise
+            // report `.unavailable` so binding registration defers.
+            //
+            // Returning the mirror as `.durable` is orphan-safe: a reinstall
+            // clears UserDefaults, so this branch is reachable only on a
+            // CONTINUING install whose mirror was last written from (and therefore
+            // equals) the id the existing binding already uses. Registering with
+            // it targets that same slot instead of minting a throwaway id, and a
+            // later unlocked launch re-reads the authoritative Keychain value.
+            if let legacy = trimmedLegacyDeviceID(defaults) {
+                return .durable(legacy)
+            }
+            return .unavailable
+        }
+    }
+
+    /// Mint a fresh id after the authoritative Keychain confirms no item exists.
+    /// A `UserDefaults` mirror is removed instead of adopted because it can cross
+    /// hardware in an encrypted device backup while a ThisDeviceOnly Keychain
+    /// item cannot. Adopting that restored mirror would make two phones share the
+    /// same `(user, device, tag)` binding slot.
+    ///
+    /// The fresh id is durable only once the Keychain confirms it holds the id;
+    /// otherwise it must not be advertised, since only the reinstall-volatile
+    /// mirror would hold it.
+    ///
+    /// Persistence goes through ``DeviceIdentityStoring/createOrAdopt(_:)``, which
+    /// never overwrites a value a concurrent resolution already won, so two
+    /// launches that each mint a different candidate converge on one id instead of
+    /// the last writer clobbering the winner (which would strand the winner's
+    /// binding on the next launch).
+    private static func adoptOrGenerateDeviceID(
+        store: any DeviceIdentityStoring,
+        defaults: UserDefaults
+    ) -> DurableDeviceIDResolution {
+        if defaults.object(forKey: deviceIDKey) != nil {
+            defaults.removeObject(forKey: deviceIDKey)
+        }
+        guard let winner = store.createOrAdopt(UUID().uuidString.lowercased()) else {
+            return .unavailable
+        }
+        defaults.set(winner, forKey: deviceIDKey)
+        return .durable(winner)
+    }
+
+    /// The legacy `UserDefaults` device id, trimmed, or `nil` when absent/blank.
+    private static func trimmedLegacyDeviceID(_ defaults: UserDefaults) -> String? {
+        guard let legacy = defaults.string(forKey: deviceIDKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !legacy.isEmpty else {
+            return nil
+        }
+        return legacy
+    }
+
+    /// A per-process fallback id, used only by the best-effort ``deviceID`` read
+    /// path when the identity store is unreadable and no legacy mirror exists.
+    /// Stable within a launch so repeated lookups agree, but never persisted, so
+    /// the next launch that can read the store adopts or mints the durable id
+    /// instead of freezing this throwaway value.
+    private static let ephemeralFallbackID = UUID().uuidString.lowercased()
 
     // MARK: - Reconnect route policy (pure, testable)
 
@@ -128,16 +275,21 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         capturedUserID: String?,
         currentUserID: String?,
         activeMacID: String?,
-        targetMacID: String
+        activeMacInstanceTag: String? = nil,
+        targetMacID: String,
+        targetInstanceTag: String? = nil
     ) -> Bool {
         guard isSignedIn else { return false }
         guard capturedUserID == currentUserID else { return false }
-        return activeMacID == targetMacID
+        return activeMacID == targetMacID && activeMacInstanceTag == targetInstanceTag
     }
 
     // MARK: - DeviceRegistryRefreshing
 
-    public func freshRoutes(forMacDeviceID macDeviceID: String) async -> [CmxAttachRoute]? {
+    public func freshRoutes(
+        forMacDeviceID macDeviceID: String,
+        instanceTag: String?
+    ) async -> [CmxAttachRoute]? {
         guard let request = await makeRequest(method: "GET", path: "/api/devices", body: nil) else {
             return nil
         }
@@ -152,7 +304,11 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             deviceRegistryLog.debug("freshRoutes request failed: \(String(describing: error), privacy: .public)")
             return nil
         }
-        return Self.routes(forMacDeviceID: macDeviceID, in: data)
+        return Self.routes(
+            forMacDeviceID: macDeviceID,
+            pairedMacInstanceTag: instanceTag,
+            in: data
+        )
     }
 
     public func listDevices() async -> DeviceRegistryListOutcome {
@@ -233,9 +389,9 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             let deviceId = device.deviceId.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !deviceId.isEmpty else { return nil }
             let instances = (device.instances ?? []).map { instance in
-                RegistryAppInstance(
-                    tag: instance.tag?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                        ? instance.tag! : "default",
+                let tag = instance.tag?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return RegistryAppInstance(
+                    tag: tag?.isEmpty == false ? tag! : "default",
                     routes: (instance.routes ?? []).compactMap(\.value),
                     lastSeenAt: Self.parseTimestamp(instance.lastSeenAt)
                 )
@@ -269,54 +425,40 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         return .distantPast
     }
 
-    /// Decode the `/api/devices` list response and return the routes for the
-    /// device whose id matches `macDeviceID`, preferring its most recently seen
-    /// app instance. Returns `nil` when the device or routes are absent so the
-    /// caller falls back to local routes.
-    ///
-    /// Each route is decoded *failably* and individually: a malformed or
-    /// unknown-kind route from any instance (even another Mac's) is skipped
-    /// rather than failing the whole response. This keeps one bad sibling row
-    /// from disabling registry refresh for every Mac, and makes old clients
-    /// forward-compatible when a newer build advertises a route kind they cannot
-    /// decode.
-    static func routes(forMacDeviceID macDeviceID: String, in data: Data) -> [CmxAttachRoute]? {
-        // Decode each route element through an optional wrapper so a single bad
-        // element decodes to `nil` and is dropped, never throwing for the array.
-        struct FailableRoute: Decodable {
-            let value: CmxAttachRoute?
-            init(from decoder: Decoder) throws {
-                value = try? CmxAttachRoute(from: decoder)
-            }
-        }
-        struct Instance: Decodable {
-            let routes: [FailableRoute]
-        }
-        struct Device: Decodable {
-            let deviceId: String
-            let instances: [Instance]
-        }
-        struct ListResponse: Decodable {
-            let devices: [Device]
-        }
-        guard let decoded = try? JSONDecoder().decode(ListResponse.self, from: data) else {
-            return nil
-        }
-        let target = macDeviceID.lowercased()
-        guard let device = decoded.devices.first(where: { $0.deviceId.lowercased() == target }) else {
-            return nil
-        }
-        // A Mac may run multiple tagged app instances (stable + a debug build).
-        // The phone's stored routes have no tag to match against in P1, so only
-        // substitute routes when exactly one instance is advertising any (the
-        // single-build common case). With zero or 2+ candidate instances, return
-        // nil and let reconnect fall back to the locally persisted routes, rather
-        // than risk connecting a stable phone to a different tagged build's
-        // workspaces. Tag-aware matching is a follow-up (see key-pinning phase).
-        let nonEmpty = device.instances
-            .map { $0.routes.compactMap(\.value) }
-            .filter { !$0.isEmpty }
-        return nonEmpty.count == 1 ? nonEmpty[0] : nil
+    /// Return authoritative routes for a matching device from one decoded
+    /// registry snapshot. A scoped client selects its exact Mac app-instance
+    /// tag; an unscoped client accepts routes only when exactly one instance on
+    /// that physical device advertises any. Returns `nil` when ownership cannot
+    /// be proven.
+    static func routes(
+        forMacDeviceID macDeviceID: String,
+        pairedMacInstanceTag: String? = nil,
+        in devices: [RegistryDevice]
+    ) -> [CmxAttachRoute]? {
+        guard case .unique(let routes) = DeviceRegistryRouteIndex(devices: devices).resolve(
+            macDeviceID: macDeviceID,
+            instanceTag: pairedMacInstanceTag
+        ) else { return nil }
+        return routes
+    }
+
+    /// Decode the `/api/devices` list response and return authoritative routes
+    /// for the matching device. Each route is decoded *failably* and
+    /// individually by ``parseDeviceList(in:)``: a malformed or unknown-kind
+    /// route from any instance is skipped rather than failing the whole response.
+    /// This keeps one bad sibling row from disabling registry refresh for every
+    /// Mac and makes old clients forward-compatible with new route kinds.
+    static func routes(
+        forMacDeviceID macDeviceID: String,
+        pairedMacInstanceTag: String? = nil,
+        in data: Data
+    ) -> [CmxAttachRoute]? {
+        guard let devices = parseDeviceList(in: data) else { return nil }
+        return routes(
+            forMacDeviceID: macDeviceID,
+            pairedMacInstanceTag: pairedMacInstanceTag,
+            in: devices
+        )
     }
 
     // MARK: - Request building
@@ -341,4 +483,48 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         }
         return request
     }
+}
+
+/// Exact, immutable authority lookup for one authenticated registry generation.
+/// Building it once keeps a reconnect pass linear even with many saved Macs.
+struct DeviceRegistryRouteIndex: Sendable {
+    private let devicesByID: [String: [RegistryDevice]]
+
+    init(devices: [RegistryDevice]) {
+        devicesByID = Dictionary(grouping: devices) { device in
+            Self.normalizedDeviceID(device.deviceId)
+        }
+    }
+
+    func resolve(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> DeviceRegistryRouteResolution {
+        let matches = devicesByID[Self.normalizedDeviceID(macDeviceID)] ?? []
+        guard !matches.isEmpty else { return .missing }
+        guard matches.count == 1, let device = matches.first else { return .ambiguous }
+
+        let instances: [RegistryAppInstance]
+        if let expectedTag = MobileMacInstanceTagAuthority.normalized(instanceTag) {
+            instances = device.instances.filter {
+                MobileMacInstanceTagAuthority.normalized($0.tag) == expectedTag
+            }
+        } else {
+            instances = device.instances
+        }
+        let nonEmptyRoutes = instances.map(\.routes).filter { !$0.isEmpty }
+        guard !nonEmptyRoutes.isEmpty else { return .missing }
+        guard nonEmptyRoutes.count == 1 else { return .ambiguous }
+        return .unique(nonEmptyRoutes[0])
+    }
+
+    private static func normalizedDeviceID(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
+
+enum DeviceRegistryRouteResolution: Equatable, Sendable {
+    case unique([CmxAttachRoute])
+    case missing
+    case ambiguous
 }

@@ -42,6 +42,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .terminal
 
     /// The underlying terminal surface
@@ -50,6 +51,7 @@ final class TerminalPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    var ownedSessionScrollbackReplayFileURL: URL? = nil
     /// The workspace-env key/value pairs this panel inherited from its workspace's
     /// `workspaceEnvironment` at creation. The same panel travels when a surface is
     /// moved between workspaces, so a respawn uses these to drop the (possibly
@@ -173,7 +175,6 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
-
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -212,8 +213,8 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement,
-            runtimeSpawnPolicy: runtimeSpawnPolicy
+            focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
+            preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)
         if Self.startsAtOwnedPrompt(
@@ -308,7 +309,6 @@ final class TerminalPanel: Panel, ObservableObject {
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
 #endif
     }
-
 
     @discardableResult
     func toggleTextBoxInput() -> Bool {
@@ -590,17 +590,25 @@ final class TerminalPanel: Panel, ObservableObject {
 #endif
 
     func focus() {
+        focus(focusTransactionId: nil)
+    }
+
+    func focus(focusTransactionId: UUID?) {
         if isAgentHibernated {
             _ = requestAgentHibernationResume(focus: true)
             return
         }
-        focusTerminalSurface(respectForeignFirstResponder: true)
+        focusTerminalSurface(
+            respectForeignFirstResponder: true,
+            focusTransactionId: focusTransactionId
+        )
     }
 
     @discardableResult
     private func focusTerminalSurface(
         respectForeignFirstResponder: Bool,
-        clearTextBoxHideArm: Bool = true
+        clearTextBoxHideArm: Bool = true,
+        focusTransactionId: UUID? = nil
     ) -> Bool {
         if clearTextBoxHideArm {
             shouldHideTextBoxOnNextEscape = false
@@ -637,7 +645,8 @@ final class TerminalPanel: Panel, ObservableObject {
         hostedView.ensureFocus(
             for: workspaceId,
             surfaceId: id,
-            respectForeignFirstResponder: respectForeignFirstResponder
+            respectForeignFirstResponder: respectForeignFirstResponder,
+            focusTransactionId: focusTransactionId
         )
         return true
     }
@@ -659,7 +668,7 @@ final class TerminalPanel: Panel, ObservableObject {
     func close() {
         isClosingPanel = true
         discardTextBoxContentForClose()
-        // The surface will be cleaned up by its deinit
+        removeOwnedSessionScrollbackReplayArtifact()
         // Detach from the window portal on real close so stale hosted views
         // cannot remain above browser panes after split close.
         surface.beginPortalCloseLifecycle(reason: "panel.close")
@@ -721,6 +730,17 @@ final class TerminalPanel: Panel, ObservableObject {
         viewReattachToken &+= 1
     }
 
+    /// Monotonic model ownership epoch across container transfers and local
+    /// representable reattachments. This takes precedence over host creation
+    /// order when a move rolls back to an earlier view.
+    var portalHostOwnershipGeneration: UInt64 {
+        surface.currentPortalHostOwnershipGeneration() &+ viewReattachToken
+    }
+
+    func recordPortalHostOwnershipChange() {
+        requestViewReattach()
+    }
+
     // MARK: - Terminal-specific methods
 
     @discardableResult
@@ -757,7 +777,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func performBindingAction(_ action: String) -> Bool {
         guard !isAgentHibernated else { return false }
-        return surface.performBindingAction(action)
+        return surface.performExplicitInputBindingAction(action)
     }
 
     @discardableResult

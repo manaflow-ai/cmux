@@ -233,8 +233,22 @@ import Testing
         baseDelivered,
         "the deferred cold replay base must apply after capabilities resolve"
     )
-    let followUpSettled = try await pollUntil { await router.replayResponsesServed() >= 2 }
-    #expect(followUpSettled, "dropped pre-base output should still trigger and settle one catch-up replay")
+    let barrierCleared = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains("live-terminal")
+    }
+    #expect(barrierCleared, "the deferred cold replay barrier must fail open or settle")
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 7,
+        text: "post-deferred-full",
+        columns: 32,
+        full: true
+    ))
+    let postDeferredDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("post-deferred-full") }
+    }
+    #expect(postDeferredDelivered, "live output must resume after the deferred cold replay barrier clears")
     collector.unmount()
 }
 

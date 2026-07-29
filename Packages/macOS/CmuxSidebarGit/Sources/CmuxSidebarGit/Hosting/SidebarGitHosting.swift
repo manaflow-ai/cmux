@@ -35,10 +35,14 @@ public protocol SidebarGitHosting: AnyObject {
     func panelExists(workspaceId: UUID, panelId: UUID) -> Bool
     /// Whether the panel is a terminal panel.
     func hasTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool
+    /// Whether the panel is an active remote terminal panel.
+    func isRemoteTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool
     /// The panel's git-probe directory (the sidebar directory fallback
     /// chain: live cwd, requested working directory, focused workspace
     /// directory), normalized; `nil` when unknown.
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String?
+    /// Whether the panel directory currently comes from a trusted remote report.
+    func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool
     /// The panel's currently displayed git branch state, if any.
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch?
     /// Panel ids currently showing a git branch in the workspace.
@@ -63,6 +67,10 @@ public protocol SidebarGitHosting: AnyObject {
     /// human-friendly sidebar label reported alongside the real path.
     @discardableResult
     func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool
+    /// Records a trusted remote panel directory; returns `false` when nothing
+    /// changed or the workspace/panel is gone.
+    @discardableResult
+    func updateRemotePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool
     /// Shows `branch` (with its dirty flag) on the panel.
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool)
     /// Clears the panel's branch (and any dependent badge state).
@@ -71,6 +79,9 @@ public protocol SidebarGitHosting: AnyObject {
     func updatePanelPullRequest(workspaceId: UUID, panelId: UUID, badge: SidebarPullRequestBadge)
     /// Clears the panel's pull-request badge.
     func clearPanelPullRequest(workspaceId: UUID, panelId: UUID)
+    /// Asks the host to re-probe the panel's local git metadata because the
+    /// pull-request branch disagrees with the current sidebar branch projection.
+    func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String)
     /// Clears every workspace's sidebar git metadata (branches and badges).
     func clearAllSidebarGitMetadata()
     /// Clears every workspace's sidebar pull-request badges.
@@ -78,13 +89,21 @@ public protocol SidebarGitHosting: AnyObject {
 
     // MARK: Environment
 
-    /// Whether the sidebar git status watch setting is enabled.
-    var isGitMetadataWatchEnabled: Bool { get }
-    /// Whether sidebar pull-request polling is enabled.
-    var isPullRequestPollingEnabled: Bool { get }
+    /// The active/passive/disabled work level for sidebar git metadata.
+    var gitMetadataActivity: SidebarGitMetadataActivity { get }
+    /// The active/passive/disabled work level for sidebar pull-request metadata.
+    var pullRequestActivity: SidebarGitMetadataActivity { get }
     /// Whether the paired mobile host served a request within `interval`
     /// seconds (background git/PR work defers while true).
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool
     /// How long until the mobile host has been quiet for `interval` seconds.
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval
+}
+
+extension SidebarGitHosting {
+    func shouldSkipLocalGitMetadata(workspaceId: UUID, panelId: UUID) -> Bool {
+        isRemoteWorkspace(workspaceId) == true &&
+            (isRemoteTerminalPanel(workspaceId: workspaceId, panelId: panelId) ||
+                hasTrustedRemotePanelDirectory(workspaceId: workspaceId, panelId: panelId))
+    }
 }

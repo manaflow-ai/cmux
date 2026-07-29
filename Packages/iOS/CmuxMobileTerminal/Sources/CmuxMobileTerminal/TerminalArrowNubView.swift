@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import CmuxMobileTerminalKit
 import UIKit
 
@@ -23,12 +24,18 @@ final class TerminalArrowNubView: UIView {
     private var lastDirection: TerminalArrowNubDirection?
     private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
 
+    func applyTheme(background: UIColor, foreground: UIColor) {
+        backgroundColor = foreground.withAlphaComponent(0.16)
+        innerDot.backgroundColor = foreground.withAlphaComponent(0.9)
+        innerDot.layer.shadowColor = foreground.cgColor
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor(white: 0.25, alpha: 0.85)
+        backgroundColor = UIColor.white.withAlphaComponent(0.16)
         layer.cornerRadius = nubSize / 2
 
-        innerDot.backgroundColor = UIColor(white: 0.85, alpha: 1)
+        innerDot.backgroundColor = UIColor.white.withAlphaComponent(0.9)
         innerDot.layer.cornerRadius = 6
         innerDot.frame = CGRect(x: 0, y: 0, width: 12, height: 12)
         innerDot.layer.shadowColor = UIColor.white.cgColor
@@ -40,7 +47,7 @@ final class TerminalArrowNubView: UIView {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         addGestureRecognizer(pan)
 
-        feedbackGenerator.prepare()
+        MobileHapticFeedback().prepare(feedbackGenerator)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -61,7 +68,7 @@ final class TerminalArrowNubView: UIView {
         switch gesture.state {
         case .began:
             dragOrigin = innerDot.center
-            feedbackGenerator.prepare()
+            MobileHapticFeedback().prepare(feedbackGenerator)
         case .changed:
             let maxOffset: CGFloat = nubSize / 2 - 8
             let clampedX = max(-maxOffset, min(maxOffset, translation.x))
@@ -109,7 +116,7 @@ final class TerminalArrowNubView: UIView {
         repeatTask = Task { @MainActor [weak self] in
             for await _ in stream {
                 guard let self else { return }
-                self.feedbackGenerator.impactOccurred()
+                MobileHapticFeedback().impact(self.feedbackGenerator)
                 self.onArrowKey?(direction.accessoryAction)
             }
         }

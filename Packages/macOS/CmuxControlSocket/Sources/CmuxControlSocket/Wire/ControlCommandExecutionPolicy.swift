@@ -16,18 +16,28 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// from the main thread.
     case socketWorker(mainThreadCallable: Bool)
 
-    /// Classifies a method: every `vm.`- and `remotes.`-prefixed method and the
-    /// fixed socket-worker set run on the worker; everything else runs on the
-    /// main actor.
+    /// Classifies a method: every `vm.`-, `remotes.`-, and
+    /// `aiAccounts.`-prefixed method and the fixed socket-worker set run on the
+    /// worker; everything else runs on the main actor.
     ///
-    /// `remotes.*` (the `cmux remotes` device-registry verbs) make blocking,
+    /// `remotes.*` (the `cmux remotes` device-registry verbs) and
+    /// `aiAccounts.*` (the team's subrouter AI-account verbs) make blocking,
     /// authenticated web API calls just like `vm.*`, so they must stay off the
-    /// main actor; a prefix match keeps the three verbs in lockstep without
-    /// listing each.
+    /// main actor; prefix matches keep each verb family in lockstep without
+    /// listing each method.
     ///
     /// - Parameter method: The trimmed method name.
     public init(forMethod method: String) {
-        if method.hasPrefix("vm.") || method.hasPrefix("remotes.")
+#if DEBUG
+        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame"
+            || method == "remote.tmux.test_perturb_divider"
+            || method == "remote.tmux.root_frames"
+            || method == "remote.tmux.window" {
+            self = .socketWorker(mainThreadCallable: false)
+            return
+        }
+#endif
+        if method.hasPrefix("vm.") || method.hasPrefix("remotes.") || method.hasPrefix("aiAccounts.")
             || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
                 mainThreadCallable: Self.mainThreadCallableSocketWorkerMethods.contains(method)
@@ -64,9 +74,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         return false
     }
 
-    /// Methods that run on the socket-worker thread instead of the main actor.
-    /// Internal (not private) so the package tests can pin the exact set.
-    static let socketWorkerMethods: Set<String> = [
+    /// Socket-worker methods; internal so package tests can pin the exact set.
+    static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
         "auth.status",
@@ -86,9 +95,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
-        // `mobile.terminal.set_font` only validates params and emits a
-        // `terminal.set_font` push event via thread-safe MobileHostService
-        // statics (no main-actor UI access), so it runs on the socket worker
+        // `mobile.terminal.set_font` only validates params and emits a push
+        // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
@@ -122,8 +130,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.attach",
         "remote.tmux.detach",
         "remote.tmux.state",
-        "remote.tmux.mirror",
-        "remote.tmux.window",
+        "remote.tmux.mirror", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",
@@ -200,7 +207,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.state.load",
         "browser.addinitscript",
         "browser.addscript",
-        "browser.addstyle",
+        "browser.addstyle", "browser.design_mode.set", "browser.design_mode.status",
         // The v2 surface-telemetry twins of the v1 report family. Parse and
         // response encoding run on the worker; each body crosses to the main
         // actor exactly once (the resolution + write + ref minting hop), so
@@ -208,6 +215,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // (cmux-zsh-integration.zsh `_cmux_report_tty_once`) still returns
         // only after the TTY registration is visible to later commands.
         "surface.report_pwd",
+        "surface.report_git_branch",
+        "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
@@ -256,7 +265,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // sending input never activates or reselects anything.
         "surface.send_text",
         "surface.send_key",
-    ]
+    ]).union(simulatorMethods)
 
     /// Socket-worker methods that are also safe to invoke from the main
     /// thread. The invariant is deadlock-freedom, not zero cost: a member's
@@ -274,6 +283,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "system.ping",
         "system.capabilities",
         "surface.report_pwd",
+        "surface.report_git_branch",
+        "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
@@ -378,6 +389,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "read_screen",
     ]
 
+    /// The v1 diagnostic-read family. These commands await actor-owned
+    /// diagnostic snapshots, so they run on the socket worker and are not
+    /// callable from the main thread.
+    static let diagnosticReadV1Commands: Set<String> = [
+        "iroh_diag",
+    ]
+
     /// The v1 resolution-read family (tranche D): the v1 twins of the v2
     /// resolution reads. Nonisolated `TerminalController` bodies take one
     /// `v2MainSync` snapshot hop and format their reply lines on the worker.
@@ -415,6 +433,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
             .union(terminalReadV1Commands)
+            .union(diagnosticReadV1Commands)
             .union(resolutionReadV1Commands)
             .union(terminalSendV1Commands)
             .union(["ping"])

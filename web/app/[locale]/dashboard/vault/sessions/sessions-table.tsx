@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useLocale, useTranslations } from "next-intl";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
@@ -21,14 +21,17 @@ type SessionsTableProps = {
   readonly initialQuery: string;
   readonly initialRows: readonly SerializedVaultSessionListRow[];
   readonly initialNextCursor: string | null;
+  readonly initialNowIso: string;
 };
 
 const LOAD_MORE_THRESHOLD = 20;
+const RELATIVE_TIME_REFRESH_MS = 30_000;
 
 export function SessionsTable({
   initialQuery,
   initialRows,
   initialNextCursor,
+  initialNowIso,
 }: SessionsTableProps) {
   const t = useTranslations("vault.sessions");
   const locale = useLocale();
@@ -37,6 +40,7 @@ export function SessionsTable({
   const [rows, setRows] = useState<readonly SerializedVaultSessionListRow[]>(initialRows);
   const [nextCursor, setNextCursor] = useState<string | null>(initialNextCursor);
   const [query, setQuery] = useState(initialQuery);
+  const [relativeNowIso, refreshRelativeNow] = useRelativeNow(initialNowIso);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
@@ -59,7 +63,7 @@ export function SessionsTable({
   });
 
   const virtualItems = rowVirtualizer.getVirtualItems();
-  const now = useMemo(() => new Date(), [rows]);
+  const now = useMemo(() => new Date(relativeNowIso), [relativeNowIso]);
 
   const replaceUrl = useCallback(
     (nextQuery: string) => {
@@ -105,6 +109,7 @@ export function SessionsTable({
         if (!response.ok) throw new Error("sessions_fetch_failed");
         const data = (await response.json()) as SerializedVaultSessionListPage;
         if (requestId !== requestIdRef.current) return;
+        refreshRelativeNow();
         setRows((current) => {
           if (reset) return data.sessions;
           const seen = new Set(current.map((row) => row.id));
@@ -259,6 +264,21 @@ export function SessionsTable({
       </div>
     </div>
   );
+}
+
+function useRelativeNow(initialNowIso: string) {
+  const [relativeNowIso, setRelativeNowIso] = useState(initialNowIso);
+  const refreshRelativeNow = useCallback(() => {
+    setRelativeNowIso(new Date().toISOString());
+  }, []);
+
+  useEffect(() => {
+    refreshRelativeNow();
+    const timer = window.setInterval(refreshRelativeNow, RELATIVE_TIME_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [refreshRelativeNow]);
+
+  return [relativeNowIso, refreshRelativeNow] as const;
 }
 
 function SessionRow({

@@ -33,6 +33,8 @@ extension AgentChatTranscriptService {
 
     @discardableResult
     func ensureSearchIndexingTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
-        ensureTailer(for: record)
+        ensureTailer(for: record) {
+            resolver.boundedTranscriptPath(for: record)
+        }
     }
 }

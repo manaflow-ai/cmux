@@ -1,4 +1,5 @@
 import XCTest
+import CmuxFoundation
 import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
@@ -156,8 +157,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-ssh-reconnect-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeSleep = root.appendingPathComponent("sleep")
         let logFile = root.appendingPathComponent("ssh-session-end.log")
         let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+        let sleepLog = root.appendingPathComponent("sleep-delays.txt")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -175,8 +178,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "if [ \"$count\" -eq 1 ]; then exit 255; fi",
             "exit 0",
         ])
+        try writeShellFile(at: fakeSleep, lines: ["#!/bin/sh", "printf '%s\\n' \"$1\" >> \"${CMUX_TEST_SLEEP_LOG}\""])
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSleep.path)
 
         let startupCommand = try generatedSSHStartupCommand()
         var environment = ProcessInfo.processInfo.environment
@@ -187,14 +192,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
 
-        let result = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 5
-        )
+        let result = runProcess(executablePath: "/bin/sh", arguments: ["-c", startupCommand], environment: environment, timeout: 5)
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
@@ -203,10 +204,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // install-channel failure therefore yields three raw SSH invocations:
         // failed install, retried install, successful session.
         XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        XCTAssertEqual(try String(contentsOf: sleepLog, encoding: .utf8), "2\n")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
-        let sessionEndCalls = recordedCalls
-            .split(separator: "\n")
-            .filter { $0.contains("ssh-session-end") }
+        let sessionEndCalls = recordedCalls.split(separator: "\n").filter { $0.contains("ssh-session-end") }
         XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
 
@@ -217,13 +217,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
         let logFile = root.appendingPathComponent("ssh.log")
+        let socketHash = UUID().uuidString
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased() + "01234567"
         let staleControlPath = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("cmux-ssh-\(getuid())-\(UUID().uuidString.prefix(8)).sock")
+            .appendingPathComponent("cmux-ssh-\(getuid())-\(socketHash)")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
             try? fileManager.removeItem(at: root)
             unlink(staleControlPath.path)
+            unlink(staleControlPath.path + ".auth.lock")
         }
 
         let staleSocketFD = try bindUnixSocket(at: staleControlPath.path)
@@ -289,6 +293,71 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sshLog = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         XCTAssertTrue(sshLog.contains("-G"), sshLog)
         XCTAssertTrue(sshLog.contains("-O check"), sshLog)
+    }
+
+    func testSSHStartupRemovesForegroundAuthInflightMarkerAfterSuccess() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-inflight-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let controlPath = "/tmp/cmux-ssh-\(getuid())-0123456789abcdef0123456789abcdef01234567"
+        let sshOptions = [
+            "ControlMaster=auto",
+            "ControlPersist=600",
+            "ControlPath=\(controlPath)",
+        ]
+        let lockPath = try XCTUnwrap(SSHConnectionSharingOptions().foregroundAuthenticationLockPath(
+            destination: "cmux-macmini",
+            port: 2222,
+            options: sshOptions
+        ))
+        let inFlightPath = lockPath + ".inflight"
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: root)
+            unlink(lockPath)
+            unlink(inFlightPath)
+        }
+
+        try writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "previous_arg=",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = '-G' ]; then printf 'controlpath %s\\n' \"${CMUX_TEST_CONTROL_PATH}\"; exit 0; fi",
+            "  if [ \"$previous_arg\" = '-O' ] && [ \"$arg\" = 'check' ]; then exit 255; fi",
+            "  previous_arg=\"$arg\"",
+            "done",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedSSHStartupCommand(sshOptions: sshOptions)
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_CONTROL_PATH"] = controlPath
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            fileManager.fileExists(atPath: inFlightPath),
+            "Successful foreground authentication must remove its owned in-flight marker before releasing the lock"
+        )
     }
 
     func testSSHStartupStopsAtConfiguredReconnectLimit() throws {
@@ -656,6 +725,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ok: true,
                     result: [
                         "workspace_id": workspaceID,
+                        "surface_id": "surface:1",
                     ]
                 )
             case "workspace.remote.configure":

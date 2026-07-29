@@ -50,11 +50,16 @@ public final class AuthCoordinator {
         }
     }
 
-    /// The team id API calls should target: the persisted selection while it is
-    /// still one of ``availableTeams``, else the first available team.
+    /// The team id API calls should target. While the team refresh is unavailable
+    /// or still loading, the account-scoped persisted selection remains effective
+    /// so local state and reconnect routes do not temporarily fall into the
+    /// teamless partition. Once teams load, an invalid selection falls back to the
+    /// first available team.
     public var resolvedTeamID: String? {
         Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
     }
+
+    var apiBaseURL: String { config.apiBaseURL }
 
     let client: any AuthClient
     let sessionCache: CMUXAuthSessionCache
@@ -66,6 +71,8 @@ public final class AuthCoordinator {
     let timeouts: AuthTimeouts
     let clock: any Clock<Duration>
     private let isOnline: @Sendable () async -> Bool
+    /// Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
+    let isTokenStorageAvailable: @Sendable () async -> Bool
     private let onSignedIn: @Sendable () async -> Void
     let log = AuthDebugLog()
     let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
@@ -74,6 +81,7 @@ public final class AuthCoordinator {
     var debugCredentials: CMUXAuthAutoLoginCredentials?
     private var bootstrapTask: Task<Void, Never>?
     var isRevalidatingSession = false
+    var sessionRevalidationWaiters: [CheckedContinuation<Void, Never>] = []
     /// Monotonic session epoch, advanced by every session transition: each
     /// ``clearAuthState()`` AND each published sign-in
     /// (``applySignedInUser(_:)``). Flows that touch session state after
@@ -97,6 +105,16 @@ public final class AuthCoordinator {
     @ObservationIgnored var signOutEpoch: UInt64 = 0
     /// Monotonic sign-in attempt count, allocating each flow's attempt id.
     @ObservationIgnored var signInAttemptCounter: UInt64 = 0
+    /// Sign-in attempts that currently own a possible write to the token store.
+    ///
+    /// This ownership spans the whole flow, not just the credential-exchange
+    /// task: a token consumer can run after an exchange starts but before its
+    /// tokens land, or after the exchange returns while user/team publication
+    /// is still finishing. In either window an empty token read is transient;
+    /// only the owning sign-in may decide whether the session transition
+    /// succeeds or fails. Token readers consult this registry instead of clearing
+    /// coordinator state out from under the active writer.
+    @ObservationIgnored var activeSignInFlows: [UInt64: SignInFlowContext] = [:]
     /// The highest attempt id whose credential exchange has written the token
     /// store (recorded when the flow reaches its completion step, immediately
     /// after the exchange's write). The last writer owns the store: a stale
@@ -121,11 +139,21 @@ public final class AuthCoordinator {
     private func beginSignInFlow() async throws -> SignInFlowContext {
         signInAttemptCounter &+= 1
         let flow = SignInFlowContext(generation: sessionGeneration, attempt: signInAttemptCounter, signOutEpoch: signOutEpoch)
-        try await waitForSessionTokenWorkToQuiesceBeforeSignIn()
-        guard flow.generation == sessionGeneration, flow.signOutEpoch == signOutEpoch else {
-            throw CancellationError()
+        activeSignInFlows[flow.attempt] = flow
+        do {
+            try await waitForSessionTokenWorkToQuiesceBeforeSignIn()
+            guard flow.generation == sessionGeneration, flow.signOutEpoch == signOutEpoch else {
+                throw CancellationError()
+            }
+            return flow
+        } catch {
+            activeSignInFlows[flow.attempt] = nil
+            throw error
         }
-        return flow
+    }
+
+    private func finishSignInFlow(_ flow: SignInFlowContext) {
+        activeSignInFlows[flow.attempt] = nil
     }
 
     /// Creates an auth coordinator.
@@ -146,6 +174,7 @@ public final class AuthCoordinator {
     ///     drive timeouts with virtual time. Defaults to `ContinuousClock`.
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
     ///     Defaults to always-online so tests need not supply it.
+    ///   - isTokenStorageAvailable: Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
     ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
     ///     side effects above this package (e.g. push token re-upload). Defaults
     ///     to a no-op.
@@ -160,6 +189,7 @@ public final class AuthCoordinator {
         timeouts: AuthTimeouts = .default,
         clock: any Clock<Duration> = ContinuousClock(),
         isOnline: @escaping @Sendable () async -> Bool = { true },
+        isTokenStorageAvailable: @escaping @Sendable () async -> Bool = { true },
         onSignedIn: @escaping @Sendable () async -> Void = {}
     ) {
         self.client = client
@@ -172,6 +202,7 @@ public final class AuthCoordinator {
         self.timeouts = timeouts
         self.clock = clock
         self.isOnline = isOnline
+        self.isTokenStorageAvailable = isTokenStorageAvailable
         self.onSignedIn = onSignedIn
         self.selectedTeamID = teamSelection.selectedTeamID
         primeSessionState()
@@ -246,6 +277,7 @@ public final class AuthCoordinator {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, exchange, user fetch) wins.
         let flow = try await beginSignInFlow()
+        defer { finishSignInFlow(flow) }
         try await requireOnline()
         isLoading = true
         defer { isLoading = false }
@@ -268,6 +300,7 @@ public final class AuthCoordinator {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, exchange, user fetch) wins.
         let flow = try await beginSignInFlow()
+        defer { finishSignInFlow(flow) }
         try await requireOnline()
         if setLoading { isLoading = true }
         defer { if setLoading { isLoading = false } }
@@ -284,19 +317,19 @@ public final class AuthCoordinator {
     }
 
     /// Sign in with Apple.
-    public func signInWithApple() async throws {
-        try await signInWithOAuth(provider: "apple")
-    }
+    public func signInWithApple() async throws { try await signInWithOAuth(provider: "apple") }
 
     /// Sign in with Google.
-    public func signInWithGoogle() async throws {
-        try await signInWithOAuth(provider: "google")
-    }
+    public func signInWithGoogle() async throws { try await signInWithOAuth(provider: "google") }
+
+    /// Sign in with GitHub.
+    public func signInWithGitHub() async throws { try await signInWithOAuth(provider: "github") }
 
     private func signInWithOAuth(provider: String) async throws {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, OAuth exchange, user fetch) wins.
         let flow = try await beginSignInFlow()
+        defer { finishSignInFlow(flow) }
         try await requireOnline()
         isLoading = true
         defer { isLoading = false }
@@ -397,6 +430,7 @@ public final class AuthCoordinator {
         // covers the validation round trip; the seeding flow keeps its own
         // sign-out race guard for the seeded tokens.
         let flow = try await beginSignInFlow()
+        defer { finishSignInFlow(flow) }
         isLoading = true
         defer { isLoading = false }
         do {
@@ -595,6 +629,9 @@ public final class AuthCoordinator {
         selectedTeamID: String?,
         teams: [CMUXAuthTeam]
     ) -> String? {
+        if teams.isEmpty {
+            return selectedTeamID
+        }
         if let selectedTeamID,
            teams.contains(where: { $0.id == selectedTeamID }) {
             return selectedTeamID
@@ -611,6 +648,30 @@ public final class AuthCoordinator {
         availableTeams = []
         selectedTeamID = nil
         apply(.cleared())
+    }
+
+    /// Whether one coordinator-owned transition can legitimately observe an
+    /// empty token store before it reaches its terminal state.
+    ///
+    /// Consumers such as analytics, presence, or push may request a token at
+    /// any time. They are readers, so they must not turn temporary emptiness
+    /// into `clearAuthState()` while launch restore or a sign-in owns the store.
+    /// Returning a retryable error leaves the transition's single owner in
+    /// charge. Interactive sign-out is included while it captures credentials;
+    /// its own local-first clear remains authoritative.
+    var sessionTokenTransitionIsActive: Bool {
+        let currentSignInOwnsStore = activeSignInFlows.values.contains { flow in
+            flow.generation == sessionGeneration && flow.signOutEpoch == signOutEpoch
+        }
+        // A sign-out makes an in-flight validation stale before it clears the
+        // published flags. Keep reads transient during credential capture, then
+        // stop treating that stale validation as an owner once local-first clear
+        // publishes the signed-out state.
+        let currentValidationOwnsStore = isRevalidatingSession
+            && (isRestoringSession || isAuthenticated)
+        return currentSignInOwnsStore
+            || currentValidationOwnsStore
+            || isCapturingSignOutCredentials
     }
 
     func preserveCachedSessionAfterValidationFailure() {
@@ -644,31 +705,6 @@ public final class AuthCoordinator {
         guard await isOnline() else {
             throw AuthError.offline
         }
-    }
-
-    /// Race `operation` against the phase deadline on the injected clock,
-    /// dispatching token-touching and side-effect phases to coordinator-owned
-    /// helpers so sign-out can still cancel late work after a timeout.
-    func runPhase<T: Sendable>(
-        _ phase: AuthPhase,
-        timeout: Duration,
-        _ operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        if phase == .validateSession {
-            return try await runValidationPhase(timeout: timeout, operation)
-        }
-        if phase == .fetchUser || phase == .listTeams {
-            return try await runTokenTouchingPhase(phase, timeout: timeout, operation)
-        }
-        return try await withAuthPhaseTimeout(
-            phase,
-            duration: timeout,
-            clock: clock,
-            log: log,
-            registry: phaseTimeoutRegistry,
-            blocksRetriesWhileTimedOutOperationActive: phase == .sendCode,
-            operation: operation
-        )
     }
 
     func apply(_ state: CMUXAuthState) {

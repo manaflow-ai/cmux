@@ -881,6 +881,18 @@ final class WindowDragHandleHitTests: XCTestCase {
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
         XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
         XCTAssertEqual(
+            MinimalModeSidebarControlActionSlot.allCases.map(\.accessibilityIdentifier),
+            [
+                "titlebarControl.toggleSidebar",
+                "titlebarControl.showNotifications",
+                "titlebarControl.newTab",
+                "titlebarControl.cloudVM",
+                "titlebarControl.focusHistoryBack",
+                "titlebarControl.focusHistoryForward",
+            ],
+            "The hidden minimal-mode click lanes must match the visible titlebar control order."
+        )
+        XCTAssertEqual(
             ranges[0].lowerBound,
             TitlebarControlsLayoutMetrics.hintLeadingPadding + config.groupPadding.leading,
             accuracy: 0.001,
@@ -894,6 +906,45 @@ final class WindowDragHandleHitTests: XCTestCase {
             ),
             "Icon button columns should stay interactive"
         )
+        XCTAssertEqual(
+            ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].upperBound
+                - ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].lowerBound,
+            TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config),
+            accuracy: 0.001,
+            "The hidden Cloud menu lane should match the visible split-button dropdown width."
+        )
+        XCTAssertLessThan(
+            TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownIconSize(config: config),
+            config.iconSize - 2,
+            "The Cloud dropdown glyph should stay visibly smaller than the primary titlebar icons."
+        )
+        XCTAssertTrue(
+            TitlebarControlsHitRegions.pointFallsInButtonColumn(
+                NSPoint(
+                    x: (
+                        ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].lowerBound
+                            + ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].upperBound
+                    ) / 2,
+                    y: 14
+                ),
+                config: config
+            ),
+            "The padded Cloud dropdown lane should receive left clicks."
+        )
+        XCTAssertTrue(
+            TitlebarControlsHitRegions.pointFallsInButtonColumn(
+                NSPoint(x: ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].lowerBound + 1, y: 14),
+                config: config
+            ),
+            "The leading padding inside the Cloud dropdown lane should receive left clicks."
+        )
+        XCTAssertTrue(
+            TitlebarControlsHitRegions.pointFallsInButtonColumn(
+                NSPoint(x: ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].upperBound - 1, y: 14),
+                config: config
+            ),
+            "The trailing padding inside the Cloud dropdown lane should receive left clicks."
+        )
 
         let firstGapX = (ranges[0].upperBound + ranges[1].lowerBound) / 2
         let secondGapX = (ranges[1].upperBound + ranges[2].lowerBound) / 2
@@ -905,6 +956,12 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: secondGapX, y: 14), config: config),
             "The gap between the notification and new-workspace icons should remain available for window dragging"
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+            ranges.last?.upperBound ?? 0,
+            "The minimal-mode host must be wide enough to preserve the back/forward button lanes."
         )
     }
 
@@ -2676,7 +2733,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginUsesVisibleClipWidth() {
-        let origin = FilePreviewViewport.clampedClipOrigin(
+        let origin = FilePreviewViewport().clampedClipOrigin(
             documentPoint: CGPoint(x: 500, y: 700),
             anchorOffsetInClip: CGPoint(x: 200, y: 300),
             documentBounds: CGRect(x: 0, y: 0, width: 1_000, height: 1_400),
@@ -2688,7 +2745,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginCentersSmallerDocuments() {
-        let origin = FilePreviewViewport.clampedClipOrigin(
+        let origin = FilePreviewViewport().clampedClipOrigin(
             documentPoint: CGPoint(x: 54, y: 224.5),
             anchorOffsetInClip: CGPoint(x: 300, y: 400),
             documentBounds: CGRect(x: 0, y: 0, width: 108, height: 449),
@@ -2894,24 +2951,28 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let pdfView = sessions.pdf.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
         )
         let imageView = sessions.image.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
         )
         let mediaView = sessions.media.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
         )
         let quickLookView = sessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -2925,6 +2986,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(pdfView === sessions.pdf.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -2933,6 +2995,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(imageView === sessions.image.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -2941,6 +3004,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(mediaView === sessions.media.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
@@ -2949,6 +3013,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let remountedQuickLookView = sessions.quickLook.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
