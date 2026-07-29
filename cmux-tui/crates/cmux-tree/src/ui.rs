@@ -1,7 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cmux_tui_chrome::{
-    RailDividerStyle, RailState, ScrollbarState, ScrollbarStyle, viewport_thumb_geometry,
+    RailPalette, RailPaletteColors, RailState, ScrollbarState, ScrollbarStyle,
+    viewport_thumb_geometry,
 };
 use ratatui::Frame;
 use ratatui::layout::{Position, Rect};
@@ -19,6 +20,7 @@ const SELECTED_FG: Color = Color::Indexed(255);
 const DIM_FG: Color = Color::Indexed(242);
 const RAIL_BORDER_FG: Color = Color::Indexed(237);
 const ACTIVE_BORDER_FG: Color = Color::Indexed(110);
+const ACTIVE_HEADER_BG: Color = Color::Indexed(240);
 const INFO_FG: Color = Color::Indexed(110);
 const WARNING_FG: Color = Color::Indexed(179);
 const ERROR_FG: Color = Color::Indexed(167);
@@ -89,46 +91,51 @@ fn prepare_column(frame: &mut Frame, area: Rect, focused: bool, divider: bool) {
     if area.width == 0 {
         return;
     }
+    let palette = column_palette(focused);
     let buffer = frame.buffer_mut();
     let content_width = area.width.saturating_sub(u16::from(divider));
     for y in area.y..area.y + area.height {
         for x in area.x..area.x + content_width {
-            buffer[(x, y)].set_symbol(" ").set_style(Style::default());
+            buffer[(x, y)].set_symbol(" ").set_style(palette.base);
         }
     }
     if divider {
         let x = area.x + area.width - 1;
-        RailDividerStyle::new(RAIL_BORDER_FG, ACTIVE_BORDER_FG).draw(
-            buffer,
-            x,
-            area.y,
-            area.height,
-            Style::default(),
-            if focused { RailState::Focused } else { RailState::Idle },
-        );
+        palette.divider.draw(buffer, x, area.y, area.height, palette.base, palette.divider_state);
     }
+}
+
+fn column_palette(focused: bool) -> RailPalette {
+    RailPalette::new(
+        RailPaletteColors {
+            dim_fg: DIM_FG,
+            selected_bg: SELECTED_BG,
+            selected_fg: SELECTED_FG,
+            idle_border_fg: RAIL_BORDER_FG,
+            focused_border_fg: ACTIVE_BORDER_FG,
+            focused_header_bg: ACTIVE_HEADER_BG,
+            rail_fg: ACTIVE_BORDER_FG,
+        },
+        if focused { RailState::Focused } else { RailState::Idle },
+    )
 }
 
 fn draw_header(frame: &mut Frame, area: Rect, title: &str, count: Option<usize>, focused: bool) {
     if area.width < 2 {
         return;
     }
+    let palette = column_palette(focused);
+    let content_width = area.width.saturating_sub(1);
+    for x in area.x..area.x + content_width {
+        frame.buffer_mut()[(x, area.y)].set_symbol(" ").set_style(palette.header);
+    }
     let suffix = count.map(|count| format!("  {count}")).unwrap_or_default();
     let text = format!(" {title}{suffix}");
-    frame.buffer_mut().set_stringn(
-        area.x,
-        area.y,
-        text,
-        area.width.saturating_sub(1) as usize,
-        Style::default().fg(if focused { SELECTED_FG } else { DIM_FG }).add_modifier(if focused {
-            Modifier::BOLD
-        } else {
-            Modifier::empty()
-        }),
-    );
+    frame.buffer_mut().set_stringn(area.x, area.y, text, content_width as usize, palette.header);
 }
 
 fn draw_machines(app: &mut App, frame: &mut Frame, area: Rect) {
+    let palette = column_palette(app.focus == Focus::Machines);
     draw_header(
         frame,
         area,
@@ -152,7 +159,7 @@ fn draw_machines(app: &mut App, frame: &mut Frame, area: Rect) {
             body.y,
             app.catalog.no_machines(),
             body.width.saturating_sub(2) as usize,
-            Style::default().fg(DIM_FG),
+            palette.dim,
         );
     }
     for (index, machine) in app.machines.iter().enumerate() {
@@ -184,25 +191,13 @@ fn draw_machines(app: &mut App, frame: &mut Frame, area: Rect) {
     draw_scrollbar(app, frame, body, app.machines.len() * 3, app.machine_scroll, Focus::Machines);
 
     let highlighted = app.focus == Focus::Machines && app.machines.is_empty();
-    fill_row(
-        frame,
-        footer,
-        if highlighted {
-            Style::default().bg(SELECTED_BG).fg(SELECTED_FG)
-        } else {
-            Style::default().fg(DIM_FG)
-        },
-    );
+    fill_row(frame, footer, if highlighted { palette.active } else { palette.dim });
     frame.buffer_mut().set_stringn(
         footer.x + 1,
         footer.y,
         format!("+ {}", app.catalog.add_machine()),
         footer.width.saturating_sub(2) as usize,
-        if highlighted {
-            Style::default().bg(SELECTED_BG).fg(SELECTED_FG).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(DIM_FG)
-        },
+        if highlighted { palette.active } else { palette.dim },
     );
     app.hits.push(Hit {
         area: Rect { width: footer.width.saturating_sub(1), ..footer },
@@ -225,14 +220,14 @@ fn draw_machine_row(
     row: MachineRow<'_>,
 ) {
     let MachineRow { machine, selected, focused, catalog } = row;
-    let selected_style =
-        Style::default().bg(SELECTED_BG).fg(SELECTED_FG).add_modifier(Modifier::BOLD);
-    let normal = Style::default();
+    let palette = column_palette(focused);
+    let selected_style = palette.active;
+    let normal = palette.base;
     let style = if selected { selected_style } else { normal };
     let dim = if selected {
         selected_style.remove_modifier(Modifier::BOLD).add_modifier(Modifier::DIM)
     } else {
-        Style::default().fg(DIM_FG)
+        palette.dim
     };
     let indicator = match &machine.connection {
         ConnectionState::Connected => INFO_FG,
@@ -255,13 +250,13 @@ fn draw_machine_row(
             fill_row(
                 frame,
                 Rect { x: area.x, y, width: area.width.saturating_sub(1), height: 1 },
-                if focused { selected_style } else { style.remove_modifier(Modifier::BOLD) },
+                selected_style,
             );
         }
         if line == 0 {
             frame.buffer_mut()[(area.x, y)]
                 .set_symbol(if selected { "▎" } else { "•" })
-                .set_style(style.fg(if selected { ACTIVE_BORDER_FG } else { indicator }));
+                .set_style(style.fg(if selected { palette.rail } else { indicator }));
             frame.buffer_mut().set_stringn(
                 area.x + 1,
                 y,
@@ -283,6 +278,7 @@ fn draw_machine_row(
 }
 
 fn draw_conversations(app: &mut App, frame: &mut Frame, area: Rect) {
+    let palette = column_palette(app.focus == Focus::Conversations);
     let rows = app.selected_machine().map(|machine| machine.rows.clone()).unwrap_or_default();
     draw_header(
         frame,
@@ -314,7 +310,7 @@ fn draw_conversations(app: &mut App, frame: &mut Frame, area: Rect) {
             body.y,
             message,
             body.width.saturating_sub(2) as usize,
-            Style::default().fg(DIM_FG),
+            palette.dim,
         );
     }
     let selected = app.selected_machine().and_then(MachineView::selected_row);
@@ -362,14 +358,10 @@ fn draw_conversation_row(
     entry: ConversationRow<'_>,
 ) {
     let ConversationRow { row, selected, focused, catalog } = entry;
-    let selected_style =
-        Style::default().bg(SELECTED_BG).fg(SELECTED_FG).add_modifier(Modifier::BOLD);
-    let base = if selected {
-        if focused { selected_style } else { selected_style.remove_modifier(Modifier::BOLD) }
-    } else {
-        Style::default()
-    };
-    let dim = if selected { base.add_modifier(Modifier::DIM) } else { Style::default().fg(DIM_FG) };
+    let palette = column_palette(focused);
+    let selected_style = palette.active;
+    let base = if selected { selected_style } else { palette.base };
+    let dim = if selected { base.add_modifier(Modifier::DIM) } else { palette.dim };
     let indicator = status_color(&row.thread);
     let prefix = row.prefix();
     let title = if row.depth() > 0 {
@@ -400,7 +392,7 @@ fn draw_conversation_row(
         if line == 0 {
             frame.buffer_mut()[(area.x, y)]
                 .set_symbol(if selected { "▎" } else { "•" })
-                .set_style(base.fg(if selected { ACTIVE_BORDER_FG } else { indicator }));
+                .set_style(base.fg(if selected { palette.rail } else { indicator }));
             frame.buffer_mut().set_stringn(
                 area.x + 1,
                 y,
@@ -917,10 +909,7 @@ mod tests {
         assert_eq!(focused_header.fg, ACTIVE_BORDER_FG);
         assert_eq!(focused_header.bg, Color::Indexed(240));
         assert!(focused_header.modifier.contains(Modifier::BOLD));
-        assert_eq!(
-            buffer[(machines.x + machines.width - 2, machines.y)].bg,
-            Color::Indexed(240)
-        );
+        assert_eq!(buffer[(machines.x + machines.width - 2, machines.y)].bg, Color::Indexed(240));
 
         let idle_header = &buffer[(conversations.x + 1, conversations.y)];
         assert_eq!(idle_header.fg, DIM_FG);

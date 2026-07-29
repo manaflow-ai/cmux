@@ -64,7 +64,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let managed_machines = machine_ui.managed_machines().to_vec();
     let provider = machine_ui.provider.clone();
     let rail_selection = machine_ui.rail_selection;
-    let palette = rail::RailPalette::for_app(app, app.machine_sidebar_focused());
+    let palette = rail::palette_for_app(app, app.machine_sidebar_focused());
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);
     rail::header(frame, area, messages.machines, palette);
@@ -269,7 +269,7 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
     }
     let content = app.sidebar_plugin_rect();
     let border_x = area.x + width - 1;
-    let palette = rail::RailPalette::for_app(app, app.workspace_sidebar_focused());
+    let palette = rail::palette_for_app(app, app.workspace_sidebar_focused());
     {
         let buf = frame.buffer_mut();
         palette.divider.draw(buf, border_x, area.y, height, palette.base, palette.divider_state);
@@ -332,7 +332,7 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
 
 fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     let Some(area) = app.workspace_sidebar_area(frame.area().height) else { return };
-    let palette = rail::RailPalette::for_app(app, app.workspace_sidebar_focused());
+    let palette = rail::palette_for_app(app, app.workspace_sidebar_focused());
     let workspace_drag = app.workspace_drag();
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);

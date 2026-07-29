@@ -1,9 +1,10 @@
 //! Shared visual primitives for the machine and workspace rails.
 
-use cmux_tui_chrome::{RailDividerStyle, RailState};
+pub use cmux_tui_chrome::RailPalette;
+use cmux_tui_chrome::{RailPaletteColors, RailState};
 use cmux_tui_core::Rect;
 use ratatui::Frame;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Modifier};
 
 use super::truncate;
 use crate::app::App;
@@ -94,46 +95,25 @@ fn visible_y(area: Rect, offset: usize, span: RowSpan) -> Option<u16> {
     Some(area.y.saturating_add((span.start - offset) as u16))
 }
 
-#[derive(Clone, Copy)]
-pub struct RailPalette {
-    pub base: Style,
-    pub dim: Style,
-    pub active: Style,
-    pub header: Style,
-    pub divider: RailDividerStyle,
-    pub divider_state: RailState,
-    pub rail: Color,
-}
-
-impl RailPalette {
-    pub fn for_app(app: &App, focused: bool) -> Self {
-        let chrome = app.chrome;
-        let selected_bg = if app.config.theme_overrides.sidebar_active_bg {
-            app.config.theme.sidebar_active_bg
-        } else {
-            chrome.sidebar_selected_bg
-        };
-        let base = Style::default();
-        Self {
-            base,
-            dim: base.fg(chrome.sidebar_dim_fg),
-            active: Style::default()
-                .bg(selected_bg)
-                .fg(chrome.sidebar_selected_fg)
-                .add_modifier(Modifier::BOLD),
-            header: if focused {
-                Style::default()
-                    .bg(chrome.status_active_bg)
-                    .fg(app.config.theme.border_active)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                base.fg(chrome.sidebar_dim_fg)
-            },
-            divider: RailDividerStyle::new(chrome.sidebar_border, app.config.theme.border_active),
-            divider_state: if focused { RailState::Focused } else { RailState::Idle },
-            rail: app.config.theme.sidebar_rail,
-        }
-    }
+pub fn palette_for_app(app: &App, focused: bool) -> RailPalette {
+    let chrome = app.chrome;
+    let selected_bg = if app.config.theme_overrides.sidebar_active_bg {
+        app.config.theme.sidebar_active_bg
+    } else {
+        chrome.sidebar_selected_bg
+    };
+    RailPalette::new(
+        RailPaletteColors {
+            dim_fg: chrome.sidebar_dim_fg,
+            selected_bg,
+            selected_fg: chrome.sidebar_selected_fg,
+            idle_border_fg: chrome.sidebar_border,
+            focused_border_fg: app.config.theme.border_active,
+            focused_header_bg: chrome.status_active_bg,
+            rail_fg: app.config.theme.sidebar_rail,
+        },
+        if focused { RailState::Focused } else { RailState::Idle },
+    )
 }
 
 pub fn prepare(frame: &mut Frame, area: Rect, palette: RailPalette) {
@@ -281,8 +261,10 @@ pub fn divider(area: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmux_tui_chrome::RailDividerStyle;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::style::Style;
 
     #[test]
     fn active_entry_keeps_the_shared_rail_when_it_has_a_status_indicator() {

@@ -2,6 +2,51 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 
+/// The theme inputs for cmux's vertical navigation rails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RailPaletteColors {
+    pub dim_fg: Color,
+    pub selected_bg: Color,
+    pub selected_fg: Color,
+    pub idle_border_fg: Color,
+    pub focused_border_fg: Color,
+    pub focused_header_bg: Color,
+    pub rail_fg: Color,
+}
+
+/// The resolved styles shared by cmux's left sidebars and rail-like columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RailPalette {
+    pub base: Style,
+    pub dim: Style,
+    pub active: Style,
+    pub header: Style,
+    pub divider: RailDividerStyle,
+    pub divider_state: RailState,
+    pub rail: Color,
+}
+
+impl RailPalette {
+    pub fn new(colors: RailPaletteColors, state: RailState) -> Self {
+        let base = Style::default();
+        Self {
+            base,
+            dim: base.fg(colors.dim_fg),
+            active: base.bg(colors.selected_bg).fg(colors.selected_fg).add_modifier(Modifier::BOLD),
+            header: match state {
+                RailState::Idle => base.fg(colors.dim_fg),
+                RailState::Focused => base
+                    .bg(colors.focused_header_bg)
+                    .fg(colors.focused_border_fg)
+                    .add_modifier(Modifier::BOLD),
+            },
+            divider: RailDividerStyle::new(colors.idle_border_fg, colors.focused_border_fg),
+            divider_state: state,
+            rail: colors.rail_fg,
+        }
+    }
+}
+
 /// The focused and idle divider treatment used by cmux's vertical rails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RailDividerStyle {
@@ -150,6 +195,33 @@ pub fn viewport_drag_offset(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rail_colors() -> RailPaletteColors {
+        RailPaletteColors {
+            dim_fg: Color::Indexed(242),
+            selected_bg: Color::Indexed(236),
+            selected_fg: Color::Indexed(255),
+            idle_border_fg: Color::Indexed(237),
+            focused_border_fg: Color::Indexed(110),
+            focused_header_bg: Color::Indexed(240),
+            rail_fg: Color::Indexed(110),
+        }
+    }
+
+    #[test]
+    fn rail_palette_resolves_cmux_sidebar_focus_styles() {
+        let idle = RailPalette::new(rail_colors(), RailState::Idle);
+        assert_eq!(idle.header.fg, Some(Color::Indexed(242)));
+        assert_eq!(idle.header.bg, None);
+        assert_eq!(idle.active.bg, Some(Color::Indexed(236)));
+        assert_eq!(idle.active.fg, Some(Color::Indexed(255)));
+        assert_eq!(idle.rail, Color::Indexed(110));
+
+        let focused = RailPalette::new(rail_colors(), RailState::Focused);
+        assert_eq!(focused.header.fg, Some(Color::Indexed(110)));
+        assert_eq!(focused.header.bg, Some(Color::Indexed(240)));
+        assert!(focused.header.add_modifier.contains(Modifier::BOLD));
+    }
 
     #[test]
     fn rail_divider_uses_cmux_focus_weight_and_color() {
