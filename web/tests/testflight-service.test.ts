@@ -23,7 +23,9 @@ mock.module("../services/asc/client", () => ({
 }));
 
 const {
+  proTestflightEnrollmentEmails,
   recordProOwnedLegacyTestflightGroup,
+  recordProTestflightEnrollmentEmail,
   enrollTester,
   findBetaTesterByEmail,
   proTestflightRemovalTargets,
@@ -310,6 +312,24 @@ describe("TestFlight ASC service", () => {
     });
   });
 
+  test("records every Pro enrollment email without replacing other Stack metadata", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      clientReadOnlyMetadata: {
+        cmuxPlan: "pro",
+        cmuxProTestflightEnrollmentEmails: ["first@example.com"],
+      },
+      update,
+    };
+
+    await expect(
+      recordProTestflightEnrollmentEmail(user, "Second@Example.com"),
+    ).resolves.toBe(true);
+    expect(proTestflightEnrollmentEmails(
+      update.mock.calls[0]?.[0]?.clientReadOnlyMetadata,
+    )).toEqual(["first@example.com", "second@example.com"]);
+  });
+
   test("legacy Pro ownership backfill is idempotent", async () => {
     const update = mock(async () => undefined);
     const user = {
@@ -330,6 +350,7 @@ describe("TestFlight ASC service", () => {
 
   test("targets the current Pro email and the exact legacy enrollment email", () => {
     expect(proTestflightRemovalTargets("Current@Example.com", {
+      cmuxProTestflightEnrollmentEmails: ["Joined@Example.com"],
       cmuxProTestflightOwnedLegacyGroupIDs: [
         "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
       ],
@@ -337,6 +358,10 @@ describe("TestFlight ASC service", () => {
     })).toEqual([
       {
         email: "current@example.com",
+        ownedLegacyGroupIDs: [],
+      },
+      {
+        email: "joined@example.com",
         ownedLegacyGroupIDs: [],
       },
       {

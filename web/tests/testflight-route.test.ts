@@ -125,6 +125,10 @@ describe("TestFlight route", () => {
   });
 
   test("joins an eligible user and redirects with joined", async () => {
+    const update = mock(async () => undefined);
+    currentUser.update = update;
+    user = currentUser;
+
     const response = await postAction("join");
 
     expect(response.status).toBe(303);
@@ -140,6 +144,11 @@ describe("TestFlight route", () => {
       email: "pro@example.com",
       firstName: "Pro",
       lastName: "User",
+    });
+    expect(update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: {
+        cmuxProTestflightEnrollmentEmails: ["pro@example.com"],
+      },
     });
     expect(
       (ascFetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(

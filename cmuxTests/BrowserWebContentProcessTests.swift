@@ -101,10 +101,15 @@ struct BrowserWebContentProcessTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let defaultsKey = "owned-stores"
         let persistentStoreID = UUID()
+        let environment = BrowserAppSessionEnvironment(
+            webOrigin: URL(string: "https://cmux.test")!,
+            projectID: "project-a"
+        )
 
         let firstLaunch = BrowserAppSessionStoreRegistry(
             defaults: defaults,
-            defaultsKey: defaultsKey
+            defaultsKey: defaultsKey,
+            environment: environment
         )
         firstLaunch.register(
             WKWebsiteDataStore(forIdentifier: persistentStoreID)
@@ -112,7 +117,8 @@ struct BrowserWebContentProcessTests {
 
         let relaunched = BrowserAppSessionStoreRegistry(
             defaults: defaults,
-            defaultsKey: defaultsKey
+            defaultsKey: defaultsKey,
+            environment: environment
         )
         #expect(
             relaunched.persistedIdentities == [
@@ -124,6 +130,45 @@ struct BrowserWebContentProcessTests {
                 $0.identifier == persistentStoreID
             }
         )
+    }
+
+    @Test
+    func browserAppSessionStoreOwnershipTracksAuthEnvironmentChanges() throws {
+        let suiteName = "BrowserAppSessionStoreEnvironmentTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaultsKey = "owned-stores"
+        let persistentStoreID = UUID()
+        let oldEnvironment = BrowserAppSessionEnvironment(
+            webOrigin: URL(string: "https://old.cmux.test")!,
+            projectID: "project-a"
+        )
+        let newEnvironment = BrowserAppSessionEnvironment(
+            webOrigin: URL(string: "https://new.cmux.test")!,
+            projectID: "project-b"
+        )
+
+        let firstLaunch = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: defaultsKey,
+            environment: oldEnvironment
+        )
+        firstLaunch.register(WKWebsiteDataStore(forIdentifier: persistentStoreID))
+
+        let switched = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: defaultsKey,
+            environment: newEnvironment
+        )
+        #expect(switched.hasStaleEnvironmentOwnership)
+        let target = try #require(switched.staleEnvironmentStoresForCleanup().first)
+        #expect(target.environment == oldEnvironment)
+        #expect(target.store.identifier == persistentStoreID)
+
+        switched.removeStaleEnvironmentOwnership()
+        #expect(!switched.hasStaleEnvironmentOwnership)
+        #expect(switched.persistedIdentities.isEmpty)
     }
 
     @Test
