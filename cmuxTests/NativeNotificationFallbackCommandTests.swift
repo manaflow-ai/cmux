@@ -198,7 +198,7 @@ struct NativeNotificationFallbackCommandTests {
     }
 
     @Test
-    func dynamicNotchReplacementIsDeliveredAsOneAtomicMutation() {
+    func dynamicNotchNotificationsAccumulateAcrossTheSameSurface() {
         let store = TerminalNotificationStore.shared
         let defaults = UserDefaults.standard
         let key = NotificationsCatalogSection().delivery.userDefaultsKey
@@ -231,22 +231,22 @@ struct NativeNotificationFallbackCommandTests {
         store.addNotification(
             tabId: tabID,
             surfaceId: surfaceID,
-            title: "Replacement",
+            title: "Second",
             subtitle: "",
             body: ""
         )
-        let replacementID = store.notifications[0].id
+        let secondID = store.notifications[0].id
 
         #expect(mutations.count == 2)
         guard case .upsert(let first, let firstSuperseding) = mutations[0],
-              case .upsert(let replacement, let replacementSuperseding) = mutations[1] else {
+              case .upsert(let second, let secondSuperseding) = mutations[1] else {
             Issue.record("Expected two upsert mutations")
             return
         }
         #expect(first.id == firstID)
         #expect(firstSuperseding.isEmpty)
-        #expect(replacement.id == replacementID)
-        #expect(replacementSuperseding == [firstID])
+        #expect(second.id == secondID)
+        #expect(secondSuperseding.isEmpty)
     }
 
     @Test
