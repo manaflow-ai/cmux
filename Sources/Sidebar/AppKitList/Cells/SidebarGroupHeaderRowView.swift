@@ -85,7 +85,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(bottomDropIndicator)
 
         addSubview(hintPill)
-        installFocusClickRecognizer()
     }
 
     required init?(coder: NSCoder) {
@@ -439,29 +438,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     // MARK: Interaction
 
-    /// Click-to-focus is a gesture recognizer, not a mouseDown override, so
-    /// the table view keeps receiving the raw mouse events it needs to start
-    /// a row drag from the header's name area (parity with the SwiftUI
-    /// header's coexisting onTapGesture + onDrag).
-    private func installFocusClickRecognizer() {
-        let recognizer = NSClickGestureRecognizer(target: self, action: #selector(didClickFocusArea(_:)))
-        recognizer.delaysPrimaryMouseButtonEvents = false
-        addGestureRecognizer(recognizer)
-    }
-
-    @objc private func didClickFocusArea(_ recognizer: NSClickGestureRecognizer) {
-        let point = recognizer.location(in: self)
-        // Chevron/plus are buttons and take their own hits before this runs.
-        let innerRect = NSRect(
-            x: iconImageView.frame.minX,
-            y: 0,
-            width: max(0, plusButton.frame.minX - iconImageView.frame.minX),
-            height: bounds.height
-        )
-        if innerRect.contains(point) {
-            actions?.onFocusAnchor(NSApp.currentEvent?.modifierFlags ?? [])
-        }
-    }
+    // Selection has exactly one click owner: the table view's action
+    // (`SidebarWorkspaceTableController.didClickTableRow`), same as workspace
+    // rows. A cell-level click recognizer here would fire a second
+    // `onFocusAnchor` for the same click, which cancels a modifier-click
+    // toggle (add then remove) and made header multi-selection impossible.
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
