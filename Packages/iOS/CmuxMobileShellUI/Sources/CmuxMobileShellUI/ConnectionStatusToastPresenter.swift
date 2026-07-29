@@ -43,13 +43,18 @@ struct ConnectionStatusToastPresenter: ViewModifier {
     }
 
     private var snapshot: ConnectionStatusSnapshot {
-        ConnectionStatusSnapshot(
+        // The recovery flags describe the foreground RPC connection; a
+        // selected workspace on a healthy secondary Mac must not read as
+        // recovering (or falsely toast "Reconnected") while the foreground
+        // connection cycles.
+        let usesForegroundConnection = store.selectedWorkspaceUsesForegroundConnection
+        return ConnectionStatusSnapshot(
             workspaceID: store.selectedWorkspaceID,
             display: .derive(
                 isSignedIn: store.isSignedIn,
                 requiresReauth: store.connectionRequiresReauth,
-                recoveryFailed: store.connectionRecoveryFailed,
-                isRecovering: store.isRecoveringConnection,
+                recoveryFailed: usesForegroundConnection && store.connectionRecoveryFailed,
+                isRecovering: usesForegroundConnection && store.isRecoveringConnection,
                 workspaceStatus: store.selectedWorkspace?.macConnectionStatus
                     ?? store.macConnectionStatus
             )

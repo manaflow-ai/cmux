@@ -273,6 +273,16 @@ struct WorkspaceDetailView: View {
         // the disconnected drain path. The pill and toast overlays attach
         // after this modifier and stay tappable.
         .allowsHitTesting(!toasts.isEnabled || connectionStatus == .connected)
+        #if os(iOS)
+        .onChange(of: connectionStatus) { _, status in
+            // Hit-testing only blocks new touches: an already-focused
+            // terminal keeps its keyboard, and its keystrokes drain into the
+            // disconnected path silently. Release the input proxy too.
+            if toasts.isEnabled, status != .connected {
+                GhosttySurfaceView.resignActiveInput()
+            }
+        }
+        #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topLeading) {
             MobileMacConnectionStatusPill(

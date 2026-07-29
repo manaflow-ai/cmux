@@ -938,6 +938,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return workspaces.first { $0.id == selectedWorkspaceID }
     }
 
+    /// True when the selected workspace's Mac is served by the foreground RPC
+    /// connection, so the foreground recovery flags
+    /// (`isRecoveringConnection`, `connectionRecoveryFailed`) describe it. A
+    /// workspace on a connected secondary Mac stays healthy while the
+    /// foreground connection recovers.
+    public var selectedWorkspaceUsesForegroundConnection: Bool {
+        guard let macID = selectedWorkspace?.macDeviceID, !macID.isEmpty else {
+            return true
+        }
+        return macID == foregroundMacDeviceID
+    }
+
     /// Resolve a UI row id back to the Mac-local workspace id expected by RPC.
     ///
     /// Multi-Mac aggregation scopes row ids by Mac to avoid collisions, while
