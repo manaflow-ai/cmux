@@ -70,6 +70,10 @@ bool cmux_test_ghostty_renderer_release_was_occluded(void) {
     return cmux_test_renderer_release_was_occluded;
 }
 
+bool cmux_test_ghostty_occlusion_visible(void) {
+    return cmux_test_renderer_occlusion_visible;
+}
+
 bool ghostty_surface_clear_selection(void *surface) {
     (void)surface;
     return false;

@@ -7789,7 +7789,6 @@ final class GhosttySurfaceScrollView: NSView {
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
-    private var lastRequestedPortalOcclusionVisible: Bool?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
@@ -9510,8 +9509,14 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
-        if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
-            lastRequestedPortalOcclusionVisible = visible
+        // Only push on a real transition. `visibleInUI` starts `true` for every
+        // view, and a pane that is never mounted is never corrected, so an
+        // unconditional push here would tell Ghostty that off-screen panes are
+        // visible and *start* their CVDisplayLinks (measured: 9 running links of
+        // 10 surfaces vs 0 on main). `TerminalSurface.setOcclusion` records the
+        // value even when the runtime surface does not exist yet and replays it
+        // on creation, which is what keeps a hide from being lost.
+        if wasVisible != visible {
             surfaceView.terminalSurface?.setOcclusion(visible)
         }
 #if DEBUG
