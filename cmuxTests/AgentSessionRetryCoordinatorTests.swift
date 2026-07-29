@@ -194,6 +194,70 @@ struct AgentSessionRetryCoordinatorTests {
     }
 
     @MainActor
+    @Test("active retry phases refresh matching bindings and reject replacement sessions")
+    func activeRetryPhasesValidateManagedSessionIdentity() throws {
+        let phases: [(name: String, phase: AgentSessionRetryPanelState.Phase)] = [
+            ("awaitingLaunch", .awaitingLaunch(attempt: 1, maximumAttempts: 3)),
+            ("running", .running(attempt: 1, maximumAttempts: 3)),
+        ]
+
+        for phaseCase in phases {
+            let matchingWorkspace = Workspace()
+            let matchingPanelId = try #require(matchingWorkspace.focusedPanelId)
+            let originalBinding = managedBinding(sessionId: "\(phaseCase.name)-same")
+            let refreshedBinding = managedBinding(
+                sessionId: "\(phaseCase.name)-same",
+                command: "claude --resume \(phaseCase.name)-same --updated",
+                updatedAt: 1_888_888_888
+            )
+            let matchingCoordinator = matchingWorkspace.agentSessionRetryCoordinator
+            matchingCoordinator.statesByPanelId[matchingPanelId] = .init(
+                completedAttempts: 1,
+                binding: originalBinding,
+                commandGeneration: 7,
+                phase: phaseCase.phase,
+                timer: nil
+            )
+
+            #expect(matchingWorkspace.setSurfaceResumeBinding(
+                refreshedBinding,
+                panelId: matchingPanelId
+            ))
+            let refreshedState = try #require(
+                matchingCoordinator.statesByPanelId[matchingPanelId],
+                "Matching \(phaseCase.name) binding must preserve recovery"
+            )
+            #expect(refreshedState.binding == refreshedBinding)
+            #expect(
+                refreshedState.phase == .running(attempt: 1, maximumAttempts: 3),
+                "Matching \(phaseCase.name) binding must acknowledge or preserve active recovery"
+            )
+
+            let replacementWorkspace = Workspace()
+            let replacementPanelId = try #require(replacementWorkspace.focusedPanelId)
+            let replacementCoordinator = replacementWorkspace.agentSessionRetryCoordinator
+            replacementCoordinator.statesByPanelId[replacementPanelId] = .init(
+                completedAttempts: 1,
+                binding: originalBinding,
+                commandGeneration: 7,
+                phase: phaseCase.phase,
+                timer: nil
+            )
+            let replacementBinding = managedBinding(sessionId: "\(phaseCase.name)-replacement")
+
+            #expect(replacementWorkspace.setSurfaceResumeBinding(
+                replacementBinding,
+                panelId: replacementPanelId
+            ))
+            #expect(
+                replacementCoordinator.statesByPanelId[replacementPanelId] == nil,
+                "Mismatched \(phaseCase.name) binding must fail closed before retry acknowledgement"
+            )
+            #expect(replacementCoordinator.managedRunsByPanelId[replacementPanelId] == nil)
+        }
+    }
+
+    @MainActor
     @Test("a delayed command completion cannot retry a replacement session")
     func replacementSessionInvalidatesEndedCandidate() throws {
         let suiteName = "AgentSessionRetryCoordinatorTests.replacementSession"
@@ -432,15 +496,19 @@ struct AgentSessionRetryCoordinatorTests {
         "agent.auto_retry.\(panelId.uuidString.lowercased())"
     }
 
-    private func managedBinding(sessionId: String) -> SurfaceResumeBindingSnapshot {
+    private func managedBinding(
+        sessionId: String,
+        command: String? = nil,
+        updatedAt: TimeInterval = 1_777_777_777
+    ) -> SurfaceResumeBindingSnapshot {
         SurfaceResumeBindingSnapshot(
             name: "Claude",
             kind: "claude",
-            command: "claude --resume \(sessionId)",
+            command: command ?? "claude --resume \(sessionId)",
             checkpointId: sessionId,
             source: "agent-hook",
             autoResume: true,
-            updatedAt: 1_777_777_777
+            updatedAt: updatedAt
         )
     }
 }
