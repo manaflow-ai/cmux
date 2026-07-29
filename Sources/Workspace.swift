@@ -3343,6 +3343,8 @@ final class Workspace: Identifiable, ObservableObject {
                 self.objectWillChange.send()
             }
         }
+
+        startAgentTabBrandingObservation()
         featureFlagsObserver = NotificationCenter.default.addObserver(
             forName: .cmuxFeatureFlagsDidChange,
             object: CmuxFeatureFlags.shared,
@@ -3356,7 +3358,25 @@ final class Workspace: Identifiable, ObservableObject {
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
+    /// Keeps terminal-tab agent branding in sync with the agent runtime maps;
+    /// started by `startAgentTabBrandingObservation()`.
+    var agentTabBrandingObservationTask: Task<Void, Never>?
+
+    /// Per-panel attach-time snapshots for agent tab branding, maintained by
+    /// `refreshAgentTabBranding(panelId:)`.
+    var agentTabBrandingAttachState: [UUID: AgentTabBrandingAttachState] = [:]
+
+    /// Launch fast-path agent ids per panel, from foreground-process probes at
+    /// command start; superseded by hook-recorded PID keys when those arrive.
+    var provisionalAgentTabBrandingIDsByPanelId: [UUID: String] = [:]
+
+    /// Per-panel `NOTE_EXEC` watchers re-probing the launch fast-path when the
+    /// foreground process exec()s into the agent binary.
+    var agentTabBrandingExecWatchers: [UUID: DispatchSourceProcess] = [:]
+
     deinit {
+        agentTabBrandingObservationTask?.cancel()
+        for watcher in agentTabBrandingExecWatchers.values { watcher.cancel() }
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
@@ -4135,6 +4155,13 @@ final class Workspace: Identifiable, ObservableObject {
            !custom.isEmpty {
             return custom
         }
+        if let definition = currentCodingAgentDefinition(panelId: panelId) {
+            return AgentTabBrandingResolver().displayTitle(
+                processTitle: trimmedFallback,
+                titleAtAgentAttach: agentTabBrandingAttachState[panelId]?.processTitleAtAttach,
+                for: definition
+            )
+        }
         return fallbackTitle
     }
 
@@ -4814,6 +4841,7 @@ final class Workspace: Identifiable, ObservableObject {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
         if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+        updateProvisionalAgentTabBranding(panelId: panelId, shellState: state)
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +

@@ -106,6 +106,7 @@ extension Workspace {
         var didMutateWorkspaceTitle = false
 
         if !isRemoteTmuxMirror, panelTitles[panelId] != trimmed {
+            absorbAgentTabBrandingLaunchNoiseTitle(panelId: panelId, title: trimmed)
             panelTitles[panelId] = trimmed
             didMutate = true
             didMutatePanelTitle = true
