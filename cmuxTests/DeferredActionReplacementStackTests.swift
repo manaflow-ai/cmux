@@ -62,6 +62,54 @@ struct DeferredActionReplacementStackTests {
         }
     }
 
+    @Test
+    @MainActor
+    func schedulerTracksCancellationAndReschedulingFromAction() async {
+        let clock = SidebarTestManualClock()
+        let scheduler = MainActorDeferredActionScheduler(clock: clock)
+        var actionStates: [Bool] = []
+
+        #expect(!scheduler.isScheduled)
+        scheduler.schedule(after: .milliseconds(100)) {
+            actionStates.append(true)
+        }
+        #expect(scheduler.isScheduled)
+        await clock.waitUntilSleeping(for: .milliseconds(100))
+
+        scheduler.cancel()
+        #expect(!scheduler.isScheduled)
+        await clock.waitUntilIdle()
+        clock.advance(by: .milliseconds(100))
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        #expect(actionStates.isEmpty)
+
+        let successorFired = AsyncStream<Void>.makeStream()
+        defer { successorFired.continuation.finish() }
+        var successorIterator = successorFired.stream.makeAsyncIterator()
+        scheduler.schedule(after: .milliseconds(20)) {
+            actionStates.append(scheduler.isScheduled)
+            scheduler.schedule(after: .milliseconds(10)) {
+                actionStates.append(scheduler.isScheduled)
+                successorFired.continuation.yield()
+            }
+            actionStates.append(scheduler.isScheduled)
+        }
+        #expect(scheduler.isScheduled)
+        await clock.waitUntilSleeping(for: .milliseconds(20))
+
+        clock.advance(by: .milliseconds(20))
+        await clock.waitUntilSleeping(for: .milliseconds(10))
+        #expect(actionStates == [false, true])
+        #expect(scheduler.isScheduled)
+
+        clock.advance(by: .milliseconds(10))
+        _ = await successorIterator.next()
+        #expect(actionStates == [false, true, false])
+        #expect(!scheduler.isScheduled)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func sidebarSchedulerReplacementBurstKeepsReleaseStackBounded() async throws {
