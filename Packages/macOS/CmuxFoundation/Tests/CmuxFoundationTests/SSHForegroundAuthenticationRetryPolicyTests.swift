@@ -61,6 +61,32 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.temporaryFiles.isEmpty)
     }
 
+    @Test(arguments: ["Connection refused", "Connection reset by peer"])
+    func mapsDirectConnectionStartupFailureToRetryableStatus(_ diagnostic: String) throws {
+        let result = try run(
+            "printf '%s\\n' 'ssh: connect to host example.test port 22: \(diagnostic)' >&2; exit 255"
+        )
+
+        #expect(result.status == 254)
+        #expect(result.stderr.contains(diagnostic))
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
+    @Test func proxyConfigurationFailureTakesPrecedenceOverGenericTransportMarker() throws {
+        let result = try run(
+            """
+            printf '%s\\n' 'zsh: command not found: corp-proxy' >&2
+            printf '%s\\n' 'Connection closed by UNKNOWN port 65535' >&2
+            exit 255
+            """
+        )
+
+        #expect(result.status == 255)
+        #expect(result.stderr.contains("command not found"))
+        #expect(result.stderr.contains("Connection closed by UNKNOWN port 65535"))
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
     @Test func keepsDiagnosticStateBoundedWhileCommandIsRunning() throws {
         let fileManager = FileManager.default
         let temporaryDirectory = fileManager.temporaryDirectory
@@ -74,9 +100,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "-c",
             SSHForegroundAuthenticationRetryPolicy().classifyingTransientFailure(
                 in: """
-                /usr/bin/yes 'diagnostic padding' | /usr/bin/head -c 1048576 >&2
+                /usr/bin/head -c 1048576 /dev/zero | /usr/bin/tr '\\000' x >&2
+                printf 'Network is unreachable' >&2
+                /usr/bin/head -c 4096 /dev/zero | /usr/bin/tr '\\000' x >&2
                 : > "$CMUX_TEST_READY_FILE"
-                /bin/sleep 1
+                /bin/sleep 3
                 exit 255
                 """
             ),
@@ -106,9 +134,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let diagnosticFiles = try fileManager.contentsOfDirectory(
             at: temporaryDirectory,
-            includingPropertiesForKeys: [.fileSizeKey],
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
             options: []
-        ).filter { $0 != readyFile }
+        ).filter {
+            $0 != readyFile
+                && (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        }
         let largestDiagnosticFile = try diagnosticFiles
             .map { try $0.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0 }
             .max() ?? 0
@@ -117,8 +148,23 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             largestDiagnosticFile <= 64,
             "Foreground authentication must not retain unbounded remote-controlled stderr"
         )
+        let classificationDeadline = Date.now.addingTimeInterval(2)
+        var classifiedWhileRunning = false
+        while process.isRunning, Date.now < classificationDeadline {
+            if try diagnosticFiles.contains(where: {
+                try String(contentsOf: $0, encoding: .utf8) == "transient\n"
+            }) {
+                classifiedWhileRunning = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        #expect(
+            classifiedWhileRunning,
+            "A newline-free stderr stream must be classified incrementally with bounded records"
+        )
         process.waitUntilExit()
-        #expect(process.terminationStatus == 252)
+        #expect(process.terminationStatus == 254)
     }
 
     private func run(_ command: String) throws -> (
