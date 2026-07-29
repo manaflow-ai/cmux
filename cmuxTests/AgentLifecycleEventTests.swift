@@ -36,13 +36,14 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
-    func replacementPublishesOldExitBeforeNewOccupantState() throws {
+    func verifiedReplacementStartPublishesOldExitBeforeNewOccupantState() throws {
         let fixture = try Fixture()
         fixture.workspace.setAgentLifecycle(
             key: "codex",
             panelId: fixture.surfaceID,
             lifecycle: .running,
-            sessionID: "session-old"
+            sessionID: "session-old",
+            startsNewOccupant: true
         )
         let baselineSequence = CmuxEventBus.shared.latestSequence
 
@@ -50,7 +51,8 @@ struct AgentLifecycleEventTests {
             key: "codex",
             panelId: fixture.surfaceID,
             lifecycle: .idle,
-            sessionID: "session-new"
+            sessionID: "session-new",
+            startsNewOccupant: true
         )
 
         let payloads = fixture.agentEvents(after: baselineSequence)
@@ -188,6 +190,66 @@ struct AgentLifecycleEventTests {
         #expect(duplicate.revision == original.revision)
         #expect(duplicate.identifiesSameOccupant(as: original))
         #expect(fixture.agentEvents(after: baselineSequence).isEmpty)
+    }
+
+    @Test
+    func staleAuthoritativeUpdateCannotReplaceCurrentOccupant() throws {
+        let fixture = try Fixture()
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-old",
+            startsNewOccupant: true
+        )
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-current",
+            startsNewOccupant: true
+        )
+        let current = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+        let baselineSequence = CmuxEventBus.shared.latestSequence
+
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .idle,
+            sessionID: "session-old"
+        )
+
+        let retained = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+        #expect(retained == current)
+        #expect(fixture.agentEvents(after: baselineSequence).isEmpty)
+    }
+
+    @Test
+    func ambiguousAgentRecordsDoNotSelectAWaitOccupant() throws {
+        let fixture = try Fixture()
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "codex-session",
+            startsNewOccupant: true
+        )
+        fixture.workspace.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "claude-session",
+            startsNewOccupant: true
+        )
+
+        let snapshot = try #require(
+            fixture.workspace.agentWaitSurfaceSnapshot(panelID: fixture.surfaceID)
+        )
+        #expect(snapshot.occupant == nil)
     }
 
     @Test

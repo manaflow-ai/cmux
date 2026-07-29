@@ -159,6 +159,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(start.status, 0, start.stderr)
             XCTAssertEqual(start.stdout, "{}\n")
         }
+        let startLifecycleCommands = state.snapshot().filter {
+            $0.hasPrefix("set_agent_lifecycle rovodev unknown ")
+        }
+        XCTAssertEqual(startLifecycleCommands.count, 2, "\(startLifecycleCommands)")
+        XCTAssertTrue(
+            startLifecycleCommands.allSatisfy { $0.contains("--new-occupant") },
+            "Every Rovo Dev start must rotate its anonymous occupant generation: \(startLifecycleCommands)"
+        )
+        XCTAssertFalse(
+            startLifecycleCommands.contains { $0.contains("--session-id=") },
+            "Workspace-scoped inferred Rovo Dev metadata must not become authoritative occupant identity: \(startLifecycleCommands)"
+        )
 
         let lateCommandStart = state.snapshot().count
         let latePrompt = runRovoDevHook(

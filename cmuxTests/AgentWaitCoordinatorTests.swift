@@ -336,6 +336,83 @@ struct AgentWaitCoordinatorTests {
         #expect(value.state == .running)
     }
 
+    @Test
+    func transferClosureKeepsWaitingForTheStableSurfaceOccupant() throws {
+        let fixture = Fixture(state: .running)
+
+        let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
+            until: .idle,
+            timeoutMilliseconds: 1_000,
+            snapshot: {
+                fixture.bus.publish(
+                    name: "surface.closed",
+                    category: "surface",
+                    source: "workspace.lifecycle",
+                    workspaceId: fixture.workspaceID.uuidString,
+                    surfaceId: fixture.surfaceID.uuidString,
+                    paneId: fixture.paneID.uuidString,
+                    payload: ["origin": "detach"]
+                )
+                fixture.publish(
+                    record: fixture.original,
+                    state: .idle,
+                    previous: .running
+                )
+                return fixture.snapshot(occupant: fixture.original)
+            }
+        )
+
+        let value = try result.get()
+        #expect(value.status == .satisfied)
+        #expect(value.state == .idle)
+    }
+
+    @Test
+    func subscriptionAdmissionBoundsConcurrentWaitsAndRecoversAfterRelease() throws {
+        let fixture = Fixture(state: .running)
+        var reservations = (0..<32).map { _ in
+            fixture.bus.subscribe(
+                afterSequence: nil,
+                names: ["agent.state.changed"],
+                categories: [],
+                surfaceIDs: [fixture.surfaceID.uuidString]
+            )
+        }
+        defer {
+            for reservation in reservations {
+                fixture.bus.unsubscribe(reservation.subscription)
+            }
+        }
+
+        let blocked = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
+            until: .idle,
+            timeoutMilliseconds: 0,
+            snapshot: { fixture.snapshot(occupant: fixture.original) }
+        )
+        #expect(blocked == .failure(.subscriptionClosed))
+
+        fixture.bus.unsubscribe(reservations.removeLast().subscription)
+        let admitted = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
+            until: .idle,
+            timeoutMilliseconds: 1_000,
+            snapshot: {
+                fixture.publish(
+                    record: fixture.original,
+                    state: .idle,
+                    previous: .running
+                )
+                return fixture.snapshot(occupant: fixture.original)
+            }
+        )
+
+        let value = try admitted.get()
+        #expect(value.status == .satisfied)
+        #expect(value.state == .idle)
+    }
+
     private struct Fixture {
         let bus: CmuxEventBus
         let workspaceID = UUID()
