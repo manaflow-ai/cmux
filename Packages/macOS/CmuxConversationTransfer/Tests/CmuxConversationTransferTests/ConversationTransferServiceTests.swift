@@ -93,14 +93,20 @@ struct ConversationTransferServiceTests {
     func formatterRemovesTerminalControlCharacters() throws {
         let message = try ConversationTransferService().message(
             for: [
-                ConversationTurn(id: 0, role: .user, text: "safe\u{1B}]0;renamed\u{7}\u{0}\nnext"),
+                ConversationTurn(
+                    id: 0,
+                    role: .user,
+                    text: "safe\u{1B}]0;renamed\u{7}\u{0}\u{009B}31mred\u{009D}52;c;payload\u{009C}\nnext"
+                ),
             ],
             sourceDisplayName: "Codex\u{1B}"
         )
 
-        #expect(message.contains("safe]0;renamed\nnext"))
+        #expect(message.contains("safe]0;renamed31mred52;c;payload\nnext"))
         #expect(!message.unicodeScalars.contains { scalar in
-            scalar.value == 0 || scalar.value == 7 || scalar.value == 27
+            let value = scalar.value
+            return (value < 32 && value != 9 && value != 10)
+                || (127...159).contains(value)
         })
     }
 

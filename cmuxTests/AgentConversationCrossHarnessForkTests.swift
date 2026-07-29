@@ -272,7 +272,7 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
-    func antigravityTransferOpeningLookupIsByteBounded() async throws {
+    func antigravityTransferFailsClosedWhenOpeningExceedsByteBound() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
         let transcript = fixture.appendingPathComponent("antigravity-history.jsonl")
@@ -292,17 +292,22 @@ struct AgentConversationCrossHarnessForkTests {
             encoding: .utf8
         )
 
-        let turns = try await SessionTranscriptLoader.load(source: .init(
-            agent: .registered(RegisteredSessionAgent(id: "antigravity")),
-            sessionId: "bounded-session",
-            fileURL: transcript,
-            retention: .transferOpeningUserAndLatest(
-                turnLimit: 1,
-                textByteLimit: 32 * 1_024
-            )
-        ))
-
-        #expect(turns.map(\.text) == ["LATEST-ANTIGRAVITY-MARKER"])
+        await #expect {
+            try await SessionTranscriptLoader.load(source: .init(
+                agent: .registered(RegisteredSessionAgent(id: "antigravity")),
+                sessionId: "bounded-session",
+                fileURL: transcript,
+                retention: .transferOpeningUserAndLatest(
+                    turnLimit: 1,
+                    textByteLimit: 32 * 1_024
+                )
+            ))
+        } throws: { error in
+            guard case SessionTranscriptLoadError.incompleteSource = error else {
+                return false
+            }
+            return true
+        }
     }
 
     @Test

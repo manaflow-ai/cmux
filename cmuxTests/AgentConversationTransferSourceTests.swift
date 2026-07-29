@@ -111,6 +111,33 @@ struct AgentConversationTransferSourceTests {
     }
 
     @Test
+    func hermesTransferBudgetsLatestDialogueAfterTrailingToolRows() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("state.db")
+        try makeHermesStateDatabase(
+            at: databaseURL,
+            trailingToolRowCount: 1_001
+        )
+
+        let turns = try await SessionTranscriptLoader.load(source: .init(
+            agent: .hermesAgent,
+            sessionId: "captured-home-session",
+            fileURL: nil,
+            hermesStateDatabaseURL: databaseURL,
+            retention: .transferOpeningUserAndLatest(
+                turnLimit: 2,
+                textByteLimit: 32 * 1_024
+            )
+        ))
+
+        #expect(turns.map(\.text) == [
+            "custom Hermes home request",
+            "custom Hermes home response",
+        ])
+    }
+
+    @Test
     func openCodeTransferUsesCapturedXDGDataHome() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -214,12 +241,27 @@ struct AgentConversationTransferSourceTests {
         return url
     }
 
-    private func makeHermesStateDatabase(at url: URL) throws {
+    private func makeHermesStateDatabase(
+        at url: URL,
+        trailingToolRowCount: Int = 0
+    ) throws {
         var database: OpaquePointer?
         guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
             throw FixtureError.sqlite
         }
         defer { sqlite3_close(database) }
+        let trailingToolRows = (0..<trailingToolRowCount)
+            .map { index in
+                "('captured-home-session', 'tool', 'tool output \(index)', NULL, 'terminal', \(index + 3))"
+            }
+            .joined(separator: ",\n")
+        let trailingToolInsert = trailingToolRows.isEmpty
+            ? ""
+            : """
+            INSERT INTO messages (session_id, role, content, tool_calls, tool_name, timestamp)
+            VALUES
+            \(trailingToolRows);
+            """
         let sql = """
         CREATE TABLE messages (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -234,6 +276,7 @@ struct AgentConversationTransferSourceTests {
         VALUES
           ('captured-home-session', 'user', 'custom Hermes home request', 1),
           ('captured-home-session', 'assistant', 'custom Hermes home response', 2);
+        \(trailingToolInsert)
         """
         guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
             throw FixtureError.sqlite
