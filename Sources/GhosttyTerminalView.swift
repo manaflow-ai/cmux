@@ -3193,24 +3193,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let rawToken: String
     }
 
-    /// Cursor-only cache. Command-click routing always resolves again, so
-    /// terminal output changing under a stationary pointer cannot open stale data.
-    private struct WordPathHoverCacheKey: Equatable {
-        let surfaceID: UUID
-        let row: Int
-        let column: Int
-        let rows: Int
-        let columns: Int
-        let boundsSize: CGSize
-        let cellSize: CGSize
-        let reportedWorkingDirectory: String?
-    }
-
-    private struct WordPathHoverCacheEntry {
-        let key: WordPathHoverCacheKey
-        let resolution: WordPathResolution?
-    }
-
     private func makeWordPathResolution(
         path: String,
         source: WordPathResolutionSource,
@@ -3259,7 +3241,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
-    private var wordPathHoverCacheEntry: WordPathHoverCacheEntry?
+    private var cachedWordPathHoverKey: WordPathHoverCacheKey?
+    private var cachedWordPathHoverResolution: WordPathResolution?
+    private var hasCachedWordPathHoverResolution = false
     private weak var cachedTerminalLinkOpenContainer: (any TerminalLinkOpenContainer)?
     private var cachedTerminalLinkOpenContainerSurfaceID: UUID?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
@@ -6317,18 +6301,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func cachedWordPathHoverResolution(at point: NSPoint?) -> WordPathResolution? {
         guard let key = wordPathHoverCacheKey(at: point) else {
-            wordPathHoverCacheEntry = nil
+            cachedWordPathHoverKey = nil
+            cachedWordPathHoverResolution = nil
+            hasCachedWordPathHoverResolution = false
             return resolveWordUnderCursorPath(at: point)
         }
-        if let entry = wordPathHoverCacheEntry, entry.key == key {
-            return entry.resolution
+        if hasCachedWordPathHoverResolution, cachedWordPathHoverKey == key {
+            return cachedWordPathHoverResolution
         }
 
         let resolution = resolveWordUnderCursorPath(at: point)
-        wordPathHoverCacheEntry = WordPathHoverCacheEntry(
-            key: key,
-            resolution: resolution
-        )
+        cachedWordPathHoverKey = key
+        cachedWordPathHoverResolution = resolution
+        hasCachedWordPathHoverResolution = true
         return resolution
     }
 
@@ -6380,7 +6365,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func invalidateWordPathHoverResolution(clearContainer: Bool = false) {
-        wordPathHoverCacheEntry = nil
+        cachedWordPathHoverKey = nil
+        cachedWordPathHoverResolution = nil
+        hasCachedWordPathHoverResolution = false
         if clearContainer {
             cachedTerminalLinkOpenContainer = nil
             cachedTerminalLinkOpenContainerSurfaceID = nil
