@@ -26,7 +26,7 @@ struct SSHRetryBackoffScriptBuilderTests {
     }
 
     private func assertSignalInterruptsBackoff(
-        context: SSHRetryBackoffScriptBuilder.Context,
+        context: SSHRetryBackoffContext,
         signalHandler: String,
         signalStatusVariable: String,
         signalNameVariable: String,

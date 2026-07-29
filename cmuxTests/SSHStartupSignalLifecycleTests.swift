@@ -788,20 +788,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
     }
 
-    func generatedPersistentSSHForegroundAuthenticationStartupCommand() throws -> String {
-        let startupCommand = try generatedSSHStartupCommand(sshOptions: [
-            "ControlMaster auto",
-            "ControlPersist 600",
-            "ControlPath \(SSHConnectionSharingOptions().defaultControlPath)",
-        ])
-        XCTAssertTrue(
-            startupCommand.contains("cmux_ssh_foreground_auth"),
-            "Expected the persistent SSH foreground-auth startup path: \(startupCommand)"
-        )
-        return startupCommand
-    }
-
-    func generatedVMSSHInitialStartupCommand() throws -> String {
+    private func generatedVMSSHInitialStartupCommand() throws -> String {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-ssh-startup")
         let listenerFD = try bindUnixSocket(at: socketPath)

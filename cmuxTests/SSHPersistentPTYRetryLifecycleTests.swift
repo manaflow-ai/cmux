@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -73,27 +72,5 @@ struct SSHPersistentPTYRetryLifecycleTests {
         process.waitUntilExit()
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return (process.terminationStatus, stderr)
-    }
-}
-
-extension CLINotifyProcessIntegrationRegressionTests {
-    func assertSSHPTYAttachAuthUsesRetryLoop(
-        _ script: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        guard let retryLoop = script.range(of: "while :; do"),
-              let auth = script.range(of: "    ( cmux_ssh_foreground_auth )"),
-              let initialAuth = script.range(
-                of: "cmux_ssh_reauth_required=1",
-                range: script.startIndex..<retryLoop.lowerBound
-              ) else {
-            XCTFail("Missing foreground auth or persistent attach loop", file: file, line: line)
-            return
-        }
-        XCTAssertTrue(initialAuth.lowerBound < retryLoop.lowerBound, script, file: file, line: line)
-        XCTAssertTrue(retryLoop.lowerBound < auth.lowerBound, script, file: file, line: line)
-        XCTAssertEqual(script.components(separatedBy: "( cmux_ssh_foreground_auth )").count - 1, 1, script, file: file, line: line)
-        XCTAssertTrue(script.contains("case \"$cmux_ssh_status\" in 254|255"), script, file: file, line: line)
     }
 }

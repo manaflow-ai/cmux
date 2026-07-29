@@ -439,29 +439,24 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
     }
 
-    private struct StandardErrorCapture {
-        let url: URL
-        let handle: FileHandle
-    }
-
-    private func makeStandardErrorCapture() throws -> StandardErrorCapture {
+    private func makeStandardErrorCapture() throws -> (url: URL, handle: FileHandle) {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-stderr-\(UUID().uuidString).log")
         try Data().write(to: url, options: .atomic)
-        return StandardErrorCapture(
+        return (
             url: url,
             handle: try FileHandle(forWritingTo: url)
         )
     }
 
-    private func removeStandardErrorCapture(_ capture: StandardErrorCapture) {
+    private func removeStandardErrorCapture(_ capture: (url: URL, handle: FileHandle)) {
         try? capture.handle.close()
         try? FileManager.default.removeItem(at: capture.url)
     }
 
     private func waitForExit(
         _ process: Process,
-        stderrCapture: StandardErrorCapture,
+        stderrCapture: (url: URL, handle: FileHandle),
         timeout: TimeInterval = 10
     ) throws {
         let deadline = Date.now.addingTimeInterval(timeout)
