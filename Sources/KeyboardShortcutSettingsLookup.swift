@@ -32,17 +32,28 @@ extension KeyboardShortcutSettings {
         for action: Action,
         explicitlyConfiguredShortcut: (Action) -> StoredShortcut?
     ) -> StoredShortcut? {
-        let defaultShortcut = action.defaultShortcut
-        if action == .reopenClosedBrowserPanel,
-           let legacyWorkspaceShortcut = explicitlyConfiguredShortcut(.reopenClosedWorkspace),
-           Action.reopenClosedWorkspace.conflicts(
-               with: defaultShortcut,
-               proposedAction: action,
-               configuredShortcut: legacyWorkspaceShortcut
-           ) {
-            return nil
+        guard let settingsAction = CmuxSettings.ShortcutAction(rawValue: action.rawValue) else {
+            return action.defaultShortcut.isUnbound ? nil : action.defaultShortcut
         }
-        return defaultShortcut.isUnbound ? nil : defaultShortcut
+        return settingsAction.effectivePersistedShortcutResolvingLegacyConflicts(
+            nil,
+            explicitlyConfiguredShortcut: { settingsConfiguredAction in
+                guard let configuredAction = Action(rawValue: settingsConfiguredAction.rawValue) else {
+                    return nil
+                }
+                return explicitlyConfiguredShortcut(configuredAction)?.cmuxSettingsStoredShortcut
+            },
+            bindingsConflict: { proposed, settingsConfiguredAction, configured in
+                guard let configuredAction = Action(rawValue: settingsConfiguredAction.rawValue) else {
+                    return false
+                }
+                return configuredAction.conflicts(
+                    with: StoredShortcut(cmuxSettingsStoredShortcut: proposed),
+                    proposedAction: action,
+                    configuredShortcut: StoredShortcut(cmuxSettingsStoredShortcut: configured)
+                )
+            }
+        ).map(StoredShortcut.init(cmuxSettingsStoredShortcut:))
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {
