@@ -3726,6 +3726,31 @@ import Testing
         _ = try? await redial.value
     }
 
+    @Test func manualSameRouteRepairReleasesLeaseBeforeTicketProbe()
+        async throws {
+        let router = LivenessHostRouter()
+        let shell = try await makeConnectedStore(
+            router: router,
+            box: TransportBox(),
+            clock: TestClock()
+        )
+        let originalClient = try #require(shell.remoteClient)
+
+        await shell.connectManualHost(
+            name: "Test Mac",
+            host: "127.0.0.1",
+            port: 56_584,
+            pairedMacDeviceID: "test-mac"
+        )
+
+        #expect(shell.connectionState == .connected)
+        #expect(shell.connectionError == nil)
+        #expect(shell.remoteClient != nil)
+        #expect(shell.remoteClient !== originalClient)
+        #expect(shell.foregroundMacDeviceIDForTesting() == "test-mac")
+        #expect(await router.count(of: "mobile.attach_ticket.create") == 1)
+    }
+
     @Test func rejectedAnonymousIdentityPreservesAuthenticatedControlOwner()
         async throws {
         let directory = FileManager.default.temporaryDirectory
