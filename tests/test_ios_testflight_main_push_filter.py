@@ -1,5 +1,8 @@
+import json
 import shlex
+import subprocess
 from pathlib import Path
+from typing import Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +74,23 @@ def mapping_block(text: str, key: str, indent: int) -> str:
     return "\n".join(block)
 
 
+def literal_block(text: str, key: str, indent: int) -> str:
+    marker = f"{' ' * indent}{key}: |\n"
+    assert marker in text, f"missing {key} literal block"
+    lines = text[text.index(marker) + len(marker) :].splitlines()
+    content_prefix = " " * (indent + 2)
+    block = []
+    for line in lines:
+        if line.strip() and len(line) - len(line.lstrip()) <= indent:
+            break
+        if not line:
+            block.append("")
+            continue
+        assert line.startswith(content_prefix), f"invalid {key} line: {line}"
+        block.append(line.removeprefix(content_prefix))
+    return "\n".join(block)
+
+
 def mapping_keys(text: str, indent: int) -> tuple[str, ...]:
     keys = []
     for line in text.splitlines():
@@ -120,6 +140,123 @@ def javascript_string_array(text: str, name: str) -> tuple[str, ...]:
     return tuple(values)
 
 
+def run_decision_scenario(
+    *,
+    event_name: str,
+    schedule: Optional[str] = None,
+    input_variant: str = "internal",
+    prior_sha: Optional[str] = None,
+    prior_artifact: str = "ios-testflight-build-metadata",
+    head_sha: str = "head-sha",
+    changed_files: tuple[str, ...] = (),
+) -> dict[str, object]:
+    decision_job = mapping_block(workflow_text(), "decide", indent=2)
+    decision_script = literal_block(decision_job, "script", indent=10)
+    scenario = {
+        "eventName": event_name,
+        "schedule": schedule,
+        "inputVariant": input_variant,
+        "priorSha": prior_sha,
+        "priorArtifact": prior_artifact,
+        "headSha": head_sha,
+        "changedFiles": changed_files,
+    }
+    harness = f"""
+const scenario = {json.dumps(scenario)};
+const outputs = {{}};
+const compareCalls = [];
+const warnings = [];
+const priorRuns = scenario.priorSha
+  ? [{{
+      id: 50,
+      status: 'completed',
+      event: 'schedule',
+      head_sha: scenario.priorSha,
+    }}]
+  : [];
+const context = {{
+  repo: {{ owner: 'manaflow-ai', repo: 'cmux' }},
+  eventName: scenario.eventName,
+  payload: {{
+    schedule: scenario.schedule,
+    inputs: {{ variant: scenario.inputVariant }},
+  }},
+  ref: 'refs/heads/main',
+  runId: 100,
+  sha: scenario.headSha,
+}};
+const github = {{
+  rest: {{
+    actions: {{
+      listWorkflowRuns: async () => ({{
+        data: {{ workflow_runs: priorRuns }},
+      }}),
+      listJobsForWorkflowRun: async () => ({{
+        data: {{
+          jobs: [{{
+            name: 'Upload to TestFlight',
+            status: 'completed',
+            conclusion: 'success',
+          }}],
+        }},
+      }}),
+      listWorkflowRunArtifacts: async () => ({{
+        data: {{
+          artifacts: [{{ name: scenario.priorArtifact }}],
+        }},
+      }}),
+    }},
+    repos: {{
+      compareCommits: async (request) => {{
+        compareCalls.push(request);
+        return {{
+          data: {{
+            files: scenario.changedFiles.map((filename) => ({{ filename }})),
+          }},
+        }};
+      }},
+    }},
+  }},
+}};
+const core = {{
+  setOutput: (name, value) => {{
+    outputs[name] = value;
+  }},
+  setFailed: (message) => {{
+    throw new Error(message);
+  }},
+  warning: (message) => {{
+    warnings.push(message);
+  }},
+  info: () => {{}},
+  summary: {{
+    addHeading() {{
+      return this;
+    }},
+    addTable() {{
+      return this;
+    }},
+    write() {{
+      return this;
+    }},
+  }},
+}};
+async function runDecision() {{
+{decision_script}
+}}
+await runDecision();
+process.stdout.write(JSON.stringify({{ outputs, compareCalls, warnings }}));
+"""
+    result = subprocess.run(
+        ["bun", "-e", harness],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
 def test_scheduled_uploads_filter_for_ios_affecting_main_changes() -> None:
     text = workflow_text()
     triggers = trigger_block(text)
@@ -137,9 +274,77 @@ def test_scheduled_uploads_filter_for_ios_affecting_main_changes() -> None:
         javascript_string_array(text, "iosRelevantPaths")
         == expected_workflow_paths
     )
-    assert "let shouldBuild = true;" in text
-    assert "if (context.eventName === 'schedule')" in text
-    assert "github.rest.repos.compareCommits" in text
+
+
+def test_schedule_decision_executes_ios_path_filter() -> None:
+    ios_change = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("Sources/Mobile/MobileHostService.swift",),
+    )
+    non_ios_change = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("docs/cli-contract.md",),
+    )
+
+    assert ios_change["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
+    }
+    assert non_ios_change["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
+    }
+    expected_compare = [
+        {
+            "owner": "manaflow-ai",
+            "repo": "cmux",
+            "base": "base-sha",
+            "head": "head-sha",
+        }
+    ]
+    assert ios_change["compareCalls"] == expected_compare
+    assert non_ios_change["compareCalls"] == expected_compare
+
+
+def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[1],
+        prior_sha="demo-base-sha",
+        prior_artifact="ios-testflight-build-metadata-demo",
+        changed_files=("docs/cli-contract.md",),
+    )
+
+    assert result["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "demo-base-sha",
+        "variant": "demo",
+    }
+
+
+def test_manual_demo_dispatch_builds_even_when_head_already_uploaded() -> None:
+    result = run_decision_scenario(
+        event_name="workflow_dispatch",
+        input_variant="demo",
+        prior_sha="head-sha",
+        prior_artifact="ios-testflight-build-metadata-demo",
+        head_sha="head-sha",
+    )
+
+    assert result["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "head-sha",
+        "variant": "demo",
+    }
+    assert result["compareCalls"] == []
 
 
 def test_mapping_keys_normalizes_quoted_yaml_keys() -> None:
@@ -186,7 +391,6 @@ def test_scheduled_and_manual_runs_are_preserved_and_uploaded_in_order() -> None
 
 def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     text = workflow_text()
-    decide = mapping_block(text, "decide", indent=2)
     upload = mapping_block(text, "upload", indent=2)
     assignment = mapping_block(text, "assign-internal-group", indent=2)
 
@@ -199,13 +403,6 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
         "|| vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}"
     )
 
-    assert "context.payload?.inputs?.variant === 'demo'" in decide
-    assert (
-        "context.eventName === 'schedule' "
-        "&& context.payload?.schedule === demoCron"
-        in decide
-    )
-    assert "core.setOutput('variant', variant)" in decide
     assert upload.count(f"IOS_BETA_BUNDLE_ID: {bundle_choice}") == 2
     assert upload.count(f"IOS_BETA_DISPLAY_NAME: {display_name_choice}") == 2
     assert (
@@ -257,6 +454,9 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
 
 if __name__ == "__main__":
     test_scheduled_uploads_filter_for_ios_affecting_main_changes()
+    test_schedule_decision_executes_ios_path_filter()
+    test_schedule_decision_routes_demo_cron_to_demo_history()
+    test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
     test_scheduled_and_manual_runs_are_preserved_and_uploaded_in_order()
