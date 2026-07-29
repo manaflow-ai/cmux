@@ -3746,12 +3746,20 @@ import Testing
         for index in 0 ..<
             MobileShellComposite.maximumWarmControlConnectionCount - 1 {
             let macDeviceID = "mac-fill-\(index)"
+            let fillerRoute = try CmxAttachRoute(
+                id: "staged-fill-\(index)",
+                kind: .debugLoopback,
+                endpoint: .hostPort(
+                    host: "127.0.0.1",
+                    port: 56_600 + index
+                )
+            )
             let fillerTicket = try CmxAttachTicket(
                 workspaceID: "",
                 terminalID: nil,
                 macDeviceID: macDeviceID,
                 macDisplayName: macDeviceID,
-                routes: [targetRoute],
+                routes: [fillerRoute],
                 expiresAt: Date().addingTimeInterval(3_600)
             )
             shell.secondaryMacSubscriptions[macDeviceID] =
@@ -3759,11 +3767,11 @@ import Testing
                     macDeviceID: macDeviceID,
                     client: MobileCoreRPCClient(
                         runtime: runtime,
-                        route: targetRoute,
+                        route: fillerRoute,
                         ticket: fillerTicket,
                         allowsStackAuthFallback: true
                     ),
-                    route: targetRoute,
+                    route: fillerRoute,
                     ticket: fillerTicket,
                     storedInstanceTag: "mmpool",
                     authenticatedInstanceTag: "mmpool",

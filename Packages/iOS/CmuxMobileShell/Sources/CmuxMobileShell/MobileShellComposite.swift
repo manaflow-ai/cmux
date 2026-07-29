@@ -4566,11 +4566,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Filter exact saved instances by live presence before coalescing their
         // shared physical-Mac identity. Otherwise a fresher offline tag can win
         // coalescing and hide another paired tag that is online right now.
-        let onlineLoadedMacs = visibleLoadedMacs.filter {
+        let physicalAliasIDsByCanonicalID =
+            Self.physicalMacAliasCanonicalIDsByCanonicalID(
+                in: visibleLoadedMacs,
+                supportedKinds: supportedRouteKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            )
+        let exactOnlineMacs = visibleLoadedMacs.filter {
             isSecondaryMacOnlineInCurrentPresence(
                 $0.macDeviceID,
                 instanceTag: $0.instanceTag
             )
+        }
+        let exactOnlineCanonicalIDs = Set(exactOnlineMacs.map {
+            cmxCanonicalDeviceID($0.macDeviceID)
+        })
+        let onlineLoadedMacs = visibleLoadedMacs.filter {
+            let canonicalID = cmxCanonicalDeviceID($0.macDeviceID)
+            if exactOnlineCanonicalIDs.contains(canonicalID) {
+                // Presence distinguished multiple saved instances for the
+                // same logical id. Preserve only the exact online tag.
+                return isSecondaryMacOnlineInCurrentPresence(
+                    $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                )
+            }
+            // A renamed/repaired row may be the currently authenticated
+            // identity even though presence still names its historical id.
+            // Let physical-route coalescing choose that authoritative row.
+            let aliasIDs =
+                physicalAliasIDsByCanonicalID[canonicalID] ?? [canonicalID]
+            return !aliasIDs.isDisjoint(with: exactOnlineCanonicalIDs)
         }
         let physicalMacs = Self.coalescePairedMacsByCanonicalDeviceID(onlineLoadedMacs)
         let endpointDistinctMacs = Self.coalescePairedMacsByDialEndpoint(
@@ -7185,72 +7211,139 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let routeAllowsStackAuthFallbackOverride = allowsStackAuthFallback
         let connectionAttemptStartedAt = pairingAttemptStartedAt
         var lastError: (any Error)?
-        var displacedControlReservation: SecondaryMacSubscription?
+        var displacedControlReservations: [SecondaryMacSubscription] = []
         let displacedControlReservationHolder = UUID()
         defer {
-            if let displacedControlReservation {
+            for displacedControlReservation in displacedControlReservations {
                 displacedControlReservation.transportDrainReservationHolders
                     .remove(displacedControlReservationHolder)
+                if displacedControlReservation
+                        .transportDrainReservationHolders.isEmpty,
+                   secondaryMacDrainReservation(
+                       forMacDeviceID:
+                           displacedControlReservation.macDeviceID
+                   ) === displacedControlReservation,
+                   displacedControlReservation.hasCompletedTransportDrain {
+                    finishRetiredSecondaryPromotionCandidate(
+                        displacedControlReservation,
+                        macDeviceID:
+                            displacedControlReservation.macDeviceID,
+                        forceRemovalDuringMacSwitch: true
+                    )
+                }
             }
-            if let displacedControlReservation,
-               displacedControlReservation
-                    .transportDrainReservationHolders.isEmpty,
-               secondaryMacDrainReservation(
-                    forMacDeviceID:
-                        displacedControlReservation.macDeviceID
-               ) === displacedControlReservation,
-               displacedControlReservation.hasCompletedTransportDrain {
-                finishRetiredSecondaryPromotionCandidate(
-                    displacedControlReservation,
-                    macDeviceID:
-                        displacedControlReservation.macDeviceID,
-                    forceRemovalDuringMacSwitch: true
+        }
+        // A fresh same-peer dial cannot acquire the Iroh session while any
+        // warm control client owns one of its physical routes. Logical device
+        // ids are only a fast path because anonymous tickets and renamed Macs
+        // may not match the registry key until host status authenticates them.
+        var drainCandidates: [(
+            macDeviceID: String,
+            subscription: SecondaryMacSubscription
+        )] = []
+        var seenDrainCandidates: Set<ObjectIdentifier> = []
+        func appendDrainCandidate(
+            macDeviceID: String,
+            subscription: SecondaryMacSubscription
+        ) {
+            guard seenDrainCandidates.insert(
+                ObjectIdentifier(subscription)
+            ).inserted else {
+                return
+            }
+            drainCandidates.append((macDeviceID, subscription))
+        }
+        if let requestedMacDeviceID {
+            if let reservation = secondaryMacDrainReservation(
+                forMacDeviceID: requestedMacDeviceID
+            ) {
+                appendDrainCandidate(
+                    macDeviceID: reservation.macDeviceID,
+                    subscription: reservation
+                )
+            }
+            if let liveControl = secondaryMacSubscriptions.first(where: {
+                cmxCanonicalDeviceID($0.key)
+                    == cmxCanonicalDeviceID(requestedMacDeviceID)
+            }) {
+                appendDrainCandidate(
+                    macDeviceID: liveControl.key,
+                    subscription: liveControl.value
                 )
             }
         }
-        // A fresh same-peer dial cannot acquire the Iroh session while the
-        // target's warm control client owns it. Reserve and retire that exact
-        // registry owner before the first target RPC, keeping its slot occupied
-        // until the authenticated client either publishes focus or fails.
-        if let requestedMacDeviceID {
-            let existingDrainReservation = secondaryMacDrainReservation(
-                forMacDeviceID: requestedMacDeviceID
+        for (macDeviceID, subscription) in secondaryMacSubscriptions
+            where supportedRoutes.contains(where: {
+                subscription.client.sharesPhysicalTransportRoute(with: $0)
+            }) {
+            appendDrainCandidate(
+                macDeviceID: macDeviceID,
+                subscription: subscription
             )
-            let liveControl = secondaryMacSubscriptions.first(where: {
-                cmxCanonicalDeviceID($0.key)
-                    == cmxCanonicalDeviceID(requestedMacDeviceID)
-            })
-            let displaced = existingDrainReservation ?? liveControl?.value
-            if let liveControl,
-               existingDrainReservation == nil {
+        }
+        for subscription in secondaryMacDrainReservations.values
+            where supportedRoutes.contains(where: {
+                subscription.client.sharesPhysicalTransportRoute(with: $0)
+            }) {
+            appendDrainCandidate(
+                macDeviceID: subscription.macDeviceID,
+                subscription: subscription
+            )
+        }
+
+        var drainOperations: [SecondaryMacTransportDrainOperation] = []
+        for candidate in drainCandidates {
+            var displaced = secondaryMacDrainReservation(
+                forMacDeviceID: candidate.macDeviceID
+            )
+            if displaced == nil,
+               secondaryMacSubscriptions[candidate.macDeviceID]
+                    === candidate.subscription {
                 guard beginSecondaryMacDrainReservation(
-                    liveControl.value,
-                    macDeviceID: liveControl.key
+                    candidate.subscription,
+                    macDeviceID: candidate.macDeviceID
                 ) else {
                     return nil
                 }
+                displaced = secondaryMacDrainReservation(
+                    forMacDeviceID: candidate.macDeviceID
+                )
             }
-            if let displaced {
-                displacedControlReservation = displaced
-                displaced.transportDrainReservationHolders.insert(
-                    displacedControlReservationHolder
-                )
-                let operation = secondaryMacTransportDrainOperation(
-                    displaced,
-                    macDeviceID: displaced.macDeviceID
-                )
-                let transportDrained = await operation.wait(
+            guard let displaced,
+                  displaced === candidate.subscription else {
+                continue
+            }
+            displacedControlReservations.append(displaced)
+            displaced.transportDrainReservationHolders.insert(
+                displacedControlReservationHolder
+            )
+            drainOperations.append(secondaryMacTransportDrainOperation(
+                displaced,
+                macDeviceID: displaced.macDeviceID
+            ))
+        }
+        let drainWaiters = drainOperations.map { operation in
+            Task { @MainActor in
+                await operation.wait(
                     nanoseconds: connectionHandoffDrainTimeoutNanoseconds
                 )
-                guard isConnectCurrent() else {
-                    return nil
-                }
-                if Task.isCancelled {
-                    throw CancellationError()
-                }
-                guard transportDrained else {
-                    throw MobileShellConnectionError.requestTimedOut
-                }
+            }
+        }
+        defer {
+            for waiter in drainWaiters {
+                waiter.cancel()
+            }
+        }
+        for waiter in drainWaiters {
+            let transportDrained = await waiter.value
+            guard isConnectCurrent() else {
+                return nil
+            }
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+            guard transportDrained else {
+                throw MobileShellConnectionError.requestTimedOut
             }
         }
         routeLoop: for route in supportedRoutes {
@@ -7461,7 +7554,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 ? await canRetainFocusedConnectionInControlPool(
                                     previousFocusedConnection,
                                     vacatingControlMacDeviceID:
-                                        displacedControlReservation?.macDeviceID
+                                        displacedControlReservations
+                                            .first?.macDeviceID
                                 )
                                 : false
                         guard isConnectCurrent() else {
