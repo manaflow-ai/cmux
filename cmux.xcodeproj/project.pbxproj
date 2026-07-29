@@ -242,7 +242,8 @@
 		A88600000000000000000002 /* ApplicationSurfaceStopFailureAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88600000000000000000001 /* ApplicationSurfaceStopFailureAction.swift */; };
 		A88200000000000000000002 /* ApplicationSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88200000000000000000001 /* ApplicationSurfaceTests.swift */; };
 		A8850000000000000000000E /* ApplicationWindowDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000000D /* ApplicationWindowDescriptor.swift */; };
-		A88D00000000000000000002 /* ApplicationWindowDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000000D /* ApplicationWindowDescriptor.swift */; };
+		A88D00000000000000000002 /* ApplicationWindowListFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88D00000000000000000001 /* ApplicationWindowListFilter.swift */; };
+		A88D00000000000000000003 /* ApplicationWindowListFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88D00000000000000000001 /* ApplicationWindowListFilter.swift */; };
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
 		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
@@ -2785,6 +2786,7 @@
 		A88600000000000000000001 /* ApplicationSurfaceStopFailureAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceStopFailureAction.swift; sourceTree = "<group>"; };
 		A88200000000000000000001 /* ApplicationSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationSurfaceTests.swift; sourceTree = "<group>"; };
 		A8850000000000000000000D /* ApplicationWindowDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationWindowDescriptor.swift; sourceTree = "<group>"; };
+		A88D00000000000000000001 /* ApplicationWindowListFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationWindowListFilter.swift; sourceTree = "<group>"; };
 		A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowBackdropControllerDependencies.swift; sourceTree = "<group>"; };
 		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -5609,6 +5611,7 @@
 					A88500000000000000000009 /* ApplicationSurfaceRuntimeLease.swift */,
 					A8850000000000000000000B /* ApplicationSurfaceSessionDescriptor.swift */,
 					A8850000000000000000000D /* ApplicationWindowDescriptor.swift */,
+					A88D00000000000000000001 /* ApplicationWindowListFilter.swift */,
 					C0A710030000000000000001 /* ComputerUseSessionScope.swift */,
 					C0A710050000000000000001 /* ComputerUseStateRepository.swift */,
 					C0A710A10000000000000001 /* AgentCursorPointerView.swift */,
@@ -8183,6 +8186,7 @@
 				A8850000000000000000000C /* ApplicationSurfaceSessionDescriptor.swift in Sources */,
 				A88600000000000000000002 /* ApplicationSurfaceStopFailureAction.swift in Sources */,
 				A8850000000000000000000E /* ApplicationWindowDescriptor.swift in Sources */,
+				A88D00000000000000000002 /* ApplicationWindowListFilter.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
 					D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
@@ -9599,7 +9603,7 @@
 			files = (
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
 				A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */,
-				A88D00000000000000000002 /* ApplicationWindowDescriptor.swift in Sources */,
+				A88D00000000000000000003 /* ApplicationWindowListFilter.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C12985000000000000000002 /* CLISocketSentryTelemetry.swift in Sources */,
