@@ -1638,7 +1638,7 @@ mod tests {
         drop(client);
         drop(existing);
         cmux_tui_core::server::cleanup(&socket_path);
-        std::fs::remove_dir(socket_dir).unwrap();
+        std::fs::remove_dir_all(socket_dir).unwrap();
     }
 
     #[cfg(unix)]
