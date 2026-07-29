@@ -4,9 +4,10 @@ extension ControlCommandCoordinator {
     /// `workspace.remote.terminal_session_connected` — record the terminal's
     /// successful SSH/PTY handshake independently of auxiliary proxy state.
     ///
-    /// Persistent lifecycle authentication stays on the socket worker because
-    /// the broker owns that state on its serial queue. Only the authenticated
-    /// authority snapshot crosses the command's single main-actor mutation hop.
+    /// Persistent lifecycle authentication starts on the socket worker because
+    /// the broker owns that state on its serial queue. The exact generation is
+    /// retained and revalidated inside the command's single main-actor hop,
+    /// immediately before the workspace mutation.
     nonisolated func workspaceRemoteTerminalSessionConnected(
         _ params: [String: JSONValue],
         context: (any ControlCommandContext)?
@@ -53,13 +54,35 @@ extension ControlCommandCoordinator {
         }
 
         return context.controlResolveOnMain { seam in
-            let resolution = authority.map {
-                seam.controlWorkspaceRemoteTerminalSessionConnected(
-                    workspaceID: workspaceID,
-                    surfaceID: surfaceID,
-                    authority: $0
-                )
-            } ?? .notFound
+            let resolution: ControlWorkspaceRemoteTerminalSessionConnectedResolution
+            if let authority {
+                let authorityIsCurrent: Bool
+                switch authority {
+                case .relayPort:
+                    authorityIsCurrent = true
+                case .persistentTransport(let transportKey):
+                    if let sessionID, let lifecycleID {
+                        authorityIsCurrent = seam.controlCurrentRemotePTYLifecycleOwner(
+                            sessionID: sessionID,
+                            lifecycleID: lifecycleID
+                        ) == ControlRemotePTYLifecycleOwner(
+                            transportKey: transportKey,
+                            attachmentID: surfaceID.uuidString
+                        )
+                    } else {
+                        authorityIsCurrent = false
+                    }
+                }
+                resolution = authorityIsCurrent
+                    ? seam.controlWorkspaceRemoteTerminalSessionConnected(
+                        workspaceID: workspaceID,
+                        surfaceID: surfaceID,
+                        authority: authority
+                    )
+                    : .notFound
+            } else {
+                resolution = .notFound
+            }
             switch resolution {
             case .notFound:
                 return .err(code: "not_found", message: "Workspace not found", data: .object([
