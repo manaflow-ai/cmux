@@ -1332,6 +1332,7 @@ impl Mux {
                     ));
                 }
                 let result = json!({"tab":tab_id});
+                let previous_active = state.active_pane();
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch { changes },
                     result,
@@ -1341,6 +1342,15 @@ impl Mux {
                         debug_assert!(
                             moved || source_pane == target_pane && old_index == final_index
                         );
+                        if moved {
+                            if previous_active != Some(target_pane)
+                                && state.active_pane() == Some(target_pane)
+                            {
+                                stamp_pane_focus(&mux, state, target_pane);
+                            } else if let Some(pane) = state.panes.get_mut(&target_pane) {
+                                pane.active_at = mux.next_active_at();
+                            }
+                        }
                     },
                 ))
             },
@@ -1711,6 +1721,41 @@ impl Mux {
                             &operation_name,
                         )));
                     }
+                    Err(error)
+                        if matches!(
+                            operation,
+                            ResourceOperation::WorkspaceClose
+                                | ResourceOperation::ScreenClose
+                                | ResourceOperation::PaneClose
+                        ) =>
+                    {
+                        // These container-close effects commit their durable terminal/workspace
+                        // batch before changing live topology. An execution error therefore proves
+                        // that the effect was not applied and is safe to persist as a retryable
+                        // failure instead of poisoning the idempotency key as indeterminate.
+                        let error = ResourceError::operation_failed(
+                            &operation_name,
+                            &format!("{error:#}"),
+                            json!({"idempotency_key":mutation.id}),
+                        );
+                        if self
+                            .commit_resource_effect(
+                                &mutation.id,
+                                &operation_name,
+                                fingerprint,
+                                &ResourceEffectOutcome::Failure(error.clone()),
+                                None,
+                            )
+                            .is_ok()
+                        {
+                            return Err(anyhow::Error::new(error));
+                        }
+                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
+                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                            &mutation.id,
+                            &operation_name,
+                        )));
+                    }
                     Err(_error) => {
                         #[cfg(test)]
                         eprintln!("resource topology effect execution failed: {_error:#}");
@@ -1902,6 +1947,28 @@ impl Mux {
                 self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
                 Ok(ResourceCreationSettlement::Indeterminate)
             }
+            ResourceCreationEvidence::TerminalClosedAfterFailure => {
+                let Some(error) = failure else {
+                    self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
+                    return Ok(ResourceCreationSettlement::Indeterminate);
+                };
+                match self.commit_resource_effect(
+                    &recovery.idempotency_key,
+                    &recovery.operation,
+                    &recovery.fingerprint,
+                    &ResourceEffectOutcome::Failure(error.clone()),
+                    None,
+                ) {
+                    Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
+                    Err(_) => {
+                        if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
+                            return Ok(settlement);
+                        }
+                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
+                        Ok(ResourceCreationSettlement::Indeterminate)
+                    }
+                }
+            }
         }
     }
 
@@ -2006,9 +2073,10 @@ impl Mux {
         Ok(match resolution.terminal.lifecycle {
             TerminalLifecycle::Launching
             | TerminalLifecycle::Adopting
-            | TerminalLifecycle::Running
-            | TerminalLifecycle::Exited
-            | TerminalLifecycle::Tombstoned => ResourceCreationEvidence::Ambiguous,
+            | TerminalLifecycle::Running => ResourceCreationEvidence::Ambiguous,
+            TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned => {
+                ResourceCreationEvidence::TerminalClosedAfterFailure
+            }
         })
     }
 
@@ -2037,6 +2105,14 @@ impl Mux {
         {
             Self::validate_workspace_name(name)?;
         }
+        if operation == ResourceOperation::WorkspaceCreate
+            && let Some(key) = fields.get("workspace_key").and_then(Value::as_str)
+        {
+            anyhow::ensure!(
+                state.workspaces.iter().all(|workspace| workspace.key != key),
+                "workspace key already exists: {key}"
+            );
+        }
         if operation == ResourceOperation::TabCreateBrowser {
             let _ = effect_browser_cell_size(self, fields)?;
         }
@@ -2059,8 +2135,14 @@ impl Mux {
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = WorkspaceMutation::local("resource-topology-workspace");
+            let workspace_key = fields
+                .get("workspace_key")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .map(Ok)
+                .unwrap_or_else(Self::new_workspace_key)?;
             intent["workspace_reservation"] = json!({
-                "workspace_key":Self::new_workspace_key()?,
+                "workspace_key":workspace_key,
                 "mutation_id":mutation.id,
                 "mutation_origin":mutation.origin,
             });
@@ -2144,12 +2226,17 @@ impl Mux {
             .context("stored topology intent has an invalid path")?;
         match operation {
             ResourceOperation::WorkspaceCreate => {
+                let argv = if fields.contains_key("argv") || fields.contains_key("shell") {
+                    Some(effect_command(fields)?)
+                } else {
+                    None
+                };
                 let surface = self.effect_create_workspace_terminal(
                     intent,
                     optional_owned_string(fields, "name")?,
-                    None,
-                    None,
-                    None,
+                    argv,
+                    optional_owned_string(fields, "cwd")?,
+                    optional_owned_string(fields, "terminal_name")?,
                     effect_cell_size(fields)?,
                 )?;
                 self.created_resource_path(surface.id)
@@ -2158,7 +2245,7 @@ impl Mux {
                 let target =
                     self.effect_slots(&path)?.workspace.context("workspace disappeared")?;
                 anyhow::ensure!(
-                    self.close_workspace_at_revision(target, None)?.is_some(),
+                    self.close_workspace_at_revision_for_resource_effect(target)?.is_some(),
                     "workspace disappeared"
                 );
                 Ok(json!({}))
@@ -2212,7 +2299,10 @@ impl Mux {
             }
             ResourceOperation::ScreenClose => {
                 let target = self.effect_slots(&path)?.screen.context("screen disappeared")?;
-                anyhow::ensure!(self.close_screen(target)?, "screen disappeared");
+                anyhow::ensure!(
+                    self.close_screen_for_resource_effect(target)?,
+                    "screen disappeared"
+                );
                 Ok(json!({}))
             }
             ResourceOperation::ScreenLayoutUndo => {
@@ -2248,6 +2338,7 @@ impl Mux {
                         optional_owned_string(fields, "cwd")?,
                         effect_cell_size(fields)?,
                         None,
+                        None,
                     )?,
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
@@ -2277,12 +2368,13 @@ impl Mux {
                     optional_owned_string(fields, "cwd")?,
                     effect_cell_size(fields)?,
                     fields.get("ratio").and_then(Value::as_f64).map(|value| value as f32),
+                    fields.get("viewport_width").and_then(Value::as_f64).map(|value| value as f32),
                 )?;
                 self.created_resource_path(surface.id)
             }
             ResourceOperation::PaneClose => {
                 let target = self.effect_slots(&path)?.pane.context("pane disappeared")?;
-                anyhow::ensure!(self.close_pane(target)?, "pane disappeared");
+                anyhow::ensure!(self.close_pane_for_resource_effect(target)?, "pane disappeared");
                 Ok(json!({}))
             }
             ResourceOperation::PaneRun => {
@@ -2364,7 +2456,7 @@ impl Mux {
             }
             ResourceOperation::TabClose => {
                 let target = self.effect_slots(&path)?.tab.context("tab disappeared")?;
-                anyhow::ensure!(self.close_surface(target)?, "tab disappeared");
+                anyhow::ensure!(self.close_surface_for_resource_effect(target)?, "tab disappeared");
                 Ok(json!({}))
             }
             _ => anyhow::bail!("operation is not an effectful topology operation"),
@@ -2769,6 +2861,7 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
         ratio: Option<f32>,
+        viewport_width: Option<f32>,
     ) -> anyhow::Result<Arc<Surface>> {
         let split_direction = direction
             .map(|direction| {
@@ -2796,8 +2889,15 @@ impl Mux {
         )?;
         let surface =
             self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, None, reservation)?;
+        #[cfg(test)]
+        if viewport_width.is_some()
+            && let Some(hook) = self.viewport_split_after_spawn.lock().unwrap().clone()
+        {
+            hook();
+        }
         let pane_id = self.next_id();
         let split_id = split_direction.map(|_| self.next_id());
+        let base_column_id = viewport_width.map(|_| self.next_id());
         let active_at = self.next_active_at();
         let attached = (|| -> anyhow::Result<()> {
             let mut state = self.state.lock().unwrap();
@@ -2806,7 +2906,21 @@ impl Mux {
             };
             let screen = &mut state.workspaces[workspace].screens[screen_index];
             let before = screen.layout_snapshot();
-            if let Some((dir, before_target)) = split_direction {
+            if let Some(width) = viewport_width {
+                anyhow::ensure!(
+                    screen.insert_layout_column_after(
+                        target,
+                        base_column_id.expect("viewport column reserved a base id"),
+                        LayoutColumn {
+                            id: split_id.expect("viewport split reserved an id"),
+                            width,
+                            root: Node::Leaf(pane_id),
+                            zellij_auto_layout: Some(vec![pane_id]),
+                        },
+                    ),
+                    "target pane disappeared from its layout"
+                );
+            } else if let Some((dir, before_target)) = split_direction {
                 let split = split_id.expect("split direction reserves an id");
                 let root = if screen.layout_columns_active() {
                     &mut screen
@@ -2908,6 +3022,7 @@ enum ResourceCreationEvidence {
     Created(Value),
     NotApplied(&'static str),
     Ambiguous,
+    TerminalClosedAfterFailure,
 }
 
 enum ResourceCreationSettlement {
@@ -3039,6 +3154,9 @@ fn validate_effect_fields(
                 required_str(fields, "initial_content")? == "terminal",
                 "effectful workspace creation requires terminal initial content"
             );
+            if fields.contains_key("argv") || fields.contains_key("shell") {
+                let _ = effect_command(fields)?;
+            }
         }
         ResourceOperation::WorkspaceRun | ResourceOperation::PaneRun => {
             let _ = effect_command(fields)?;
@@ -3065,6 +3183,16 @@ fn validate_effect_fields(
                 anyhow::ensure!(
                     ratio.is_finite() && 0.0 < ratio && ratio < 1.0,
                     "pane split ratio cannot be represented"
+                );
+            }
+            if let Some(width) = fields.get("viewport_width").and_then(Value::as_f64) {
+                anyhow::ensure!(
+                    direction == "right"
+                        && width.is_finite()
+                        && (f64::from(MIN_VIEWPORT_PANE_WIDTH)
+                            ..=f64::from(MAX_VIEWPORT_PANE_WIDTH))
+                            .contains(&width),
+                    "invalid viewport pane width"
                 );
             }
             let _ = effect_cell_size(fields)?;
@@ -4001,6 +4129,7 @@ pub(super) fn structural_tab_move_plan(
     index: usize,
     result: Value,
 ) -> anyhow::Result<ResourceMutationPlan> {
+    let previous_active = state.active_pane();
     let source_location = state.screen_of(source_pane).context("source pane has no screen")?;
     let target_location = state.screen_of(target_pane).context("target pane has no screen")?;
     let source_screen_slot = state.workspaces[source_location.0].screens[source_location.1].id;
@@ -4260,6 +4389,11 @@ pub(super) fn structural_tab_move_plan(
             state.active_workspace = target_workspace;
             state.workspaces[target_workspace].active_screen = target_screen;
             state.workspaces[target_workspace].screens[target_screen].active_pane = target_pane;
+            if previous_active != Some(target_pane) {
+                stamp_pane_focus(&mux, state, target_pane);
+            } else if let Some(pane) = state.panes.get_mut(&target_pane) {
+                pane.active_at = mux.next_active_at();
+            }
             Mux::rebuild_split_screen_index(state);
         },
     ))

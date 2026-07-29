@@ -406,7 +406,7 @@ fn execute_terminal_effect(
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
         "terminal.close" => mux
-            .close_surface(surface_id)
+            .close_surface_for_resource_effect(surface_id)
             .and_then(|closed| {
                 anyhow::ensure!(closed, "terminal disappeared while it was being closed");
                 Ok(())
@@ -520,7 +520,7 @@ fn execute_browser_effect(
                         .browser_close_confirmed()
                         .map_err(|error| ActionFailure::Indeterminate(error.to_string()))?;
                 }
-                mux.close_surface(surface_id)
+                mux.close_surface_for_resource_effect(surface_id)
                     .and_then(|closed| {
                         anyhow::ensure!(closed, "browser disappeared while it was being closed");
                         Ok(())
