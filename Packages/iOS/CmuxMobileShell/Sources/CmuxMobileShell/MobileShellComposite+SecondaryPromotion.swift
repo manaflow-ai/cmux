@@ -40,13 +40,13 @@ extension MobileShellComposite {
         return true
     }
 
-    /// Commit a prepared focused-client role transition without suspension.
-    /// A successful unsubscribe is the only path that may retain the client.
+    /// Commit a prepared focused-client role transition. Registry ownership
+    /// moves atomically before the transport role is rebound.
     func commitFocusedConnectionHandoff(
         _ connection: MacConnection,
         terminalStopped: Bool,
         retainAsControl: Bool
-    ) {
+    ) async {
         defer {
             focusedHandoffPreparedGenerations.remove(connection.generation)
         }
@@ -62,13 +62,13 @@ extension MobileShellComposite {
             Task { await connection.client.disconnect() }
             return
         }
-        installControlConnection(from: connection)
+        await installControlConnection(from: connection)
     }
 
     /// Change a retained focused client to control-only ownership after its
     /// terminal subscription has been removed. The workspace snapshot stays in
     /// `workspacesByMac`, so the aggregate never blinks while roles change.
-    func installControlConnection(from connection: MacConnection) {
+    func installControlConnection(from connection: MacConnection) async {
         guard multiMacAggregationEnabled else {
             removeFocusedConnection(ifMatching: connection)
             connection.client.retire()
@@ -98,6 +98,17 @@ extension MobileShellComposite {
             return
         }
         focusedHandoffPreparedGenerations.remove(connection.generation)
+        await connection.client.updateTransportSessionPurpose(
+            .backgroundControl
+        )
+        // A concurrent switch may have promoted or removed this exact owner
+        // while the transport actor applied its role. Its newer role update
+        // wins; only the still-current control owner may start maintenance.
+        guard secondaryMacSubscriptions[connection.macDeviceID]
+                === subscription,
+              !subscription.isTransitioningToFocus else {
+            return
+        }
         startSecondaryControlMaintenance(
             subscription,
             displayName: connection.displayName
@@ -231,6 +242,15 @@ extension MobileShellComposite {
             )
             return false
         }
+        await sub.client.updateTransportSessionPurpose(.foregroundControl)
+        guard secondaryMacSubscriptions[macID] === sub,
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return false
+        }
         stopTerminalRefreshPolling()
         cancelRemoteOperationTasks()
         clearPendingTerminalInputForFocusChange()
@@ -276,10 +296,20 @@ extension MobileShellComposite {
            previousForegroundID != macID,
            let previousForegroundConnection {
             if previousForegroundCanStayWarm {
-                installControlConnection(from: previousForegroundConnection)
+                await installControlConnection(
+                    from: previousForegroundConnection
+                )
             } else {
                 removeFocusedConnection(ifMatching: previousForegroundConnection)
             }
+        }
+        guard secondaryMacSubscriptions[macID] === sub,
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return false
         }
         if let unregisteredPreviousClient,
            unregisteredPreviousClient !== sub.client {

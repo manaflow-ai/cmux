@@ -46,8 +46,17 @@ enum SecondaryMacEstablishmentOutcome {
 }
 
 enum SecondaryEventSubscriptionActivation {
-    case failed
+    case transientFailure
+    case permanentFailure
     /// `requiresCatchUp` is true when the host installed a missing
     /// registration and events emitted before the acknowledgement were lost.
     case active(requiresCatchUp: Bool)
+}
+
+enum SecondaryOwnedEventSubscriptionActivation {
+    case active
+    case transientFailure
+    case permanentFailure
+    /// Registry ownership changed while activation or catch-up was suspended.
+    case superseded
 }

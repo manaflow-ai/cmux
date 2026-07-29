@@ -42,6 +42,7 @@ actor LivenessHostRouter {
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var invalidSubscribeRequestNumbers: Set<Int> = []
+    private var subscribeErrorCodesByRequestNumber: [Int: String] = [:]
     private var holdSubscribe = false
     private var unsubscribeRequestCount = 0
     private var heldUnsubscribeRequestNumbers: Set<Int> = []
@@ -316,6 +317,13 @@ actor LivenessHostRouter {
         invalidSubscribeRequestNumbers.insert(number)
     }
 
+    func failSubscribeRequest(
+        number: Int,
+        code: String = "subscribe_failed"
+    ) {
+        subscribeErrorCodesByRequestNumber[number] = code
+    }
+
     /// Return a malformed acknowledgement for the Nth unsubscribe request.
     func invalidateUnsubscribeRequest(number: Int) {
         invalidUnsubscribeRequestNumbers.insert(number)
@@ -372,6 +380,11 @@ actor LivenessHostRouter {
         let continuations = heldContinuations
         heldContinuations = []
         for continuation in continuations { continuation.resume() }
+    }
+
+    func releaseNextHeld() {
+        guard !heldContinuations.isEmpty else { return }
+        heldContinuations.removeFirst().resume()
     }
 
     func response(
@@ -450,6 +463,14 @@ actor LivenessHostRouter {
             if holdSubscribe || heldSubscribeRequestNumbers.contains(subscribeRequestCount) {
                 await park()
                 return nil
+            }
+            if let errorCode =
+                subscribeErrorCodesByRequestNumber[subscribeRequestCount] {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: errorCode,
+                    message: "scripted subscribe failure"
+                )
             }
             let alreadySubscribed = hasActiveSubscription
             hasActiveSubscription = true

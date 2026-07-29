@@ -5,6 +5,50 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite struct MobileCoreRPCClientTests {
+    @Test func connectedTransportReceivesLiveSessionPurposeUpdates()
+        async throws {
+        let transport = SessionPurposeRecordingTransport(
+            automaticallyRespondingRequestIDs: ["purpose-probe"]
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59_123
+        )
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            sessionPurpose: .backgroundControl
+        )
+
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                id: "purpose-probe"
+            )
+        )
+        await client.updateTransportSessionPurpose(.foregroundControl)
+
+        #expect(await transport.recordedPurposes() == [
+            .backgroundControl,
+            .backgroundControl,
+            .foregroundControl,
+        ])
+        await client.disconnect()
+    }
+
     @Test func cancelledQueuedRPCIsNotWrittenAfterEarlierSendCompletes() async throws {
         let transport = QueuedCancellationProbeTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59123)

@@ -111,7 +111,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             },
             makeIndependentEventByteStream: independentEventFactory,
             diagnosticTransport: route.kind.diagnosticTransportKind,
-            transportConnectObserver: transportConnectObserver
+            transportConnectObserver: transportConnectObserver,
+            initialTransportSessionPurpose: sessionPurpose
         )
     }
 
@@ -128,6 +129,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// client that is no longer authoritative.
     public func retire() {
         lifecycleGate.retire()
+    }
+
+    /// Reclassifies this client's live transport when shell ownership moves
+    /// between the focused render role and the warm control pool.
+    public func updateTransportSessionPurpose(
+        _ purpose: CmxTransportSessionPurpose
+    ) async {
+        await session.updateTransportSessionPurpose(purpose)
     }
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes

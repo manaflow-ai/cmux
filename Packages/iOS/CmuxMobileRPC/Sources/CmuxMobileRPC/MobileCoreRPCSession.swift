@@ -64,6 +64,9 @@ actor MobileCoreRPCSession {
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private let diagnosticTransport: DiagnosticTransportKind?
     private let transportConnectObserver: TransportConnectObserver?
+    /// Current shell ownership role. Connected transports that support role
+    /// rebinding receive updates without replacing their admitted session.
+    private var transportSessionPurpose: CmxTransportSessionPurpose?
     // The getter is internal so the debug-only release-gate extension can
     // inspect the installed transport. Only this actor's production code can
     // replace it.
@@ -106,7 +109,8 @@ actor MobileCoreRPCSession {
         makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
         didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
         diagnosticTransport: DiagnosticTransportKind? = nil,
-        transportConnectObserver: TransportConnectObserver? = nil
+        transportConnectObserver: TransportConnectObserver? = nil,
+        initialTransportSessionPurpose: CmxTransportSessionPurpose? = nil
     ) {
         self.connectAttemptKey = connectAttemptKey
         self.connectAttemptRegistry = connectAttemptRegistry
@@ -119,6 +123,7 @@ actor MobileCoreRPCSession {
         self.didReceiveConnectedCandidate = didReceiveConnectedCandidate
         self.diagnosticTransport = diagnosticTransport
         self.transportConnectObserver = transportConnectObserver
+        self.transportSessionPurpose = initialTransportSessionPurpose
     }
 
     deinit {
@@ -194,6 +199,17 @@ actor MobileCoreRPCSession {
 
     func removeListener(id: UUID) {
         listeners.removeValue(forKey: id)
+    }
+
+    func updateTransportSessionPurpose(
+        _ purpose: CmxTransportSessionPurpose
+    ) async {
+        transportSessionPurpose = purpose
+        guard let updating =
+            transport as? any CmxByteTransportSessionPurposeUpdating else {
+            return
+        }
+        await updating.updateSessionPurpose(purpose)
     }
 
     func tearDown(error: MobileShellConnectionError) async {
@@ -284,6 +300,7 @@ actor MobileCoreRPCSession {
             let connectStartedAt = ContinuousClock.now
             let diagnosticTransport = diagnosticTransport
             let transportConnectObserver = transportConnectObserver
+            let initialSessionPurpose = transportSessionPurpose
             if let diagnosticTransport, let transportConnectObserver {
                 transportConnectObserver(
                     .attempt(
@@ -317,6 +334,13 @@ actor MobileCoreRPCSession {
             connectionID = UUID()
             task = Task.detached {
                 do {
+                    if let initialSessionPurpose,
+                       let updating =
+                        candidate as? any CmxByteTransportSessionPurposeUpdating {
+                        await updating.updateSessionPurpose(
+                            initialSessionPurpose
+                        )
+                    }
                     try await withTaskCancellationHandler {
                         try await candidate.connect()
                     } onCancel: {
@@ -417,6 +441,20 @@ actor MobileCoreRPCSession {
         guard connectionTask?.id == connectionID else {
             closeUninstalledConnectedCandidate(candidate, lease: connectLease)
             throw MobileShellConnectionError.connectionClosed
+        }
+
+        if let currentSessionPurpose = transportSessionPurpose,
+           let updating =
+            candidate as? any CmxByteTransportSessionPurposeUpdating {
+            await updating.updateSessionPurpose(currentSessionPurpose)
+            guard connectionTask?.id == connectionID,
+                  !isTearingDown else {
+                closeUninstalledConnectedCandidate(
+                    candidate,
+                    lease: connectLease
+                )
+                throw MobileShellConnectionError.connectionClosed
+            }
         }
 
         if callerCancelled {

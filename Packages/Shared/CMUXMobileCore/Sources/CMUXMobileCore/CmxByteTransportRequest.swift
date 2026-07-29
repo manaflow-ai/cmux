@@ -28,4 +28,15 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
         self.authorizationMode = authorizationMode
         self.sessionPurpose = sessionPurpose
     }
+
+    public func withSessionPurpose(
+        _ sessionPurpose: CmxTransportSessionPurpose
+    ) -> Self {
+        Self(
+            route: route,
+            expectedPeerDeviceID: expectedPeerDeviceID,
+            authorizationMode: authorizationMode,
+            sessionPurpose: sessionPurpose
+        )
+    }
 }

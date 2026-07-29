@@ -1223,7 +1223,7 @@ import Testing
         let terminalStopped = await shell.prepareFocusedConnectionForHandoff(
             connection
         )
-        shell.commitFocusedConnectionHandoff(
+        await shell.commitFocusedConnectionHandoff(
             connection,
             terminalStopped: terminalStopped,
             retainAsControl: true
@@ -1455,7 +1455,7 @@ import Testing
         shell.activeRoute = route
         shell.connections["mac-a"] = current
 
-        shell.installControlConnection(from: stale)
+        await shell.installControlConnection(from: stale)
         shell.invalidateFocusedConnectionAfterAbortedHandoff(stale)
 
         #expect(shell.connections["mac-a"]?.generation == currentGeneration)
@@ -1534,7 +1534,7 @@ import Testing
         shell.activeRoute = route
         shell.connections["mac-a"] = connection
 
-        shell.installControlConnection(from: connection)
+        await shell.installControlConnection(from: connection)
 
         #expect(shell.connections["mac-a"] == nil)
         #expect(shell.secondaryMacSubscriptions["mac-a"]?.client === client)
@@ -2026,6 +2026,198 @@ import Testing
             shell.secondaryMacSubscriptions["mac-b"] == nil
         })
         #expect(shell.workspacesByMac["mac-b"]?.status == .unavailable)
+        await client.disconnect()
+    }
+
+    @Test func workspaceEventChurnPublishesLeadingAndBoundedTrailingSnapshots()
+        async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "bounded-workspace-churn",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-b",
+            displayName: "Mac B",
+            routes: [route],
+            instanceTag: "mmpool",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        await router.scriptWorkspaceListTitles([
+            "Initial Snapshot",
+            "Leading Snapshot",
+            "Trailing Snapshot",
+        ])
+        await router.holdWorkspaceListRequest(number: 2)
+        await router.holdWorkspaceListRequest(number: 3)
+        let transportBox = TransportBox()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: transportBox
+            ),
+            now: { Date() }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-b",
+            macDisplayName: "Mac B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "mmpool",
+            authenticatedInstanceTag: "mmpool",
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none,
+            displayName: "Mac B"
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = subscription
+        shell.startSecondaryEventConsumer(subscription, displayName: "Mac B")
+        #expect(try await pollUntil {
+            subscription.hasActivatedControlStream
+                && shell.workspacesByMac["mac-b"]?.workspaces.first?.name
+                    == "Initial Snapshot"
+        })
+        let transport = try #require(transportBox.get())
+
+        await transport.deliver(
+            try controlPoolWorkspaceUpdatedEventFrame()
+        )
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 2))
+        #expect(try await pollUntil {
+            await router.heldRequestCount() == 1
+        })
+        for _ in 0 ..< 8 {
+            await transport.deliver(
+                try controlPoolWorkspaceUpdatedEventFrame()
+            )
+        }
+        await router.releaseNextHeld()
+
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 3))
+        #expect(try await pollUntil {
+            let hasLeadingSnapshot =
+                shell.workspacesByMac["mac-b"]?.workspaces.first?.name
+                == "Leading Snapshot"
+            let heldRequestCount = await router.heldRequestCount()
+            return hasLeadingSnapshot && heldRequestCount == 1
+        })
+        for _ in 0 ..< 8 {
+            await transport.deliver(
+                try controlPoolWorkspaceUpdatedEventFrame()
+            )
+        }
+        await router.releaseNextHeld()
+
+        #expect(try await pollUntil {
+            shell.workspacesByMac["mac-b"]?.workspaces.first?.name
+                == "Trailing Snapshot"
+        })
+        for _ in 0 ..< 16 { await Task.yield() }
+        #expect(await router.count(of: "workspace.list") == 3)
+        #expect(shell.secondaryMacSubscriptions["mac-b"] === subscription)
+
+        subscription.detachKeepingClient()
+        shell.secondaryMacSubscriptions["mac-b"] = nil
+        await client.disconnect()
+    }
+
+    @Test func permanentControlSubscriptionFailureDoesNotRetry() async throws {
+        let clock = ControlPoolManualClock()
+        let router = LivenessHostRouter()
+        await router.failSubscribeRequest(
+            number: 1,
+            code: "method_not_found"
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "unsupported-control-events",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-b",
+            macDisplayName: "Mac B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            presence: IdlePresence(),
+            controlPlaneSchedulingClock: clock
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = subscription
+        shell.startSecondaryEventConsumer(subscription, displayName: "Mac B")
+
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 1
+        ))
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions["mac-b"] == nil
+        })
+        #expect(shell.workspacesByMac["mac-b"]?.status != .connected)
+        #expect(clock.sleeperCount == 0)
+        clock.advance(by: .seconds(60))
+        for _ in 0 ..< 16 { await Task.yield() }
+        #expect(await router.count(of: "mobile.events.subscribe") == 1)
         await client.disconnect()
     }
 
