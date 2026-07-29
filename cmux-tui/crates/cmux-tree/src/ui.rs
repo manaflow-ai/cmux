@@ -264,11 +264,12 @@ fn draw_machine_row(
                 Rect { x: area.x, y, width: area.width.saturating_sub(1), height: 1 },
                 selected_style,
             );
+            frame.buffer_mut()[(area.x, y)].set_symbol("▎").set_style(style.fg(palette.rail));
         }
         if line == 0 {
-            frame.buffer_mut()[(area.x, y)]
-                .set_symbol(if selected { "▎" } else { "•" })
-                .set_style(style.fg(if selected { palette.rail } else { indicator }));
+            if !selected {
+                frame.buffer_mut()[(area.x, y)].set_symbol("•").set_style(style.fg(indicator));
+            }
             frame.buffer_mut().set_stringn(
                 area.x + 1,
                 y,
@@ -401,11 +402,12 @@ fn draw_conversation_row(
                 Rect { x: area.x, y, width: area.width.saturating_sub(1), height: 1 },
                 base,
             );
+            frame.buffer_mut()[(area.x, y)].set_symbol("▎").set_style(base.fg(palette.rail));
         }
         if line == 0 {
-            frame.buffer_mut()[(area.x, y)]
-                .set_symbol(if selected { "▎" } else { "•" })
-                .set_style(base.fg(if selected { palette.rail } else { indicator }));
+            if !selected {
+                frame.buffer_mut()[(area.x, y)].set_symbol("•").set_style(base.fg(indicator));
+            }
             frame.buffer_mut().set_stringn(
                 area.x + 1,
                 y,
@@ -961,6 +963,7 @@ mod tests {
         let machine_y = machines.y + 2;
         assert_eq!(terminal.backend().buffer()[(machines.x, machine_y)].symbol(), "▎");
         assert_eq!(terminal.backend().buffer()[(machines.x, machine_y + 1)].symbol(), "▎");
+        assert_eq!(terminal.backend().buffer()[(machines.x, machine_y + 1)].fg, ACTIVE_BORDER_FG);
 
         app.focus = Focus::Conversations;
         terminal.draw(|frame| draw(&mut app, frame)).unwrap();
@@ -970,6 +973,10 @@ mod tests {
         assert_eq!(
             terminal.backend().buffer()[(conversations.x, conversation_y + 1)].symbol(),
             "▎"
+        );
+        assert_eq!(
+            terminal.backend().buffer()[(conversations.x, conversation_y + 1)].fg,
+            ACTIVE_BORDER_FG
         );
     }
 

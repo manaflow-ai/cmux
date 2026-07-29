@@ -204,8 +204,8 @@ pub struct Turn {
 }
 
 impl Turn {
-    pub fn internal_items(&self) -> impl Iterator<Item = &Value> {
-        self.items.iter().filter(|item| is_internal_item(item_type(item)))
+    pub fn work_items(&self) -> impl Iterator<Item = &Value> {
+        self.items.iter().filter(|item| is_work_item(item))
     }
 
     pub fn needs_item_hydration(&self) -> bool {
@@ -233,8 +233,17 @@ pub fn item_id(item: &Value) -> &str {
     item.get("id").and_then(Value::as_str).unwrap_or("unknown")
 }
 
-pub fn is_internal_item(item_type: &str) -> bool {
-    !matches!(item_type, "userMessage" | "agentMessage")
+pub fn is_work_item(item: &Value) -> bool {
+    match item_type(item) {
+        "userMessage" => false,
+        "agentMessage" => is_commentary_message(item),
+        _ => true,
+    }
+}
+
+pub fn is_commentary_message(item: &Value) -> bool {
+    item_type(item) == "agentMessage"
+        && item.get("phase").and_then(Value::as_str) == Some("commentary")
 }
 
 pub fn item_status(item: &Value) -> Option<&str> {

@@ -1,9 +1,12 @@
 use std::collections::HashSet;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
 use crate::localization::Catalog;
-use crate::model::{Conversation, Turn, item_id, item_status, item_type};
+use crate::model::{
+    Conversation, Turn, is_commentary_message, is_work_item, item_id, item_status, item_type,
+};
 
 const MAX_DETAIL_CHARS: usize = 20_000;
 
@@ -84,6 +87,7 @@ pub fn build_trajectory(
 ) -> TrajectoryView {
     let mut view = TrajectoryView::default();
     let stopped = conversation.is_stopped();
+    let now = unix_now();
     for (index, turn) in conversation.turns.iter().enumerate() {
         if !view.lines.is_empty() {
             view.lines.push(line("", 0, LineTone::Normal));
@@ -98,40 +102,61 @@ pub fn build_trajectory(
             0,
             LineTone::Dim,
         ));
+        view.lines.push(line("", 0, LineTone::Normal));
 
-        let internals = turn.internal_items().collect::<Vec<_>>();
-        let mut rendered_internals = false;
+        let work_items = turn.work_items().collect::<Vec<_>>();
+        let mut rendered_work = false;
         for item in &turn.items {
             match item_type(item) {
-                "userMessage" => render_message(
-                    &mut view,
-                    catalog.you(),
-                    user_message_text(item, catalog),
-                    width,
-                    LineTone::User,
-                ),
-                "agentMessage" => {
-                    push_section_break(&mut view);
+                "userMessage" => {
+                    let label = speaker_label(
+                        catalog.you(),
+                        item_timestamp(item).or(turn.started_at),
+                        now,
+                        catalog,
+                    );
                     render_message(
                         &mut view,
+                        &label,
+                        user_message_text(item, catalog),
+                        width,
+                        LineTone::User,
+                    );
+                }
+                "agentMessage" if !is_work_item(item) => {
+                    push_section_break(&mut view);
+                    let label = speaker_label(
                         catalog.codex(),
+                        item_timestamp(item).or(turn.completed_at).or(turn.started_at),
+                        now,
+                        catalog,
+                    );
+                    render_message(
+                        &mut view,
+                        &label,
                         item.get("text").and_then(Value::as_str).unwrap_or_default(),
                         width,
                         LineTone::Agent,
                     );
                 }
-                _ if !rendered_internals => {
+                _ if is_work_item(item) && !rendered_work => {
                     render_work_group(
-                        &mut view, turn, &internals, stopped, width, catalog, expansion,
+                        &mut view,
+                        turn,
+                        &work_items,
+                        stopped,
+                        width,
+                        catalog,
+                        expansion,
                     );
-                    rendered_internals = true;
+                    rendered_work = true;
                 }
                 _ => {}
             }
         }
-        if !rendered_internals && !internals.is_empty() {
-            render_work_group(&mut view, turn, &internals, stopped, width, catalog, expansion);
-        } else if !rendered_internals && (turn.needs_item_hydration() || turn.is_loading_items()) {
+        if !rendered_work && !work_items.is_empty() {
+            render_work_group(&mut view, turn, &work_items, stopped, width, catalog, expansion);
+        } else if !rendered_work && (turn.needs_item_hydration() || turn.is_loading_items()) {
             render_unloaded_work(&mut view, turn, width, catalog, expansion);
         }
         if let Some(error) = turn.error.as_ref() {
@@ -211,9 +236,10 @@ fn render_internal_item(
     expansion: &ExpansionState,
 ) {
     let item_type = item_type(item);
+    let thinking = is_thinking_item(item);
     let key = format!("turn:{}:item:{}", turn.id, item_id(item));
-    let default_expanded = item_status(item) == Some("inProgress")
-        || (item_type == "reasoning" && turn.status == "inProgress");
+    let default_expanded =
+        item_status(item) == Some("inProgress") || (thinking && turn.status == "inProgress");
     let expanded = expansion.is_expanded(&key, default_expanded);
     let marker = if expanded { "▾" } else { "▸" };
     let status = item_status(item)
@@ -221,7 +247,11 @@ fn render_internal_item(
         .map(|value| format!(" · {value}"))
         .unwrap_or_default();
     let summary = item_summary(item, catalog);
-    let label = catalog.item_label(item_type);
+    let label = if thinking {
+        catalog.reasoning().to_string()
+    } else {
+        catalog.item_label(item_type).into_owned()
+    };
     let summary = if summary.is_empty() {
         format!("{marker} {label}{status}")
     } else {
@@ -230,7 +260,11 @@ fn render_internal_item(
     view.lines.push(TrajectoryLine {
         text: summary,
         indent: 1,
-        tone: tone_for_item(item),
+        tone: if thinking && turn.status == "inProgress" {
+            LineTone::Accent
+        } else {
+            tone_for_item(item)
+        },
         accordion: Some(AccordionLine { key, default_expanded }),
     });
     if expanded {
@@ -283,6 +317,10 @@ fn user_message_text(item: &Value, catalog: Catalog) -> String {
         .join("\n")
 }
 
+fn is_thinking_item(item: &Value) -> bool {
+    item_type(item) == "reasoning" || is_commentary_message(item)
+}
+
 fn item_summary(item: &Value, catalog: Catalog) -> String {
     match item_type(item) {
         "reasoning" => first_nonempty(
@@ -292,6 +330,9 @@ fn item_summary(item: &Value, catalog: Catalog) -> String {
                 .flatten()
                 .filter_map(Value::as_str),
         ),
+        "agentMessage" if is_thinking_item(item) => {
+            first_line(item.get("text").and_then(Value::as_str).unwrap_or_default())
+        }
         "commandExecution" => {
             first_line(item.get("command").and_then(Value::as_str).unwrap_or_default())
         }
@@ -340,6 +381,9 @@ fn item_detail(item: &Value, catalog: Catalog) -> String {
             .filter(|value| !value.trim().is_empty())
             .collect::<Vec<_>>()
             .join("\n\n"),
+        "agentMessage" if is_thinking_item(item) => {
+            item.get("text").and_then(Value::as_str).unwrap_or_default().to_string()
+        }
         "commandExecution" => {
             let mut details = Vec::new();
             push_labeled(
@@ -441,6 +485,29 @@ fn localized_turn_status(catalog: Catalog, status: &str) -> &'static str {
         "interrupted" => catalog.interrupted(),
         _ => catalog.unknown(),
     }
+}
+
+fn item_timestamp(item: &Value) -> Option<i64> {
+    item.get("createdAt")
+        .or_else(|| item.get("timestamp"))
+        .and_then(Value::as_i64)
+        .filter(|timestamp| *timestamp > 0)
+}
+
+fn speaker_label(label: &str, timestamp: Option<i64>, now: i64, catalog: Catalog) -> String {
+    timestamp.filter(|timestamp| *timestamp > 0).map_or_else(
+        || label.to_string(),
+        |timestamp| format!("{label} · {}", catalog.elapsed(now.saturating_sub(timestamp))),
+    )
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .try_into()
+        .unwrap_or(i64::MAX)
 }
 
 fn first_line(value: &str) -> String {
@@ -569,12 +636,8 @@ mod tests {
 
     #[test]
     fn turn_header_and_speakers_have_spacing_and_relative_times() {
-        let now: i64 = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            .try_into()
-            .unwrap();
+        let now: i64 =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().try_into().unwrap();
         let mut conversation = stopped_conversation();
         conversation.turns[0].started_at = Some(now - 90);
         conversation.turns[0].completed_at = Some(now - 10);

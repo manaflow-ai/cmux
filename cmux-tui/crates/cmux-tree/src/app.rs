@@ -1018,7 +1018,7 @@ fn reset_loading_items(turn: &mut Turn) {
     if !turn.is_loading_items() {
         return;
     }
-    turn.items_view = if turn.internal_items().next().is_some() {
+    turn.items_view = if turn.work_items().next().is_some() {
         "partial".to_string()
     } else {
         "summary".to_string()
