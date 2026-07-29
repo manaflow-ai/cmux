@@ -33,6 +33,13 @@ final class SecondaryMacSubscription {
     /// Coalesces hot `workspace.updated` bursts to one leading and one trailing fetch.
     var refreshTask: Task<Void, Never>?
     var refreshPending = false
+    /// Set before promotion waits on any RPC. Keepalive reassertions skip this
+    /// subscription until it either becomes focused or promotion is abandoned.
+    var isTransitioningToFocus = false
+    /// Records an event consumer ending while promotion owns the subscription.
+    /// If promotion is then abandoned before focus commits, the dead control
+    /// connection is torn down instead of being returned to the pool.
+    var eventStreamEndedDuringFocusTransition = false
 
     init(
         macDeviceID: String,

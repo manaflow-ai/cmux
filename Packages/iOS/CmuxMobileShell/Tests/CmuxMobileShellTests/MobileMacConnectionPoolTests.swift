@@ -92,6 +92,26 @@ import Testing
         #expect(candidates.map(\.instanceTag) == ["online-tag"])
     }
 
+    @Test func globalIrohSupportDoesNotExcludeAuthorizedLegacyTailscaleMac() throws {
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { Date() },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let shell = MobileShellComposite(runtime: runtime, isSignedIn: false)
+        let legacy = try Self.pairedMac(
+            id: "legacy-tailscale",
+            instanceTag: "legacy"
+        )
+
+        let candidates = shell.secondaryAggregationCandidateMacs(from: [legacy])
+
+        #expect(candidates.map(\.macDeviceID) == ["legacy-tailscale"])
+    }
+
     @Test func retryStateCoalescesPoolFailuresAndCapsBackoff() {
         var state = MobileControlPoolRetryState()
 
@@ -377,6 +397,172 @@ import Testing
         #expect(shell.connections["mac-control"] == nil)
         rejectedControl.cancel()
         control.cancel()
+    }
+
+    @Test func staleGenerationCannotDemoteOrInvalidateReusedFocusedClient() async throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "generation-owner",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-a",
+            terminalID: "terminal-a",
+            macDeviceID: "mac-a",
+            macDisplayName: "Mac A",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let stale = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: UUID(),
+            displayName: "Mac A",
+            instanceTag: "mmpool",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let currentGeneration = UUID()
+        let current = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: currentGeneration,
+            displayName: "Mac A",
+            instanceTag: "mmpool",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected
+        )
+        shell.connectionGeneration = currentGeneration
+        shell.remoteClient = client
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.activeTicket = ticket
+        shell.activeRoute = route
+        shell.connections["mac-a"] = current
+
+        shell.installControlConnection(from: stale)
+        shell.invalidateFocusedConnectionAfterAbortedHandoff(stale)
+
+        #expect(shell.connections["mac-a"]?.generation == currentGeneration)
+        #expect(shell.secondaryMacSubscriptions["mac-a"] == nil)
+        #expect(shell.remoteClient === client)
+        #expect(shell.foregroundMacDeviceID == "mac-a")
+        let response = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                params: [:]
+            )
+        )
+        #expect(!response.isEmpty)
+        await client.disconnect()
+    }
+
+    @Test func promotionFenceDrainsInFlightKeepaliveReassertion() async throws {
+        let clock = ControlPoolManualClock()
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "promotion-keepalive",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-b",
+            macDisplayName: "Mac B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            controlPlaneSchedulingClock: clock
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = subscription
+        shell.startSecondaryEventConsumer(subscription, displayName: "Mac B")
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 1
+        ))
+        #expect(try await pollUntil { clock.sleeperCount == 1 })
+        await router.holdSubscribeRequest(number: 2)
+        clock.advance(by: .seconds(20))
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 2
+        ))
+
+        let completion = PromotionFenceCompletion()
+        let fence = Task { @MainActor in
+            let result = await shell.prepareSecondarySubscriptionForPromotion(
+                subscription,
+                macDeviceID: "mac-b"
+            )
+            await completion.finish()
+            return result
+        }
+        for _ in 0 ..< 4 { await Task.yield() }
+        #expect(!(await completion.isFinished))
+        #expect(subscription.isTransitioningToFocus)
+        #expect(try await pollUntil {
+            await router.heldRequestCount() == 1
+        })
+
+        await router.releaseAllHeld()
+        #expect(await fence.value)
+        #expect(await completion.isFinished)
+        #expect(await shell.unsubscribeEventStream(
+            on: client,
+            streamID: subscription.streamID
+        ))
+        #expect(await router.count(of: "mobile.events.subscribe") == 2)
+
+        subscription.detachKeepingClient()
+        shell.secondaryMacSubscriptions["mac-b"] = nil
+        await client.disconnect()
     }
 
     @Test func freshSwitchStagesMetadataAndReplacesTargetControlOwner() async throws {
@@ -829,5 +1015,103 @@ import Testing
 private struct IdlePresence: PresenceSubscribing {
     func subscribe() async throws -> AsyncThrowingStream<PresenceUpdate, any Error> {
         AsyncThrowingStream { _ in }
+    }
+}
+
+private actor PromotionFenceCompletion {
+    private(set) var isFinished = false
+
+    func finish() {
+        isFinished = true
+    }
+}
+
+private final class ControlPoolManualClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol {
+        var offset: Duration
+
+        func advanced(by duration: Duration) -> Instant {
+            Instant(offset: offset + duration)
+        }
+
+        func duration(to other: Instant) -> Duration {
+            other.offset - offset
+        }
+
+        static func < (lhs: Instant, rhs: Instant) -> Bool {
+            lhs.offset < rhs.offset
+        }
+    }
+
+    private struct Sleeper {
+        let id: UUID
+        let deadline: Instant
+        let continuation: UnsafeContinuation<Void, any Error>
+    }
+
+    private let lock = NSLock()
+    private var current = Instant(offset: .zero)
+    private var sleepers: [Sleeper] = []
+    private var preCancelledIDs: Set<UUID> = []
+
+    var now: Instant {
+        lock.withLock { current }
+    }
+
+    var minimumResolution: Duration { .zero }
+
+    var sleeperCount: Int {
+        lock.withLock { sleepers.count }
+    }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withUnsafeThrowingContinuation {
+                (continuation: UnsafeContinuation<Void, any Error>) in
+                lock.lock()
+                if preCancelledIDs.remove(id) != nil {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                } else if deadline <= current {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    sleepers.append(Sleeper(
+                        id: id,
+                        deadline: deadline,
+                        continuation: continuation
+                    ))
+                    lock.unlock()
+                }
+            }
+        } onCancel: {
+            cancelSleeper(id: id)
+        }
+    }
+
+    func advance(by duration: Duration) {
+        lock.lock()
+        current = current.advanced(by: duration)
+        let due = sleepers
+            .filter { $0.deadline <= current }
+            .sorted { $0.deadline < $1.deadline }
+        sleepers.removeAll { $0.deadline <= current }
+        lock.unlock()
+        for sleeper in due {
+            sleeper.continuation.resume()
+        }
+    }
+
+    private func cancelSleeper(id: UUID) {
+        lock.lock()
+        guard let index = sleepers.firstIndex(where: { $0.id == id }) else {
+            preCancelledIDs.insert(id)
+            lock.unlock()
+            return
+        }
+        let sleeper = sleepers.remove(at: index)
+        lock.unlock()
+        sleeper.continuation.resume(throwing: CancellationError())
     }
 }

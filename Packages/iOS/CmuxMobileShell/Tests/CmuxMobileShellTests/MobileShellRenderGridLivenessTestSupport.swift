@@ -101,6 +101,10 @@ actor LivenessHostRouter {
         recorded.filter { $0.method == method }.count
     }
 
+    func heldRequestCount() -> Int {
+        heldContinuations.count
+    }
+
     func replayResponsesServed() -> Int {
         replayResponseCount
     }

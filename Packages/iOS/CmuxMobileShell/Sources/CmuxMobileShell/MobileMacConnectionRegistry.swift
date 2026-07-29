@@ -196,12 +196,10 @@ final class MobileMacConnectionRegistry {
         _ subscription: SecondaryMacSubscription,
         replacing connection: MacConnection
     ) -> Bool {
-        if case .focused(let current) = entriesByMacDeviceID[connection.macDeviceID],
-           current.client !== connection.client {
-            return false
-        }
-        if case .control(let current) = entriesByMacDeviceID[connection.macDeviceID],
-           current !== subscription {
+        guard case .focused(let current) =
+                entriesByMacDeviceID[connection.macDeviceID],
+              current.client === connection.client,
+              current.generation == connection.generation else {
             return false
         }
         entriesByMacDeviceID[connection.macDeviceID] = .control(subscription)
@@ -209,13 +207,37 @@ final class MobileMacConnectionRegistry {
     }
 
     /// Remove only the focused owner that the caller actually prepared.
-    /// A newer focused client with the same Mac id is left untouched.
-    func removeFocused(ifMatching connection: MacConnection) {
+    /// A newer focus generation, including one reusing the same client, is left
+    /// untouched.
+    @discardableResult
+    func removeFocused(ifMatching connection: MacConnection) -> Bool {
         guard case .focused(let current) = entriesByMacDeviceID[connection.macDeviceID],
-              current.client === connection.client else {
-            return
+              current.client === connection.client,
+              current.generation == connection.generation else {
+            return false
         }
         entriesByMacDeviceID[connection.macDeviceID] = nil
+        return true
+    }
+
+    func isFocused(ifMatching connection: MacConnection) -> Bool {
+        guard case .focused(let current) =
+                entriesByMacDeviceID[connection.macDeviceID] else {
+            return false
+        }
+        return current.client === connection.client
+            && current.generation == connection.generation
+    }
+
+    func ownsClient(of connection: MacConnection) -> Bool {
+        switch entriesByMacDeviceID[connection.macDeviceID] {
+        case .focused(let current):
+            return current.client === connection.client
+        case .control(let current):
+            return current.client === connection.client
+        case nil:
+            return false
+        }
     }
 
     private func removeAllControlSubscriptions() {

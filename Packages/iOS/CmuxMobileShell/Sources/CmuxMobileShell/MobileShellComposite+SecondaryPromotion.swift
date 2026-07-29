@@ -19,10 +19,12 @@ extension MobileShellComposite {
             on: connection.client
         )
         guard terminalStopped else {
-            await connection.client.disconnect()
+            if isFocusedConnectionCurrent(connection) {
+                await connection.client.disconnect()
+            }
             return false
         }
-        return true
+        return isFocusedConnectionCurrent(connection)
     }
 
     /// Commit a prepared focused-client role transition without suspension.
@@ -37,7 +39,9 @@ extension MobileShellComposite {
             return
         }
         guard retainAsControl else {
-            removeFocusedConnection(ifMatching: connection)
+            guard removeFocusedConnection(ifMatching: connection) else {
+                return
+            }
             connection.client.retire()
             Task { await connection.client.disconnect() }
             return
@@ -70,7 +74,11 @@ extension MobileShellComposite {
             subscription,
             replacing: connection
         ) else {
-            subscription.cancel()
+            // A newer focus generation may intentionally reuse this client.
+            // Never let the stale demotion disconnect its current owner.
+            if !registryOwnsClient(of: connection) {
+                subscription.cancel()
+            }
             return
         }
         startSecondaryEventConsumer(
@@ -156,6 +164,19 @@ extension MobileShellComposite {
             false
         }
         guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
+        guard await prepareSecondarySubscriptionForPromotion(
+            sub,
+            macDeviceID: macID
+        ) else {
+            return false
+        }
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await resumeSecondarySubscriptionAfterAbortedPromotion(
+                sub,
+                macDeviceID: macID
+            )
+            return false
+        }
         // Remove the target's control registration before disturbing the live
         // foreground. If this acknowledgement fails, its client is discarded
         // and the ordinary fresh-dial switch path can proceed.
@@ -188,7 +209,8 @@ extension MobileShellComposite {
             )
             previousForegroundCanStayWarm = terminalStopped
                 && previousForegroundIsPoolEligible
-            if !previousForegroundCanStayWarm {
+            if !previousForegroundCanStayWarm,
+               isFocusedConnectionCurrent(previousForegroundConnection) {
                 await previousForegroundConnection.client.disconnect()
             }
         }

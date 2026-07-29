@@ -925,6 +925,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// One timer owner for the whole online control pool. Each tick reasserts
     /// every lightweight subscription, avoiding one long-lived timer per Mac.
     private var secondaryControlKeepaliveTask: Task<Void, Never>?
+    /// Per-Mac RPCs in the current tick. Promotion waits only for its target,
+    /// not every online Mac in the shared pass, before canceling the timer.
+    private var secondaryControlReassertionTasksByMacID:
+        [String: Task<Bool, Never>] = [:]
+    private var secondaryControlReassertionTokensByMacID: [String: UUID] = [:]
     /// The disconnected-Mac reconnect started by a team boundary transition.
     /// Replaced and cancelled by every newer team switch or account sign-out.
     private var teamScopeReconnectTask: Task<Void, Never>?
@@ -3895,7 +3900,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func secondaryAggregationCandidateMacs(from visibleLoadedMacs: [MobilePairedMac]) -> [MobilePairedMac] {
         let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
-        let requiresIrohControlPool = supportedRouteKinds.contains(.iroh)
         // Filter exact saved instances by live presence before coalescing their
         // shared physical-Mac identity. Otherwise a fresher offline tag can win
         // coalescing and hide another paired tag that is online right now.
@@ -3957,7 +3961,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 for: mac,
                 supportedKinds: supportedRouteKinds,
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
-            ) else { return !requiresIrohControlPool }
+            ) else {
+                // `makeSecondaryClient` still supports an authorized legacy
+                // Tailscale route. Iroh support on the runtime is global and
+                // must not disqualify an individual pre-Iroh pairing.
+                return true
+            }
             return !foregroundIrohEndpointIDs.contains(endpointID)
         }
     }
@@ -4171,8 +4180,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return
                 }
                 guard !Task.isCancelled,
-                      await self?.reassertSecondaryControlSubscriptions() == true else {
-                    self?.secondaryControlKeepaliveTask = nil
+                      let self else {
+                    return
+                }
+                let stillHasControlConnections =
+                    await self.reassertSecondaryControlSubscriptions()
+                guard !Task.isCancelled, stillHasControlConnections else {
+                    self.secondaryControlKeepaliveTask = nil
                     return
                 }
             }
@@ -4183,13 +4197,38 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let subscriptions = Array(secondaryMacSubscriptions)
         guard !subscriptions.isEmpty else { return false }
         for (macDeviceID, subscription) in subscriptions {
-            guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+            guard !Task.isCancelled,
+                  secondaryMacSubscriptions[macDeviceID] === subscription,
+                  !subscription.isTransitioningToFocus else {
                 continue
             }
-            guard await enableSecondaryEventSubscription(
-                on: subscription.client,
-                streamID: subscription.streamID
-            ) else {
+            // Keep the individual RPC unstructured and retained by Mac.
+            // Promotion can drain exactly its target before canceling this
+            // shared pass, without waiting on every other online Mac.
+            let reassertion = Task { @MainActor [weak self] in
+                await self?.enableSecondaryEventSubscription(
+                    on: subscription.client,
+                    streamID: subscription.streamID
+                ) == true
+            }
+            let reassertionToken = UUID()
+            secondaryControlReassertionTasksByMacID[macDeviceID] = reassertion
+            secondaryControlReassertionTokensByMacID[macDeviceID] =
+                reassertionToken
+            let enabled = await reassertion.value
+            if secondaryControlReassertionTokensByMacID[macDeviceID]
+                == reassertionToken {
+                secondaryControlReassertionTasksByMacID[macDeviceID] = nil
+                secondaryControlReassertionTokensByMacID[macDeviceID] = nil
+            }
+            // Promotion may have fenced this subscription while the reassertion
+            // was awaiting its acknowledgement. It will drain this task and
+            // issue the final unsubscribe, so neither result owns teardown.
+            guard secondaryMacSubscriptions[macDeviceID] === subscription,
+                  !subscription.isTransitioningToFocus else {
+                continue
+            }
+            guard enabled else {
                 await handleSecondaryControlStreamEnded(
                     macDeviceID: macDeviceID,
                     subscriptionID: ObjectIdentifier(subscription),
@@ -4201,6 +4240,61 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return !secondaryMacSubscriptions.isEmpty
     }
 
+    /// Fence a control subscription out of the shared keepalive before
+    /// promotion sends its unsubscribe. The in-flight RPC settles before the
+    /// timer owner is canceled, making the subsequent unsubscribe the final
+    /// server-side operation for this stream id.
+    func prepareSecondarySubscriptionForPromotion(
+        _ subscription: SecondaryMacSubscription,
+        macDeviceID: String
+    ) async -> Bool {
+        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+              !subscription.isTransitioningToFocus else {
+            return false
+        }
+        subscription.isTransitioningToFocus = true
+        // Drain the target's current reassertion while its timer owner remains
+        // uncancelled. Canceling first can make an RPC await return locally
+        // before the server has finished applying the subscribe.
+        let reassertion =
+            secondaryControlReassertionTasksByMacID[macDeviceID]
+        _ = await reassertion?.value
+        let keepalive = secondaryControlKeepaliveTask
+        secondaryControlKeepaliveTask = nil
+        keepalive?.cancel()
+        await keepalive?.value
+        // Resume the shared owner for every other control connection. The
+        // promoting target remains fenced and is skipped by each tick.
+        if !secondaryMacSubscriptions.isEmpty {
+            ensureSecondaryControlKeepalive()
+        }
+        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+            return false
+        }
+        return true
+    }
+
+    /// Promotion was superseded before its unsubscribe. Return the target to
+    /// ordinary control ownership and restart the one shared keepalive timer.
+    func resumeSecondarySubscriptionAfterAbortedPromotion(
+        _ subscription: SecondaryMacSubscription,
+        macDeviceID: String
+    ) async {
+        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+            return
+        }
+        if subscription.eventStreamEndedDuringFocusTransition {
+            subscription.detachKeepingClient()
+            secondaryMacSubscriptions[macDeviceID] = nil
+            markSecondaryMacUnavailable(macDeviceID)
+            await subscription.client.disconnect()
+            scheduleSecondaryAggregationRetry(macDeviceIDs: [macDeviceID])
+            return
+        }
+        subscription.isTransitioningToFocus = false
+        ensureSecondaryControlKeepalive()
+    }
+
     private func handleSecondaryControlStreamEnded(
         macDeviceID: String,
         subscriptionID: ObjectIdentifier,
@@ -4209,6 +4303,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let subscription = secondaryMacSubscriptions[macDeviceID],
               ObjectIdentifier(subscription) == subscriptionID,
               subscription.client === client else { return }
+        guard !subscription.isTransitioningToFocus else {
+            subscription.eventStreamEndedDuringFocusTransition = true
+            return
+        }
         subscription.detachKeepingClient()
         secondaryMacSubscriptions[macDeviceID] = nil
         markSecondaryMacUnavailable(macDeviceID)
@@ -4424,7 +4522,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ]
         ) else { return false }
         do {
-            _ = try await client.sendRequest(request)
+            _ = try await client.sendRequest(
+                request,
+                timeoutNanoseconds: runtime?.livenessProbeTimeoutNanoseconds
+            )
             return true
         } catch {
             return false
@@ -4449,6 +4550,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationRetryState.reset()
         secondaryControlKeepaliveTask?.cancel()
         secondaryControlKeepaliveTask = nil
+        for task in secondaryControlReassertionTasksByMacID.values {
+            task.cancel()
+        }
+        secondaryControlReassertionTasksByMacID = [:]
+        secondaryControlReassertionTokensByMacID = [:]
         for (_, subscription) in secondaryMacSubscriptions { subscription.cancel() }
         secondaryMacSubscriptions.removeAll()
     }
@@ -6448,6 +6554,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    func isFocusedConnectionCurrent(_ connection: MacConnection) -> Bool {
+        macConnectionRegistry.isFocused(ifMatching: connection)
+    }
+
+    func registryOwnsClient(of connection: MacConnection) -> Bool {
+        macConnectionRegistry.ownsClient(of: connection)
+    }
+
     /// A demoted foreground can enter the warm pool only when it is still an
     /// online, visible pairing in the current account/team scope. The store
     /// read crosses the team-change boundary, so scope is revalidated afterward.
@@ -6491,7 +6605,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return summary?.online == true
     }
 
-    func removeFocusedConnection(ifMatching connection: MacConnection) {
+    @discardableResult
+    func removeFocusedConnection(ifMatching connection: MacConnection) -> Bool {
         macConnectionRegistry.removeFocused(ifMatching: connection)
     }
 
@@ -6502,7 +6617,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func invalidateFocusedConnectionAfterAbortedHandoff(
         _ connection: MacConnection
     ) {
-        guard remoteClient === connection.client,
+        guard connectionGeneration == connection.generation,
+              isFocusedConnectionCurrent(connection),
+              remoteClient === connection.client,
               foregroundMacDeviceID.map({
                   cmxCanonicalDeviceID($0)
                       == cmxCanonicalDeviceID(connection.macDeviceID)
