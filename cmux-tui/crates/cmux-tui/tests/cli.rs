@@ -337,6 +337,7 @@ fn legacy_server_process_helper() {
             | "exit-after-close"
             | "persistent-close-error"
             | "concurrent-client"
+            | "draining-client"
             | "browser-surface"
     ) {
         let mut command = Command::new("yes");
@@ -510,6 +511,7 @@ fn legacy_server_process_helper() {
     let mut reader = BufReader::new(stream.try_clone_box().unwrap());
     let mut request = String::new();
     let mut snapshot_index = 0;
+    let mut list_client_scans = 0;
     'snapshots: loop {
         request.clear();
         if reader.read_line(&mut request).unwrap() == 0 {
@@ -519,12 +521,15 @@ fn legacy_server_process_helper() {
         }
         let list_request: serde_json::Value = serde_json::from_str(&request).unwrap();
         if list_request["cmd"].as_str() == Some("list-clients") {
+            list_client_scans += 1;
             let mut clients = vec![serde_json::json!({
                 "client": 1,
                 "transport": "unix",
                 "self": true,
             })];
-            if scenario == "concurrent-client" {
+            if scenario == "concurrent-client"
+                || (scenario == "draining-client" && list_client_scans == 1)
+            {
                 clients.push(serde_json::json!({
                     "client": 2,
                     "transport": "unix",
@@ -568,6 +573,7 @@ fn legacy_server_process_helper() {
                 | "exit-after-close"
                 | "persistent-close-error"
                 | "concurrent-client"
+                | "draining-client"
                 | "zombie-child"
                 | "reparent-on-close"
                 | "unowned-surface"
@@ -1764,6 +1770,30 @@ fn server_stop_fails_closed_when_another_legacy_client_can_create_surfaces() {
     assert!(server.child.try_wait().unwrap().is_none());
     assert!(process_exists(descendant_pid));
     assert!(transport::connect(&server.socket).is_ok(), "failed shutdown did not restore socket");
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_waits_for_the_initiating_legacy_client_to_drain() {
+    let mut server =
+        LegacyServerProcess::start("legacy-server-draining-client", "draining-client", None);
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(descendant_pid));
 }
 
 #[cfg(unix)]
