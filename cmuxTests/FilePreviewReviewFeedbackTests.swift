@@ -4,6 +4,7 @@ import Carbon.HIToolbox
 import Foundation
 import Quartz
 import Testing
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -23,47 +24,6 @@ struct FilePreviewReviewFeedbackTests {
             exported.contains("com.cmux.filepreview.transfer"),
             "Expected app bundle to export file-preview transfer type, got \(exported)"
         )
-    }
-
-    @Test
-    func savingTextViewUsesChordedSaveShortcut() async throws {
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(
-                first: ShortcutStroke(key: "k", command: true, shift: false, option: false, control: false, keyCode: UInt16(kVK_ANSI_K)),
-                second: ShortcutStroke(key: "s", command: true, shift: false, option: false, control: false, keyCode: UInt16(kVK_ANSI_S))
-            ),
-            for: .saveFilePreview
-        )
-
-        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let panel = FilePreviewPanel(
-            workspaceId: UUID(),
-            filePath: url.path,
-            startFileWatcher: false
-        )
-        defer { panel.close() }
-        await panel.loadTextContent().value
-
-        let textView = SavingTextView()
-        textView.string = "saved by chord"
-        textView.panel = panel
-        panel.attachTextView(textView)
-        panel.updateTextContent(textView.string)
-
-        let prefixEvent = try #require(keyEvent(key: "k", keyCode: UInt16(kVK_ANSI_K)))
-        let suffixEvent = try #require(keyEvent(key: "s", keyCode: UInt16(kVK_ANSI_S)))
-
-        #expect(textView.performKeyEquivalent(with: prefixEvent))
-        #expect(!panel.isSaving)
-        #expect(try String(contentsOf: url, encoding: .utf8) == "original")
-        #expect(textView.performKeyEquivalent(with: suffixEvent))
-        await waitForFileContents("saved by chord", at: url)
-        #expect(try String(contentsOf: url, encoding: .utf8) == "saved by chord")
     }
 
     @Test
@@ -483,17 +443,92 @@ struct FilePreviewReviewFeedbackTests {
             "Selection hit-testing near the bottom of a \(lineCount)-line file took \(elapsed)s. File Preview likely regressed to TextKit 2 O(N) selection navigation (see https://github.com/manaflow-ai/cmux/issues/4576)."
         )
     }
+}
 
-    private func waitForFileContents(_ expected: String, at url: URL) async {
+@MainActor
+final class FilePreviewSaveShortcutTests: XCTestCase {
+    func testSavingTextViewUsesChordedSaveShortcut() async throws {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                first: ShortcutStroke(
+                    key: "k",
+                    command: true,
+                    shift: false,
+                    option: false,
+                    control: false,
+                    keyCode: UInt16(kVK_ANSI_K)
+                ),
+                second: ShortcutStroke(
+                    key: "s",
+                    command: true,
+                    shift: false,
+                    option: false,
+                    control: false,
+                    keyCode: UInt16(kVK_ANSI_S)
+                )
+            ),
+            for: .saveFilePreview
+        )
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        try "original".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView()
+        textView.string = "saved by chord"
+        textView.panel = panel
+        panel.attachTextView(textView)
+        panel.updateTextContent(textView.string)
+
+        let prefixEvent = try XCTUnwrap(
+            keyEvent(key: "k", keyCode: UInt16(kVK_ANSI_K))
+        )
+        let suffixEvent = try XCTUnwrap(
+            keyEvent(key: "s", keyCode: UInt16(kVK_ANSI_S))
+        )
+
+        XCTAssertTrue(textView.performKeyEquivalent(with: prefixEvent))
+        XCTAssertFalse(panel.isSaving)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "original")
+        XCTAssertTrue(textView.performKeyEquivalent(with: suffixEvent))
+        await waitForPanelSave(panel)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "saved by chord")
+    }
+
+    private func keyEvent(key: String, keyCode: UInt16) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            isARepeat: false,
+            keyCode: keyCode
+        )
+    }
+
+    private func waitForPanelSave(_ panel: FilePreviewPanel) async {
         let deadline = Date().addingTimeInterval(2)
-        while Date() < deadline {
-            if (try? String(contentsOf: url, encoding: .utf8)) == expected {
-                return
-            }
-            try? await Task.sleep(for: .milliseconds(10))
+        while panel.isSaving, Date() < deadline {
+            await Task.yield()
         }
-        let actual = try? String(contentsOf: url, encoding: .utf8)
-        #expect(actual == expected, "Timed out waiting for saved file contents")
+        XCTAssertFalse(panel.isSaving, "Timed out waiting for panel save")
     }
 }
 
