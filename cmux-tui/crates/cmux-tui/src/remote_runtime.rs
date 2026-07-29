@@ -3159,6 +3159,24 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test]
+    async fn client_socket_rejects_a_symlinked_parent_directory() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let real_parent = directory.path().join("real");
+        let symlinked_parent = directory.path().join("alias");
+        fs::create_dir(&real_parent).unwrap();
+        symlink(&real_parent, &symlinked_parent).unwrap();
+
+        let error = prepare_client_socket(&symlinked_parent.join("mux.sock"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("symlink"), "{error}");
+    }
+
+    #[cfg(unix)]
     #[test]
     fn long_state_path_uses_a_short_runtime_socket() {
         let state = PathBuf::from("/tmp").join("x".repeat(256));

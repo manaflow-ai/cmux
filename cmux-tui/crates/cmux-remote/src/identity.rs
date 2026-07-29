@@ -24,6 +24,12 @@ const MAX_RELAY_SLOT_BYTES: usize = 256;
 const MAX_RELAY_TICKET_BYTES: usize = 4 * 1024;
 const MAX_RECORDED_CONNECTION_ATTEMPTS: usize = 4_096;
 
+#[cfg(test)]
+std::thread_local! {
+    static FAIL_ATOMIC_JSON_PARENT_SYNC: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EnrollmentRelayAccess {
     pub route: String,
@@ -1755,6 +1761,47 @@ mod tests {
                 0o600
             );
         }
+    }
+
+    #[tokio::test]
+    async fn failed_known_daemon_pin_does_not_publish_live_trust() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let state_path = temp.path().join("known-daemons.json");
+        fs::create_dir(&state_path).unwrap();
+        let public_key = StaticIdentity::generate().unwrap().public_key();
+        let fingerprint = public_key_fingerprint(&public_key);
+
+        assert!(store.pin_daemon("host".into(), public_key, Vec::new()).await.is_err());
+        assert_eq!(store.daemon_key(&fingerprint).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn failed_known_daemon_forget_keeps_live_trust() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let public_key = StaticIdentity::generate().unwrap().public_key();
+        let known = store.pin_daemon("host".into(), public_key, Vec::new()).await.unwrap();
+        let state_path = temp.path().join("known-daemons.json");
+        fs::remove_file(&state_path).unwrap();
+        fs::create_dir(&state_path).unwrap();
+
+        assert!(store.forget_daemon(&known.fingerprint).await.is_err());
+        assert_eq!(store.daemon_key(&known.fingerprint).await.unwrap(), Some(public_key));
+
+        fs::remove_dir(&state_path).unwrap();
+        assert!(store.forget_daemon(&known.fingerprint).await.unwrap());
+        assert_eq!(store.daemon_key(&known.fingerprint).await.unwrap(), None);
+    }
+
+    #[test]
+    fn atomic_json_propagates_parent_directory_sync_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.set(true));
+        let result = atomic_json(&temp.path().join("state.json"), &PersistedClientState::default());
+        FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.set(false));
+
+        assert!(result.is_err(), "atomic state replacement ignored directory sync failure");
     }
 
     #[tokio::test]
