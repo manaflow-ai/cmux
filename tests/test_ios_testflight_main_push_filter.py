@@ -106,6 +106,12 @@ def mapping_keys(text: str, indent: int) -> tuple[str, ...]:
     return tuple(keys)
 
 
+def test_literal_block_accepts_whitespace_only_lines() -> None:
+    text = "  script: |\n    first\n  \n    second\nnext:\n"
+
+    assert literal_block(text, "script", indent=2) == "first\n\nsecond"
+
+
 def sequence_mapping_values(
     text: str,
     key: str,
@@ -453,6 +459,7 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
 
 
 if __name__ == "__main__":
+    test_literal_block_accepts_whitespace_only_lines()
     test_scheduled_uploads_filter_for_ios_affecting_main_changes()
     test_schedule_decision_executes_ios_path_filter()
     test_schedule_decision_routes_demo_cron_to_demo_history()
