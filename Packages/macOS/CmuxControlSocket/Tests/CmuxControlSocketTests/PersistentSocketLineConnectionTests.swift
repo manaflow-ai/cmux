@@ -4,7 +4,7 @@ import Testing
 
 @testable import CmuxControlSocket
 
-@Suite struct PersistentSocketLineConnectionTests {
+@Suite(.serialized) struct PersistentSocketLineConnectionTests {
     @Test func commandsReuseOneAuthenticatedConnectionWithoutAddedLatency()
         async throws
     {
@@ -100,6 +100,111 @@ import Testing
             }
         }
         #expect(handledResult == .success)
+    }
+
+    @Test func stalledConnectionsDoNotStarveCooperativeTasks() async throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+        #expect(Darwin.listen(listenerFD, 64) == 0)
+
+        let accepted = DispatchSemaphore(value: 0)
+        let stopServer = DispatchSemaphore(value: 0)
+        let serverStopped = DispatchSemaphore(value: 0)
+        DispatchQueue(
+            label: "com.cmux.control-socket-tests.stalled-server",
+            qos: .userInitiated
+        ).async {
+            var clientFDs: [Int32] = []
+            defer {
+                clientFDs.forEach { Darwin.close($0) }
+                serverStopped.signal()
+            }
+            while stopServer.wait(timeout: .now()) == .timedOut {
+                var descriptor = pollfd(
+                    fd: listenerFD,
+                    events: Int16(POLLIN),
+                    revents: 0
+                )
+                guard Darwin.poll(&descriptor, 1, 10) > 0 else {
+                    continue
+                }
+                let clientFD = Darwin.accept(listenerFD, nil, nil)
+                if clientFD >= 0 {
+                    clientFDs.append(clientFD)
+                    accepted.signal()
+                }
+            }
+        }
+
+        let cooperativeWorkerCount = max(
+            ProcessInfo.processInfo.activeProcessorCount,
+            2
+        )
+        let connections = (0..<(cooperativeWorkerCount * 2)).map { _ in
+            PersistentSocketLineConnection()
+        }
+        let commands = connections.map { connection in
+            Task.detached(priority: .userInitiated) {
+                await connection.command(
+                    "wait",
+                    at: path,
+                    timeout: 1
+                )
+            }
+        }
+        let blockersNeeded = cooperativeWorkerCount
+        for _ in 0..<blockersNeeded {
+            let acceptedResult = await wait(
+                for: accepted,
+                timeout: .now() + 2
+            )
+            #expect(
+                acceptedResult == .success,
+                "Expected enough stalled reads to occupy the cooperative pool"
+            )
+        }
+
+        let probeCompleted = DispatchSemaphore(value: 0)
+        Task.detached(priority: .userInitiated) {
+            probeCompleted.signal()
+        }
+        let probeResult = await wait(
+            for: probeCompleted,
+            timeout: .now() + 0.2
+        )
+        #expect(
+            probeResult == .success,
+            "A stalled socket read must not occupy a cooperative executor thread"
+        )
+
+        stopServer.signal()
+        let serverResult = await wait(
+            for: serverStopped,
+            timeout: .now() + 2
+        )
+        #expect(serverResult == .success)
+        for command in commands {
+            _ = await command.value
+        }
+    }
+
+    private func wait(
+        for semaphore: DispatchSemaphore,
+        timeout: DispatchTime
+    ) async -> DispatchTimeoutResult {
+        await withCheckedContinuation { continuation in
+            DispatchQueue(
+                label: "com.cmux.control-socket-tests.semaphore-wait"
+            ).async {
+                continuation.resume(
+                    returning: semaphore.wait(timeout: timeout)
+                )
+            }
+        }
     }
 
     private func readLine(from socket: Int32) -> String? {

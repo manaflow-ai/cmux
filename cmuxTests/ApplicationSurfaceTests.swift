@@ -1044,6 +1044,154 @@ struct ApplicationSurfaceTests {
         panel.close()
     }
 
+    @Test func applicationSurfaceCannotMoveIntoDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager =
+                TerminalController.shared.activeTabManagerForCallerNotification()
+            let runtime = FakeApplicationSurfaceRuntime()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(
+                autoWelcomeIfNeeded: false,
+                applicationSurfaceRuntime: runtime
+            )
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowID = appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager
+            )
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(
+                    windowId: windowID
+                )
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            let pane = try #require(
+                workspace.bonsplitController.allPaneIds.first
+            )
+            let application = try #require(workspace.newApplicationSurface(
+                inPane: pane,
+                windowID: 42,
+                processID: 43,
+                title: "Dictionary",
+                focus: false
+            ))
+            let sourceTabID = try #require(
+                workspace.surfaceIdFromPanelId(application.id)
+            )
+            let dock = workspace.dockSplit
+            let rootPane = try #require(
+                dock.bonsplitController.allPaneIds.first
+            )
+
+            #expect(!appDelegate.canMoveSurfaceIntoDock(
+                sourceTabId: sourceTabID.uuid,
+                destinationDock: dock
+            ))
+            #expect(!appDelegate.moveSurfaceIntoDock(
+                sourceTabId: sourceTabID.uuid,
+                destinationDock: dock,
+                destination: .insert(
+                    targetPane: rootPane,
+                    targetIndex: nil
+                )
+            ))
+            #expect(workspace.panels[application.id] === application)
+            #expect(dock.panel(for: sourceTabID) == nil)
+        }
+    }
+
+    @Test func cliListsOnlyCapturableApplicationWindows() throws {
+        let currentProcessID = pid_t(900)
+        let applicationProcessID = pid_t(901)
+        let base: [String: Any] = [
+            kCGWindowNumber as String: NSNumber(value: 42),
+            kCGWindowOwnerPID as String: NSNumber(value: applicationProcessID),
+            kCGWindowOwnerName as String: "Dictionary",
+            kCGWindowName as String: "Dictionary",
+            kCGWindowLayer as String: NSNumber(value: 0),
+            kCGWindowAlpha as String: NSNumber(value: 1),
+            kCGWindowIsOnscreen as String: true,
+            kCGWindowSharingState as String: NSNumber(value: 1),
+            kCGWindowBounds as String: [
+                "X": 10,
+                "Y": 20,
+                "Width": 800,
+                "Height": 600,
+            ] as NSDictionary,
+        ]
+        let regularApplication: (pid_t) -> Bool = {
+            $0 == applicationProcessID
+        }
+
+        let listed = try #require(CMUXCLI.applicationWindowListEntry(
+            base,
+            currentProcessID: currentProcessID,
+            isRegularApplication: regularApplication
+        ))
+        #expect(listed["window_id"] as? Int == 42)
+        #expect(listed["width"] as? Double == 800)
+        #expect(listed["height"] as? Double == 600)
+
+        var invalid = base
+        invalid[kCGWindowOwnerPID as String] = NSNumber(
+            value: currentProcessID
+        )
+        #expect(CMUXCLI.applicationWindowListEntry(
+            invalid,
+            currentProcessID: currentProcessID,
+            isRegularApplication: regularApplication
+        ) == nil)
+
+        invalid = base
+        invalid[kCGWindowSharingState as String] = NSNumber(value: 0)
+        #expect(CMUXCLI.applicationWindowListEntry(
+            invalid,
+            currentProcessID: currentProcessID,
+            isRegularApplication: regularApplication
+        ) == nil)
+
+        invalid = base
+        invalid[kCGWindowAlpha as String] = NSNumber(value: 0)
+        #expect(CMUXCLI.applicationWindowListEntry(
+            invalid,
+            currentProcessID: currentProcessID,
+            isRegularApplication: regularApplication
+        ) == nil)
+
+        invalid = base
+        invalid[kCGWindowIsOnscreen as String] = false
+        #expect(CMUXCLI.applicationWindowListEntry(
+            invalid,
+            currentProcessID: currentProcessID,
+            isRegularApplication: regularApplication
+        ) == nil)
+
+        invalid = base
+        invalid[kCGWindowBounds as String] = [
+            "X": 10,
+            "Y": 20,
+            "Width": 0,
+            "Height": 600,
+        ] as NSDictionary
+        #expect(CMUXCLI.applicationWindowListEntry(
+            invalid,
+            currentProcessID: currentProcessID,
+            isRegularApplication: regularApplication
+        ) == nil)
+
+        #expect(CMUXCLI.applicationWindowListEntry(
+            base,
+            currentProcessID: currentProcessID,
+            isRegularApplication: { _ in false }
+        ) == nil)
+    }
+
     @Test func applicationPointerDownSynchronizesWorkspaceFocus() throws {
         let runtime = FakeApplicationSurfaceRuntime()
         let workspace = Workspace(applicationSurfaceRuntime: runtime)
