@@ -231,7 +231,13 @@ func conservativeAgentNonLaunchInvocation(
 				return true
 			}
 			if allowedSubcommands := managementSubcommands[argument]; allowedSubcommands != nil {
-				return index+1 < len(args) && allowedSubcommands[args[index+1]]
+				return agentManagementSubcommandInvocation(
+					args,
+					index+1,
+					allowedSubcommands,
+					booleanOptions,
+					valueOptions,
+				)
 			}
 			return managementCommands[argument]
 		}
@@ -239,21 +245,35 @@ func conservativeAgentNonLaunchInvocation(
 		if agentInformationalOptions[name] {
 			return true
 		}
-		if valueOptions[name] {
-			if strings.Contains(argument, "=") {
-				index++
-				continue
-			}
-			if index+1 >= len(args) {
-				return false
-			}
-			index += 2
-			continue
-		}
-		if !booleanOptions[name] {
+		nextIndex, recognized := agentIndexAfterRecognizedOption(args, index, booleanOptions, valueOptions)
+		if !recognized {
 			return false
 		}
-		index++
+		index = nextIndex
+	}
+	return false
+}
+
+func agentManagementSubcommandInvocation(
+	args []string,
+	index int,
+	allowedSubcommands map[string]bool,
+	booleanOptions map[string]bool,
+	valueOptions map[string]bool,
+) bool {
+	for index < len(args) {
+		argument := args[index]
+		if argument == "--" {
+			return false
+		}
+		if !strings.HasPrefix(argument, "-") || argument == "-" {
+			return allowedSubcommands[argument]
+		}
+		nextIndex, recognized := agentIndexAfterRecognizedOption(args, index, booleanOptions, valueOptions)
+		if !recognized {
+			return false
+		}
+		index = nextIndex
 	}
 	return false
 }
@@ -277,23 +297,36 @@ func agentNestedInformationalInvocation(
 		if agentInformationalOptions[option] {
 			return true
 		}
-		if booleanOptions[option] {
-			index++
-			continue
-		}
-		if !valueOptions[option] {
+		nextIndex, recognized := agentIndexAfterRecognizedOption(args, index, booleanOptions, valueOptions)
+		if !recognized {
 			return false
 		}
-		if strings.Contains(argument, "=") {
-			index++
-			continue
-		}
-		if index+1 >= len(args) {
-			return false
-		}
-		index += 2
+		index = nextIndex
 	}
 	return false
+}
+
+func agentIndexAfterRecognizedOption(
+	args []string,
+	index int,
+	booleanOptions map[string]bool,
+	valueOptions map[string]bool,
+) (int, bool) {
+	argument := args[index]
+	option := agentOptionName(argument)
+	if booleanOptions[option] {
+		return index + 1, true
+	}
+	if !valueOptions[option] {
+		return 0, false
+	}
+	if strings.Contains(argument, "=") {
+		return index + 1, true
+	}
+	if index+1 >= len(args) {
+		return 0, false
+	}
+	return index + 2, true
 }
 
 func agentOptionName(argument string) string {
@@ -330,7 +363,7 @@ var claudeTeamsBooleanOptions = map[string]bool{
 	"--exclude-dynamic-system-prompt-sections": true, "--fork-session": true,
 	"--forward-subagent-text": true, "--ide": true, "--include-hook-events": true,
 	"--include-partial-messages": true,
-	"--no-chrome": true, "--no-session-persistence": true, "--print": true,
+	"--no-chrome":                true, "--no-session-persistence": true, "--print": true,
 	"-p": true, "--replay-user-messages": true, "--safe-mode": true,
 	"--strict-mcp-config": true, "--use-system-ca": true, "--verbose": true,
 }

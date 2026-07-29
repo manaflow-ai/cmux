@@ -301,24 +301,50 @@ public struct AgentLaunchInvocationClassifier {
                     return true
                 }
                 if let allowedSubcommands = managementSubcommands[argument] {
-                    guard index + 1 < args.count else { return false }
-                    return allowedSubcommands.contains(args[index + 1])
+                    return managementSubcommandInvocation(
+                        args: args,
+                        startIndex: index + 1,
+                        allowedSubcommands: allowedSubcommands,
+                        booleanOptions: booleanOptions,
+                        valueOptions: valueOptions
+                    )
                 }
                 return managementCommands.contains(argument)
             }
             let option = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
             if informationalOptions.contains(option) { return true }
-            if valueOptions.contains(option) {
-                if argument.contains("=") {
-                    index += 1
-                } else {
-                    guard index + 1 < args.count else { return false }
-                    index += 2
-                }
-                continue
+            guard let nextIndex = indexAfterRecognizedOption(
+                args: args,
+                index: index,
+                booleanOptions: booleanOptions,
+                valueOptions: valueOptions
+            ) else { return false }
+            index = nextIndex
+        }
+        return false
+    }
+
+    private func managementSubcommandInvocation(
+        args: [String],
+        startIndex: Int,
+        allowedSubcommands: Set<String>,
+        booleanOptions: Set<String>,
+        valueOptions: Set<String>
+    ) -> Bool {
+        var index = startIndex
+        while index < args.count {
+            let argument = args[index]
+            if argument == "--" { return false }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return allowedSubcommands.contains(argument)
             }
-            guard booleanOptions.contains(option) else { return false }
-            index += 1
+            guard let nextIndex = indexAfterRecognizedOption(
+                args: args,
+                index: index,
+                booleanOptions: booleanOptions,
+                valueOptions: valueOptions
+            ) else { return false }
+            index = nextIndex
         }
         return false
     }
@@ -339,19 +365,30 @@ public struct AgentLaunchInvocationClassifier {
             }
             let option = optionName(argument)
             if informationalOptions.contains(option) { return true }
-            if booleanOptions.contains(option) {
-                index += 1
-                continue
-            }
-            guard valueOptions.contains(option) else { return false }
-            if argument.contains("=") {
-                index += 1
-            } else {
-                guard index + 1 < args.count else { return false }
-                index += 2
-            }
+            guard let nextIndex = indexAfterRecognizedOption(
+                args: args,
+                index: index,
+                booleanOptions: booleanOptions,
+                valueOptions: valueOptions
+            ) else { return false }
+            index = nextIndex
         }
         return false
+    }
+
+    private func indexAfterRecognizedOption(
+        args: [String],
+        index: Int,
+        booleanOptions: Set<String>,
+        valueOptions: Set<String>
+    ) -> Int? {
+        let argument = args[index]
+        let option = optionName(argument)
+        if booleanOptions.contains(option) { return index + 1 }
+        guard valueOptions.contains(option) else { return nil }
+        if argument.contains("=") { return index + 1 }
+        guard index + 1 < args.count else { return nil }
+        return index + 2
     }
 
     private func claudeTeamsPolicyRecognizesOption(
