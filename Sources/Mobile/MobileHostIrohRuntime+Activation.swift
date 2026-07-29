@@ -8,6 +8,17 @@ import Foundation
 extension MobileHostIrohRuntime {
     func activate(accountID: String, revision: UInt64) async throws {
         guard let auth else { throw CmxIrohHostRuntimeError.inactive }
+        // Pin the runtime's broker to the session identity that owns
+        // `accountID` — a cheap local check now, and every broker request
+        // below re-reads an ATOMIC authenticated snapshot validated against
+        // this pin. An A→B account switch therefore makes the old runtime's
+        // requests fail closed immediately instead of pairing B's credentials
+        // with A's endpoint/device state (registering or refreshing a binding
+        // under B and caching it as A) before lifecycle reconciliation runs.
+        guard auth.currentUser?.id == accountID else {
+            throw CmxIrohHostRuntimeError.inactive
+        }
+        let pinnedGeneration = auth.authSessionGeneration
         let tag = Self.currentTag()
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
@@ -91,15 +102,22 @@ extension MobileHostIrohRuntime {
         let rawBroker = try CmxIrohTrustBrokerClient(
             baseURL: brokerBaseURL,
             tokenSource: CmxIrohBrokerTokenSource(
-                // A coherent store-level pair per fetch: both tokens come from
-                // ONE refresh-bracketed capture, never from currentTokens()'s
-                // two independent awaits that a rotation could land between.
+                // An ATOMIC authenticated snapshot per fetch, validated
+                // against the activation pin: identity and credentials come
+                // from one transition-checked capture, so an account switch
+                // completing while the read is suspended can never hand this
+                // runtime the new session's credentials, and the pin fails
+                // requests closed the moment auth changes. The snapshot's pair
+                // capture is store-level (no network while the stored access
+                // token is valid).
                 credentialPair: { [weak auth] in
                     guard let auth,
-                          let pair = try? await auth.coherentTokenPair() else { return nil }
+                          let session = try? await auth.authenticatedSessionSnapshot(),
+                          session.generation == pinnedGeneration,
+                          session.accountID == accountID else { return nil }
                     return CmxIrohBrokerCredentials(
-                        accessToken: pair.accessToken,
-                        refreshToken: pair.refreshToken
+                        accessToken: session.accessToken,
+                        refreshToken: session.refreshToken
                     )
                 }
             ),

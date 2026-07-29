@@ -2,6 +2,9 @@ public import CMUXMobileCore
 public import CmuxMobileShellModel
 public import Foundation
 import os
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private let deviceRegistryLog = Logger(subsystem: "com.cmuxterm.app", category: "DeviceRegistry")
 
@@ -83,12 +86,13 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// (iOS `UserDefaults` does not): the iroh binding slot is keyed on
     /// `(user, device, tag)`, so a returning phone must present the same device
     /// id to overwrite its own binding in place instead of stranding a new one.
-    /// The pre-Keychain `UserDefaults` value survives only as a best-effort
-    /// mirror while the Keychain is temporarily locked — it is NEVER adopted as
-    /// the identity when the Keychain authoritatively reports the id absent,
-    /// because `UserDefaults` travels in device backups onto NEW phones while
-    /// the `ThisDeviceOnly` Keychain item does not. Mirrors the Mac side's
-    /// `MobileHostIdentity.deviceID()`.
+    /// The `UserDefaults` mirror is trusted only when it provably belongs to
+    /// THIS physical device: `UserDefaults` travels in device backups onto NEW
+    /// phones while the `ThisDeviceOnly` Keychain item does not, so a mirror is
+    /// adopted on authoritative Keychain absence only when its recorded device
+    /// witness (`identifierForVendor`) matches this device or predates the
+    /// witness mechanism (the in-place upgrade population). Mirrors the Mac
+    /// side's `MobileHostIdentity.deviceID()`.
     ///
     /// This is the best-effort read used by non-binding callers (the device
     /// registry HTTP client, which only reads the team's Macs). It never returns
@@ -98,13 +102,22 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// `nil`, so a throwaway id never becomes a stranded `(user, device, tag)`
     /// binding.
     /// - Parameter defaults: Legacy persistence store (injected for tests).
+    @MainActor
     public static func deviceID(defaults: UserDefaults = .standard) -> String {
-        deviceID(store: KeychainDeviceIdentityStore(), defaults: defaults)
+        deviceID(
+            store: KeychainDeviceIdentityStore(),
+            defaults: defaults,
+            deviceWitness: currentDeviceWitness()
+        )
     }
 
     /// Testable core of ``deviceID(defaults:)`` with an injectable identity store.
-    static func deviceID(store: any DeviceIdentityStoring, defaults: UserDefaults) -> String {
-        switch resolveDurableDeviceID(store: store, defaults: defaults) {
+    static func deviceID(
+        store: any DeviceIdentityStoring,
+        defaults: UserDefaults,
+        deviceWitness: String? = nil
+    ) -> String {
+        switch resolveDurableDeviceID(store: store, defaults: defaults, deviceWitness: deviceWitness) {
         case .durable(let id):
             return id
         case .unavailable:
@@ -127,13 +140,22 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// launch and orphans the retained one. Callers must defer/retry activation
     /// until this returns a value instead of registering with an ephemeral id.
     /// - Parameter defaults: Legacy persistence store (injected for tests).
+    @MainActor
     public static func durableDeviceID(defaults: UserDefaults = .standard) -> String? {
-        durableDeviceID(store: KeychainDeviceIdentityStore(), defaults: defaults)
+        durableDeviceID(
+            store: KeychainDeviceIdentityStore(),
+            defaults: defaults,
+            deviceWitness: currentDeviceWitness()
+        )
     }
 
     /// Testable core of ``durableDeviceID(defaults:)`` with an injectable store.
-    static func durableDeviceID(store: any DeviceIdentityStoring, defaults: UserDefaults) -> String? {
-        switch resolveDurableDeviceID(store: store, defaults: defaults) {
+    static func durableDeviceID(
+        store: any DeviceIdentityStoring,
+        defaults: UserDefaults,
+        deviceWitness: String? = nil
+    ) -> String? {
+        switch resolveDurableDeviceID(store: store, defaults: defaults, deviceWitness: deviceWitness) {
         case .durable(let id):
             return id
         case .unavailable:
@@ -157,56 +179,69 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// `(user, device, tag)` slot stable.
     static func resolveDurableDeviceID(
         store: any DeviceIdentityStoring,
-        defaults: UserDefaults
+        defaults: UserDefaults,
+        deviceWitness: String? = nil
     ) -> DurableDeviceIDResolution {
         switch store.read() {
         case .found(let stored):
             let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 // Present but blank: treat as corrupt and re-mint/adopt.
-                return generateDeviceID(store: store, defaults: defaults)
+                return adoptOrMintDeviceID(
+                    store: store,
+                    defaults: defaults,
+                    deviceWitness: deviceWitness
+                )
             }
-            // Re-mirror to UserDefaults so a later downgrade to a build that reads
-            // only UserDefaults finds the same id. Write only when it differs, so
-            // the authoritative read path stays free of needless churn.
-            if defaults.string(forKey: deviceIDKey) != trimmed {
-                defaults.set(trimmed, forKey: deviceIDKey)
-            }
+            // Re-mirror to UserDefaults (with this device's witness) so a later
+            // downgrade finds the same id and a future restore of THIS backup
+            // onto another phone is detectable. Writes are skipped when nothing
+            // differs, so the authoritative read path stays free of churn.
+            persistMirror(trimmed, deviceWitness: deviceWitness, defaults: defaults)
             return .durable(trimmed)
         case .absent:
-            return generateDeviceID(store: store, defaults: defaults)
+            return adoptOrMintDeviceID(
+                store: store,
+                defaults: defaults,
+                deviceWitness: deviceWitness
+            )
         case .unavailable:
             // Fail closed: the store exists but is unreadable right now (a
             // background launch before first unlock leaves the Keychain locked).
             // Minting a new id here would strand the phone's existing
             // (user, device, tag) binding — the exact bug this store prevents.
-            // Reuse the legacy UserDefaults mirror if it is readable; otherwise
-            // report `.unavailable` so binding registration defers.
-            //
-            // Returning the mirror as `.durable` is orphan-safe: a reinstall
-            // clears UserDefaults, so this branch is reachable only on a
-            // CONTINUING install whose mirror was last written from (and therefore
-            // equals) the id the existing binding already uses. Registering with
-            // it targets that same slot instead of minting a throwaway id, and a
-            // later unlocked launch re-reads the authoritative Keychain value.
-            if let legacy = trimmedLegacyDeviceID(defaults) {
+            // Reuse the legacy UserDefaults mirror if its witness proves it was
+            // written on THIS device (or predates witnesses); otherwise report
+            // `.unavailable` so binding registration defers.
+            if let legacy = trimmedLegacyDeviceID(defaults),
+               mirrorBelongsToThisDevice(defaults: defaults, currentWitness: deviceWitness) {
                 return .durable(legacy)
             }
             return .unavailable
         }
     }
 
-    /// Mint a fresh device id when the Keychain authoritatively reports the id
-    /// ABSENT — never adopt the `UserDefaults` mirror here. The mirror travels
-    /// in device backups: restoring a backup onto a NEW phone carries
-    /// `UserDefaults` over, while the `ThisDeviceOnly` Keychain item does not
-    /// migrate. Adopting the mirror on the restored phone would give TWO
-    /// physical devices the same device id, and their registrations would fight
-    /// over one `(user, device, tag)` binding slot, each displacing the other —
-    /// the flapping this identity exists to prevent, on every ordinary phone
-    /// upgrade. The mirror is trusted only while the Keychain is temporarily
-    /// UNREADABLE (see `resolveDurableDeviceID`'s locked-store branch), where a
-    /// continuing install's Keychain most likely still holds the same id.
+    /// Resolve an id when the Keychain authoritatively reports it ABSENT:
+    /// adopt the `UserDefaults` mirror only when its recorded device witness
+    /// proves it was written on THIS physical device, otherwise mint fresh.
+    ///
+    /// The mirror travels in device backups: restoring a backup onto a NEW
+    /// phone carries `UserDefaults` over, while the `ThisDeviceOnly` Keychain
+    /// item does not migrate. Blindly adopting the mirror would give TWO
+    /// physical devices the same device id, and their registrations would
+    /// fight over one `(user, device, tag)` binding slot on every ordinary
+    /// phone upgrade. Blindly minting instead would change EVERY existing
+    /// installation's identity once (the pre-Keychain in-place upgrade lands
+    /// here with the mirror holding the id its live binding already uses) and
+    /// strand all of their bindings. The witness — `identifierForVendor`, a
+    /// per-device value a restored phone does not inherit — separates the two:
+    /// matching witness means the same device, so adopt; a mismatched witness
+    /// means a restored backup, so mint. A mirror with NO recorded witness
+    /// predates this mechanism and is adopted (the in-place upgrade
+    /// population); restoring a pre-witness backup onto a new phone is
+    /// indistinguishable and also adopts, a residual bounded to backups taken
+    /// before this shipped — every mirror write from here on records the
+    /// witness.
     ///
     /// Persistence goes through ``DeviceIdentityStoring/createOrAdopt(_:)``, which
     /// never overwrites a value a concurrent resolution already won, so two
@@ -214,16 +249,74 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// the last writer clobbering the winner (which would strand the winner's
     /// binding on the next launch). A failed persist defers (`.unavailable`):
     /// an id only the reinstall-volatile mirror holds is not durable.
-    private static func generateDeviceID(
+    private static func adoptOrMintDeviceID(
         store: any DeviceIdentityStoring,
-        defaults: UserDefaults
+        defaults: UserDefaults,
+        deviceWitness: String?
     ) -> DurableDeviceIDResolution {
-        guard let winner = store.createOrAdopt(UUID().uuidString.lowercased()) else {
+        let candidate: String
+        if let legacy = trimmedLegacyDeviceID(defaults),
+           mirrorBelongsToThisDevice(defaults: defaults, currentWitness: deviceWitness) {
+            candidate = legacy
+        } else {
+            candidate = UUID().uuidString.lowercased()
+        }
+        guard let winner = store.createOrAdopt(candidate) else {
             return .unavailable
         }
-        defaults.set(winner, forKey: deviceIDKey)
+        persistMirror(winner, deviceWitness: deviceWitness, defaults: defaults)
         return .durable(winner)
     }
+
+    /// Whether the `UserDefaults` mirror provably belongs to this physical
+    /// device: its recorded witness matches the current one, or no witness was
+    /// ever recorded (a pre-witness install). A recorded witness that does not
+    /// match — or that cannot be compared because the current witness is
+    /// unreadable — means the mirror may have arrived in a backup from another
+    /// phone and must not be trusted.
+    private static func mirrorBelongsToThisDevice(
+        defaults: UserDefaults,
+        currentWitness: String?
+    ) -> Bool {
+        guard let recorded = defaults.string(forKey: deviceWitnessKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !recorded.isEmpty else {
+            return true
+        }
+        guard let currentWitness else { return false }
+        return recorded == currentWitness
+    }
+
+    /// Write the mirror and (when known) this device's witness, skipping
+    /// no-op writes so the read path stays free of churn.
+    private static func persistMirror(
+        _ id: String,
+        deviceWitness: String?,
+        defaults: UserDefaults
+    ) {
+        if defaults.string(forKey: deviceIDKey) != id {
+            defaults.set(id, forKey: deviceIDKey)
+        }
+        if let deviceWitness, defaults.string(forKey: deviceWitnessKey) != deviceWitness {
+            defaults.set(deviceWitness, forKey: deviceWitnessKey)
+        }
+    }
+
+    /// The per-device witness recorded beside the mirror: a value present on
+    /// THIS device that a backup restored onto another phone does not carry
+    /// forward. `identifierForVendor` resets on a new device (and when the
+    /// vendor's last app is removed — which also clears `UserDefaults`, so the
+    /// mirror disappears with it and no stale comparison survives).
+    @MainActor
+    static func currentDeviceWitness() -> String? {
+        #if canImport(UIKit)
+        return UIDevice.current.identifierForVendor?.uuidString
+        #else
+        return nil
+        #endif
+    }
+
+    static let deviceWitnessKey = "cmux.deviceRegistry.iosDeviceIDWitness"
 
     /// The legacy `UserDefaults` device id, trimmed, or `nil` when absent/blank.
     private static func trimmedLegacyDeviceID(_ defaults: UserDefaults) -> String? {
