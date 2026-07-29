@@ -320,4 +320,41 @@ describe("app session handoff", () => {
     );
     expect(getUser).toHaveBeenCalledTimes(60);
   });
+
+  test("uses the injected clock to reset the local safety limit", async () => {
+    let now = 1_721_955_600_000;
+    const timedPost = makeAppSessionHandoffHandler({
+      projectId: "12345678-1234-4123-8123-123456789abc",
+      stackServerApp: { getUser },
+      now: () => now,
+      isVercel: () => false,
+    });
+    const headers = { "x-forwarded-for": "203.0.113.31" };
+
+    for (let index = 0; index < 60; index += 1) {
+      const response = await timedPost(handoffRequest({
+        refresh_token: "native-refresh",
+        after: "/dashboard/testflight",
+      }, headers));
+      expect(response.status).toBe(303);
+    }
+    const blocked = await timedPost(handoffRequest({
+      refresh_token: "native-refresh",
+      after: "/dashboard/testflight",
+    }, headers));
+    expect(blocked.status).toBe(303);
+    expect(new URL(blocked.headers.get("location")!).pathname).toBe(
+      "/handler/sign-in",
+    );
+
+    now += 60_001;
+    const reset = await timedPost(handoffRequest({
+      refresh_token: "native-refresh",
+      after: "/dashboard/testflight",
+    }, headers));
+
+    expect(reset.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/testflight",
+    );
+  });
 });

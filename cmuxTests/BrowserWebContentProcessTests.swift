@@ -64,7 +64,7 @@ struct BrowserWebContentProcessTests {
         #expect(!failed.shouldBeginSignIn)
         #expect(failed.shouldRetry)
         #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 401).shouldBeginSignIn)
-        #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 429).shouldRetry)
+        #expect(!BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 429).shouldRetry)
         #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 503).shouldRetry)
     }
 
@@ -179,6 +179,7 @@ struct BrowserWebContentProcessTests {
             defaultsKey: defaultsKey,
             environment: newEnvironment
         )
+        #expect(defaults.object(forKey: defaultsKey) == nil)
         #expect(switched.hasStaleEnvironmentOwnership)
         #expect(switched.staleEnvironmentStoresForCleanup().isEmpty)
 
@@ -211,6 +212,7 @@ struct BrowserWebContentProcessTests {
             legacyDefaultsKeyPrefix: legacyPrefix
         )
 
+        #expect(defaults.object(forKey: "owned-stores-v2") == nil)
         #expect(registry.hasStaleEnvironmentOwnership)
         #expect(defaults.object(forKey: legacyKey) == nil)
         #expect(registry.staleEnvironmentStoresForCleanup().isEmpty)
@@ -233,6 +235,22 @@ struct BrowserWebContentProcessTests {
 
         #expect(retainedOwner == nil)
         #expect(reference?.value == nil)
+    }
+
+    @Test
+    func browserAppSessionSignInRelayReopensAdmissionAfterAnySuccessfulSignIn() {
+        let relay = BrowserAppSessionSignInRelay()
+        var resumeCount = 0
+
+        relay.signedIn()
+        #expect(resumeCount == 0)
+
+        relay.bind {
+            resumeCount += 1
+        }
+        relay.signedIn()
+
+        #expect(resumeCount == 1)
     }
 
     @Test

@@ -34,7 +34,7 @@ struct BrowserAppSessionHandoffTests {
         #expect(BrowserAppLinkOpenRequest(url: unmarked, webOrigin: origin) == nil)
     }
 
-    @Test("handoff posts native tokens and preserves the destination path")
+    @Test("handoff posts only the refresh credential and preserves the destination path")
     func buildsHandoffRequest() throws {
         let origin = try #require(URL(string: "https://cmux.test"))
         let destination = try #require(URL(
@@ -57,7 +57,7 @@ struct BrowserAppSessionHandoffTests {
         #expect(request.value(forHTTPHeaderField: "X-Cmux-App-Session-Handoff") == "1")
         #expect(request.value(forHTTPHeaderField: "X-Cmux-App-Session-Response") == "cookies")
         #expect(request.value(forHTTPHeaderField: "Referrer-Policy") == nil)
-        #expect(body.contains("access_token=native%2Baccess"))
+        #expect(!body.contains("access_token="))
         #expect(body.contains("refresh_token=native%26refresh"))
         #expect(body.contains("after=%2Fdashboard%2Ftestflight%3Fplan%3Dpro%23join"))
         #expect(request.url?.query == nil)
