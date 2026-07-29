@@ -1048,6 +1048,12 @@ struct ServerProcessShutdownGuard {
 
 impl ServerProcessShutdownGuard {
     fn start(mux: &Arc<Mux>, socket_path: PathBuf) -> io::Result<Self> {
+        #[cfg(debug_assertions)]
+        if let Some(marker) = std::env::var_os("CMUX_TUI_TEST_WATCHDOG_START_FAILURE") {
+            std::fs::write(marker, b"starting")?;
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            return Err(io::Error::other("forced watchdog start failure"));
+        }
         let shutdown_watch = mux.watch_shutdown_request();
         let worker_watch = shutdown_watch.clone();
         let worker_socket_path = socket_path.clone();

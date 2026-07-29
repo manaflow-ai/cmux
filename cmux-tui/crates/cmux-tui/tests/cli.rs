@@ -166,6 +166,54 @@ fn try_json_socket_request(
     (response["ok"] == true).then(|| response["data"].clone())
 }
 
+#[cfg(unix)]
+#[test]
+fn server_establishes_shutdown_ownership_before_publishing_its_listener() {
+    let dir = unique_temp_dir("watchdog-start-failure");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let marker = dir.join("watchdog-starting");
+    let mut child = Command::new(bin())
+        .args(["--headless", "--ephemeral", "--socket"])
+        .arg(&socket)
+        .env("CMUX_TUI_TEST_WATCHDOG_START_FAILURE", &marker)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let marker_deadline = Instant::now() + Duration::from_secs(5);
+    while !marker.exists() && Instant::now() < marker_deadline {
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "server exited before entering the watchdog failure hook"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(marker.exists(), "watchdog failure hook was not reached");
+    let listener_was_published = transport::connect(&socket).is_ok();
+
+    let exit_deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= exit_deadline {
+            child.kill().unwrap();
+            break child.wait().unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let _ = fs::remove_file(&socket);
+    let _ = fs::remove_dir_all(&dir);
+
+    assert!(!status.success(), "forced watchdog failure unexpectedly started the server");
+    assert!(
+        !listener_was_published,
+        "server accepted clients before its shutdown watchdog owned cleanup"
+    );
+}
+
 fn terminal_host_pids(root: &std::path::Path) -> Vec<u32> {
     fs::read_dir(root)
         .ok()
