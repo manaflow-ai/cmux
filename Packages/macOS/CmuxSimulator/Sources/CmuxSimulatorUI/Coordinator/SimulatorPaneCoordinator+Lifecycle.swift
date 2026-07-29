@@ -380,6 +380,11 @@ extension SimulatorPaneCoordinator {
         let joinsExistingActivation = selectedDeviceID == id
             && status == .connecting
             && activationTask != nil
+#if DEBUG
+        if joinsExistingActivation {
+            activationJoinGenerationForTesting &+= 1
+        }
+#endif
         if !joinsExistingActivation {
             selectDeviceForCurrentRequest(id: id)
         }

@@ -113,6 +113,9 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var geometry: SimulatorSurfaceGeometry?
     @ObservationIgnored var selectionGeneration: UInt64 = 0
     @ObservationIgnored var explicitSelectionRequestGeneration: UInt64 = 0
+#if DEBUG
+    @ObservationIgnored var activationJoinGenerationForTesting: UInt64 = 0
+#endif
     @ObservationIgnored var deviceDiscoveryGeneration: UInt64 = 0
     @ObservationIgnored var activeControlActions = 0
     @ObservationIgnored var controlActionTasks: [String: Task<Void, Never>] = [:]

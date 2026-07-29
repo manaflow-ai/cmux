@@ -30,11 +30,11 @@ extension SimulatorPaneCoordinator {
 
     @discardableResult
     func enqueue(_ message: SimulatorWorkerInbound) -> Bool {
-        if message.invalidatesUIAutomationSnapshot {
-            clearUIAutomationSnapshot()
-        }
         switch outgoingContinuation.yield(message) {
         case .enqueued:
+            if message.invalidatesUIAutomationSnapshot {
+                clearUIAutomationSnapshot()
+            }
             return true
         case .dropped:
             handleOutgoingQueueOverflow()

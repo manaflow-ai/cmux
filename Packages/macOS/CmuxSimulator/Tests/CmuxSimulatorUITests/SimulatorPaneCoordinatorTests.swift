@@ -358,9 +358,8 @@ struct SimulatorPaneCoordinatorTests {
         let selection = Task {
             try await coordinator.selectDeviceAndWait(id: phone.id)
         }
-        for _ in 0..<1_000 {
-            if await client.activations().count > 1 { break }
-            await Task.yield()
+        await eventually {
+            coordinator.activationJoinGenerationForTesting == 1
         }
         await client.resumeActivation()
         try await selection.value
