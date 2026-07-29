@@ -23,6 +23,32 @@ if [[ -z "$expected" || "$actual" != "$expected" ]]; then
   exit 1
 fi
 
+for compatible_version in \
+  "$actual" \
+  "${actual%.*}.$((10#${actual##*.} + 1))" \
+  "${actual}-dev.1+test"; do
+  if ! ghostty_zig_version_is_compatible "$compatible_version" "$actual"; then
+    echo "Ghostty-compatible Zig version rejected: $compatible_version >= $actual" >&2
+    exit 1
+  fi
+done
+
+IFS=. read -r actual_major actual_minor actual_patch <<< "$actual"
+incompatible_versions=(
+  "$((10#$actual_major + 1)).${actual_minor}.${actual_patch}"
+  "${actual_major}.$((10#$actual_minor + 1)).${actual_patch}"
+)
+if (( 10#$actual_patch > 0 )); then
+  incompatible_versions+=("${actual_major}.${actual_minor}.$((10#$actual_patch - 1))")
+fi
+incompatible_versions+=("invalid")
+for incompatible_version in "${incompatible_versions[@]}"; do
+  if ghostty_zig_version_is_compatible "$incompatible_version" "$actual"; then
+    echo "Incompatible Zig version accepted: $incompatible_version for $actual" >&2
+    exit 1
+  fi
+done
+
 for consumer in \
   "$ROOT_DIR/scripts/install-zig-ci.sh" \
   "$ROOT_DIR/scripts/build-ghostty-cli-helper.sh"; do
@@ -39,9 +65,10 @@ python3 \
   "$ROOT_DIR/tests/check_ghostty_zig_workflows.py" \
   "$ROOT_DIR/.github/workflows"
 
-if ! grep -Fq 'ghostty-zig-version.sh" "$PROJECT_DIR"' "$ROOT_DIR/scripts/setup.sh" ||
+if ! grep -Fq 'source "$SCRIPT_DIR/ghostty-zig-version.sh"' "$ROOT_DIR/scripts/setup.sh" ||
+   ! grep -Fq 'ghostty_minimum_zig_version "$PROJECT_DIR"' "$ROOT_DIR/scripts/setup.sh" ||
    ! grep -Fq 'ZIG_ACTUAL="$(zig version)"' "$ROOT_DIR/scripts/setup.sh" ||
-   ! grep -Fq '"$ZIG_ACTUAL" != "$ZIG_REQUIRED"' "$ROOT_DIR/scripts/setup.sh"; then
+   ! grep -Fq 'ghostty_zig_version_is_compatible "$ZIG_ACTUAL" "$ZIG_REQUIRED"' "$ROOT_DIR/scripts/setup.sh"; then
   echo "setup.sh does not validate the manifest-derived Ghostty Zig version" >&2
   exit 1
 fi
