@@ -9194,10 +9194,13 @@ struct CMUXCLI {
         )
         let resolvedUserSSHConfiguration =
             configurationResult.status == 0 ? configurationResult.stdout : nil
+        let fallsBackToOpenSSHInteractiveSession =
+            usesImplicitManagedInteractiveShell && resolvedUserSSHConfiguration == nil
         if configurationResult.status != 0 {
             cliDebugLog(
                 "cli.ssh.config_resolution unavailable target=\(sshOptions.displayDestination) " +
-                "timedOut=\(configurationResult.timedOut ? 1 : 0) status=\(configurationResult.status)"
+                "timedOut=\(configurationResult.timedOut ? 1 : 0) status=\(configurationResult.status) " +
+                "fallback=\(fallsBackToOpenSSHInteractiveSession ? "unmanaged" : "managed")"
             )
         }
         sshOptions.sshOptions = sharingOptions.mergingDefaults(
@@ -9206,25 +9209,18 @@ struct CMUXCLI {
                 sharingOptions.userConfiguredControlOptions(fromSSHConfigOutput: $0)
             }
         )
-        sshOptions.sshOptions = resolvedCmuxControlPathOptions(for: sshOptions)
+        if resolvedUserSSHConfiguration != nil {
+            sshOptions.sshOptions = resolvedCmuxControlPathOptions(for: sshOptions)
+        }
         // Treat the OpenSSH setting as the host's default interactive
         // program. Explicit cmux commands and terminal profiles continue to
         // take precedence over that default.
-        let remoteCommandPolicy = SSHHostConfiguredRemoteCommand()
-        let configuredInteractiveRemoteCommand: String?
-        if usesImplicitManagedInteractiveShell {
-            if let resolvedUserSSHConfiguration {
-                configuredInteractiveRemoteCommand = remoteCommandPolicy.configuredCommand(
-                    fromSSHConfigOutput: resolvedUserSSHConfiguration
-                )
-            } else {
-                configuredInteractiveRemoteCommand = remoteCommandPolicy.configuredCommand(
-                    fromOptions: inputSSHOptions.sshOptions
-                )
-            }
-        } else {
-            configuredInteractiveRemoteCommand = nil
-        }
+        let configuredInteractiveRemoteCommand =
+            usesImplicitManagedInteractiveShell
+                ? resolvedUserSSHConfiguration.flatMap {
+                    SSHHostConfiguredRemoteCommand().configuredCommand(fromSSHConfigOutput: $0)
+                }
+                : nil
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
             let elapsedMs = Int(Date().timeIntervalSince(sshStartedAt) * 1000)
@@ -9254,7 +9250,7 @@ struct CMUXCLI {
         // script is only meaningful if cmuxd-remote is participating. Let ssh open a plain
         // interactive shell instead.
         let remoteTerminalBootstrapScript: String?
-        if sshOptions.skipDaemonBootstrap {
+        if sshOptions.skipDaemonBootstrap || fallsBackToOpenSSHInteractiveSession {
             remoteTerminalBootstrapScript = nil
         } else {
             remoteTerminalBootstrapScript = sshOptions.extraArguments.isEmpty

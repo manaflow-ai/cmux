@@ -263,6 +263,17 @@ extension SessionRemoteWorkspaceSnapshot {
                     sshOptions: invocationSSHOptions
                 )
             }
+        } else if terminalProfile.kind == .shell,
+                  let configuredRemoteCommand = configuredRemoteCommand?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !configuredRemoteCommand.isEmpty {
+            remoteCommandArguments = [
+                "/bin/sh",
+                "-c",
+                #"exec "${SHELL:-/bin/sh}" -c "$1""#,
+                "cmux-remote-command",
+                configuredRemoteCommand,
+            ]
         }
         return MoshTerminalCommandBuilder(
             capabilityProbeSSHArguments: moshSSHArguments,
