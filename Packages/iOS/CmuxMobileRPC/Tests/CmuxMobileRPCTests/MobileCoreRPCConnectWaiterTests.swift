@@ -316,11 +316,13 @@ import Testing
     }
 
     private func waitUntilClosed(_ transport: ReleasableConnectTransport) async -> Bool {
-        for _ in 0..<100 {
+        // Time-bounded polling, not bare yields: under suite load 100 yields
+        // can elapse before the session's async close task is ever scheduled.
+        for _ in 0..<200 {
             if await transport.closed() {
                 return true
             }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
         return await transport.closed()
     }
