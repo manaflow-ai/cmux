@@ -217,17 +217,37 @@ extension SimulatorWorkerCoordinator {
                 else {
                     return baselineCapabilities
                 }
-                let webInspectorAvailable = await self.webInspector.isAvailable(
-                    deviceIdentifier: deviceIdentifier
-                )
                 var capabilities = baselineCapabilities
                 if accessibilityAvailable {
                     capabilities.insert(.accessibility)
                     capabilities.insert(.foregroundApplication)
                 }
+                self.send(.capabilityResolved(
+                    .accessibility,
+                    available: accessibilityAvailable
+                ))
+                self.send(.capabilityResolved(
+                    .foregroundApplication,
+                    available: accessibilityAvailable
+                ))
+
+                let webInspectorAvailable = await self.webInspector.isAvailable(
+                    deviceIdentifier: deviceIdentifier
+                )
+                guard !Task.isCancelled,
+                      self.capabilityHydrationGeneration == generation,
+                      self.attachedDevice === device,
+                      self.currentDeviceIdentifier == deviceIdentifier
+                else {
+                    return capabilities
+                }
                 if webInspectorAvailable {
                     capabilities.insert(.webInspector)
                 }
+                self.send(.capabilityResolved(
+                    .webInspector,
+                    available: webInspectorAvailable
+                ))
                 return capabilities
             },
             applyHydratedCapabilities: { [weak self, weak device] capabilities in

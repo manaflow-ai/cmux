@@ -1,6 +1,13 @@
 import CmuxSimulator
 import Foundation
 
+/// One semantic touch-down target retained across snapshot replacement.
+public struct SimulatorUIAutomationHeldTouch: Equatable, Sendable {
+    public let elementRef: String
+    public let point: SimulatorPoint
+    public let display: SimulatorDisplayMetadata?
+}
+
 /// Stores pane-scoped refs and serializes Simulator UI mutations.
 @MainActor
 final class SimulatorUIAutomationSession {
@@ -11,6 +18,8 @@ final class SimulatorUIAutomationSession {
 
     private var record: SimulatorUIAutomationSnapshotRecord?
     private var nextSequence: UInt64 = 1
+    private(set) var mutationGeneration: UInt64 = 0
+    private var retainedTouch: SimulatorUIAutomationHeldTouch?
     private var transactionIsActive = false
     private var waiters: [Waiter] = []
 
@@ -90,10 +99,37 @@ final class SimulatorUIAutomationSession {
 
     func clearSnapshot() {
         record = nil
+        mutationGeneration &+= 1
     }
 
     func reset() {
         record = nil
+        retainedTouch = nil
+        mutationGeneration &+= 1
+    }
+
+    func holdTouch(
+        elementRef: String,
+        point: SimulatorPoint,
+        display: SimulatorDisplayMetadata?
+    ) {
+        retainedTouch = SimulatorUIAutomationHeldTouch(
+            elementRef: elementRef,
+            point: point,
+            display: display
+        )
+    }
+
+    func heldTouch(
+        elementRef: String
+    ) -> SimulatorUIAutomationHeldTouch? {
+        guard retainedTouch?.elementRef == elementRef else { return nil }
+        return retainedTouch
+    }
+
+    func releaseHeldTouch(elementRef: String) {
+        guard retainedTouch?.elementRef == elementRef else { return }
+        retainedTouch = nil
     }
 
     func beginTransaction() async throws {

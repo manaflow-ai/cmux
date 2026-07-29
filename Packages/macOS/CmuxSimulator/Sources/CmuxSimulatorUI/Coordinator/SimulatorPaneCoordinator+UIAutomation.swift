@@ -98,6 +98,36 @@ extension SimulatorPaneCoordinator {
         uiAutomationSession.clearSnapshot()
     }
 
+    /// Current generation of UI mutations observed by this pane.
+    public var uiAutomationMutationGeneration: UInt64 {
+        uiAutomationSession.mutationGeneration
+    }
+
+    /// Retains a down-only semantic touch independently from snapshot refs.
+    public func holdUIAutomationTouch(
+        elementRef: String,
+        point: SimulatorPoint,
+        display: SimulatorDisplayMetadata?
+    ) {
+        uiAutomationSession.holdTouch(
+            elementRef: elementRef,
+            point: point,
+            display: display
+        )
+    }
+
+    /// Returns a held semantic touch only for its original ref.
+    public func heldUIAutomationTouch(
+        elementRef: String
+    ) -> SimulatorUIAutomationHeldTouch? {
+        uiAutomationSession.heldTouch(elementRef: elementRef)
+    }
+
+    /// Clears a held semantic touch after its release reaches the worker.
+    public func releaseHeldUIAutomationTouch(elementRef: String) {
+        uiAutomationSession.releaseHeldTouch(elementRef: elementRef)
+    }
+
     /// Resets refs and sequence when this pane changes devices.
     public func resetUIAutomationSession() {
         uiAutomationSession.reset()

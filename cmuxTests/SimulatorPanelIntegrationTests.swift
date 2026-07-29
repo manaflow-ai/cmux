@@ -1113,7 +1113,7 @@ struct SimulatorPanelIntegrationTests {
 }
 
 private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
-    enum Behavior: Sendable {
+    enum Behavior: Equatable, Sendable {
         case staticTree
         case focusAfterSecondPostTapRead
     }

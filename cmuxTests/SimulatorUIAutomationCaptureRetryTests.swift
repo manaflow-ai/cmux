@@ -16,7 +16,7 @@ struct SimulatorUIAutomationCaptureRetryTests {
         let retry = SimulatorUIAutomationCaptureRetry(timing: timing)
         var attempts = 0
 
-        let value: Int = try await retry.capture(until: 1_250) {
+        let value: Int = try await retry.capture(until: 1_250) { _ in
             attempts += 1
             if attempts < 3 {
                 throw simulatorSnapshotFailure()
@@ -36,7 +36,7 @@ struct SimulatorUIAutomationCaptureRetryTests {
         var attempts = 0
 
         do {
-            _ = try await retry.capture(until: 1_250) {
+            _ = try await retry.capture(until: 1_250) { _ in
                 attempts += 1
                 throw SimulatorUIAutomationFailure(
                     code: "ui_state_changed",
@@ -60,7 +60,7 @@ struct SimulatorUIAutomationCaptureRetryTests {
         var attempts = 0
 
         do {
-            _ = try await retry.capture(until: 1_100) {
+            _ = try await retry.capture(until: 1_100) { _ in
                 attempts += 1
                 throw simulatorSnapshotFailure()
             } as Int
@@ -80,7 +80,7 @@ struct SimulatorUIAutomationCaptureRetryTests {
         var attempts = 0
 
         do {
-            _ = try await retry.capture(until: 1_000) {
+            _ = try await retry.capture(until: 1_000) { _ in
                 attempts += 1
                 return 42
             } as Int

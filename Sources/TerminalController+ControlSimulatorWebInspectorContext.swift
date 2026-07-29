@@ -127,7 +127,7 @@ extension TerminalController {
                 do {
                     await coordinator.start()
                     try await coordinator.waitForSelectedDeviceStreaming()
-                    try await coordinator.waitForCapabilityHydration()
+                    try await coordinator.waitForCapabilityResolution(.webInspector)
                     guard coordinator.supports(.webInspector) else {
                         throw SimulatorFailure(
                             code: "simulator_capability_unavailable",

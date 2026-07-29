@@ -81,7 +81,7 @@ extension TerminalController {
             }
             if let capability = simulatorCapability(for: operation) {
                 if capability.requiresAttachmentHydration {
-                    try await coordinator.waitForCapabilityHydration()
+                    try await coordinator.waitForCapabilityResolution(capability)
                 }
                 if !coordinator.supports(capability) {
                     throw SimulatorFailure(

@@ -121,16 +121,29 @@ extension SimulatorPaneCoordinator {
             updateLiveStatusWatcher()
         case let .capabilities(capabilities):
             self.capabilities = capabilities
-            capabilityHydrationCompleted = false
+            capabilityResolutions = [:]
             if selectedDeviceID != nil { self.capabilities.insert(.userInterfaceSettings) }
             if chromeProfile != nil { self.capabilities.insert(.deviceChrome) }
             updateLiveStatusWatcher()
+        case let .capabilityResolved(capability, available):
+            applyCapabilityResolution(capability, available: available)
+            if selectedDeviceID != nil { capabilities.insert(.userInterfaceSettings) }
+            if chromeProfile != nil { capabilities.insert(.deviceChrome) }
+            updateLiveStatusWatcher()
         case let .capabilitiesHydrated(capabilities):
             self.capabilities = capabilities
-            capabilityHydrationCompleted = true
             if selectedDeviceID != nil { self.capabilities.insert(.userInterfaceSettings) }
             if chromeProfile != nil { self.capabilities.insert(.deviceChrome) }
-            resolveCapabilityHydrationWaiters()
+            for capability in [
+                SimulatorCapability.accessibility,
+                .foregroundApplication,
+                .webInspector,
+            ] {
+                applyCapabilityResolution(
+                    capability,
+                    available: capabilities.contains(capability)
+                )
+            }
             updateLiveStatusWatcher()
         case let .display(display):
             self.display = display

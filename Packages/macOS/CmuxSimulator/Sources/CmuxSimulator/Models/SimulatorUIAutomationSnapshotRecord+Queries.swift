@@ -25,10 +25,18 @@ extension SimulatorUIAutomationSnapshotRecord {
                     matches: identifier,
                     caseInsensitive: false
                 )
-                && accessibilityValue(
-                    node.role,
-                    matches: role,
-                    caseInsensitive: true
+                && (
+                    role == nil
+                        || accessibilityValue(
+                            record.element.role?.rawValue,
+                            matches: role,
+                            caseInsensitive: true
+                        )
+                        || accessibilityValue(
+                            node.role,
+                            matches: role,
+                            caseInsensitive: true
+                        )
                 )
         }
     }

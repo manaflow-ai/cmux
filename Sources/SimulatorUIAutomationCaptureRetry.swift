@@ -1,3 +1,5 @@
+struct SimulatorUIAutomationCaptureDeadlineExceeded: Error {}
+
 /// Retries transient Simulator snapshot failures within one caller-owned deadline.
 @MainActor
 struct SimulatorUIAutomationCaptureRetry {
@@ -14,16 +16,25 @@ struct SimulatorUIAutomationCaptureRetry {
 
     func capture<Value>(
         until deadlineMilliseconds: Int64,
-        operation: @MainActor () async throws -> Value
+        operation: @MainActor (Duration) async throws -> Value
     ) async throws -> Value {
+        var lastFailure: SimulatorUIAutomationFailure?
         while true {
             try Task.checkCancellation()
+            let beforeCapture = timing.nowMilliseconds()
+            guard beforeCapture < deadlineMilliseconds else {
+                if let lastFailure { throw lastFailure }
+                throw SimulatorUIAutomationCaptureDeadlineExceeded()
+            }
             do {
-                return try await operation()
+                return try await operation(.milliseconds(
+                    deadlineMilliseconds - beforeCapture
+                ))
             } catch let failure as SimulatorUIAutomationFailure {
                 guard failure.code == "snapshot_capture_failed" else {
                     throw failure
                 }
+                lastFailure = failure
                 let now = timing.nowMilliseconds()
                 guard now < deadlineMilliseconds else {
                     throw failure

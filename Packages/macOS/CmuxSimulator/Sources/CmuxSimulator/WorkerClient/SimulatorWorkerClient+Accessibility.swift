@@ -2,7 +2,8 @@ import Foundation
 
 extension SimulatorWorkerClient {
     func performAccessibilityAction(
-        _ action: SimulatorControlAction
+        _ action: SimulatorControlAction,
+        accessibilityTimeout: Duration = .seconds(30)
     ) async throws -> SimulatorControlResult? {
         switch action {
         case .readAccessibility:
@@ -19,7 +20,7 @@ extension SimulatorWorkerClient {
             let requestID = UUID()
             let response: Result<SimulatorAccessibilitySnapshot, SimulatorFailure> = try await requestWorkerValue(
                 sending: .requestAccessibility(requestID),
-                timeout: .seconds(30),
+                timeout: accessibilityTimeout,
                 timeoutRecovery: .restartWorker
             ) { message in
                 switch message {
@@ -63,5 +64,24 @@ extension SimulatorWorkerClient {
         default:
             return nil
         }
+    }
+
+    public func readAccessibility(
+        timeout: Duration
+    ) async throws -> SimulatorControlResult {
+        guard let result = try await performAccessibilityAction(
+            .readAccessibility,
+            accessibilityTimeout: timeout
+        ) else {
+            throw SimulatorControlError(
+                code: "accessibility_unavailable",
+                arguments: [],
+                message: String(
+                    localized: "simulator.failure.accessibilityCapability",
+                    defaultValue: "The active Xcode worker did not negotiate accessibility inspection."
+                )
+            )
+        }
+        return result
     }
 }

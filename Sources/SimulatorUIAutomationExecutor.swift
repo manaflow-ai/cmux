@@ -163,30 +163,51 @@ struct SimulatorUIAutomationExecutor {
             ]
         case let .touch(elementRef, down, up, delayMilliseconds):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
-            let record = try simulatorUIActionSourceRecord(preflight)
-            let target = try resolveSimulatorUIElement(
-                ref: elementRef,
-                requiredActions: [.touch],
-                record: record
-            )
+            let point: SimulatorPoint
+            let snapshotDisplay: SimulatorDisplayMetadata?
+            if !down, up,
+               let heldTouch = coordinator.heldUIAutomationTouch(
+                   elementRef: elementRef
+               ) {
+                point = heldTouch.point
+                snapshotDisplay = heldTouch.display
+            } else {
+                let record = try simulatorUIActionSourceRecord(preflight)
+                let target = try resolveSimulatorUIElement(
+                    ref: elementRef,
+                    requiredActions: [.touch],
+                    record: record
+                )
+                point = target.activationPoint
+                snapshotDisplay = record.display
+            }
             let events = try simulatorUITouchEvents(
-                point: target.activationPoint,
+                point: point,
                 down: down,
                 up: up,
-                snapshotDisplay: record.display,
+                snapshotDisplay: snapshotDisplay,
                 coordinator: coordinator
             )
             _ = try await coordinator.perform(.interactive(.touch(
                 events: events,
                 holdMilliseconds: delayMilliseconds
             )))
+            if down, !up {
+                coordinator.holdUIAutomationTouch(
+                    elementRef: elementRef,
+                    point: point,
+                    display: snapshotDisplay
+                )
+            } else if !down, up {
+                coordinator.releaseHeldUIAutomationTouch(elementRef: elementRef)
+            }
             actionPayload = [
                 "type": .string("touch"),
                 "element_ref": .string(elementRef),
                 "down": .bool(down),
                 "up": .bool(up),
-                "x": .double(target.activationPoint.x),
-                "y": .double(target.activationPoint.y),
+                "x": .double(point.x),
+                "y": .double(point.y),
             ]
         case let .swipe(
             elementRef, rawDirection, durationMilliseconds, distance, steps,
@@ -295,6 +316,13 @@ struct SimulatorUIAutomationExecutor {
                 requiredActions: [.typeText],
                 record: record
             )
+            guard let focusSelector = record.stableSelector(for: elementRef) else {
+                throw simulatorUIReferenceFailure(
+                    SimulatorUIAutomationReferenceError.stableSelectorUnavailable(
+                        elementRef
+                    )
+                )
+            }
             let sequence: SimulatorTextInputSequence
             do {
                 sequence = try SimulatorUSKeyboardTextEncoder().encode(text)
@@ -307,6 +335,11 @@ struct SimulatorUIAutomationExecutor {
             try await performSimulatorUITap(
                 target,
                 snapshotDisplay: record.display,
+                coordinator: coordinator
+            )
+            try await waitForSimulatorUITextFocus(
+                selector: focusSelector,
+                elementRef: elementRef,
                 coordinator: coordinator
             )
             if replaceExisting {
@@ -476,6 +509,16 @@ struct SimulatorUIAutomationExecutor {
         coordinator: SimulatorPaneCoordinator
     ) async throws -> ActionPreflight {
         try await simulatorUIDelay(simulatorUIPreActionDelayMilliseconds(action))
+        if case let .touch(elementRef, down, up, _) = action,
+           !down, up,
+           coordinator.heldUIAutomationTouch(elementRef: elementRef) != nil {
+            return ActionPreflight(
+                sourceRecord: nil,
+                previousScreenHash: try? coordinator.currentUIAutomationSnapshot(
+                    nowMilliseconds: simulatorUINowMilliseconds()
+                ).snapshot.screenHash
+            )
+        }
         let elementRefs = simulatorUIElementRefs(in: action)
         guard !elementRefs.isEmpty else {
             return ActionPreflight(
@@ -599,6 +642,7 @@ struct SimulatorUIAutomationExecutor {
         // change notification, so bounded wait predicates require sampling.
         while true {
             try Task.checkCancellation()
+            guard simulatorUINowMilliseconds() < deadline else { break }
             let record = try await captureSimulatorUIAutomationSnapshot(
                 coordinator: coordinator,
                 retryingUntil: deadline
@@ -644,6 +688,61 @@ struct SimulatorUIAutomationExecutor {
             recoveryHint: simulatorUIWaitRecoveryHint(),
             candidates: simulatorUICompactCandidatePayloads(candidates),
             timeoutMilliseconds: wait.timeoutMilliseconds
+        )
+    }
+
+    private func waitForSimulatorUITextFocus(
+        selector: SimulatorUIAutomationSelector,
+        elementRef: String,
+        coordinator: SimulatorPaneCoordinator
+    ) async throws {
+        let timeoutMilliseconds: Int64 = 2_500
+        let deadline = simulatorUINowMilliseconds() + timeoutMilliseconds
+        var latestCandidates: [SimulatorUIAutomationElement] = []
+
+        while simulatorUINowMilliseconds() < deadline {
+            let record = try await captureSimulatorUIAutomationSnapshot(
+                coordinator: coordinator,
+                retryingUntil: deadline
+            )
+            latestCandidates = record.matching(selector)
+            try requireUniqueSimulatorUIWaitCandidate(latestCandidates)
+            if latestCandidates.first?.state.isFocused == true {
+                return
+            }
+            if let candidate = latestCandidates.first,
+               candidate.state.isFocused == nil {
+                throw SimulatorUIAutomationFailure(
+                    code: "target_not_actionable",
+                    message: String(
+                        localized: "cli.simulator.error.uiFocusUnavailable",
+                        defaultValue: "The matched Simulator element does not expose focus state"
+                    ),
+                    recoveryHint: simulatorUIActionRecoveryHint(),
+                    elementRef: elementRef,
+                    candidates: [simulatorUIElementPayload(candidate)]
+                )
+            }
+            let now = simulatorUINowMilliseconds()
+            guard now < deadline else { break }
+            try await simulatorUIDelay(min(100, Int(deadline - now)))
+        }
+
+        throw SimulatorUIAutomationFailure(
+            code: "target_not_focused",
+            message: String.localizedStringWithFormat(
+                String(
+                    localized: "cli.simulator.error.uiWaitTimeout",
+                    defaultValue: "Timed out after %lld ms waiting for '%@' (%lld candidate(s))"
+                ),
+                timeoutMilliseconds,
+                "focused",
+                Int64(latestCandidates.count)
+            ),
+            recoveryHint: simulatorUIActionRecoveryHint(),
+            elementRef: elementRef,
+            candidates: simulatorUICompactCandidatePayloads(latestCandidates),
+            timeoutMilliseconds: Int(timeoutMilliseconds)
         )
     }
 
@@ -767,20 +866,30 @@ struct SimulatorUIAutomationExecutor {
     ) async throws -> SimulatorUIAutomationSnapshotRecord {
         guard let deadlineMilliseconds else {
             return try await captureSimulatorUIAutomationSnapshotOnce(
-                coordinator: coordinator
+                coordinator: coordinator,
+                timeout: .seconds(30)
             )
         }
-        return try await SimulatorUIAutomationCaptureRetry(timing: timing).capture(
-            until: deadlineMilliseconds
-        ) {
-            try await captureSimulatorUIAutomationSnapshotOnce(
-                coordinator: coordinator
-            )
+        do {
+            return try await SimulatorUIAutomationCaptureRetry(timing: timing).capture(
+                until: deadlineMilliseconds
+            ) { remaining in
+                try await captureSimulatorUIAutomationSnapshotOnce(
+                    coordinator: coordinator,
+                    timeout: remaining
+                )
+            }
+        } catch is SimulatorUIAutomationCaptureDeadlineExceeded {
+            throw simulatorUISnapshotCaptureFailure(String(
+                localized: "cli.simulator.error.uiSnapshotDidNotSettle",
+                defaultValue: "The refreshed Simulator UI snapshot did not settle"
+            ))
         }
     }
 
     private func captureSimulatorUIAutomationSnapshotOnce(
-        coordinator: SimulatorPaneCoordinator
+        coordinator: SimulatorPaneCoordinator,
+        timeout: Duration
     ) async throws -> SimulatorUIAutomationSnapshotRecord {
         try requireSimulatorCapability(.accessibility, coordinator: coordinator)
         guard let simulatorID = coordinator.selectedDeviceID else {
@@ -789,9 +898,10 @@ struct SimulatorUIAutomationExecutor {
                 defaultValue: "The Simulator pane has no selected device"
             ))
         }
+        let mutationGeneration = coordinator.uiAutomationMutationGeneration
         let result: SimulatorControlResult
         do {
-            result = try await coordinator.perform(.readAccessibility)
+            result = try await coordinator.readAccessibility(timeout: timeout)
         } catch let failure as SimulatorFailure {
             throw simulatorUISnapshotCaptureFailure(failure.message)
         } catch {
@@ -799,6 +909,9 @@ struct SimulatorUIAutomationExecutor {
                 localized: "cli.simulator.error.accessibilityMissing",
                 defaultValue: "The Simulator worker returned no accessibility snapshot"
             ))
+        }
+        guard coordinator.uiAutomationMutationGeneration == mutationGeneration else {
+            throw simulatorUIStateChangedFailure()
         }
         guard case let .accessibility(snapshot) = result else {
             throw simulatorUISnapshotCaptureFailure(String(

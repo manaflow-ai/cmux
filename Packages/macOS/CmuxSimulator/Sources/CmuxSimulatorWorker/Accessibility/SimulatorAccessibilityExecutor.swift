@@ -5,7 +5,6 @@ protocol SimulatorAccessibilityBridging: Sendable {
     func attach(device: NSObject) -> Bool
     func detach()
     func resetAccessibilityConnection()
-    func probeAccessibility() throws
     func foregroundApplication() throws -> SimulatorApplicationInfo?
     func accessibilitySnapshot(
         display: SimulatorDisplayMetadata
@@ -50,16 +49,7 @@ actor SimulatorAccessibilityExecutor: SimulatorAccessibilityExecuting {
         attachedDeviceIdentifier = nil
         guard bridge.attach(device: device.object) else { return false }
         attachedDeviceIdentifier = deviceIdentifier
-        do {
-            try await performWithExclusiveConnection {
-                try bridge.probeAccessibility()
-            }
-            return true
-        } catch {
-            bridge.detach()
-            attachedDeviceIdentifier = nil
-            return false
-        }
+        return true
     }
 
     func detach() {

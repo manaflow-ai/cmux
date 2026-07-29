@@ -35,6 +35,11 @@ public protocol SimulatorPaneClient: Sendable {
     /// - Parameter action: The typed action to perform.
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult
 
+    /// Reads accessibility with a caller-owned response deadline.
+    func readAccessibility(
+        timeout: Duration
+    ) async throws -> SimulatorControlResult
+
     /// Invalidates only the transient worker generation, preserving this
     /// reusable client and the selected CoreSimulator device.
     func invalidateWorker() async
@@ -51,5 +56,13 @@ public extension SimulatorPaneClient {
         _ descriptor: SimulatorFrameTransportDescriptor
     ) async {
         _ = descriptor
+    }
+
+    /// Uses the client's standard action deadline when it has no custom worker.
+    func readAccessibility(
+        timeout: Duration
+    ) async throws -> SimulatorControlResult {
+        _ = timeout
+        return try await perform(.readAccessibility)
     }
 }
