@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxControlSocket
 import CmuxTerminal
 import Testing
 
@@ -352,6 +353,7 @@ struct ClosedMainWindowRoutingTests {
 
         let workspaceC = try #require(managerC.selectedWorkspace)
         let terminalPanelC = try #require(workspaceC.focusedTerminalPanel)
+        let unselectedWorkspaceC = managerC.addWorkspace(title: "Unavailable target", select: false)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanelC.id) === terminalPanelC.surface)
         let workspaceA = try #require(managerA.selectedWorkspace)
 
@@ -362,6 +364,22 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.tabManagerFor(windowId: windowCId) === managerC)
         #expect(!app.focusMainWindow(windowId: windowCId))
         #expect(!app.focusScriptableMainWindow(windowId: windowCId, bringToFront: true))
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+        #expect(
+            TerminalController.shared.controlSelectWorkspace(
+                routing: ControlRoutingSelectors(
+                    hasWindowIDParam: true,
+                    windowID: windowCId,
+                    groupID: nil,
+                    workspaceID: nil,
+                    surfaceID: nil,
+                    paneID: nil
+                ),
+                workspaceID: unselectedWorkspaceC.id
+            ) == .tabManagerUnavailable
+        )
+        #expect(managerC.selectedTabId == workspaceC.id)
         #expect(app.tabManager === managerA)
         #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
         #expect(!app.workspaceMoveTargets(
@@ -378,6 +396,87 @@ struct ClosedMainWindowRoutingTests {
         #expect(!managerC.tabs.contains { $0.id == workspaceA.id })
         #expect(app.tabManager === managerA)
         #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+
+        windowC.orderOut(nil)
+        #expect(app.recoverableMainWindowRoute(windowId: windowCId) == nil)
+        windowC.makeKeyAndOrderFront(nil)
+        #expect(app.recoverableMainWindowRoute(windowId: windowCId) == nil)
+        #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowCId })
+        #expect(app.tabManagerFor(windowId: windowCId) == nil)
+        #expect(app.windowId(for: managerC) == nil)
+    }
+
+    @Test("Rejected focus blocks external input and notification acknowledgement")
+    func rejectedFocusBlocksExternalInputAndNotificationAcknowledgement() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let sidebarSelectionState = SidebarSelectionState(selection: .notifications)
+        let notificationStore = TerminalNotificationStore.shared
+        let previousNotifications = notificationStore.notifications
+        let previousNotificationStore = app.notificationStore
+
+        AppDelegate.shared = app
+        app.tabManager = manager
+        app.notificationStore = notificationStore
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: sidebarSelectionState,
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Rejected focus",
+            subtitle: "test",
+            body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_888_888),
+            isRead: false
+        )
+        notificationStore.replaceNotificationsForTesting([notification])
+        let context = try #require(app.contextForMainTerminalWindow(window, reindex: false))
+        app.markMainWindowCloseCommitted(window)
+
+        defer {
+            notificationStore.replaceNotificationsForTesting(previousNotifications)
+            app.notificationStore = previousNotificationStore
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(!app.pasteTextInPreferredMainWindowFromExternalLink(
+            "rejected-input",
+            preferredWindow: window,
+            shouldBringToFront: true
+        ))
+        #expect(!app.openNotificationInContext(
+            context,
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            notificationId: notification.id
+        ))
+        #expect(notificationStore.notifications.first(where: { $0.id == notification.id })?.isRead == false)
+        if case .notifications = sidebarSelectionState.selection {
+            // Expected: focus rejection leaves the notification view untouched.
+        } else {
+            Issue.record("Rejected focus changed the sidebar selection")
+        }
     }
 
     @Test("Recoverable route never rebinds to another window with the same identifier")
