@@ -58,7 +58,7 @@ struct FilePreviewReviewFeedbackTests {
         #expect(!panel.isSaving)
         #expect(try String(contentsOf: url, encoding: .utf8) == "original")
         #expect(textView.performKeyEquivalent(with: suffixEvent))
-        await waitForPanelSave(panel)
+        await waitForFileContents("saved by chord", at: url)
         #expect(try String(contentsOf: url, encoding: .utf8) == "saved by chord")
     }
 
@@ -484,14 +484,16 @@ struct FilePreviewReviewFeedbackTests {
         )
     }
 
-    private func waitForPanelSave(
-        _ panel: FilePreviewPanel
-    ) async {
+    private func waitForFileContents(_ expected: String, at url: URL) async {
         let deadline = Date().addingTimeInterval(2)
-        while panel.isSaving, Date() < deadline {
-            await Task.yield()
+        while Date() < deadline {
+            if (try? String(contentsOf: url, encoding: .utf8)) == expected {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(10))
         }
-        #expect(!panel.isSaving, "Timed out waiting for panel save")
+        let actual = try? String(contentsOf: url, encoding: .utf8)
+        #expect(actual == expected, "Timed out waiting for saved file contents")
     }
 }
 
