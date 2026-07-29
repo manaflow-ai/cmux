@@ -1,8 +1,8 @@
 # Python development orchestrator
 
 This Python 3.9+ example creates an isolated cmux development environment with
-the public high-level SDK and the standard library. It scans machines and
-sessions, rejects duplicate names, creates an empty workspace, opens a typed
+the public high-level SDK and the standard library. It validates the local
+machine and session, creates an empty workspace, opens a typed
 session event stream, creates a screen, two panes, an idle terminal tab, and
 three exact-argv job terminals. Each job must match its output regex and then
 exit successfully through the durable typed terminal-exit API.
@@ -43,10 +43,9 @@ PYTHONPATH=cmux-tui/bindings/python \
   --plan cmux-tui/bindings/examples/python-dev-orchestrator/plan.example.json
 ```
 
-Without `--socket`, the SDK resolves `--socket-session`. If more than one
-machine has the requested `--session-name`, rerun with the candidate
-`--session-id` and `--machine-id` printed in the error. Duplicate workspace
-names similarly require `--workspace-id`.
+Without `--socket`, the SDK resolves `--socket-session`. The v1 endpoint
+exposes one local machine and session; the example still retains their typed
+IDs. Duplicate workspace names require `--workspace-id`.
 
 Each plan contains exactly three jobs. `argv` is transmitted without shell
 parsing. `ready_pattern` is a server-side regular expression that must appear
