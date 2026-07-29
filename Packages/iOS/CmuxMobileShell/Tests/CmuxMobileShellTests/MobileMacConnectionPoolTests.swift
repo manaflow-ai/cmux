@@ -634,6 +634,80 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func promotionFenceDrainsInitialControlActivation() async throws {
+        let router = LivenessHostRouter()
+        await router.holdSubscribeRequest(number: 1)
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "initial-promotion-fence",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-b",
+            macDisplayName: "Mac B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(runtime: runtime, isSignedIn: true)
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = subscription
+        shell.startSecondaryEventConsumer(subscription, displayName: "Mac B")
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 1
+        ))
+        #expect(try await pollUntil {
+            await router.heldRequestCount() == 1
+        })
+
+        let completion = PromotionFenceCompletion()
+        let fence = Task { @MainActor in
+            let result = await shell.prepareSecondarySubscriptionForPromotion(
+                subscription,
+                macDeviceID: "mac-b"
+            )
+            await completion.finish()
+            return result
+        }
+        for _ in 0 ..< 4 { await Task.yield() }
+        #expect(!(await completion.isFinished))
+        #expect(subscription.isTransitioningToFocus)
+
+        await router.releaseAllHeld()
+        #expect(await fence.value)
+        #expect(await shell.unsubscribeEventStream(
+            on: client,
+            streamID: subscription.streamID
+        ))
+        #expect(await router.count(of: "mobile.events.subscribe") == 1)
+
+        subscription.detachKeepingClient()
+        shell.secondaryMacSubscriptions["mac-b"] = nil
+        await client.disconnect()
+    }
+
     @Test func freshSwitchStagesMetadataAndReplacesTargetControlOwner() async throws {
         let router = LivenessHostRouter()
         await router.setHostIdentity(

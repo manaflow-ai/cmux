@@ -601,6 +601,10 @@ actor LivenessTransport: CmxByteTransport {
         }
     }
 
+    func isClosedForTesting() -> Bool {
+        isClosed
+    }
+
     /// Deliver a frame to the client's read loop. Also used by tests to push
     /// unsolicited server-side event envelopes.
     func deliver(_ frame: Data) {

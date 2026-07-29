@@ -144,6 +144,126 @@ import Testing
         #expect(foregroundStillWarm != nil)
     }
 
+    @Test func promotionRetiresAnonymousUnregisteredForegroundClient() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "anonymous-promotion",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-b",
+            displayName: "Studio B",
+            routes: [route],
+            instanceTag: "feature-b",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-b",
+            instanceTag: "feature-b",
+            displayName: "Studio B"
+        )
+        let anonymousTransportBox = TransportBox()
+        let anonymousRuntime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: anonymousTransportBox
+            ),
+            now: { Date() }
+        )
+        let targetRuntime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let anonymousTicket = try CmxAttachTicket(
+            workspaceID: "anonymous-workspace",
+            terminalID: "anonymous-terminal",
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let targetTicket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "mac-b",
+            macDisplayName: "Studio B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let anonymousClient = MobileCoreRPCClient(
+            runtime: anonymousRuntime,
+            route: route,
+            ticket: anonymousTicket,
+            allowsStackAuthFallback: true
+        )
+        let targetClient = MobileCoreRPCClient(
+            runtime: targetRuntime,
+            route: route,
+            ticket: targetTicket,
+            allowsStackAuthFallback: true
+        )
+        _ = try await anonymousClient.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                params: [:]
+            )
+        )
+        let anonymousTransport = try #require(anonymousTransportBox.get())
+        let shell = MobileShellComposite(
+            runtime: targetRuntime,
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            reachability: AlwaysOnlineReachability()
+        )
+        shell.remoteClient = anonymousClient
+        shell.activeTicket = anonymousTicket
+        shell.activeRoute = route
+        shell.secondaryMacSubscriptions["mac-b"] = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: targetClient,
+            route: route,
+            ticket: targetTicket,
+            storedInstanceTag: "feature-b",
+            authenticatedInstanceTag: "feature-b",
+            supportedHostCapabilities: ["terminal.render_grid.v1"],
+            actionCapabilities: .none
+        )
+
+        #expect(await shell.switchToMac(
+            macDeviceID: "mac-b",
+            instanceTag: "feature-b"
+        ))
+        #expect(shell.remoteClient === targetClient)
+        #expect(shell.foregroundMacDeviceID == "mac-b")
+        var anonymousTransportClosed = await anonymousTransport.isClosedForTesting()
+        for _ in 0..<50 where !anonymousTransportClosed {
+            try? await Task.sleep(for: .milliseconds(10))
+            anonymousTransportClosed = await anonymousTransport.isClosedForTesting()
+        }
+        #expect(anonymousTransportClosed)
+        await targetClient.disconnect()
+    }
+
     @Test func promotionRejectsAWhenStoreChangesToBDuringWorkspaceProbe() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

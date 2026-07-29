@@ -4094,13 +4094,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         let macID = subscription.macDeviceID
         let client = subscription.client
-        let streamID = subscription.streamID
         let subscriptionID = ObjectIdentifier(subscription)
         subscription.task = Task { @MainActor [weak self] in
             let stream = await client.subscribe(to: SecondaryMacSubscription.eventTopics)
-            guard await self?.enableSecondaryEventSubscription(
-                      on: client,
-                      streamID: streamID
+            guard await self?.enableOwnedSecondaryEventSubscription(
+                      subscription
                   ) == true else {
                 await self?.handleSecondaryControlStreamEnded(
                     macDeviceID: macID,
@@ -4202,25 +4200,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   !subscription.isTransitioningToFocus else {
                 continue
             }
-            // Keep the individual RPC unstructured and retained by Mac.
-            // Promotion can drain exactly its target before canceling this
-            // shared pass, without waiting on every other online Mac.
-            let reassertion = Task { @MainActor [weak self] in
-                await self?.enableSecondaryEventSubscription(
-                    on: subscription.client,
-                    streamID: subscription.streamID
-                ) == true
-            }
-            let reassertionToken = UUID()
-            secondaryControlReassertionTasksByMacID[macDeviceID] = reassertion
-            secondaryControlReassertionTokensByMacID[macDeviceID] =
-                reassertionToken
-            let enabled = await reassertion.value
-            if secondaryControlReassertionTokensByMacID[macDeviceID]
-                == reassertionToken {
-                secondaryControlReassertionTasksByMacID[macDeviceID] = nil
-                secondaryControlReassertionTokensByMacID[macDeviceID] = nil
-            }
+            let enabled = await enableOwnedSecondaryEventSubscription(
+                subscription
+            )
             // Promotion may have fenced this subscription while the reassertion
             // was awaiting its acknowledgement. It will drain this task and
             // issue the final unsubscribe, so neither result owns teardown.
@@ -4238,6 +4220,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         return !secondaryMacSubscriptions.isEmpty
+    }
+
+    /// Start or reassert one control stream only while this exact registry
+    /// owner remains control-only. The retained operation covers first
+    /// activation and keepalives, so promotion can drain either before its
+    /// final unsubscribe.
+    private func enableOwnedSecondaryEventSubscription(
+        _ subscription: SecondaryMacSubscription
+    ) async -> Bool {
+        let macDeviceID = subscription.macDeviceID
+        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+              !subscription.isTransitioningToFocus else {
+            return false
+        }
+        // No suspension occurs between the ownership guard and publishing this
+        // task. Promotion therefore either fences us out or can await the exact
+        // RPC that already owns activation.
+        let operation = Task { @MainActor [weak self] in
+            await self?.enableSecondaryEventSubscription(
+                on: subscription.client,
+                streamID: subscription.streamID
+            ) == true
+        }
+        let operationToken = UUID()
+        secondaryControlReassertionTasksByMacID[macDeviceID] = operation
+        secondaryControlReassertionTokensByMacID[macDeviceID] = operationToken
+        let enabled = await operation.value
+        if secondaryControlReassertionTokensByMacID[macDeviceID]
+            == operationToken {
+            secondaryControlReassertionTasksByMacID[macDeviceID] = nil
+            secondaryControlReassertionTokensByMacID[macDeviceID] = nil
+        }
+        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+              !subscription.isTransitioningToFocus else {
+            return false
+        }
+        return enabled
     }
 
     /// Fence a control subscription out of the shared keepalive before

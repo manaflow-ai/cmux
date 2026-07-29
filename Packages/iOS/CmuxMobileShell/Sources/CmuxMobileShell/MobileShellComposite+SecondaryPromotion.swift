@@ -156,6 +156,9 @@ extension MobileShellComposite {
         let previousForegroundConnection = previousForegroundID.flatMap {
             connections[$0]
         }
+        let unregisteredPreviousClient = previousForegroundConnection == nil
+            ? remoteClient
+            : nil
         let previousForegroundIsPoolEligible = if let previousForegroundConnection {
             await canRetainFocusedConnectionInControlPool(
                 previousForegroundConnection
@@ -237,6 +240,14 @@ extension MobileShellComposite {
             } else {
                 removeFocusedConnection(ifMatching: previousForegroundConnection)
             }
+        }
+        if let unregisteredPreviousClient,
+           unregisteredPreviousClient !== sub.client {
+            // Anonymous and legacy foreground sessions have no registry owner
+            // to demote. Retire synchronously before replacing `remoteClient`;
+            // the asynchronous close removes all of their server registrations.
+            unregisteredPreviousClient.retire()
+            Task { await unregisteredPreviousClient.disconnect() }
         }
         adoptPooledRemoteClient(sub.client)
         activeTicket = sub.ticket
