@@ -767,8 +767,14 @@ final class ClaudeHookSessionStore {
             let inheritedPendingBackgroundWork: Bool
             switch pendingBackgroundWorkBoundary {
             case .unchanged:
-                // Activity hooks do not own the one-shot transfer. Only an
-                // explicit lifecycle boundary below may consume or discard it.
+                // The one-shot transfer is an atomic pane tombstone. Activity
+                // hooks cannot claim the owner gap; only an explicit lifecycle
+                // boundary below may consume or discard it.
+                if markActive,
+                   let normalizedSurfaceId,
+                   state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId] != nil {
+                    return nil
+                }
                 inheritedPendingBackgroundWork = false
             case .discardTransfer:
                 inheritedPendingBackgroundWork = false
@@ -24853,7 +24859,7 @@ struct CMUXCLI {
                     sessionRecord: mappedSession
                 )
                 if let sessionId = parsedInput.sessionId {
-                    _ = try? sessionStore.upsert(
+                    let acceptedLifecycle = try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -24872,6 +24878,11 @@ struct CMUXCLI {
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
+                    guard acceptedLifecycle != nil else {
+                        telemetry.breadcrumb("claude-hook.stop.store-rejected")
+                        printClaudeHookAck()
+                        return
+                    }
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -25001,7 +25012,7 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd
                     )
                     : nil
-                _ = try? sessionStore.upsert(
+                let acceptedLifecycle = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -25014,6 +25025,11 @@ struct CMUXCLI {
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
+                guard acceptedLifecycle != nil else {
+                    telemetry.breadcrumb("claude-hook.prompt-submit.store-rejected")
+                    printClaudeHookAck()
+                    return
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
