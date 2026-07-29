@@ -86,21 +86,15 @@ struct RemoteSessionProcessRunnerTests {
         #expect(result.status == 0)
     }
 
-    @Test("An unexpected stdin write error fails the runner")
-    func unexpectedStdinWriteErrorFailsRunner() {
-        let runner = RemoteSessionProcessRunner(writeStdin: { _, _ in
-            throw POSIXError(.EIO)
-        })
+    @Test("An unexpected stdin write error keeps the pinned runner error")
+    func unexpectedStdinWriteErrorKeepsPinnedRunnerError() {
+        let invalidHandle = FileHandle(fileDescriptor: -1, closeOnDealloc: false)
 
         #expect {
-            try runner.run(
-                RemoteProcessRequest(
-                    executable: "/bin/sleep",
-                    arguments: ["30"],
-                    stdin: Data("payload".utf8),
-                    timeout: 5
-                ),
-                operation: nil
+            try RemoteSessionProcessRunner.StdinWriter.write(
+                Data("payload".utf8),
+                to: invalidHandle,
+                executableName: "sleep"
             )
         } throws: { error in
             let nsError = error as NSError
@@ -108,7 +102,7 @@ struct RemoteSessionProcessRunnerTests {
             return nsError.domain == "cmux.remote.process"
                 && nsError.code == 3
                 && nsError.localizedDescription.hasPrefix("Failed to write stdin for sleep:")
-                && underlyingError?.code == .EIO
+                && underlyingError?.code == .EBADF
         }
     }
 

@@ -20,7 +20,25 @@ internal import CMUXDebugLog
 /// synchronized by the capture `DispatchGroup` before any read-back, exactly
 /// like the legacy local-variable captures.
 public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
-    typealias StdinWriter = @Sendable (FileHandle, Data) throws -> Void
+    enum StdinWriter {
+        static func write(
+            _ data: Data,
+            to handle: FileHandle,
+            executableName: String
+        ) throws {
+            do {
+                try handle.writeProcessPipeInput(data)
+            } catch let error as POSIXError where error.code == .EPIPE {
+                // A child may exit before consuming optional stdin. The POSIX
+                // helper turns that expected race into EPIPE instead of SIGPIPE.
+            } catch {
+                throw NSError(domain: "cmux.remote.process", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey: "Failed to write stdin for \(executableName): \(error.localizedDescription)",
+                    NSUnderlyingErrorKey: error,
+                ])
+            }
+        }
+    }
 
     /// Test observation seam (package tests only): invoked right after the
     /// stdout/stderr capture readers are installed, with the pipe read
@@ -29,24 +47,16 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
     /// The capture-survives-teardown regression test uses that to prove
     /// `run` still completes; production constructs the runner without a hook.
     let readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)?
-    private let writeStdin: StdinWriter
 
     /// Creates the production runner.
     public init() {
         self.readHandlesDidInstall = nil
-        self.writeStdin = { handle, data in
-            try handle.writeProcessPipeInput(data)
-        }
     }
 
     init(
-        readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)? = nil,
-        writeStdin: @escaping StdinWriter = { handle, data in
-            try handle.writeProcessPipeInput(data)
-        }
+        readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)? = nil
     ) {
         self.readHandlesDidInstall = readHandlesDidInstall
-        self.writeStdin = writeStdin
     }
 
     // Mutable capture-state shared between the two background pipe readers
@@ -211,10 +221,11 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         if let stdin, let pipe = process.standardInput as? Pipe {
             let inputHandle = pipe.fileHandleForWriting
             do {
-                try writeStdin(inputHandle, stdin)
-            } catch let error as POSIXError where error.code == .EPIPE {
-                // A child may exit before consuming optional stdin. The POSIX
-                // helper turns that expected race into EPIPE instead of SIGPIPE.
+                try StdinWriter.write(
+                    stdin,
+                    to: inputHandle,
+                    executableName: URL(fileURLWithPath: executable).lastPathComponent
+                )
             } catch {
                 try? inputHandle.close()
                 if process.isRunning {
@@ -225,10 +236,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
                     "remote.proc.stdinWriteFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                     "error=\(error.localizedDescription)"
                 )
-                throw NSError(domain: "cmux.remote.process", code: 3, userInfo: [
-                    NSLocalizedDescriptionKey: "Failed to write stdin for \(URL(fileURLWithPath: executable).lastPathComponent): \(error.localizedDescription)",
-                    NSUnderlyingErrorKey: error,
-                ])
+                throw error
             }
             try? inputHandle.close()
         }
