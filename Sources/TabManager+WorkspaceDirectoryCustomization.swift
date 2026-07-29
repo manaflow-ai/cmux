@@ -11,8 +11,8 @@ extension TabManager {
         )
     }
 
-    /// Applies sticky identity to a newly-created workspace. A user-owned creation title wins.
-    func applyWorkspaceDirectoryCustomization(
+    /// Tracks a fresh workspace's root so future user-owned title/color changes persist.
+    func trackWorkspaceDirectoryCustomization(
         to workspace: Workspace,
         rootDirectory: String?,
         explicitTitle: String?,
@@ -23,18 +23,6 @@ extension TabManager {
         )
         guard let directoryKey else { return }
         workspace.customizationDirectory = directoryKey
-
-        if let customization = workspaceDirectoryCustomizationStore.customization(
-            for: directoryKey
-        ) {
-            if (explicitTitle == nil || explicitTitleSource == .auto),
-               let customTitle = customization.customTitle {
-                workspace.setCustomTitle(customTitle)
-            }
-            if let customColor = customization.customColor {
-                workspace.setCustomColor(customColor)
-            }
-        }
 
         if let explicitTitle {
             workspace.setCustomTitle(explicitTitle, source: explicitTitleSource)

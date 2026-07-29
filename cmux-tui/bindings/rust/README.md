@@ -24,6 +24,12 @@ println!("{}", client.read_screen(surface)?.text);
 `ClientConfig::default()` uses `CMUX_TUI_SOCKET` when set, then legacy
 `CMUX_MUX_SOCKET`, then the default session socket path.
 
+## 0.4 migration
+
+`CmuxError::Command` now includes `error_code: Option<String>`. Update exhaustive
+patterns and constructors to include `error_code`, or use `..` when that field
+is not needed.
+
 ## 0.3 migration
 
 `identify()` keeps the legacy `IdentifyResult` shape. Use `identify_details()`

@@ -418,5 +418,8 @@ extension DockSplitStore {
             workspaceID: workspaceId.uuidString,
             workingDirectory: workingDirectory
         )
+#if DEBUG
+        cmuxDebugLog("session.restore.dock.resumeBinding workspace=\(workspaceId.uuidString.prefix(8)) surface=\(panelId.uuidString.prefix(8)) source=\(session.source) session=\(session.id.prefix(8))")
+#endif
     }
 }

@@ -225,6 +225,7 @@ extension DockSplitStore {
             shellActivityState: transferredShellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
+            agentSessionRetryCompletedAttempts: preservedTransfer?.agentSessionRetryCompletedAttempts,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
