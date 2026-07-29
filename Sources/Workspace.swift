@@ -2670,7 +2670,7 @@ final class Workspace: Identifiable, ObservableObject {
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
         logEntries.removeAll(where: Self.isProxyOnlyRemoteLogEntry)
         remoteLastErrorFingerprint = nil
-        if let key = remoteNotificationCooldownKey(target: remoteDisplayTarget ?? "") {
+        if let key = remoteProxyNotificationCooldownKey(target: remoteDisplayTarget ?? "") {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, correlationKey: key)
         }
     }
@@ -2687,6 +2687,10 @@ final class Workspace: Identifiable, ObservableObject {
             .lowercased()
         guard let normalizedHost, !normalizedHost.isEmpty else { return nil }
         return "remote-host:\(normalizedHost)"
+    }
+
+    private func remoteProxyNotificationCooldownKey(target: String) -> String? {
+        remoteNotificationCooldownKey(target: target).map { "\($0):proxy" }
     }
 
     var focusedSurfaceId: UUID? { focusedPanelId }
@@ -6596,7 +6600,9 @@ final class Workspace: Identifiable, ObservableObject {
                     title: notificationTitle,
                     subtitle: target,
                     body: trimmedDetail,
-                    cooldownKey: remoteNotificationCooldownKey(target: target),
+                    cooldownKey: proxyOnlyError
+                        ? remoteProxyNotificationCooldownKey(target: target)
+                        : remoteNotificationCooldownKey(target: target),
                     cooldownInterval: Self.remoteNotificationCooldown
                 )
             }

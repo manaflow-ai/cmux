@@ -153,20 +153,30 @@ extension SessionRemoteWorkspaceSnapshot {
                     terminalProfile: restoredTerminalProfile
                 )
                 if restoreOrdinarySSHRelayNamespace,
-                   let remoteRelayPort = normalizedRelayPort,
-                   let fallbackCommand {
+                   let remoteRelayPort = normalizedRelayPort {
                     return lifecycleAwareSSHReconnectCommand(
                         destination: normalizedDestination,
                         port: normalizedPort,
                         sshOptions: restoredSSHOptions,
                         terminalProfile: restoredTerminalProfile,
-                        remoteRelayPort: remoteRelayPort,
-                        fallbackCommand: fallbackCommand
-                    ) ?? fallbackCommand
+                        remoteRelayPort: remoteRelayPort
+                    )
                 }
-                guard restoredTerminalTransport == .mosh,
-                      let fallbackCommand else {
+                guard restoredTerminalTransport == .mosh else {
                     return fallbackCommand
+                }
+                let sshFallbackCommand: String
+                if restoreMoshRelayNamespace,
+                   let remoteRelayPort = normalizedRelayPort {
+                    sshFallbackCommand = lifecycleAwareSSHReconnectCommand(
+                        destination: normalizedDestination,
+                        port: normalizedPort,
+                        sshOptions: restoredSSHOptions,
+                        terminalProfile: restoredTerminalProfile,
+                        remoteRelayPort: remoteRelayPort
+                    )
+                } else {
+                    sshFallbackCommand = fallbackCommand
                 }
                 return moshReconnectCommand(
                     destination: normalizedDestination,
@@ -174,7 +184,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     sshOptions: restoredSSHOptions,
                     terminalProfile: restoredTerminalProfile,
                     remoteRelayPort: restoreMoshRelayNamespace ? normalizedRelayPort : nil,
-                    sshFallbackCommand: fallbackCommand
+                    sshFallbackCommand: sshFallbackCommand
                 )
             }(),
             foregroundAuthToken: foregroundAuthToken,
@@ -206,7 +216,7 @@ extension SessionRemoteWorkspaceSnapshot {
         port normalizedPort: Int?,
         sshOptions reconnectSSHOptions: [String]? = nil,
         terminalProfile: WorkspaceRemoteTerminalProfile = .shell
-    ) -> String? {
+    ) -> String {
         var arguments = sshBootstrapArguments(
             port: normalizedPort,
             sshOptions: reconnectSSHOptions
@@ -230,9 +240,8 @@ extension SessionRemoteWorkspaceSnapshot {
         port normalizedPort: Int?,
         sshOptions reconnectSSHOptions: [String],
         terminalProfile: WorkspaceRemoteTerminalProfile,
-        remoteRelayPort: Int,
-        fallbackCommand: String
-    ) -> String? {
+        remoteRelayPort: Int
+    ) -> String {
         let sshArguments = sshBootstrapArguments(
             port: normalizedPort,
             sshOptions: reconnectSSHOptions
@@ -251,13 +260,18 @@ extension SessionRemoteWorkspaceSnapshot {
                 .bundledShellIntegrationScript(named: "fish/config.fish"),
             terminalProfile: terminalProfile
         )
+        let failureMessage = String(
+            localized: "cli.ssh.restore.lifecycleUnavailable",
+            defaultValue: "[cmux] SSH restore stopped because cmux could not register the connection lifecycle. Reopen this remote workspace to reconnect."
+        )
+        let failureScript = "printf '%s\\n' \(Self.shellQuote(failureMessage)) >&2; exit 1"
         guard let staging = RemoteBootstrapStagingCommandBuilder(
             installerSSHArguments: sessionSSHArguments,
             destination: normalizedDestination,
             remoteRelayPort: remoteRelayPort,
             bootstrapScript: remoteBootstrapScript
         ) else {
-            return nil
+            return "/bin/sh -c \(Self.shellQuote(failureScript))"
         }
 
         var terminalArguments = sessionSSHArguments
@@ -275,17 +289,17 @@ extension SessionRemoteWorkspaceSnapshot {
             staging.remoteExecutionShellScript,
         ].joined(separator: "\n")
         let script = [
-            "cmux_restore_fallback() { exec \(fallbackCommand); }",
+            "cmux_restore_fail() { \(failureScript); }",
             "cmux_restore_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_restore_cli\" ] || [ ! -x \"$cmux_restore_cli\" ]; then cmux_restore_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
-            "if [ -z \"$cmux_restore_cli\" ] || [ -z \"${CMUX_SOCKET_PATH:-}\" ] || [ -z \"${CMUX_WORKSPACE_ID:-}\" ] || [ -z \"${CMUX_SURFACE_ID:-}\" ] || [ -z \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" ]; then cmux_restore_fallback; fi",
-            "CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || cmux_restore_fallback",
+            "if [ -z \"$cmux_restore_cli\" ] || [ -z \"${CMUX_SOCKET_PATH:-}\" ] || [ -z \"${CMUX_WORKSPACE_ID:-}\" ] || [ -z \"${CMUX_SURFACE_ID:-}\" ] || [ -z \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" ]; then cmux_restore_fail; fi",
+            "CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || cmux_restore_fail",
             "export CMUX_SSH_ATTEMPT_ID",
             "cmux_restore_launch_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"terminal_lifecycle_id\\\":\\\"$CMUX_TERMINAL_LIFECYCLE_ID\\\",\\\"attempt_id\\\":\\\"$CMUX_SSH_ATTEMPT_ID\\\"}\"",
             "cmux_restore_launch_retry=0",
-            "while ! CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_restore_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching \"$cmux_restore_launch_payload\" >/dev/null 2>&1; do cmux_restore_launch_retry=$((cmux_restore_launch_retry + 1)); if [ \"$cmux_restore_launch_retry\" -ge 3 ]; then cmux_restore_fallback; fi; /bin/sleep 0.1; done",
+            "while ! CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_restore_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching \"$cmux_restore_launch_payload\" >/dev/null 2>&1; do cmux_restore_launch_retry=$((cmux_restore_launch_retry + 1)); if [ \"$cmux_restore_launch_retry\" -ge 3 ]; then cmux_restore_fail; fi; /bin/sleep 0.1; done",
             staging.preparationShellScript,
-            "if [ \"$cmux_remote_install_status\" -ne 0 ]; then cmux_restore_fallback; fi",
+            "if [ \"$cmux_remote_install_status\" -ne 0 ]; then cmux_restore_fail; fi",
             "unset cmux_remote_install_status",
             "cmux_restore_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
             "cmux_restore_surface_id=\"${CMUX_SURFACE_ID:-}\"",
@@ -339,7 +353,6 @@ extension SessionRemoteWorkspaceSnapshot {
             + sshArguments.dropFirst()
         var remoteCommandArguments = terminalProfile.remoteCommandArguments
         var preparationShellScript: String?
-        var effectiveSSHFallbackCommand = sshFallbackCommand
         if let remoteRelayPort {
             let remoteBootstrapScript = RemoteInteractiveShellBootstrapBuilder.script(
                 remoteRelayPort: remoteRelayPort,
@@ -363,12 +376,6 @@ extension SessionRemoteWorkspaceSnapshot {
             ) {
                 remoteCommandArguments = staging.remoteExecutionCommandArguments
                 preparationShellScript = staging.preparationShellScript
-                effectiveSSHFallbackCommand = stagedSSHFallbackCommand(
-                    staging: staging,
-                    sshArguments: moshSSHArguments,
-                    destination: normalizedDestination,
-                    sshOptions: reconnectSSHOptions
-                )
             }
         }
         return MoshTerminalCommandBuilder(
@@ -378,7 +385,7 @@ extension SessionRemoteWorkspaceSnapshot {
             remoteCommandArguments: remoteCommandArguments,
             remoteRelayPort: remoteRelayPort,
             preparationShellScript: preparationShellScript,
-            sshFallbackCommand: effectiveSSHFallbackCommand,
+            sshFallbackCommand: sshFallbackCommand,
             localMoshMissingMessage: String(
                 localized: "cli.ssh.mosh.localMissing",
                 defaultValue: "[cmux] Mosh is not installed locally; continuing over SSH."
@@ -396,28 +403,6 @@ extension SessionRemoteWorkspaceSnapshot {
                 defaultValue: "[cmux] Could not verify remote Mosh support; continuing over SSH."
             )
         ).command()
-    }
-
-    private func stagedSSHFallbackCommand(
-        staging: RemoteBootstrapStagingCommandBuilder,
-        sshArguments: [String],
-        destination: String,
-        sshOptions: [String]
-    ) -> String {
-        var terminalArguments = sshArguments
-        if !Self.hasSSHOptionKey(sshOptions, key: "RequestTTY") {
-            terminalArguments.append("-tt")
-        }
-        terminalArguments.append(destination)
-        terminalArguments.append(contentsOf: staging.remoteExecutionCommandArguments)
-        let invocation = terminalArguments.map(Self.shellQuote).joined(separator: " ")
-        let script = [
-            staging.preparationShellScript,
-            "if [ \"$cmux_remote_install_status\" -ne 0 ]; then exit \"$cmux_remote_install_status\"; fi",
-            "unset cmux_remote_install_status",
-            "exec \(invocation)",
-        ].joined(separator: "\n")
-        return "/bin/sh -c \(Self.shellQuote(script))"
     }
 
     private func sshBootstrapArguments(

@@ -3008,16 +3008,19 @@ private struct SSHPTYTerminalReadinessReport: Sendable {
     let explicitPassword: String?
     let params: [String: String]
     let attemptTimeout: TimeInterval
-    let retryLimit: Int
     let retryDelay: TimeInterval
 
-    func deliverUntilAcknowledged() {
-        for attempt in 0..<max(1, retryLimit) {
+    func deliverUntilAcknowledged() async {
+        while !Task.isCancelled {
             if deliverOnce() {
                 return
             }
-            if attempt + 1 < retryLimit {
-                Thread.sleep(forTimeInterval: retryDelay)
+            do {
+                try await Task.sleep(
+                    nanoseconds: UInt64(max(0, retryDelay) * 1_000_000_000)
+                )
+            } catch {
+                return
             }
         }
     }
@@ -3063,7 +3066,6 @@ struct CMUXCLI {
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let sshPTYTerminalConnectedResponseTimeoutSeconds: TimeInterval = 0.5
-    private static let sshPTYTerminalConnectedRetryLimit = 4
     private static let sshPTYTerminalConnectedRetryDelaySeconds: TimeInterval = 0.1
     // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
     // both the backend create idempotency key and the local daemon slot so every open,
@@ -12700,6 +12702,7 @@ struct CMUXCLI {
         var wrapperWillRetrySameSurface = false
         var attachFinished = false
         var attachmentToken = ""
+        var readinessDelivery: Task<Void, Never>?
         func reconcileBridgeEnd(intentionalOnly: Bool) throws -> Bool {
             do {
                 return try reconcileSSHPTYBridgeEnd(
@@ -12715,6 +12718,7 @@ struct CMUXCLI {
             }
         }
         defer {
+            readinessDelivery?.cancel()
             if !attachFinished {
                 cleanupFailedSSHPTYAttach(
                     client: client,
@@ -12840,7 +12844,7 @@ struct CMUXCLI {
                     "terminal_lifecycle_id": terminalLifecycleID,
                     "attempt_id": attemptID,
                 ]
-                reportSSHPTYTerminalConnected(
+                readinessDelivery = reportSSHPTYTerminalConnected(
                     socketPath: client.socketPath,
                     explicitPassword: explicitPassword,
                     params: readinessParams
@@ -12911,12 +12915,14 @@ struct CMUXCLI {
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeMonitor.cancel()
+                readinessDelivery?.cancel()
                 _ = try reconcileBridgeEnd(intentionalOnly: false)
                 attachFinished = true
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
                     resizeMonitor.cancel()
+                    readinessDelivery?.cancel()
                     _ = try reconcileBridgeEnd(intentionalOnly: false)
                     attachFinished = true
                     return
@@ -12927,23 +12933,22 @@ struct CMUXCLI {
     }
 
     /// Reports bridge readiness on disposable sockets independently of terminal
-    /// forwarding. A bounded retry window absorbs transient local socket and
-    /// main-actor latency without poisoning the attach control socket.
+    /// forwarding. The caller owns the returned delivery task and cancels it
+    /// when the bridge ends, so transient local backpressure cannot orphan work.
     private func reportSSHPTYTerminalConnected(
         socketPath: String,
         explicitPassword: String?,
         params: [String: String]
-    ) {
+    ) -> Task<Void, Never> {
         let report = SSHPTYTerminalReadinessReport(
             socketPath: socketPath,
             explicitPassword: explicitPassword,
             params: params,
             attemptTimeout: Self.sshPTYTerminalConnectedResponseTimeoutSeconds,
-            retryLimit: Self.sshPTYTerminalConnectedRetryLimit,
             retryDelay: Self.sshPTYTerminalConnectedRetryDelaySeconds
         )
-        DispatchQueue.global(qos: .userInitiated).async {
-            report.deliverUntilAcknowledged()
+        return Task.detached(priority: .userInitiated) {
+            await report.deliverUntilAcknowledged()
         }
     }
 
