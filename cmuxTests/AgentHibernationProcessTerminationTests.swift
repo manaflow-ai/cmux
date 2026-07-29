@@ -125,6 +125,33 @@ struct AgentHibernationProcessTerminationTests {
         #expect(terminations == nil)
     }
 
+    @Test
+    func rejectsScopeWithUnrecordedProcessIdentity() {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let identity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 1
+        )
+        let scope = AgentHibernationController.ProcessTerminationScope(
+            key: AgentHibernationPanelKey(workspaceId: workspaceID, panelId: panelID),
+            processIDs: [101, 202],
+            processIdentities: [101: identity]
+        )
+
+        let terminations = AgentHibernationController.validatedScopedProcessTerminations(
+            for: scope,
+            processIdentityProvider: { _ in identity },
+            processArgumentsProvider: { _ in
+                Self.processArguments(workspaceID: workspaceID, panelID: panelID)
+            },
+            processGroupProvider: { _ in 1_101 }
+        )
+
+        #expect(terminations == nil)
+    }
+
     @MainActor
     @Test
     func committedObservationDoesNotCompleteUntilTheExactProcessGenerationExits() async {
