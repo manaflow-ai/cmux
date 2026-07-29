@@ -362,7 +362,7 @@ actor MobileCoreRPCSession {
         } else {
             if let connectAttemptKey {
                 guard let lease = await connectAttemptRegistry.beginConnect(key: connectAttemptKey) else {
-                    throw MobileShellConnectionError.requestTimedOut
+                    throw MobileShellConnectionError.connectAttemptGated
                 }
                 connectLease = lease
             } else {
@@ -386,6 +386,18 @@ actor MobileCoreRPCSession {
             } catch {
                 await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
                 if error is CancellationError || Task.isCancelled {
+                    if let diagnosticTransport, let transportConnectObserver {
+                        transportConnectObserver(
+                            .failed(
+                                attemptID: connectAttemptID,
+                                transport: diagnosticTransport,
+                                failure: .cancelled,
+                                elapsedMilliseconds: Self.elapsedMilliseconds(
+                                    since: connectStartedAt
+                                )
+                            )
+                        )
+                    }
                     throw CancellationError()
                 }
                 if let diagnosticTransport, let transportConnectObserver {
@@ -415,30 +427,66 @@ actor MobileCoreRPCSession {
                     // A cancellation-ignoring transport must still return its
                     // late candidate to the existing abandoned-connect cleanup
                     // path so that path can close it again after completion.
-                    // Suppress the success event without replacing that result
-                    // with `CancellationError`.
-                    if !Task.isCancelled,
-                       let diagnosticTransport,
-                       let transportConnectObserver {
+                    // Report the abandoned attempt as cancelled without
+                    // replacing that result with `CancellationError`.
+                    if let diagnosticTransport, let transportConnectObserver {
+                        if Task.isCancelled {
+                            transportConnectObserver(
+                                .failed(
+                                    attemptID: connectAttemptID,
+                                    transport: diagnosticTransport,
+                                    failure: .cancelled,
+                                    elapsedMilliseconds: Self.elapsedMilliseconds(
+                                        since: connectStartedAt
+                                    )
+                                )
+                            )
+                        } else {
+                            transportConnectObserver(
+                                .connected(
+                                    attemptID: connectAttemptID,
+                                    transport: diagnosticTransport,
+                                    elapsedMilliseconds: Self.elapsedMilliseconds(
+                                        since: connectStartedAt
+                                    )
+                                )
+                            )
+                        }
+                    }
+                    return candidate
+                } catch is CancellationError {
+                    if let diagnosticTransport, let transportConnectObserver {
                         transportConnectObserver(
-                            .connected(
+                            .failed(
                                 attemptID: connectAttemptID,
                                 transport: diagnosticTransport,
+                                failure: .cancelled,
                                 elapsedMilliseconds: Self.elapsedMilliseconds(
                                     since: connectStartedAt
                                 )
                             )
                         )
                     }
-                    return candidate
-                } catch is CancellationError {
                     throw CancellationError()
                 } catch {
                     // Some transports surface their close error instead of
                     // `CancellationError` after the cancellation handler closes
                     // them. Treat the task's cancellation bit as authoritative
-                    // so an abandoned dial never becomes a false failure event.
+                    // so an abandoned dial reports cancelled, never a false
+                    // transport failure.
                     if Task.isCancelled {
+                        if let diagnosticTransport, let transportConnectObserver {
+                            transportConnectObserver(
+                                .failed(
+                                    attemptID: connectAttemptID,
+                                    transport: diagnosticTransport,
+                                    failure: .cancelled,
+                                    elapsedMilliseconds: Self.elapsedMilliseconds(
+                                        since: connectStartedAt
+                                    )
+                                )
+                            )
+                        }
                         throw CancellationError()
                     }
                     if let diagnosticTransport, let transportConnectObserver {

@@ -75,6 +75,26 @@ public actor MobileRPCConnectAttemptRegistry {
         clearFinishedConnect(lease: lease)
     }
 
+    /// Drops route poisoning accumulated under a previous network path.
+    ///
+    /// Abandoned-attempt counts and hard gates exist to stop one stuck task
+    /// from piling up unclosed transports, but the usual reason dials hang is
+    /// that the device's network path died underneath them. Once the path
+    /// changes, that history predicts nothing about the new network, while a
+    /// surviving hard gate blocks exactly the retries that would now succeed.
+    /// In-flight dials stay reserved so connects remain single-flight; only
+    /// their strike counts reset.
+    public func resetRouteHealthForNetworkChange() {
+        for (key, state) in routeStates {
+            switch state {
+            case .hardGated, .released:
+                routeStates[key] = nil
+            case .active(let id, _):
+                routeStates[key] = .active(id: id, abandonedAttempts: 0)
+            }
+        }
+    }
+
     private func expireHardGateIfNeeded(key: String) {
         guard case .hardGated(_, _, let expiry) = routeStates[key] else { return }
         guard DispatchTime.now().uptimeNanoseconds >= expiry else { return }

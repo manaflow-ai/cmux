@@ -498,7 +498,7 @@ extension MobileShellComposite {
         switch connectionError {
         case .connectionClosed, .transportWriteTimedOut:
             return .notConnected(hostDisplayName: hostDisplayName)
-        case .requestTimedOut:
+        case .requestTimedOut, .connectAttemptGated:
             return .requestTimedOut(hostDisplayName: hostDisplayName)
         case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
             return .authorizationFailed(hostDisplayName: hostDisplayName)
