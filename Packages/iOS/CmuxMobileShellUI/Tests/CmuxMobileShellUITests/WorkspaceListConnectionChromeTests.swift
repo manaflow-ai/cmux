@@ -81,7 +81,8 @@ import Testing
             wrapWorkspaceTitles: false,
             selectWorkspace: { _ in },
             createWorkspace: {},
-            macSelection: binding(initialValue: .all)
+            macSelection: binding(initialValue: .all),
+            filterState: WorkspaceListFilterState()
         )
 
         #expect(view.connectionChrome == .macStatusRow)

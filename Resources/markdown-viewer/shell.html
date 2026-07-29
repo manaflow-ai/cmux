@@ -1183,6 +1183,11 @@ html { scroll-behavior: smooth; }
 
   var mermaidInitialized = false;
   var cmuxMarkdownZoom = 1;
+  // Whether this engine's pageZoom scales the whole CSS viewport (newer WebKit,
+  // where fixed-px SVG bounds already track the prose) or only text metrics
+  // (older WebKit, where Mermaid SVGs need manual compensation). Unknown until
+  // the first non-default zoom supplies both host and CSS viewport widths.
+  var cmuxEngineScalesSVG = null;
   var mermaidResizeObserver = null;
   var mermaidObservedWidth = 0;
 
@@ -1274,16 +1279,17 @@ html { scroll-behavior: smooth; }
     return { width: width, height: height };
   }
 
-  function mermaidCurrentBaseSize(svg, natural) {
+  function mermaidCurrentBaseSize(svg, natural, containerScale) {
     var container = svg.closest ? svg.closest('.cmux-mermaid') : svg.parentElement;
     var rect = container && container.getBoundingClientRect ? container.getBoundingClientRect() : null;
     var containerWidth = rect ? rect.width : NaN;
     if (!Number.isFinite(containerWidth) || containerWidth <= 0) {
       containerWidth = container ? container.clientWidth : NaN;
     }
+    var scale = Number.isFinite(containerScale) && containerScale > 0 ? containerScale : 1;
     var width = natural.width;
     if (Number.isFinite(containerWidth) && containerWidth > 0) {
-      width = Math.min(containerWidth, natural.width);
+      width = Math.min(containerWidth * scale, natural.width);
     }
     return { width: width, height: width * (natural.height / natural.width) };
   }
@@ -1323,10 +1329,24 @@ html { scroll-behavior: smooth; }
       svg.setAttribute('data-cmux-mermaid-zoom', '1');
       return;
     }
-    var base = mermaidCurrentBaseSize(svg, natural);
-    // WKWebView pageZoom scales markdown text metrics here, but Mermaid SVG bounds stay fixed.
-    var width = Math.max(1, base.width * cmuxMarkdownZoom);
-    var height = Math.max(1, base.height * cmuxMarkdownZoom);
+    var width;
+    var height;
+    if (cmuxEngineScalesSVG === true) {
+      // This engine's pageZoom scales the whole viewport: the container's CSS
+      // width is already divided by the zoom, and the engine multiplies any
+      // CSS size we set. Pin the zoom-1 fitted size (letting a wide diagram
+      // overflow and scroll at its enlarged size) and let the engine scale it;
+      // multiplying here as well renders the diagram zoom-squared.
+      var pinned = mermaidCurrentBaseSize(svg, natural, cmuxMarkdownZoom);
+      width = Math.max(1, pinned.width);
+      height = Math.max(1, pinned.height);
+    } else {
+      // Older WKWebView pageZoom scales markdown text metrics but leaves fixed
+      // px SVG bounds alone, so the shell must size the diagram up itself.
+      var base = mermaidCurrentBaseSize(svg, natural, 1);
+      width = Math.max(1, base.width * cmuxMarkdownZoom);
+      height = Math.max(1, base.height * cmuxMarkdownZoom);
+    }
     svg.style.maxWidth = '';
     svg.setAttribute('data-cmux-mermaid-scaled', '1');
     svg.style.width = width + 'px';
@@ -1341,8 +1361,34 @@ html { scroll-behavior: smooth; }
     Array.prototype.forEach.call(scope.querySelectorAll('.cmux-mermaid svg'), applyMermaidZoomToSVG);
   }
 
-  window.__cmuxSetMarkdownZoom = function(zoom) {
+  function detectPageZoomViewportScaling(zoom, hostViewportWidth) {
+    var hostWidth = Number(hostViewportWidth);
+    var cssWidth = window.innerWidth;
+    if (
+      !Number.isFinite(hostWidth) ||
+      hostWidth <= 0 ||
+      !Number.isFinite(cssWidth) ||
+      cssWidth <= 0 ||
+      Math.abs(zoom - 1) <= 0.0001
+    ) {
+      return null;
+    }
+    var expectedViewportWidth = hostWidth / zoom;
+    var viewportDistance = Math.abs(cssWidth - expectedViewportWidth);
+    var legacyDistance = Math.abs(cssWidth - hostWidth);
+    var tolerance = Math.max(2, Math.max(hostWidth, expectedViewportWidth) * 0.02);
+    if (Math.min(viewportDistance, legacyDistance) > tolerance) { return null; }
+    return viewportDistance < legacyDistance;
+  }
+
+  window.__cmuxSetMarkdownZoom = function(zoom, hostViewportWidth) {
     cmuxMarkdownZoom = normalizedMarkdownZoom(zoom);
+    // Native supplies the current WKWebView width after setting pageZoom. A
+    // single contemporaneous sample distinguishes the engine generations:
+    // newer WebKit reports hostWidth / zoom, while older WebKit reports the
+    // unscaled hostWidth. No resize-sensitive historical baseline is needed.
+    var detectedScaling = detectPageZoomViewportScaling(cmuxMarkdownZoom, hostViewportWidth);
+    if (detectedScaling !== null) { cmuxEngineScalesSVG = detectedScaling; }
     mermaidObservedWidth = mermaidContentWidth(null);
     applyMermaidZoom(contentEl);
   };

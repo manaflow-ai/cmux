@@ -10,13 +10,18 @@ extension IrohError: @retroactive DiagnosticFailureProviding {
         Self.diagnosticFailureKind(message: message())
     }
 
-    /// iroh-ffi 1.0.2-cmux.4 (iroh 1.0.2) exposes one opaque `IrohError`
+    /// iroh-ffi 1.0.2-cmux.4 and later (iroh 1.0.2) expose one opaque `IrohError`
     /// object. Its `message()` retains `ReadError` case names and other errors'
     /// stable display chains, but no structured discriminator. These pinned
     /// tokens are the narrowest fallback until the binding exports a taxonomy.
     private static func diagnosticFailureKind(
         message: String
     ) -> DiagnosticFailureKind {
+        // iroh-ffi's ConnectAttempt fails a cancelled dial with this fixed marker
+        // (CONNECT_CANCELLED_MESSAGE, iroh-ffi src/endpoint.rs, v1.0.2-cmux.4+).
+        if message.contains("outgoing connection cancelled") {
+            return .cancelled
+        }
         if message.contains("ConnectionLost(TimedOut)") {
             return .transportIdleTimedOut
         }
@@ -49,7 +54,7 @@ extension IrohError: @retroactive DiagnosticFailureProviding {
         // `open_uni`) surface `iroh::endpoint::ConnectionError` Debug-formatted
         // WITHOUT the `ConnectionLost(...)` wrapper that stream read/write
         // errors carry (noq `ConnectionError` at manaflow-ai/noq@2271bbc, via
-        // iroh-ffi 1.0.2-cmux.4). Host rings from the 2026-07-23 WiFi
+        // iroh-ffi 1.0.2-cmux.4+). Host rings from the 2026-07-23 WiFi
         // path-flap loop showed admitted sessions dying `applicationLaneFailed`
         // with these bare tokens classified `unknown`.
         if message.contains("TimedOut") {

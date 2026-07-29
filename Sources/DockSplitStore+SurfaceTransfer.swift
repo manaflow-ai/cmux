@@ -69,6 +69,13 @@ extension DockSplitStore {
     /// `didCloseTab` → `reconcilePanels()` path cannot tear the live panel down.
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalWillLeaveDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
         let restoredAgentObservation = SharedLiveAgentIndex.shared.index?.entry(
             workspaceId: preservedTransfer?.sessionRestoreWorkspaceId ?? workspaceId,
@@ -177,6 +184,14 @@ extension DockSplitStore {
             installSubscription(for: panel, tracksTerminalTitle: true)
             return nil
         }
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalDidLeaveDock(
+                    terminalPanel,
+                    dock: self,
+                    preservingTransfer: true
+                )
+        }
 
         let detached = Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: workspaceId,
@@ -210,6 +225,7 @@ extension DockSplitStore {
             shellActivityState: transferredShellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
+            agentSessionRetryCompletedAttempts: preservedTransfer?.agentSessionRetryCompletedAttempts,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
@@ -269,6 +285,11 @@ extension DockSplitStore {
             return nil
         }
         surfaceIdToPanelId[newTabId] = detached.panelId
+        AgentHibernationController.shared.transferTrackingStateForMovedPanel(
+            panelId: detached.panelId,
+            from: detached.sourceWorkspaceId,
+            to: workspaceId
+        )
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
@@ -279,6 +300,23 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
         )
+        if let terminalPanel = panel as? TerminalPanel {
+            if let owningWorkspace =
+                    terminalFontSizeOwningWorkspace {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: owningWorkspace
+                )
+            } else {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: self
+                )
+            }
+            terminalFontSizeChangeCoordinator?
+                .terminalDidEnterDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         return detached.panelId
     }
 
@@ -340,6 +378,11 @@ extension DockSplitStore {
             clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
+        AgentHibernationController.shared.transferTrackingStateForMovedPanel(
+            panelId: detached.panelId,
+            from: detached.sourceWorkspaceId,
+            to: workspaceId
+        )
 
         repairPlaceholderOnlyDockPane(paneId)
         finishAttachingDetachedSurface(
@@ -349,6 +392,23 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
         )
+        if let terminalPanel = panel as? TerminalPanel {
+            if let owningWorkspace =
+                    terminalFontSizeOwningWorkspace {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: owningWorkspace
+                )
+            } else {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: self
+                )
+            }
+            terminalFontSizeChangeCoordinator?
+                .terminalDidEnterDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         return detached.panelId
     }
 

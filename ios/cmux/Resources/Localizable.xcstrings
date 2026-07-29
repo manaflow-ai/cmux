@@ -2041,6 +2041,23 @@
         }
       }
     },
+    "mobile.connection.toast.unavailableMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The live connection dropped. Your Mac may still be online."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ接続が切断されました。Mac はまだオンラインの可能性があります。"
+          }
+        }
+      }
+    },
     "mobile.connection.unavailableDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -2353,13 +2370,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add a computer to start syncing terminal workspaces."
+            "value": "Sign in to cmux on your computer with this account and it appears here automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータを追加してターミナルワークスペースの同期を開始します。"
+            "value": "コンピュータの cmux にこのアカウントでサインインすると、ここに自動的に表示されます。"
           }
         }
       }
@@ -2370,13 +2387,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No devices"
+            "value": "No Computers"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスがありません"
+            "value": "コンピュータがありません"
           }
         }
       }
@@ -3788,6 +3805,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.search.empty.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try another title, message, workspace, pane, or computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のタイトル、メッセージ、ワークスペース、ペイン、またはコンピュータをお試しください。"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.search.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致する通知はありません"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を検索"
           }
         }
       }
@@ -5590,6 +5658,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再接続中…"
+          }
+        }
+      }
+    },
+    "mobile.recovery.switchAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out & Switch Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトしてアカウントを切り替える"
           }
         }
       }
@@ -12258,6 +12343,23 @@
         }
       }
     },
+    "mobile.workspaces.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを検索"
+          }
+        }
+      }
+    },
     "mobile.workspaces.settings": {
       "extractionState": "manual",
       "localizations": {
@@ -16293,13 +16395,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "See every workspace and its latest activity, wherever you are."
+            "value": "Track every workspace from your phone."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どこにいても、すべてのワークスペースと最新の作業状況を確認できます。"
+            "value": "iPhoneからすべてのワークスペースを確認できます。"
           }
         }
       }
@@ -16361,13 +16463,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
+            "value": "Use the same cmux account on both devices. Your Mac connects automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macでcmuxを開いたまま、同じアカウントでサインインしてください。cmuxがMacを見つけて安全に接続します。"
+            "value": "両方の端末で同じcmuxアカウントにサインインすると、Macに自動で接続されます。"
           }
         }
       }
@@ -16582,13 +16684,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Notifications feed keeps every agent alert from your paired Macs in chronological order, even when push alerts are off. Tap one to open its workspace."
+            "value": "Review every agent alert in one feed."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知では、ペアリングしたすべてのMacからのエージェント通知を時系列で確認できます。プッシュ通知がオフでも履歴は残り、通知をタップするとそのワークスペースが開きます。"
+            "value": "すべてのエージェント通知を1つのフィードで確認できます。"
           }
         }
       }
@@ -16803,13 +16905,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace to see the latest activity and respond when an agent needs you."
+            "value": "Open any workspace and respond when an agent needs you."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースを開いて最新の作業状況を確認し、エージェントに呼ばれたらすぐに応答できます。"
+            "value": "ワークスペースを開き、必要なときにすぐ応答できます。"
           }
         }
       }
@@ -16963,6 +17065,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@できませんでした: %2$@。"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalScrollback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Scrollback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのスクロールバック"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalScrollback.rows1k": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1,000 Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1,000行"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalScrollback.rows4k": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4,000 Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4,000行"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalScrollback.rows10k": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10,000 Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10,000行"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalScrollback.rows20k": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20,000 Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20,000行"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.loadingMore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading more notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "さらに通知を読み込み中"
           }
         }
       }

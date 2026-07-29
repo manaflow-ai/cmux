@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -164,6 +165,50 @@ exit 73
   assert.equal(stateFile, path.resolve(stateFile));
   assert.equal(path.dirname(stateFile).startsWith(`${directory}/`), true);
   assert.equal(mode, "700");
+});
+
+test("production release gate removes disposable tagged Iroh endpoint state", (t) => {
+  const directory = fixtureDirectory();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+  const fakeBin = path.join(directory, "bin");
+  mkdirSync(fakeBin, { mode: 0o700 });
+  const fakeBun = path.join(fakeBin, "bun");
+  writeFileSync(fakeBun, "#!/usr/bin/env bash\nexit 73\n", { mode: 0o755 });
+  chmodSync(fakeBun, 0o755);
+
+  const stackEnvironment = path.join(directory, "stack.env");
+  writeFileSync(stackEnvironment, "unused=true\n", { mode: 0o600 });
+  chmodSync(stackEnvironment, 0o600);
+
+  const bundleID = "com.cmuxterm.app.debug.prodstate";
+  const endpointState = path.join(
+    directory,
+    "Library",
+    "Application Support",
+    "cmux",
+    "iroh-debug",
+    bundleID,
+  );
+  mkdirSync(endpointState, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(endpointState, "endpoint.key"), "disposable\n", {
+    mode: 0o600,
+  });
+
+  const result = run("bash", [
+    "scripts/run-iroh-release-gate.sh",
+    "--mode", "automatic",
+    "--tag", "prodstate",
+    "--production",
+    "--stack-env-file", stackEnvironment,
+  ], {
+    HOME: directory,
+    PATH: `${fakeBin}:${process.env.PATH}`,
+    TMPDIR: `${directory}/`,
+  });
+
+  assert.equal(result.status, 73, result.stderr);
+  assert.equal(existsSync(endpointState), false);
 });
 
 test("Mac reload documents production auth without accepting secret values", () => {

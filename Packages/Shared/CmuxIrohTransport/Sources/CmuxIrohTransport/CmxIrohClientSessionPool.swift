@@ -31,6 +31,7 @@ actor CmxIrohClientSessionPool {
         let session: CmxIrohClientSession
         let closureTask: Task<Void, Never>
         let pathObservationTask: Task<Void, Never>
+        let pathEventObservationTask: Task<Void, Never>?
     }
 
     private struct ControlWaiter {
@@ -64,10 +65,8 @@ actor CmxIrohClientSessionPool {
     private var controlWaiters: [SessionKey: [ControlWaiter]] = [:]
     private var selectedPathContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
-    /// Upper bound on how long a new dial defers to a cancelled predecessor that
-    /// ignores cancellation. Past the bound the new dial proceeds (accepting the
-    /// old overlap behavior) so one wedged iroh dial cannot become a permanent
-    /// connect outage for that Mac.
+    /// Never-hit safety bound for a dial that ignores cancellation, retained so
+    /// one wedged dial can never become a permanent connect outage.
     static var retiredDialSettleWaitLimitSeconds: TimeInterval { 10 }
 
     init(
@@ -211,13 +210,30 @@ actor CmxIrohClientSessionPool {
                     )
                 }
             }
+            let pathEventObservationTask: Task<Void, Never>?
+            if let diagnosticLog {
+                let recorder = CmxIrohConnectionDiagnosticRecorder(
+                    diagnosticLog: diagnosticLog,
+                    sessionID: diagnosticID
+                )
+                let pathEvents = await connected.observedPathEvents()
+                pathEventObservationTask = Task {
+                    for await event in pathEvents {
+                        guard !Task.isCancelled else { return }
+                        recorder.record(event)
+                    }
+                }
+            } else {
+                pathEventObservationTask = nil
+            }
             sessions[key] = PooledSession(
                 id: sessionID,
                 diagnosticID: diagnosticID,
                 initialPurpose: request.sessionPurpose,
                 session: connected,
                 closureTask: closureTask,
-                pathObservationTask: pathObservationTask
+                pathObservationTask: pathObservationTask,
+                pathEventObservationTask: pathEventObservationTask
             )
             sessionOrder.removeAll { $0 == key }
             sessionOrder.append(key)
@@ -340,13 +356,14 @@ actor CmxIrohClientSessionPool {
         for (key, pooled) in closing {
             pooled.closureTask.cancel()
             pooled.pathObservationTask.cancel()
-            recordSessionClosure(
+            await pooled.session.close()
+            await pooled.pathEventObservationTask?.value
+            await recordSessionClosure(
                 reason,
                 pooled: pooled,
                 purpose: closingOwners[key]?.purpose ?? pooled.initialPurpose,
                 failure: .none
             )
-            await pooled.session.close()
         }
         publishSelectedPathChange()
     }
@@ -386,7 +403,8 @@ actor CmxIrohClientSessionPool {
         sessions[key] = nil
         sessionOrder.removeAll { $0 == key }
         pooled.pathObservationTask.cancel()
-        recordSessionClosure(
+        await pooled.pathEventObservationTask?.value
+        await recordSessionClosure(
             .remoteClosed,
             pooled: pooled,
             purpose: owner?.purpose ?? pooled.initialPurpose,
@@ -430,14 +448,15 @@ actor CmxIrohClientSessionPool {
         pooled?.closureTask.cancel()
         pooled?.pathObservationTask.cancel()
         if let pooled {
-            recordSessionClosure(
+            await pooled.session.close()
+            await pooled.pathEventObservationTask?.value
+            await recordSessionClosure(
                 reason,
                 pooled: pooled,
                 purpose: currentOwner?.purpose ?? pooled.initialPurpose,
                 failure: failure
             )
         }
-        await pooled?.session.close()
         if let owner {
             releaseControlOwner(for: key, ownerID: owner.id)
         }
@@ -445,11 +464,11 @@ actor CmxIrohClientSessionPool {
     }
 
     /// Cancels the pending dial for `key` and tracks it until it fully resolves.
-    /// iroh's connect does not observe Swift cancellation, so a cancelled dial can
-    /// still complete QUIC admission on the host seconds later; the host then
-    /// closes the newer live connection for the same device. Draining retired
-    /// dials before the next dial starts keeps at most one admission in flight
-    /// per peer.
+    /// `pending.task.cancel()` crosses the FFI boundary because
+    /// ``CmxIrohLibEndpoint`` dials through a `ConnectAttempt` whose `cancel()`
+    /// runs on task cancellation, so retired dials settle in milliseconds. The
+    /// drain set still serializes endpoint implementations that ignore
+    /// cancellation and keeps at most one admission in flight per peer.
     private func retirePendingConnection(for key: SessionKey) {
         guard let pending = connectionTasks.removeValue(forKey: key) else { return }
         pending.task.cancel()
@@ -661,7 +680,14 @@ actor CmxIrohClientSessionPool {
         pooled: PooledSession,
         purpose: CmxTransportSessionPurpose,
         failure: DiagnosticFailureKind
-    ) {
+    ) async {
+        if let diagnosticLog {
+            let recorder = CmxIrohConnectionDiagnosticRecorder(
+                diagnosticLog: diagnosticLog,
+                sessionID: pooled.diagnosticID
+            )
+            recorder.record(await pooled.session.closeAttribution())
+        }
         recordSessionLifecycle(
             kind,
             sessionID: pooled.diagnosticID,
