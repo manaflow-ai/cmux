@@ -17,7 +17,8 @@ import UIKit
     }
 
     private func makeFixture(
-        recorder: DropRecorder
+        recorder: DropRecorder,
+        includesGroupFooter: Bool = false
     ) -> (coordinator: WorkspaceListTableCoordinator, tableView: WorkspaceListUITableView, dragItem: UIDragItem) {
         let groupID = MobileWorkspaceGroupPreview.ID(rawValue: "group-a")
         let anchorID = MobileWorkspacePreview.ID(rawValue: "anchor")
@@ -31,10 +32,13 @@ import UIKit
             name: "Group A",
             anchorWorkspaceID: anchorID
         )
-        let items: [WorkspaceListTableItem] = [
+        var items: [WorkspaceListTableItem] = [
             .groupHeader(groupID),
             .workspace(moverID, indented: false),
         ]
+        if includesGroupFooter {
+            items.insert(.groupFooter(groupID), at: 1)
+        }
         let configuration = WorkspaceListTable(
             items: items,
             workspacesByID: [anchorID: anchor, moverID: mover],
@@ -160,7 +164,7 @@ import UIKit
         #expect(proposal.intent == .insertAtDestinationIndexPath)
     }
 
-    @Test func performDropOnHeaderCallsDropIntoGroupWithNativeIntoAnimation() {
+    @Test func performDropOnCollapsedHeaderUsesTheHeaderContentAsItsTarget() {
         let recorder = DropRecorder()
         let (coordinator, tableView, dragItem) = makeFixture(recorder: recorder)
         let session = FakeDropSession(
@@ -187,6 +191,63 @@ import UIKit
         #expect(recorder.dropIntoGroupCalls.first?.1.rawValue == "group-a")
         #expect(recorder.moveRowsCalls.isEmpty)
         #expect(dropCoordinator.dropIntoRowCalls == [IndexPath(row: 0, section: 0)])
+        #expect(dropCoordinator.dropIntoRowRects.first?.width == 366)
+        #expect(dropCoordinator.dropIntoRowRects.first?.height == 32)
+    }
+
+    @Test func performDropOnExpandedHeaderLandsInTheVisibleGroupChildSlot() {
+        let recorder = DropRecorder()
+        let (coordinator, tableView, dragItem) = makeFixture(
+            recorder: recorder,
+            includesGroupFooter: true
+        )
+        let session = FakeDropSession(
+            dragItems: [dragItem],
+            location: headerMidpoint(in: tableView)
+        )
+        let proposal = coordinator.tableView(
+            tableView,
+            dropSessionDidUpdate: session,
+            withDestinationIndexPath: IndexPath(row: 0, section: 0)
+        )
+        let dropCoordinator = FakeDropCoordinator(
+            session: session,
+            proposal: proposal,
+            items: [FakeDropItem(dragItem: dragItem, sourceIndexPath: IndexPath(row: 2, section: 0))],
+            destinationIndexPath: IndexPath(row: 0, section: 0)
+        )
+
+        coordinator.tableView(tableView, performDropWith: dropCoordinator)
+
+        #expect(recorder.dropIntoGroupCalls.count == 1)
+        #expect(dropCoordinator.dropToRowCalls == [IndexPath(row: 1, section: 0)])
+        #expect(dropCoordinator.dropIntoRowCalls.isEmpty)
+    }
+
+    @Test func performDropRevalidatesGroupEligibilityAfterHover() {
+        let recorder = DropRecorder()
+        let (coordinator, tableView, dragItem) = makeFixture(recorder: recorder)
+        let session = FakeDropSession(
+            dragItems: [dragItem],
+            location: headerMidpoint(in: tableView)
+        )
+        let proposal = coordinator.tableView(
+            tableView,
+            dropSessionDidUpdate: session,
+            withDestinationIndexPath: IndexPath(row: 0, section: 0)
+        )
+        recorder.canDropIntoGroup = false
+        let dropCoordinator = FakeDropCoordinator(
+            session: session,
+            proposal: proposal,
+            items: [FakeDropItem(dragItem: dragItem, sourceIndexPath: IndexPath(row: 1, section: 0))],
+            destinationIndexPath: IndexPath(row: 0, section: 0)
+        )
+
+        coordinator.tableView(tableView, performDropWith: dropCoordinator)
+
+        #expect(recorder.dropIntoGroupCalls.isEmpty)
+        #expect(dropCoordinator.dropIntoRowCalls.isEmpty)
     }
 
     @Test func performDropWithStaleIntoTargetFallsBackToIndexMove() {
@@ -267,19 +328,58 @@ import UIKit
         #expect(recorder.dropIntoGroupCalls.first?.1.rawValue == "group-a")
     }
 
-    @Test func dragSessionLifetimeTogglesFooterBoundaryState() {
+    @Test func dragSessionLifetimeReconfiguresTheRenderedFooterBoundary() {
         let recorder = DropRecorder()
-        let (coordinator, tableView, dragItem) = makeFixture(recorder: recorder)
+        let (coordinator, tableView, dragItem) = makeFixture(
+            recorder: recorder,
+            includesGroupFooter: true
+        )
         let dragSession = FakeDragSession(
             dragItems: [dragItem],
             location: headerMidpoint(in: tableView)
         )
+        let footerIndexPath = IndexPath(row: 1, section: 0)
+        let footerCell = tableView.cellForRow(at: footerIndexPath)
 
-        #expect(!coordinator.isDragSessionActive)
+        #expect(
+            footerCell?.accessibilityIdentifier
+                == "MobileWorkspaceGroupFooterBoundary-inactive"
+        )
         coordinator.tableView(tableView, dragSessionWillBegin: dragSession)
-        #expect(coordinator.isDragSessionActive)
+        #expect(
+            tableView.cellForRow(at: footerIndexPath)?.accessibilityIdentifier
+                == "MobileWorkspaceGroupFooterBoundary-active"
+        )
         coordinator.tableView(tableView, dragSessionDidEnd: dragSession)
-        #expect(!coordinator.isDragSessionActive)
+        #expect(
+            tableView.cellForRow(at: footerIndexPath)?.accessibilityIdentifier
+                == "MobileWorkspaceGroupFooterBoundary-inactive"
+        )
+    }
+
+    @Test func workspaceDragAndDropPreviewsUseMatchingRoundedContentBounds() throws {
+        let recorder = DropRecorder()
+        let (coordinator, tableView, _) = makeFixture(recorder: recorder)
+        let workspaceIndexPath = IndexPath(row: 1, section: 0)
+
+        let drag = try #require(
+            coordinator.tableView(
+                tableView,
+                dragPreviewParametersForRowAt: workspaceIndexPath
+            )
+        )
+        let drop = try #require(
+            coordinator.tableView(
+                tableView,
+                dropPreviewParametersForRowAt: workspaceIndexPath
+            )
+        )
+
+        #expect(drag.visiblePath?.bounds == drop.visiblePath?.bounds)
+        #expect(drag.visiblePath?.bounds.minX == 12)
+        #expect(drag.visiblePath?.bounds.maxX == tableView.bounds.width - 12)
+        #expect(drag.backgroundColor == .systemBackground)
+        #expect(drop.backgroundColor == .systemBackground)
     }
 }
 
@@ -354,6 +454,7 @@ private final class FakeDropCoordinator: NSObject, UITableViewDropCoordinator {
     let items: [UITableViewDropItem]
     let destinationIndexPath: IndexPath?
     private(set) var dropIntoRowCalls: [IndexPath] = []
+    private(set) var dropIntoRowRects: [CGRect] = []
     private(set) var dropToRowCalls: [IndexPath] = []
 
     init(
@@ -381,6 +482,7 @@ private final class FakeDropCoordinator: NSObject, UITableViewDropCoordinator {
     @discardableResult
     func drop(_ dragItem: UIDragItem, intoRowAt indexPath: IndexPath, rect: CGRect) -> UIDragAnimating {
         dropIntoRowCalls.append(indexPath)
+        dropIntoRowRects.append(rect)
         return FakeDragAnimating()
     }
 

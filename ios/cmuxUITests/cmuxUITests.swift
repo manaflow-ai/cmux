@@ -577,6 +577,61 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceListDragIntoExpandedGroupMovesTheRowWithoutScrolling() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        let source = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-8"
+        ]
+        let target = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-1"
+        ]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForHittable(source, timeout: 3))
+        guard
+            let before = waitForUsableFrame(of: source, timeout: 3),
+            let targetFrame = waitForUsableFrame(of: target, timeout: 3)
+        else {
+            return XCTFail("Drag source and target must have usable frames")
+        }
+
+        let start = source.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)
+        )
+        let end = app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: targetFrame.midX, dy: targetFrame.midY)
+        )
+        start.press(
+            forDuration: 0.35,
+            thenDragTo: end,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.8
+        )
+
+        guard let after = waitForUsableFrame(of: source, timeout: 3) else {
+            return XCTFail("Dragged workspace disappeared after the drop")
+        }
+        XCTAssertGreaterThan(
+            after.minX,
+            before.minX + 8,
+            "Dropping an ungrouped workspace into an expanded group must visibly indent it"
+        )
+        XCTAssertLessThan(
+            after.midY,
+            before.midY,
+            "The drop must move the workspace into the target group instead of scrolling the list"
+        )
+    }
+
+    @MainActor
     func testSearchRemainsStableAcrossPrimaryRoots() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")
