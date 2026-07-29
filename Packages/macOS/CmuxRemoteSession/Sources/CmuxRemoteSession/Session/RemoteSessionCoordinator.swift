@@ -72,7 +72,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     //
     // Every var below is confined to `queue` (see the isolation essay).
     // Internal so the coordinator's same-module extension files can reach them.
-
     var isStopping = false
     var proxyLease: RemoteProxyLease?
     var proxyLeaseGeneration: UInt64 = 0
@@ -81,6 +80,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var daemonBootstrapVersion: String?
     var daemonRemotePath: String?
     var readyDaemonStatus: WorkspaceRemoteDaemonStatus?
+    var controlMasterReapState = ControlMasterReapState()
     var reverseRelayProcess: (any RemoteReverseRelayProcess)?
     var reverseRelayControlMasterForwardSpec: String?
     var resolvedControlMasterSSHOptions: [String]?

@@ -41,22 +41,28 @@ final class InheritedForwardRecoveryProcessRunner:
             }
             if Self.isMetadataOwnershipProbe(request) {
                 metadataProbeAttempts += 1
-                if mode == .metadataMismatch ||
-                    (mode == .transientMetadataFailure &&
-                        metadataProbeAttempts == 1) {
+                if mode == .metadataMismatch {
                     return RemoteCommandResult(
                         status: 64,
                         stdout: "",
                         stderr: ""
                     )
                 }
+                if mode == .transientMetadataFailure &&
+                    metadataProbeAttempts == 1 {
+                    return RemoteCommandResult(
+                        status: 255,
+                        stdout: "",
+                        stderr: "temporary probe failure"
+                    )
+                }
             }
-            if Self.isControlCommand("cancel", in: request.arguments),
-               mode == .cancellationFailure {
+            if Self.isControlCommand("exit", in: request.arguments),
+               mode == .exitFailure {
                 return RemoteCommandResult(
                     status: 255,
                     stdout: "",
-                    stderr: "cancel failed"
+                    stderr: "exit failed"
                 )
             }
             return RemoteCommandResult(status: 0, stdout: "", stderr: "")

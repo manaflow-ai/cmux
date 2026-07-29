@@ -108,14 +108,16 @@ struct RemoteSessionInheritedForwardRecoveryTests {
         #expect(try Self.runShellScript(script, home: home) == 64)
     }
 
-    @Test("Matching metadata cancels only the stale forward and retries it")
-    func matchingMetadataRecoversStaleForward() async throws {
+    @Test("Matching transient metadata authorizes an inherited-master reap")
+    func matchingMetadataAuthorizesMasterReap() async throws {
         let runner = InheritedForwardRecoveryProcessRunner(mode: .success)
         let launcher = RecordingReverseRelayLauncher()
+        let clock = ManualBrokerClock()
         let fixture = try await RemoteSessionReverseRelayStartupTests
             .makeCoordinator(
                 runner: runner,
-                reverseRelayLauncher: launcher
+                reverseRelayLauncher: launcher,
+                clock: clock
             )
         let coordinator = fixture.coordinator
         defer {
@@ -132,34 +134,31 @@ struct RemoteSessionInheritedForwardRecoveryTests {
             )
         }
 
+        #expect(await clock.nextRequestedDelay() == 2_000)
         let requests = runner.requests
         let forwards = requests.filter {
             Self.isControlCommand("forward", in: $0.arguments)
         }
-        let cancellations = requests.filter {
-            Self.isControlCommand("cancel", in: $0.arguments)
-        }
         let probe = try #require(
             requests.first(where: Self.isMetadataOwnershipProbe)
         )
-        #expect(forwards.count == 2)
-        #expect(cancellations.count == 1)
-        #expect(
-            Self.reverseForward(in: cancellations[0].arguments)
-                == "127.0.0.1:64044"
-        )
+        #expect(forwards.count == 1)
         #expect(
             probe.arguments.contains(
                 "ControlPath=\(ResolvedControlPathFixture.path)"
             )
         )
         #expect(probe.arguments.contains("BatchMode=yes"))
-        #expect(!requests.contains(where: {
+        #expect(requests.filter {
             Self.isControlCommand("exit", in: $0.arguments)
+        }.count == 1)
+        #expect(!requests.contains(where: {
+            Self.isControlCommand("cancel", in: $0.arguments)
         }))
         #expect(launcher.launchCount == 0)
         #expect(coordinator.queue.sync {
-            coordinator.reverseRelayControlMasterForwardSpec != nil &&
+            !coordinator.daemonReady &&
+                coordinator.reverseRelayControlMasterForwardSpec == nil &&
                 coordinator.reverseRelayProcess == nil
         })
 
@@ -171,8 +170,9 @@ struct RemoteSessionInheritedForwardRecoveryTests {
         let runner = InheritedForwardRecoveryProcessRunner(
             mode: .metadataMismatch
         )
+        let clock = ManualBrokerClock()
         let fixture = try await RemoteSessionReverseRelayStartupTests
-            .makeCoordinator(runner: runner)
+            .makeCoordinator(runner: runner, clock: clock)
         let coordinator = fixture.coordinator
         defer {
             try? FileManager.default.removeItem(
@@ -180,17 +180,15 @@ struct RemoteSessionInheritedForwardRecoveryTests {
             )
         }
 
-        let outcome = coordinator.queue.sync {
-            coordinator.startReverseRelayViaControlMasterLocked(
-                forwardSpec: "127.0.0.1:64044:127.0.0.1:55001",
-                relayPort: 64_044
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.startReverseRelayLocked(
+                remotePath: "/tmp/cmuxd-remote"
             )
         }
 
-        guard case .bindingConflict = outcome else {
-            Issue.record("Expected the collision to remain unresolved")
-            return
-        }
+        #expect(await clock.nextRequestedDelay() == 2_000)
         let requests = runner.requests
         #expect(
             requests.filter {
@@ -208,13 +206,14 @@ struct RemoteSessionInheritedForwardRecoveryTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
-    @Test("A rejected cancel does not retry or exit the master")
-    func rejectedCancellationFailsClosed() async throws {
+    @Test("A rejected master exit does not cancel or retry the forward")
+    func rejectedMasterExitFailsClosed() async throws {
         let runner = InheritedForwardRecoveryProcessRunner(
-            mode: .cancellationFailure
+            mode: .exitFailure
         )
+        let clock = ManualBrokerClock()
         let fixture = try await RemoteSessionReverseRelayStartupTests
-            .makeCoordinator(runner: runner)
+            .makeCoordinator(runner: runner, clock: clock)
         let coordinator = fixture.coordinator
         defer {
             try? FileManager.default.removeItem(
@@ -222,17 +221,15 @@ struct RemoteSessionInheritedForwardRecoveryTests {
             )
         }
 
-        let outcome = coordinator.queue.sync {
-            coordinator.startReverseRelayViaControlMasterLocked(
-                forwardSpec: "127.0.0.1:64044:127.0.0.1:55001",
-                relayPort: 64_044
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.startReverseRelayLocked(
+                remotePath: "/tmp/cmuxd-remote"
             )
         }
 
-        guard case .bindingConflict = outcome else {
-            Issue.record("Expected the rejected cancel to fail closed")
-            return
-        }
+        #expect(await clock.nextRequestedDelay() == 2_000)
         let requests = runner.requests
         #expect(
             requests.filter {
@@ -241,11 +238,11 @@ struct RemoteSessionInheritedForwardRecoveryTests {
         )
         #expect(
             requests.filter {
-                Self.isControlCommand("cancel", in: $0.arguments)
+                Self.isControlCommand("exit", in: $0.arguments)
             }.count == 1
         )
         #expect(!requests.contains(where: {
-            Self.isControlCommand("exit", in: $0.arguments)
+            Self.isControlCommand("cancel", in: $0.arguments)
         }))
 
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
@@ -257,8 +254,13 @@ struct RemoteSessionInheritedForwardRecoveryTests {
             mode: .transientMetadataFailure
         )
         let host = ReverseRelayRecoveryHost()
+        let clock = ManualBrokerClock()
         let fixture = try await RemoteSessionReverseRelayStartupTests
-            .makeCoordinator(host: host, runner: runner)
+            .makeCoordinator(
+                host: host,
+                runner: runner,
+                clock: clock
+            )
         let coordinator = fixture.coordinator
         defer {
             try? FileManager.default.removeItem(
@@ -289,33 +291,30 @@ struct RemoteSessionInheritedForwardRecoveryTests {
                 remotePath: "/tmp/cmuxd-remote"
             )
         }
-        coordinator.queue.sync {
-            coordinator.startReverseRelayLocked(
-                remotePath: "/tmp/cmuxd-remote"
-            )
-        }
-
         var statuses = host.daemonStatuses.makeAsyncIterator()
         #expect(await statuses.next() == readyStatus)
+        #expect(await clock.nextRequestedDelay() == 2_000)
+        await clock.resumeNextSleep()
         #expect(await statuses.next()?.state == .error)
-        #expect(await statuses.next() == readyStatus)
+        #expect(await clock.nextRequestedDelay() == 2_000)
+        #expect(await statuses.next()?.state == .error)
 
         let requests = runner.requests
         #expect(
             requests.filter {
                 Self.isControlCommand("forward", in: $0.arguments)
-            }.count == 3
+            }.count == 2
         )
         #expect(
             requests.filter(Self.isMetadataOwnershipProbe).count == 2
         )
         #expect(
             requests.filter {
-                Self.isControlCommand("cancel", in: $0.arguments)
+                Self.isControlCommand("exit", in: $0.arguments)
             }.count == 1
         )
         #expect(!requests.contains(where: {
-            Self.isControlCommand("exit", in: $0.arguments)
+            Self.isControlCommand("cancel", in: $0.arguments)
         }))
 
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
@@ -376,18 +375,6 @@ struct RemoteSessionInheritedForwardRecoveryTests {
         arguments.indices.dropLast().contains(where: {
             arguments[$0] == "-O" && arguments[$0 + 1] == command
         })
-    }
-
-    private static func reverseForward(
-        in arguments: [String]
-    ) -> String? {
-        guard let reverseIndex = arguments.firstIndex(of: "-R") else {
-            return nil
-        }
-        let valueIndex = arguments.index(after: reverseIndex)
-        return arguments.indices.contains(valueIndex)
-            ? arguments[valueIndex]
-            : nil
     }
 
     private static func isMetadataOwnershipProbe(

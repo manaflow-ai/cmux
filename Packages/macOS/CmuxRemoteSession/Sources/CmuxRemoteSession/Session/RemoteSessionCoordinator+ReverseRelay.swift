@@ -26,6 +26,8 @@ extension RemoteSessionCoordinator {
         }
         guard reverseRelayProcess == nil else { return }
         guard reverseRelayControlMasterForwardSpec == nil else { return }
+        guard controlMasterReapState.startupPhase
+            .allowsRelayLaunch else { return }
 
         cancelReverseRelayRestartLocked()
         launchReverseRelayLocked(
@@ -47,6 +49,8 @@ extension RemoteSessionCoordinator {
     ) {
         guard !isStopping, daemonReady, reverseRelayProcess == nil else { return }
         guard reverseRelayControlMasterForwardSpec == nil else { return }
+        guard controlMasterReapState.startupPhase
+            .allowsRelayLaunch else { return }
 
         var relayServer: RemoteCLIRelayServer?
         do {
@@ -90,10 +94,18 @@ extension RemoteSessionCoordinator {
                     "target=\(configuration.displayTarget) controlMaster=1"
                 )
                 return
-            case .bindingConflict(let detail):
+            case .bindingConflict(let detail, let controlPath):
                 debugLog(
                     "remote.relay.startFailed relayPort=\(relayPort) error=\(detail)"
                 )
+                if beginInheritedControlMasterReapIfNeededLocked(
+                    startupFailure: detail,
+                    remotePath: remotePath,
+                    relayPort: relayPort,
+                    resolvedControlPath: controlPath
+                ) {
+                    return
+                }
                 publishReverseRelayFailureLocked(
                     remotePath: remotePath
                 )
@@ -255,6 +267,7 @@ extension RemoteSessionCoordinator {
 
     @discardableResult
     func stopReverseRelayLocked(cleanupScope: RemoteRelayCleanupScope = .transport) -> Bool {
+        cancelReverseRelayStartupLocked()
         if let reverseRelayProcess, reverseRelayProcess.isRunning {
             reverseRelayProcess.terminate()
         }
@@ -263,6 +276,21 @@ extension RemoteSessionCoordinator {
         cliRelayServer?.stop()
         cliRelayServer = nil
         return removeRemoteRelayMetadataLocked(cleanupScope: cleanupScope)
+    }
+
+    /// Drops only local state after the shared master has already exited.
+    ///
+    /// Remote metadata intentionally survives so a persistent daemon and its
+    /// pinned lease remain available to the reconnecting transport.
+    func invalidateReverseRelayAfterControlMasterReapLocked() {
+        cancelReverseRelayRestartLocked()
+        if let reverseRelayProcess, reverseRelayProcess.isRunning {
+            reverseRelayProcess.terminate()
+        }
+        reverseRelayProcess = nil
+        reverseRelayControlMasterForwardSpec = nil
+        cliRelayServer?.stop()
+        cliRelayServer = nil
     }
 
     func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {

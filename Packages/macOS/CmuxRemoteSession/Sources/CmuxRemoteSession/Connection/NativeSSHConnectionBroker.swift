@@ -5,19 +5,24 @@ internal import Foundation
 
 /// Owns cmux-native SSH master lifetimes and serializes reconnect attempts per endpoint.
 ///
-/// Workspace ownership is reference-counted by `ownerWorkspaceID`. Only the
-/// last workspace using a cmux-owned `ControlPath` may request `ssh -O exit`;
-/// custom control paths remain entirely user-managed. Connection attempts for
-/// the same `(destination, port)` run one at a time, while different endpoints
-/// remain independent.
+/// Workspace ownership is reference-counted by `ownerWorkspaceID`. Ordinary
+/// cleanup exits a cmux-owned master only for its last workspace; authenticated
+/// inherited-forward recovery may reap an exclusively owned master and
+/// invalidates every sharing workspace. Custom control paths remain entirely
+/// user-managed. Connection attempts for the same `(destination, port)` run
+/// one at a time, while different endpoints remain independent.
 @MainActor
 public final class NativeSSHConnectionBroker {
     nonisolated let sharingOptions: SSHConnectionSharingOptions
     let clock: any RemoteProxyRetryClock
     private let jitterMilliseconds: @MainActor @Sendable () -> Int
     let cleanupLauncherOverride: (@MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void)?
+    private nonisolated let inheritedMasterReapEventHub:
+        NativeSSHControlMasterReapEventHub
     nonisolated let controlMasterOwnershipRegistry:
         any NativeSSHControlMasterOwnershipTracking
+    private let inheritedMasterReapCoordinator:
+        NativeSSHControlMasterReapCoordinator
 
     var ownerLeases: [UUID: [NativeSSHControlMasterKey: WorkspaceRemoteConfiguration]] = [:]
     var ownersByControlMaster: [NativeSSHControlMasterKey: Set<UUID>] = [:]
@@ -43,11 +48,20 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
         self.cleanupLauncherOverride = nil
+        let eventHub = NativeSSHControlMasterReapEventHub()
         let ownershipRegistry =
             NativeSSHControlMasterOwnershipRegistry(
                 sharingOptions: sharingOptions
             )
+        self.inheritedMasterReapEventHub = eventHub
         self.controlMasterOwnershipRegistry = ownershipRegistry
+        self.inheritedMasterReapCoordinator =
+            NativeSSHControlMasterReapCoordinator(
+                sharingOptions: sharingOptions,
+                processRunner: RemoteSessionProcessRunner(),
+                eventHub: eventHub,
+                ownershipRegistry: ownershipRegistry
+            )
     }
 
     /// Creates a broker with an injected cleanup launcher.
@@ -66,11 +80,20 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
         self.cleanupLauncherOverride = cleanupLauncher
+        let eventHub = NativeSSHControlMasterReapEventHub()
         let ownershipRegistry =
             NativeSSHControlMasterOwnershipRegistry(
                 sharingOptions: sharingOptions
             )
+        self.inheritedMasterReapEventHub = eventHub
         self.controlMasterOwnershipRegistry = ownershipRegistry
+        self.inheritedMasterReapCoordinator =
+            NativeSSHControlMasterReapCoordinator(
+                sharingOptions: sharingOptions,
+                processRunner: RemoteSessionProcessRunner(),
+                eventHub: eventHub,
+                ownershipRegistry: ownershipRegistry
+            )
     }
 
     nonisolated init(
@@ -79,6 +102,8 @@ public final class NativeSSHConnectionBroker {
         jitterMilliseconds: @escaping @MainActor @Sendable () -> Int,
         cleanupLauncher:
             (@MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void)?,
+        inheritedMasterReapRunner: any RemoteSessionProcessRunning =
+            RemoteSessionProcessRunner(),
         controlMasterOwnershipRegistry:
             any NativeSSHControlMasterOwnershipTracking
     ) {
@@ -86,7 +111,16 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = jitterMilliseconds
         self.cleanupLauncherOverride = cleanupLauncher
+        let eventHub = NativeSSHControlMasterReapEventHub()
+        self.inheritedMasterReapEventHub = eventHub
         self.controlMasterOwnershipRegistry = controlMasterOwnershipRegistry
+        self.inheritedMasterReapCoordinator =
+            NativeSSHControlMasterReapCoordinator(
+                sharingOptions: sharingOptions,
+                processRunner: inheritedMasterReapRunner,
+                eventHub: eventHub,
+                ownershipRegistry: controlMasterOwnershipRegistry
+            )
     }
 
     /// Retains the cmux-owned master used by a configured workspace.
@@ -110,6 +144,16 @@ public final class NativeSSHConnectionBroker {
         }
         let leasedConfiguration =
             configuration.withSSHControlMasterLeaseGeneration(UUID())
+        if let reapKey = NativeSSHControlMasterReapLeaseKey(
+            configuration: leasedConfiguration,
+            sharingOptions: sharingOptions
+        ) {
+            inheritedMasterReapCoordinator.retainWorkspace(
+                leasedConfiguration,
+                ownerWorkspaceID: ownerWorkspaceID,
+                key: reapKey
+            )
+        }
         let nextKey = NativeSSHControlMasterKey(
             configuration: leasedConfiguration,
             sharingOptions: sharingOptions
@@ -153,6 +197,16 @@ public final class NativeSSHConnectionBroker {
         ) {
             controlMasterOwnershipRegistry.release(lease: lease)
         }
+        if let reapKey = NativeSSHControlMasterReapLeaseKey(
+            configuration: configuration,
+            sharingOptions: sharingOptions
+        ) {
+            inheritedMasterReapCoordinator.releaseWorkspace(
+                ownerWorkspaceID: ownerWorkspaceID,
+                generation: generation,
+                key: reapKey
+            )
+        }
         guard let key = NativeSSHControlMasterKey(
             configuration: configuration,
             sharingOptions: sharingOptions
@@ -179,10 +233,23 @@ public final class NativeSSHConnectionBroker {
         )
     }
 
-    /// Serializes a narrow inherited-forward cancellation against other cmux processes.
-    nonisolated func beginReverseForwardRecovery(
+    /// Reaps an exclusively owned inherited master after remote metadata proof.
+    func reapInheritedControlMaster(
+        for configuration: WorkspaceRemoteConfiguration,
+        resolvedControlPath: String,
+        metadataProbeCommand: String
+    ) async -> NativeSSHControlMasterReapOutcome {
+        await inheritedMasterReapCoordinator.reap(
+            for: configuration,
+            resolvedControlPath: resolvedControlPath,
+            metadataProbeCommand: metadataProbeCommand
+        )
+    }
+
+    /// Observes successful reaps for one exact cmux-owned control socket.
+    nonisolated func controlMasterReapEvents(
         controlPath: String
-    ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
+    ) async -> AsyncStream<UUID>? {
         guard !controlPath.contains("%"),
               sharingOptions.cmuxOwnedControlPath(in: [
                   "ControlMaster=auto",
@@ -190,7 +257,7 @@ public final class NativeSSHConnectionBroker {
               ]) == controlPath else {
             return nil
         }
-        return controlMasterOwnershipRegistry.beginRecovery(
+        return await inheritedMasterReapEventHub.events(
             controlPath: controlPath
         )
     }

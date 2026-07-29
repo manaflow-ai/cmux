@@ -1,3 +1,7 @@
+import CmuxCore
+import CmuxFoundation
+import CmuxRemoteDaemon
+import CmuxRemoteWorkspace
 import Foundation
 import Testing
 @testable import CmuxRemoteSession
@@ -63,6 +67,207 @@ struct RemoteSessionInheritedMasterReapTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
+    @MainActor
+    @Test("A successful reap invalidates every sibling transport")
+    func successfulReapInvalidatesSiblingTransport() async throws {
+        let runner = InheritedMasterReapProcessRunner()
+        let broker = NativeSSHConnectionBroker(
+            sharingOptions: SSHConnectionSharingOptions(),
+            clock: RecordingImmediateClock(),
+            jitterMilliseconds: { 200 },
+            cleanupLauncher: { _ in },
+            inheritedMasterReapRunner: runner,
+            controlMasterOwnershipRegistry:
+                PermissiveNativeSSHControlMasterOwnershipRegistry()
+        )
+        let firstClock = ManualBrokerClock()
+        let siblingClock = ManualBrokerClock()
+        let firstFixture = try Self.makeCoordinator(
+            broker: broker,
+            runner: runner,
+            clock: firstClock,
+            ownerWorkspaceID: UUID()
+        )
+        let siblingFixture = try Self.makeCoordinator(
+            broker: broker,
+            runner: runner,
+            clock: siblingClock,
+            ownerWorkspaceID: UUID()
+        )
+        let first = firstFixture.coordinator
+        let sibling = siblingFixture.coordinator
+        defer {
+            try? FileManager.default.removeItem(
+                at: firstFixture.scratchDirectory
+            )
+            try? FileManager.default.removeItem(
+                at: siblingFixture.scratchDirectory
+            )
+        }
+
+        let events = try #require(
+            await broker.controlMasterReapEvents(
+                controlPath: ResolvedControlPathFixture.path
+            )
+        )
+        let siblingObserver = Task {
+            var iterator = events.makeAsyncIterator()
+            guard let eventID = await iterator.next() else { return }
+            await withCheckedContinuation {
+                (continuation: CheckedContinuation<Void, Never>) in
+                sibling.queue.async {
+                    sibling.handleSharedControlMasterReapLocked(
+                        eventID: eventID
+                    )
+                    continuation.resume()
+                }
+            }
+        }
+        sibling.queue.sync {
+            sibling.daemonReady = true
+            sibling.daemonRemotePath = "/tmp/cmuxd-remote"
+            sibling.reverseRelayControlMasterForwardSpec =
+                "127.0.0.1:64045:127.0.0.1:55002"
+        }
+        first.queue.sync {
+            first.daemonReady = true
+            first.daemonRemotePath = "/tmp/cmuxd-remote"
+            first.startReverseRelayLocked(
+                remotePath: "/tmp/cmuxd-remote"
+            )
+        }
+
+        #expect(await firstClock.nextRequestedDelay() == 2_000)
+        #expect(await siblingClock.nextRequestedDelay() == 2_000)
+        await siblingObserver.value
+        #expect(first.queue.sync {
+            !first.daemonReady &&
+                first.reverseRelayControlMasterForwardSpec == nil
+        })
+        #expect(sibling.queue.sync {
+            !sibling.daemonReady &&
+                sibling.reverseRelayControlMasterForwardSpec == nil
+        })
+        #expect(runner.requests.filter {
+            Self.isControlCommand("exit", in: $0.arguments)
+        }.count == 1)
+
+        _ = await first.stopAndWait(cleanupScope: .transport)
+        _ = await sibling.stopAndWait(cleanupScope: .transport)
+    }
+
+    @Test("Stopping detaches from an in-flight inherited-master reap")
+    func stopDetachesFromInheritedMasterReap() async throws {
+        let runner = BlockingInheritedMasterReapRunner()
+        let fixture = try await RemoteSessionReverseRelayStartupTests
+            .makeCoordinator(
+                runner: runner,
+                persistentDaemonSlot: "ssh-persistent-slot"
+            )
+        let coordinator = fixture.coordinator
+        defer {
+            try? FileManager.default.removeItem(
+                at: fixture.scratchDirectory
+            )
+        }
+        var exitStarts = runner.exitStarts.makeAsyncIterator()
+        var exitFinishes = runner.exitFinishes.makeAsyncIterator()
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.startReverseRelayLocked(
+                remotePath: "/tmp/cmuxd-remote"
+            )
+        }
+        #expect(await exitStarts.next() != nil)
+
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+        #expect(coordinator.queue.sync {
+            coordinator.controlMasterReapState.startupPhase
+                .allowsRelayLaunch
+        })
+
+        runner.finishExit()
+        #expect(await exitFinishes.next() != nil)
+    }
+
+    @MainActor
+    private static func makeCoordinator(
+        broker: NativeSSHConnectionBroker,
+        runner: any RemoteSessionProcessRunning,
+        clock: any RemoteProxyRetryClock,
+        ownerWorkspaceID: UUID
+    ) throws -> (
+        coordinator: RemoteSessionCoordinator,
+        scratchDirectory: URL
+    ) {
+        let scratchDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-inherited-master-reap-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: scratchDirectory,
+            withIntermediateDirectories: true
+        )
+        let configuration = broker.retainWorkspace(
+            WorkspaceRemoteConfiguration(
+                destination: "user@example.test",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [
+                    "ControlMaster=auto",
+                    "ControlPersist=600",
+                    "ControlPath=\(ResolvedControlPathFixture.path)",
+                ],
+                localProxyPort: nil,
+                relayPort: 64_044,
+                relayID: "relay-startup-cancellation",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: scratchDirectory
+                    .appendingPathComponent("relay.sock").path,
+                ownerWorkspaceID: ownerWorkspaceID,
+                terminalStartupCommand: nil,
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-persistent-slot"
+            )
+        )
+        return (
+            RemoteSessionCoordinator(
+                host: NoopRemoteSessionHost(),
+                configuration: configuration,
+                proxyBroker: SSHOverrideUnusedRemoteProxyBroker(),
+                connectionBroker: broker,
+                manifestRepository: RemoteDaemonManifestRepository(
+                    homeDirectory: scratchDirectory
+                ),
+                processRunner: runner,
+                reverseRelayLauncher: RecordingReverseRelayLauncher(),
+                reachabilityProbe: SSHOverrideNoopReachabilityProbe(),
+                relayCommandRewriter:
+                    SSHOverridePassthroughRelayCommandRewriter(),
+                buildInfo: SSHOverrideStubBuildInfo(),
+                daemonStrings: RemoteDaemonStrings(
+                    missingPersistentPTYCapability: "",
+                    missingRequiredFunctionality: ""
+                ),
+                strings: RemoteSessionStrings(
+                    connectedVMNoProxyFormat: "%@",
+                    suspendedDetailFormat: "%@",
+                    reverseRelayUnavailableRetrying:
+                        "test relay unavailable",
+                    reverseRelayPortUnavailableRetrying:
+                        "test relay port unavailable",
+                    controlMasterOwnershipUnavailable:
+                        "test control master unavailable"
+                ),
+                clock: clock
+            ),
+            scratchDirectory
+        )
+    }
+
     private static func isControlCommand(
         _ command: String,
         in arguments: [String]
@@ -110,6 +315,56 @@ private final class InheritedMasterReapProcessRunner:
             )
         }
         return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+    }
+
+    private static func isControlCommand(
+        _ command: String,
+        in arguments: [String]
+    ) -> Bool {
+        arguments.indices.dropLast().contains(where: {
+            arguments[$0] == "-O" && arguments[$0 + 1] == command
+        })
+    }
+}
+
+private final class BlockingInheritedMasterReapRunner:
+    RemoteSessionProcessRunning,
+    @unchecked Sendable
+{
+    let exitStarts: AsyncStream<Void>
+    let exitFinishes: AsyncStream<Void>
+
+    private let exitStartContinuation: AsyncStream<Void>.Continuation
+    private let exitFinishContinuation: AsyncStream<Void>.Continuation
+    private let exitGate = DispatchSemaphore(value: 0)
+
+    init() {
+        (exitStarts, exitStartContinuation) = AsyncStream.makeStream()
+        (exitFinishes, exitFinishContinuation) = AsyncStream.makeStream()
+    }
+
+    func run(
+        _ request: RemoteProcessRequest,
+        operation: (any RemoteTransferCancelling)?
+    ) throws -> RemoteCommandResult {
+        if Self.isControlCommand("forward", in: request.arguments) {
+            return RemoteCommandResult(
+                status: 255,
+                stdout: "",
+                stderr:
+                    "remote port forwarding failed for listen port 64044"
+            )
+        }
+        if Self.isControlCommand("exit", in: request.arguments) {
+            exitStartContinuation.yield()
+            exitGate.wait()
+            exitFinishContinuation.yield()
+        }
+        return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+    }
+
+    func finishExit() {
+        exitGate.signal()
     }
 
     private static func isControlCommand(

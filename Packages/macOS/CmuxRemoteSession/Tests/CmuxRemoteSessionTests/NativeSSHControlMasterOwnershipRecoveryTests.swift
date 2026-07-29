@@ -10,18 +10,21 @@ import Testing
 @Suite("Native SSH ownership-gated recovery")
 struct NativeSSHControlMasterOwnershipRecoveryTests {
     @Test("A live foreign owner prevents inherited-forward recovery")
-    func foreignOwnerFailsClosed() {
+    func foreignOwnerFailsClosed() async {
         let controlPath =
             "/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567"
+        let runner = RecordingProcessRunner()
         let broker = NativeSSHConnectionBroker(
             sharingOptions: SSHConnectionSharingOptions(userID: 501),
             clock: RecordingImmediateClock(),
             jitterMilliseconds: { 200 },
             cleanupLauncher: { _ in },
+            inheritedMasterReapRunner: runner,
             controlMasterOwnershipRegistry:
                 DenyingControlMasterOwnershipRegistry()
         )
-        _ = broker.retainWorkspace(WorkspaceRemoteConfiguration(
+        let configuration = broker.retainWorkspace(
+            WorkspaceRemoteConfiguration(
             destination: "alice@example.test",
             port: nil,
             identityFile: nil,
@@ -39,13 +42,19 @@ struct NativeSSHControlMasterOwnershipRecoveryTests {
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: true,
             persistentDaemonSlot: "ssh-test"
-        ))
-
-        #expect(
-            broker.beginReverseForwardRecovery(
-                controlPath: controlPath
-            ) == nil
+            )
         )
+
+        guard case .deferred = await broker.reapInheritedControlMaster(
+            for: configuration,
+            resolvedControlPath: controlPath,
+            metadataProbeCommand: "true"
+        ) else {
+            Issue.record("Expected a foreign owner to defer the reap")
+            return
+        }
+        #expect(runner.requests.isEmpty)
+        broker.releaseWorkspace(configuration)
     }
 
     @Test("Foreground authentication hands ownership to the workspace without a gap")

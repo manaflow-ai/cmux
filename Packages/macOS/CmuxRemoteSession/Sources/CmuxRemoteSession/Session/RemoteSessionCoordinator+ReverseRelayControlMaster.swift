@@ -6,7 +6,7 @@ internal import Foundation
 enum ReverseRelayControlMasterStartOutcome: Sendable {
     case started
     case unavailable
-    case bindingConflict(String)
+    case bindingConflict(String, controlPath: String?)
 }
 
 extension RemoteSessionCoordinator {
@@ -70,16 +70,19 @@ extension RemoteSessionCoordinator {
                     debugConfigSummary()
                 )
                 if let bindingConflict {
-                    if recoverInheritedReverseForwardLocked(
-                        forwardSpec: forwardSpec,
-                        relayPort: relayPort,
-                        effectiveSSHOptions: effectiveSSHOptions
-                    ) {
-                        reverseRelayControlMasterForwardSpec =
-                            forwardSpec
-                        return .started
-                    }
-                    return .bindingConflict(bindingConflict)
+                    let ownedControlPath =
+                        connectionBroker.sharingOptions
+                        .cmuxOwnedControlPath(
+                            in: effectiveSSHOptions
+                        )
+                    let resolvedControlPath =
+                        ownedControlPath?.contains("%") == false
+                        ? ownedControlPath
+                        : nil
+                    return .bindingConflict(
+                        bindingConflict,
+                        controlPath: resolvedControlPath
+                    )
                 }
                 return .unavailable
             }
@@ -91,117 +94,6 @@ extension RemoteSessionCoordinator {
                 "\(error.localizedDescription) \(debugConfigSummary())"
             )
             return .unavailable
-        }
-    }
-
-    /// Cancels only a forward whose persisted relay identity matches this workspace.
-    ///
-    /// A bind diagnostic alone is ambiguous: an unrelated remote process may
-    /// own the port. Recovery therefore requires the exact cmux-owned
-    /// ControlPath, cross-process exclusive ownership, matching relay metadata,
-    /// and a successful OpenSSH `cancel` for the listen address before retrying.
-    private func recoverInheritedReverseForwardLocked(
-        forwardSpec: String,
-        relayPort: Int,
-        effectiveSSHOptions: [String]
-    ) -> Bool {
-        guard reverseRelayControlMasterForwardSpec == nil,
-              let relayID = configuration.relayID?
-              .trimmingCharacters(in: .whitespacesAndNewlines),
-              !relayID.isEmpty,
-              let relayToken = configuration.relayToken?
-              .trimmingCharacters(in: .whitespacesAndNewlines),
-              !relayToken.isEmpty,
-              let controlPath =
-              connectionBroker.sharingOptions.cmuxOwnedControlPath(
-                  in: effectiveSSHOptions
-              ),
-              !controlPath.contains("%"),
-              let authorization =
-              connectionBroker.beginReverseForwardRecovery(
-                  controlPath: controlPath
-              ) else {
-            return false
-        }
-        defer { authorization.release() }
-
-        let probeScript = Self.remoteRelayMetadataOwnershipProbeScript(
-            relayPort: relayPort,
-            relayID: relayID,
-            relayToken: relayToken,
-            persistentDaemonSlot: configuration.persistentDaemonSlot
-        )
-        let probeCommand = "sh -c \(probeScript.shellSingleQuoted)"
-        do {
-            let probe = try sshExec(
-                arguments: configuration.batchSSHCommandArguments(
-                    command: probeCommand,
-                    effectiveSSHOptions: effectiveSSHOptions
-                ),
-                timeout: 6
-            )
-            guard probe.status == 0 else {
-                debugLog(
-                    "remote.relay.inheritedForward.recoveryIgnored " +
-                    "reason=metadata-mismatch relayPort=\(relayPort) " +
-                    debugConfigSummary()
-                )
-                return false
-            }
-
-            let listenSpec = "127.0.0.1:\(relayPort)"
-            guard let cancelArguments =
-                configuration.reverseRelayControlMasterArguments(
-                    controlCommand: "cancel",
-                    forwardSpec: listenSpec,
-                    effectiveSSHOptions: effectiveSSHOptions
-                ) else {
-                return false
-            }
-            let cancellation = try sshExec(
-                arguments: cancelArguments,
-                timeout: 4
-            )
-            guard cancellation.status == 0 else {
-                debugLog(
-                    "remote.relay.inheritedForward.recoveryIgnored " +
-                    "reason=forward-not-owned relayPort=\(relayPort) " +
-                    debugConfigSummary()
-                )
-                return false
-            }
-
-            guard let forwardArguments =
-                configuration.reverseRelayControlMasterArguments(
-                    controlCommand: "forward",
-                    forwardSpec: forwardSpec,
-                    effectiveSSHOptions: effectiveSSHOptions
-                ) else {
-                return false
-            }
-            let retry = try sshExec(
-                arguments: forwardArguments,
-                timeout: 6
-            )
-            guard retry.status == 0 else {
-                debugLog(
-                    "remote.relay.inheritedForward.retryFailed " +
-                    "relayPort=\(relayPort) \(debugConfigSummary())"
-                )
-                return false
-            }
-            debugLog(
-                "remote.relay.inheritedForward.recovered " +
-                "relayPort=\(relayPort) \(debugConfigSummary())"
-            )
-            return true
-        } catch {
-            debugLog(
-                "remote.relay.inheritedForward.recoveryIgnored " +
-                "relayPort=\(relayPort) \(error.localizedDescription) " +
-                debugConfigSummary()
-            )
-            return false
         }
     }
 
@@ -243,6 +135,9 @@ extension RemoteSessionCoordinator {
             ) else {
                 return nil
             }
+            observeControlMasterReapsLocked(
+                controlPath: resolvedPath
+            )
             return resolvedControlMasterSSHOptions
         }
 
@@ -307,6 +202,7 @@ extension RemoteSessionCoordinator {
             )
             return nil
         }
+        observeControlMasterReapsLocked(controlPath: resolvedPath)
         resolvedControlMasterSSHOptions = resolvedOptions
         return resolvedOptions
     }

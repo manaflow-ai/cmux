@@ -83,6 +83,7 @@ struct RemoteSessionReverseRelayStartupTests {
             clock: RecordingImmediateClock(),
             jitterMilliseconds: { 200 },
             cleanupLauncher: { _ in },
+            inheritedMasterReapRunner: effectiveRunner,
             controlMasterOwnershipRegistry: ownershipRegistry
         )
         let configuration = connectionBroker.retainWorkspace(rawConfiguration)
