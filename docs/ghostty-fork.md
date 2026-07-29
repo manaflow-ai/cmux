@@ -12,16 +12,19 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `78621f8ce`, the reviewed head of
-https://github.com/manaflow-ai/ghostty/pull/168, following the merged
+The submodule pinned by this branch is `112faaa49`, the reviewed integration
+head of https://github.com/manaflow-ai/ghostty/pull/169. It merges the renderer
+memory line through https://github.com/manaflow-ai/ghostty/pull/168 with the
+bounded app-mailbox line at `2258bea96`, following the merged
 https://github.com/manaflow-ai/ghostty/pull/153,
 https://github.com/manaflow-ai/ghostty/pull/165, and
 https://github.com/manaflow-ai/ghostty/pull/166,
-https://github.com/manaflow-ai/ghostty/pull/167. It adds lossless hidden-tab
-renderer reclamation, forced renderer rebuild transactions, shared custom
-Metal pipelines, compile-attempt-owned failure backoff, and one observation
-owner per native tab group. The five PRs landed in merge commits `1e86b46e2`,
-`4dab6fd6c`, `2fc66ed15`, `3c1b75d25`, and `c467d389c`.
+https://github.com/manaflow-ai/ghostty/pull/167. The combined head adds
+lossless hidden-tab renderer reclamation, forced renderer rebuild
+transactions, shared custom Metal pipelines, compile-attempt-owned failure
+backoff, one observation owner per native tab group, and bounded app-mailbox
+turns. The six PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
+`2fc66ed15`, `3c1b75d25`, `c467d389c`, and `64d7fca66`.
 
 ### Hidden macOS renderer reclamation
 
@@ -31,6 +34,7 @@ owner per native tab group. The five PRs landed in merge commits `1e86b46e2`,
   - https://github.com/manaflow-ai/ghostty/pull/166
   - https://github.com/manaflow-ai/ghostty/pull/167
   - https://github.com/manaflow-ai/ghostty/pull/168
+  - Integration: https://github.com/manaflow-ai/ghostty/pull/169
 - Commits:
   - `1de584d1e` (test: require lossless renderer realization requests)
   - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
@@ -141,13 +145,13 @@ owner per native tab group. The five PRs landed in merge commits `1e86b46e2`,
     single-owner tab observation, conservative tab selection, and off-main
     teardown without synchronous main-queue waits.
 
-The pinned `78621f8ce` universal ReleaseFast GhosttyKit archive was built with
+The pinned `112faaa49` universal ReleaseFast GhosttyKit archive was built with
 Zig 0.16.0 on macOS 26.3 and Xcode 26.5. It is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-78621f8ce6c113c520cc9388f7306643a2329502-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-112faaa496f49cb3d7c74b82cbdc802929cc5a8d-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. Verification
-used the 83-test custom-shader Zig suite, the xcframework archive validator,
-`lipo -archs`, and `nm -g` for `_ghostty_surface_rebuild_renderer` in every
-slice.
+used the app-mailbox producer-refill regression, the 83-test custom-shader Zig
+suite, the xcframework archive validator, `lipo -archs`, and `nm -g` for
+`_ghostty_surface_rebuild_renderer` in every slice.
 
 ### `os/open` stderr drain spin and zombie leak
 
@@ -229,9 +233,30 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The base `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1
+The mailbox line is integrated into the pinned `112faaa49` universal
+ReleaseFast GhosttyKit archive published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-112faaa496f49cb3d7c74b82cbdc802929cc5a8d-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Bounded app mailbox turns
+
+- Commits:
+  - `6a8cdbc7a` (test: reproduce app mailbox drain starvation)
+  - `2258bea96` (fix: bound app mailbox drain turns)
+- File:
+  - `src/App.zig`
+- Summary:
+  - Limits one app-thread mailbox turn to the queue depth observed when the
+    turn begins, so concurrent renderer and terminal producers cannot keep a
+    runtime's main thread inside `App.drainMailbox` indefinitely.
+  - Preserves FIFO ordering and the existing bounded-queue backpressure while
+    explicitly waking another app tick when messages remain, including after
+    an early quit or message-handler failure.
+  - Covers the exact producer-refill mechanism with a deterministic test that
+    injects more app messages while the starting batch is being handled.
+  - Conflict note: future app-loop changes must preserve the finite
+    start-of-turn snapshot and an explicit continuation for messages left
+    behind. Do not restore a producer-refillable drain-until-empty loop.
 
 ### PTY reader and child lifecycle teardown
 
