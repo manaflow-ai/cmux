@@ -65,10 +65,14 @@ struct TaskComposerAgentMenuContent: View {
                     Button {
                         actions.selectTemplateAndModel(template.id, nil)
                     } label: {
-                        Text(L10n.string(
-                            "mobile.taskComposer.model.default",
-                            defaultValue: "Default"
-                        ))
+                        modelChoiceLabel(
+                            L10n.string(
+                                "mobile.taskComposer.model.default",
+                                defaultValue: "Default"
+                            ),
+                            isSelected: template.id == value.selectedTemplateID
+                                && value.selectedModelID == nil
+                        )
                     }
                     .accessibilityAddTraits(
                         template.id == value.selectedTemplateID
@@ -82,7 +86,11 @@ struct TaskComposerAgentMenuContent: View {
                         Button {
                             actions.selectTemplateAndModel(template.id, model.id)
                         } label: {
-                            Text(verbatim: model.displayName)
+                            modelChoiceLabel(
+                                model.displayName,
+                                isSelected: template.id == value.selectedTemplateID
+                                    && model.id == value.selectedModelID
+                            )
                         }
                         .accessibilityAddTraits(
                             template.id == value.selectedTemplateID
@@ -97,6 +105,18 @@ struct TaskComposerAgentMenuContent: View {
                 }
                 .accessibilityIdentifier("MobileTaskComposerAgentSubmenu-\(template.id)")
             }
+        }
+    }
+
+    /// A menu row with a visible checkmark on the current choice, mirroring
+    /// the native Picker treatment the submenu cannot use (its selection
+    /// spans template + model).
+    @ViewBuilder
+    private func modelChoiceLabel(_ title: String, isSelected: Bool) -> some View {
+        if isSelected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(verbatim: title)
         }
     }
 }

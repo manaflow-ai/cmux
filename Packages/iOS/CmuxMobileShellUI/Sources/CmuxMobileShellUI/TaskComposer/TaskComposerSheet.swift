@@ -11,7 +11,7 @@ struct TaskComposerSheet: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileDisplaySettings.self) var displaySettings
     @Bindable var store: CMUXMobileShellStore
 
     @State var prompt = ""

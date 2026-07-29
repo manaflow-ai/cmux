@@ -146,7 +146,10 @@ struct TaskComposerMinimalLayout: View {
                 .font(.system(size: 17, weight: .semibold))
                 .frame(width: 38, height: 38)
                 .background(Color.primary.opacity(0.07), in: Circle())
-                .contentShape(Circle())
+                // Keep the compact 38pt visual while honoring the composer's
+                // 44pt activation-target contract.
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -169,7 +172,7 @@ struct TaskComposerMinimalLayout: View {
                     TaskTemplateIcon(value: selectedTemplate.icon, size: 16)
                         .frame(width: 18, height: 18)
 
-                    Text(selectedTemplate.name)
+                    Text(agentPillTitle(for: selectedTemplate))
                         .lineLimit(1)
                 } else {
                     Image(systemName: "person.crop.circle.badge.exclamationmark")
@@ -192,7 +195,8 @@ struct TaskComposerMinimalLayout: View {
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
             .background(Color.primary.opacity(0.07), in: Capsule())
-            .contentShape(Capsule())
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
         .tint(Color.primary)
         .disabled(isDisabled)
@@ -228,7 +232,8 @@ struct TaskComposerMinimalLayout: View {
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
             .background(Color.primary.opacity(0.07), in: Capsule())
-            .contentShape(Capsule())
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
         .tint(Color.primary)
         .disabled(isDisabled)
@@ -254,7 +259,8 @@ struct TaskComposerMinimalLayout: View {
                 isSubmitEnabled ? Color.accentColor : Color.primary.opacity(0.12),
                 in: Circle()
             )
-            .contentShape(Circle())
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isSubmitting || !isSubmitEnabled)
@@ -268,6 +274,18 @@ struct TaskComposerMinimalLayout: View {
 
     private var selectedTemplate: MobileTaskTemplate? {
         selectedTemplateID.flatMap { id in templates.first { $0.id == id } }
+    }
+
+    /// Mirrors the classic agent menu's "name · model" title so the combined
+    /// variant keeps a visible model indication even though its standalone
+    /// pill is hidden in this layout.
+    private func agentPillTitle(for template: MobileTaskTemplate) -> String {
+        guard modelPickerVariant.renderedVariant == .combined,
+              let modelName = models.first(where: { $0.id == selectedModelID })?.displayName
+        else {
+            return template.name
+        }
+        return "\(template.name) · \(modelName)"
     }
 
     /// Each lab variant keeps exactly one model entry point in this layout:

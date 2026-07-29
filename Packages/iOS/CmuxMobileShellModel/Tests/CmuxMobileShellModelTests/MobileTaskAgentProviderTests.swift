@@ -134,4 +134,44 @@ import Testing
                 == "claude --model 'claude-opus-4-8' -m other -- \"$CMUX_TASK_PROMPT\""
         )
     }
+
+    @Test func flagTextInsideQuotedArgumentIsNotRewritten() {
+        let command = "claude --append-system-prompt \"Never pass --model manually\" -- \"$CMUX_TASK_PROMPT\""
+        #expect(
+            MobileTaskAgentProvider.claude.command(applying: "claude-opus-4-8", to: command)
+                == "claude --model 'claude-opus-4-8' --append-system-prompt \"Never pass --model manually\" -- \"$CMUX_TASK_PROMPT\""
+        )
+    }
+
+    @Test func flagTextInsideSingleQuotedArgumentIsNotRewritten() {
+        let command = "codex --note 'use -m sparingly' -- \"$CMUX_TASK_PROMPT\""
+        #expect(
+            MobileTaskAgentProvider.codex.command(applying: "gpt-5.5", to: command)
+                == "codex -m 'gpt-5.5' --note 'use -m sparingly' -- \"$CMUX_TASK_PROMPT\""
+        )
+    }
+
+    @Test func replacesEveryModelFlagBeforeEndOfOptions() {
+        let command = "codex -m first --model second -- \"$CMUX_TASK_PROMPT\""
+        #expect(
+            MobileTaskAgentProvider.codex.command(applying: "gpt-5.6-sol", to: command)
+                == "codex -m 'gpt-5.6-sol' --model 'gpt-5.6-sol' -- \"$CMUX_TASK_PROMPT\""
+        )
+    }
+
+    @Test func suppliesValueWhenFlagSitsDirectlyBeforeEndOfOptions() {
+        let command = "claude --model -- \"$CMUX_TASK_PROMPT\""
+        #expect(
+            MobileTaskAgentProvider.claude.command(applying: "claude-opus-4-8", to: command)
+                == "claude --model 'claude-opus-4-8' -- \"$CMUX_TASK_PROMPT\""
+        )
+    }
+
+    @Test func replacesQuotedFlagValueAsOneToken() {
+        let command = "claude --model \"old model\" -- \"$CMUX_TASK_PROMPT\""
+        #expect(
+            MobileTaskAgentProvider.claude.command(applying: "claude-opus-4-8", to: command)
+                == "claude --model 'claude-opus-4-8' -- \"$CMUX_TASK_PROMPT\""
+        )
+    }
 }

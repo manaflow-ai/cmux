@@ -54,7 +54,10 @@ struct TaskComposerModelPillStrip: View {
                             lineWidth: isSelected ? 1.25 : 1
                         )
                 }
-                .contentShape(Capsule())
+                // Keep the compact 30pt capsule while honoring the composer's
+                // 44pt activation-target contract.
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)

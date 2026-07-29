@@ -14,7 +14,9 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
     /// whitespace-delimited token.
     ///
     /// Detection ignores the token's path, but does not parse shell syntax, so
-    /// compound or environment-prefixed commands detect no provider.
+    /// compound or environment-prefixed commands detect no provider. Detection
+    /// fails closed: an undetected command offers no model UI and always runs
+    /// byte-for-byte verbatim.
     /// - Parameter command: User-authored task-template command.
     public init?(command: String) {
         guard let tokenRange = Self.tokenRange(in: command, from: command.startIndex) else {
@@ -75,12 +77,14 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
     /// Applies a model selection to the command.
     ///
     /// When the command already carries one of this provider's model flags
-    /// (before any standalone `--` end-of-options token), its value is replaced
-    /// in place so the template's own spelling never overrides the explicit
-    /// selection. Otherwise the flag is inserted immediately after the first
-    /// token. Everything else remains byte-for-byte identical. Flag values are
-    /// matched as whitespace-delimited tokens; quoted values containing
-    /// whitespace are not rewritten (no model identifier contains whitespace).
+    /// (before any standalone `--` end-of-options token), every such flag's
+    /// value is replaced in place so the template's own spelling never
+    /// overrides the explicit selection. Otherwise the flag is inserted
+    /// immediately after the first token. Everything else remains
+    /// byte-for-byte identical. Tokenization is quote-aware (single quotes,
+    /// double quotes, and backslash escapes outside single quotes), so flag
+    /// text embedded in a quoted argument is never rewritten; shell comments
+    /// and heredocs are not parsed.
     /// - Parameters:
     ///   - modelID: CLI model identifier to single-quote for the flag value.
     ///   - command: User-authored task-template command.
@@ -91,20 +95,36 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
         }
         let quotedID = "'\(modelID.replacingOccurrences(of: "'", with: "'\\''"))'"
 
+        // Collect edits against the immutable command, then apply back to
+        // front so earlier ranges stay valid.
+        var edits: [(range: Range<String.Index>, replacement: String)] = []
         var searchStart = firstToken.upperBound
         while let token = Self.tokenRange(in: command, from: searchStart) {
             searchStart = token.upperBound
             let text = command[token]
             if text == "--" { break }
             if modelFlagSpellings.contains(where: { text == $0 }) {
-                guard let value = Self.tokenRange(in: command, from: token.upperBound) else {
-                    return "\(command) \(quotedID)"
+                if let value = Self.tokenRange(in: command, from: token.upperBound),
+                   command[value] != "--" {
+                    edits.append((value, quotedID))
+                    searchStart = value.upperBound
+                } else {
+                    // Dangling flag (at the end or directly before `--`):
+                    // supply the value right after the flag token.
+                    edits.append((token.upperBound..<token.upperBound, " \(quotedID)"))
                 }
-                return command.replacingCharacters(in: value, with: quotedID)
+                continue
             }
             if let spelling = modelFlagSpellings.first(where: { text.hasPrefix("\($0)=") }) {
-                return command.replacingCharacters(in: token, with: "\(spelling)=\(quotedID)")
+                edits.append((token, "\(spelling)=\(quotedID)"))
             }
+        }
+        if !edits.isEmpty {
+            var replaced = command
+            for edit in edits.reversed() {
+                replaced.replaceSubrange(edit.range, with: edit.replacement)
+            }
+            return replaced
         }
 
         let flag = modelFlagSpellings[0]
@@ -124,6 +144,11 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
         }
     }
 
+    /// The next shell word starting at or after `index`. Quote-aware: single-
+    /// and double-quoted spans (and backslash escapes outside single quotes)
+    /// never end a token, so flag text embedded in a quoted argument is one
+    /// opaque token rather than a false flag match. An unterminated quote
+    /// consumes the rest of the command.
     private static func tokenRange(
         in command: String,
         from index: String.Index
@@ -131,8 +156,28 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
         guard let start = command[index...].firstIndex(where: { !$0.isWhitespace }) else {
             return nil
         }
-        let end = command[start...].firstIndex(where: \.isWhitespace) ?? command.endIndex
-        return start..<end
+        var inSingleQuotes = false
+        var inDoubleQuotes = false
+        var current = start
+        while current < command.endIndex {
+            let character = command[current]
+            if character == "\\", !inSingleQuotes {
+                current = command.index(after: current)
+                if current < command.endIndex {
+                    current = command.index(after: current)
+                }
+                continue
+            }
+            if character == "'", !inDoubleQuotes {
+                inSingleQuotes.toggle()
+            } else if character == "\"", !inSingleQuotes {
+                inDoubleQuotes.toggle()
+            } else if character.isWhitespace, !inSingleQuotes, !inDoubleQuotes {
+                break
+            }
+            current = command.index(after: current)
+        }
+        return start..<current
     }
 }
 

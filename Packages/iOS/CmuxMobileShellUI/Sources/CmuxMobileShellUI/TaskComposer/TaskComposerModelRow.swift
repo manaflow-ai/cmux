@@ -42,7 +42,7 @@ struct TaskComposerModelRow: View {
                     .foregroundStyle(Color.secondary.opacity(0.55))
                     .accessibilityHidden(true)
             }
-            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
         }
         .disabled(isDisabled)
