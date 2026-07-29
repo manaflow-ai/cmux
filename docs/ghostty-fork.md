@@ -12,15 +12,16 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `a1e727ad2`, the reviewed head of
-https://github.com/manaflow-ai/ghostty/pull/167, following the merged
+The submodule pinned by this branch is `78621f8ce`, the reviewed head of
+https://github.com/manaflow-ai/ghostty/pull/168, following the merged
 https://github.com/manaflow-ai/ghostty/pull/153,
 https://github.com/manaflow-ai/ghostty/pull/165, and
-https://github.com/manaflow-ai/ghostty/pull/166. It adds lossless hidden-tab
+https://github.com/manaflow-ai/ghostty/pull/166,
+https://github.com/manaflow-ai/ghostty/pull/167. It adds lossless hidden-tab
 renderer reclamation, forced renderer rebuild transactions, shared custom
-Metal pipelines, bounded compiler-failure restore backoff, and one observation
-owner per native tab group. The four PRs landed in merge commits `1e86b46e2`,
-`4dab6fd6c`, `2fc66ed15`, and `3c1b75d25`.
+Metal pipelines, compile-attempt-owned failure backoff, and one observation
+owner per native tab group. The five PRs landed in merge commits `1e86b46e2`,
+`4dab6fd6c`, `2fc66ed15`, `3c1b75d25`, and `c467d389c`.
 
 ### Hidden macOS renderer reclamation
 
@@ -29,6 +30,7 @@ owner per native tab group. The four PRs landed in merge commits `1e86b46e2`,
   - https://github.com/manaflow-ai/ghostty/pull/165
   - https://github.com/manaflow-ai/ghostty/pull/166
   - https://github.com/manaflow-ai/ghostty/pull/167
+  - https://github.com/manaflow-ai/ghostty/pull/168
 - Commits:
   - `1de584d1e` (test: require lossless renderer realization requests)
   - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
@@ -79,6 +81,8 @@ owner per native tab group. The four PRs landed in merge commits `1e86b46e2`,
   - `67e76e130` (test: cover failed shader restore backoff)
   - `9fff00fc4` (fix: back off failed custom shader restores)
   - `a1e727ad2` (fix: tolerate matching retained shader entries)
+  - `173623b9d` (test: cover live shader failure backoff)
+  - `78621f8ce` (fix: key shader retries to compile attempts)
 - Files:
   - `include/ghostty.h`
   - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
@@ -122,7 +126,8 @@ owner per native tab group. The four PRs landed in merge commits `1e86b46e2`,
   - Shares custom shader pipelines by device, pixel format, and source across
     renderer handoffs, retains one idle custom configuration, evicts older
     configurations, and retains one identical compiler-failure fallback for a
-    source-keyed, non-sliding 30-second retry window after its renderer idles.
+    source-keyed, non-sliding 30-second retry window starting when compilation
+    fails, independent of renderer reference lifetime.
   - Elects one native-tab observation owner per tab group and binds queued
     callbacks to the group that emitted them, avoiding quadratic callbacks and
     stale callbacks that could orphan observation ownership.
@@ -132,15 +137,15 @@ owner per native tab group. The four PRs landed in merge commits `1e86b46e2`,
     realization publication, forced rebuild transactions, bounded recovery,
     compositor-owned IOSurface lifetimes, loop-owned retry timers,
     generation-checked retry delivery, atomic request claiming, bounded shared
-    custom-pipeline retention, lifecycle-anchored compiler-failure backoff,
+    custom-pipeline retention, compile-attempt-owned compiler-failure backoff,
     single-owner tab observation, conservative tab selection, and off-main
     teardown without synchronous main-queue waits.
 
-The pinned `a1e727ad2` universal ReleaseFast GhosttyKit archive was built with
+The pinned `78621f8ce` universal ReleaseFast GhosttyKit archive was built with
 Zig 0.16.0 on macOS 26.3 and Xcode 26.5. It is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-a1e727ad2bae9ba5fe4a1f57d7de850d872150f0-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-78621f8ce6c113c520cc9388f7306643a2329502-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. Verification
-used the 82-test custom-shader Zig suite, the xcframework archive validator,
+used the 83-test custom-shader Zig suite, the xcframework archive validator,
 `lipo -archs`, and `nm -g` for `_ghostty_surface_rebuild_renderer` in every
 slice.
 
