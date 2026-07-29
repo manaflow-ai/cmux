@@ -4,12 +4,17 @@ import Security
 /// Device-only Keychain storage for Iroh relay capabilities.
 public actor CmxIrohKeychainCredentialStore: CmxIrohSecureCredentialStoring {
     private let service: String
+    private let accessGroup: String?
 
     /// Creates a Keychain store isolated by service name.
     ///
     /// - Parameter service: The generic-password service identifier.
-    public init(service: String = "com.cmuxterm.iroh.relay-credentials.v1") {
+    public init(
+        service: String = "com.cmuxterm.iroh.relay-credentials.v1",
+        accessGroup: String? = nil
+    ) {
         self.service = service
+        self.accessGroup = accessGroup
     }
 
     /// Loads one opaque-scope capability from Keychain.
@@ -102,6 +107,9 @@ public actor CmxIrohKeychainCredentialStore: CmxIrohSecureCredentialStoring {
         ]
         if let account {
             query[kSecAttrAccount as String] = account
+        }
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
         }
         return query
     }

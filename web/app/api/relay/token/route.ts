@@ -64,6 +64,7 @@ export interface RelayTokenDeps {
   readonly isEndpointBound: (input: {
     readonly accountId: string;
     readonly endpointId: string;
+    readonly clientNamespace: string;
     readonly nowSeconds: number;
   }) => Promise<boolean>;
   readonly checkRateLimit: RelayRateLimitCheck;
@@ -96,7 +97,7 @@ const productionDeps: RelayTokenDeps = {
         input.accountId,
         input.endpointId,
       );
-      return binding !== null;
+      return binding?.clientNamespace === input.clientNamespace;
     }).pipe(
       Effect.provide(IrohRepositoryLive),
       Effect.mapError((cause) => new RelayDatabaseError({
@@ -116,6 +117,10 @@ export async function handleRelayTokenRequest(
 ): Promise<Response> {
   const user = await deps.verifyRequest(request);
   if (!user) return unauthorized();
+  const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
+  if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace)) {
+    return jsonResponse({ error: "invalid_client_namespace" }, 400);
+  }
 
   try {
     const key = deps.signingKey();
@@ -153,6 +158,7 @@ export async function handleRelayTokenRequest(
     const isEndpointBound = await deps.isEndpointBound({
       accountId: user.id,
       endpointId,
+      clientNamespace,
       nowSeconds,
     });
     const relayCredentials = isEndpointBound

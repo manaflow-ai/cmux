@@ -97,8 +97,20 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// `nil`, so a throwaway id never becomes a stranded `(user, device, tag)`
     /// binding.
     /// - Parameter defaults: Legacy persistence store (injected for tests).
-    public static func deviceID(defaults: UserDefaults = .standard) -> String {
-        deviceID(store: KeychainDeviceIdentityStore(), defaults: defaults)
+    public static func deviceID(
+        appNamespace: MobileIOSAppNamespace,
+        keychainAccessGroup: String?,
+        defaults: UserDefaults = .standard
+    ) -> String {
+        deviceID(
+            store: KeychainDeviceIdentityStore(
+                service: appNamespace.keychainService(
+                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+                ),
+                accessGroup: keychainAccessGroup
+            ),
+            defaults: defaults
+        )
     }
 
     /// Testable core of ``deviceID(defaults:)`` with an injectable identity store.
@@ -126,8 +138,20 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// launch and orphans the retained one. Callers must defer/retry activation
     /// until this returns a value instead of registering with an ephemeral id.
     /// - Parameter defaults: Legacy persistence store (injected for tests).
-    public static func durableDeviceID(defaults: UserDefaults = .standard) -> String? {
-        durableDeviceID(store: KeychainDeviceIdentityStore(), defaults: defaults)
+    public static func durableDeviceID(
+        appNamespace: MobileIOSAppNamespace,
+        keychainAccessGroup: String?,
+        defaults: UserDefaults = .standard
+    ) -> String? {
+        durableDeviceID(
+            store: KeychainDeviceIdentityStore(
+                service: appNamespace.keychainService(
+                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+                ),
+                accessGroup: keychainAccessGroup
+            ),
+            defaults: defaults
+        )
     }
 
     /// Testable core of ``durableDeviceID(defaults:)`` with an injectable store.

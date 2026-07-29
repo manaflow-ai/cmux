@@ -91,6 +91,7 @@ export type IrohRepositoryShape = {
     readonly userId: string;
     readonly deviceUuid: string;
     readonly appInstanceId: string;
+    readonly clientNamespace?: string;
     readonly tag: string;
     readonly endpointId: string;
     readonly identityGeneration: number;
@@ -113,6 +114,7 @@ export type IrohRepositoryShape = {
   }) => Effect.Effect<IrohRegistrationCommit, RepositoryError>;
   readonly discoverySnapshot: (input: {
     readonly userId: string;
+    readonly clientNamespace?: string;
     readonly now: Date;
   }) => Effect.Effect<{
     readonly bindings: IrohBindingRecord[];
@@ -130,6 +132,7 @@ export type IrohRepositoryShape = {
   readonly revokeBinding: (input: {
     readonly userId: string;
     readonly bindingId: string;
+    readonly clientNamespace?: string;
     readonly now: Date;
   }) => Effect.Effect<boolean, RepositoryError>;
   readonly pruneExpiredState: (input: {
@@ -164,6 +167,7 @@ export type IrohRepositoryShape = {
   readonly reserveRelayIssuance: (input: {
     readonly userId: string;
     readonly bindingId: string;
+    readonly clientNamespace?: string;
     readonly now: Date;
   }) => Effect.Effect<{
     readonly issuanceId: string;
@@ -226,6 +230,10 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohRegistrationChallenges.userId, input.userId),
             eq(irohRegistrationChallenges.deviceUuid, input.deviceUuid),
             eq(irohRegistrationChallenges.appInstanceId, input.appInstanceId),
+            eq(
+              irohRegistrationChallenges.clientNamespace,
+              input.clientNamespace ?? "legacy",
+            ),
             gt(irohRegistrationChallenges.createdAt, tenMinutesAgo),
           ));
         if ((recentForDeviceInstance?.total ?? 0) >= challengeQuota.deviceInstance) {
@@ -248,6 +256,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             userId: input.userId,
             deviceUuid: input.deviceUuid,
             appInstanceId: input.appInstanceId,
+            clientNamespace: input.clientNamespace ?? "legacy",
             tag: input.tag,
             endpointId: input.endpointId,
             identityGeneration: input.identityGeneration,
@@ -281,7 +290,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:endpoint:${input.payload.endpointId}`}, 0))`);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:slot:${input.userId}:${input.payload.deviceId}:${input.payload.tag}`}, 0))`);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:slot:${input.userId}:${input.payload.clientNamespace}:${input.payload.deviceId}:${input.payload.tag}`}, 0))`);
         const [challenge] = await tx
           .select()
           .from(irohRegistrationChallenges)
@@ -307,6 +316,7 @@ function makeLiveRepository(): IrohRepositoryShape {
           .from(irohEndpointBindings)
           .where(and(
             eq(irohEndpointBindings.userId, input.userId),
+            eq(irohEndpointBindings.clientNamespace, input.payload.clientNamespace),
             eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
             eq(irohEndpointBindings.tag, input.payload.tag),
             isNull(irohEndpointBindings.revokedAt),
@@ -430,6 +440,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             userId: input.userId,
             deviceUuid: input.payload.deviceId,
             appInstanceId: input.payload.appInstanceId,
+            clientNamespace: input.payload.clientNamespace,
             tag: input.payload.tag,
             platform: input.payload.platform,
             displayName: input.payload.displayName ?? null,
@@ -497,6 +508,13 @@ function makeLiveRepository(): IrohRepositoryShape {
           .from(irohEndpointBindings)
           .where(and(
             eq(irohEndpointBindings.userId, input.userId),
+            or(
+              eq(
+                irohEndpointBindings.clientNamespace,
+                input.clientNamespace ?? "legacy",
+              ),
+              eq(irohEndpointBindings.platform, "mac"),
+            ),
             isNull(irohEndpointBindings.revokedAt),
           ))
           .orderBy(asc(irohEndpointBindings.registeredAt));
@@ -543,7 +561,10 @@ function makeLiveRepository(): IrohRepositoryShape {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         const [binding] = await tx
-          .select({ revokedAt: irohEndpointBindings.revokedAt })
+          .select({
+            revokedAt: irohEndpointBindings.revokedAt,
+            clientNamespace: irohEndpointBindings.clientNamespace,
+          })
           .from(irohEndpointBindings)
           .where(and(
             eq(irohEndpointBindings.id, input.bindingId),
@@ -552,6 +573,9 @@ function makeLiveRepository(): IrohRepositoryShape {
           .for("update")
           .limit(1);
         if (!binding) return false;
+        if (binding.clientNamespace !== (input.clientNamespace ?? "legacy")) {
+          return false;
+        }
         if (binding.revokedAt) return true;
 
         const revoked = await revokeActiveBindings(tx, {
@@ -698,7 +722,6 @@ function makeLiveRepository(): IrohRepositoryShape {
           .for("update")
           .limit(1);
         if (!binding) throw new IrohNotFoundError({ resource: "binding" });
-
         if (
           binding.deviceUuid !== input.deviceId ||
           binding.endpointId !== input.endpointId ||
@@ -788,6 +811,9 @@ function makeLiveRepository(): IrohRepositoryShape {
           .for("update")
           .limit(1);
         if (!binding) throw new IrohNotFoundError({ resource: "binding" });
+        if (binding.clientNamespace !== (input.clientNamespace ?? "legacy")) {
+          throw new IrohNotFoundError({ resource: "binding" });
+        }
 
         await tx
           .update(irohEndpointBindings)

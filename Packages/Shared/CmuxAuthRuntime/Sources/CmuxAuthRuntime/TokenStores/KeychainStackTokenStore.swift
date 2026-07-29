@@ -19,15 +19,16 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private static let accessTokenAccount = "cmux-auth-access-token"
     private static let refreshTokenAccount = "cmux-auth-refresh-token"
     private let service: String
+    private let accessGroup: String?
     private let log = AuthDebugLog()
 
     private var cachedAccessToken: String?
     private var cachedRefreshToken: String?
 
-    /// Creates a keychain store writing under `service`.
-    /// - Parameter service: The keychain service name; see ``serviceName(bundleIdentifier:)``.
-    public init(service: String) {
+    /// Creates a keychain store writing under one exact signed access group.
+    public init(service: String, accessGroup: String? = nil) {
         self.service = service
+        self.accessGroup = accessGroup
     }
 
     /// The keychain service name auth tokens are stored under, namespaced by
@@ -122,12 +123,16 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
 #if canImport(Security)
     private func baseQuery(account: String) -> [String: Any] {
-        [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecUseDataProtectionKeychain as String: true,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
     }
 
     private func keychainRead(account: String) -> String? {

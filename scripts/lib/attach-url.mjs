@@ -5,13 +5,9 @@
 // routes by id/kind, base64url-encodes the (filtered) ticket, and builds the
 // `<scheme>://attach?v=<n>&payload=<b64>` URL the phone consumes.
 //
-// The scheme is channel-specific, mirroring `CmxPairingURLScheme` in
-// `Packages/Shared/CMUXMobileCore`: development builds register and emit
-// `cmux-ios-dev`, Release (TestFlight beta + App Store) emit `cmux-ios`. Both
-// callers here are dev-only (the debug-CLI QR renderer and the headless
-// dev-setup auto-pair mint), so the default is the dev scheme: a QR rendered by
-// `mobile-attach-qr.sh` must route to the dev iOS build when scanned with the
-// system Camera, not to an installed TestFlight/App Store build.
+// The scheme is the exact target bundle identifier, mirroring
+// `CmxPairingURLScheme` in `Packages/Shared/CMUXMobileCore`. Historical shared
+// schemes remain parse-only for old URLs; this encoder never creates one.
 //
 // This is the single source of truth for the encode recipe, shared by
 // `scripts/mobile-attach-qr.sh` (QR/HTML rendering) and `scripts/dev-setup.sh`
@@ -24,13 +20,29 @@ export const DEV_URL_SCHEME = "cmux-ios-dev";
 /** The pairing/attach URL scheme Release (beta + prod) builds emit. */
 export const RELEASE_URL_SCHEME = "cmux-ios";
 
-function isCanonicalAttachURL(value) {
+export function schemeForIOSBundleIdentifier(bundleIdentifier) {
+  const normalized = String(bundleIdentifier || "").trim().toLowerCase();
+  if (
+    !normalized.includes(".") ||
+    !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(normalized)
+  ) {
+    throw new Error("An exact iOS bundle identifier is required");
+  }
+  return `cmux-ios-${normalized}`;
+}
+
+export function isCanonicalAttachURL(value) {
   if (typeof value !== "string") {
     return false;
   }
-  return [DEV_URL_SCHEME, RELEASE_URL_SCHEME].some(
-    (candidate) => value.startsWith(`${candidate}://attach?`),
-  );
+  const match = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/attach\?/.exec(value);
+  if (!match) return false;
+  const scheme = match[1].toLowerCase();
+  if ([DEV_URL_SCHEME, RELEASE_URL_SCHEME].includes(scheme)) return true;
+  if (!scheme.startsWith("cmux-ios-")) return false;
+  const bundleIdentifier = scheme.slice("cmux-ios-".length);
+  return bundleIdentifier.includes(".") &&
+    /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(bundleIdentifier);
 }
 
 /**
@@ -67,8 +79,8 @@ export function filterRoutes(routes, { routeID = "", routeKind = "" } = {}) {
  *
  * @param {object} payload The raw `mobile.attach_ticket.create` result.
  * @param {{routeID?: string, routeKind?: string, scheme?: string}} [filter]
- *   `scheme` is the channel-specific URL scheme (default ``DEV_URL_SCHEME`` so a
- *   dev-rendered QR routes to the dev iOS build via the system Camera).
+ *   `scheme` is the exact-bundle URL scheme. It is required when the Mac did
+ *   not provide a canonical URL.
  * @returns {{attachURL: string, routes: Array<object>, payload: object}}
  *   `payload` is a shallow clone with `ticket.routes`/`routes` narrowed to the
  *   filtered set, so callers (e.g. the QR HTML renderer) can show the addresses.
@@ -81,7 +93,7 @@ export function buildAttachURL(payload, filter = {}) {
     );
   }
 
-  const { routeID, routeKind, scheme = DEV_URL_SCHEME } = filter;
+  const { routeID, routeKind, scheme } = filter;
   const routes = filterRoutes(payload.ticket.routes, { routeID, routeKind });
 
   const ticket = { ...payload.ticket, routes };
@@ -99,6 +111,17 @@ export function buildAttachURL(payload, filter = {}) {
   ) {
     result.attach_url = payload.attach_url;
     return { attachURL: result.attach_url, routes, payload: result };
+  }
+
+  const exactBundleIdentifier = typeof scheme === "string" &&
+    scheme.startsWith("cmux-ios-")
+    ? scheme.slice("cmux-ios-".length)
+    : "";
+  if (
+    !exactBundleIdentifier.includes(".") ||
+    !/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(exactBundleIdentifier)
+  ) {
+    throw new Error("An exact-bundle pairing URL scheme is required");
   }
 
   const encodedPayload = Buffer.from(JSON.stringify(ticket)).toString(

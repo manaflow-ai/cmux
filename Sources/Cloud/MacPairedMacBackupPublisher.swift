@@ -162,8 +162,14 @@ final class MacPairedMacBackupPublisher {
         if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
-        if let clientScope = MobileIOSBuildScope(instanceTag)?.serializedScope {
-            request.setValue(clientScope, forHTTPHeaderField: "X-Cmux-Client-Scope")
+        if let buildScope = MobileIOSBuildScope(instanceTag),
+           let appNamespace = MobileIOSAppNamespace(
+               bundleIdentifier: "dev.cmux.ios.\(buildScope.tag)"
+           ) {
+            request.setValue(
+                appNamespace.serverScope,
+                forHTTPHeaderField: "X-Cmux-Client-Scope"
+            )
         }
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = payload

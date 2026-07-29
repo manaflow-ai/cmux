@@ -57,13 +57,16 @@ protocol DeviceIdentityStoring: Sendable {
 struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
     private let service: String
     private let account: String
+    private let accessGroup: String?
 
     init(
         service: String = "com.cmuxterm.deviceRegistry.iosDeviceID.v1",
-        account: String = "default"
+        account: String = "default",
+        accessGroup: String? = nil
     ) {
         self.service = service
         self.account = account
+        self.accessGroup = accessGroup
     }
 
     func read() -> DeviceIdentityReadResult {
@@ -145,12 +148,16 @@ struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
     }
 
     private func baseQuery() -> [String: Any] {
-        [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: false,
             kSecUseDataProtectionKeychain as String: true,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
     }
 }

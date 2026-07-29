@@ -36,11 +36,14 @@ import { sanitizePublishedRoutes } from "./routePrivacy";
 export const PAIRED_MACS_COLLECTION = "pairedMacs";
 const SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScoped";
 const IOS_V2_SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScopedIosV2";
+const IOS_V3_SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScopedIosV3";
 const IOS_V2_CLIENT_SCOPE_PREFIX = "ios:v2:";
+const IOS_V3_CLIENT_SCOPE_PREFIX = "ios:v3:";
 export const PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES = [
   `${PAIRED_MACS_COLLECTION}:`,
   `${SCOPED_PAIRED_MACS_COLLECTION}:`,
   `${IOS_V2_SCOPED_PAIRED_MACS_COLLECTION}:`,
+  `${IOS_V3_SCOPED_PAIRED_MACS_COLLECTION}:`,
 ];
 
 /** Max saved-host records a single user may back up. Bounds the storage a client
@@ -185,9 +188,13 @@ export function normalizeClientScope(value: unknown): string | null {
 
 function scopedPairedMacCollectionNamespace(clientScope: unknown): string {
   const scope = trimmedString(clientScope);
-  return scope.startsWith(IOS_V2_CLIENT_SCOPE_PREFIX) && scope.length > IOS_V2_CLIENT_SCOPE_PREFIX.length
-    ? IOS_V2_SCOPED_PAIRED_MACS_COLLECTION
-    : SCOPED_PAIRED_MACS_COLLECTION;
+  if (scope.startsWith(IOS_V3_CLIENT_SCOPE_PREFIX) && scope.length > IOS_V3_CLIENT_SCOPE_PREFIX.length) {
+    return IOS_V3_SCOPED_PAIRED_MACS_COLLECTION;
+  }
+  if (scope.startsWith(IOS_V2_CLIENT_SCOPE_PREFIX) && scope.length > IOS_V2_CLIENT_SCOPE_PREFIX.length) {
+    return IOS_V2_SCOPED_PAIRED_MACS_COLLECTION;
+  }
+  return SCOPED_PAIRED_MACS_COLLECTION;
 }
 
 export function pairedMacsCollection(userId: string, clientScope?: string | null): string {

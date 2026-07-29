@@ -29,13 +29,25 @@ private final class MobileIrohSendableDefaults: @unchecked Sendable {
 
 private actor MobileIrohDurableDeviceIDResolver {
     private let defaults: MobileIrohSendableDefaults
+    private let appNamespace: MobileIOSAppNamespace
+    private let keychainAccessGroup: String?
 
-    init(defaults: MobileIrohSendableDefaults) {
+    init(
+        defaults: MobileIrohSendableDefaults,
+        appNamespace: MobileIOSAppNamespace,
+        keychainAccessGroup: String?
+    ) {
         self.defaults = defaults
+        self.appNamespace = appNamespace
+        self.keychainAccessGroup = keychainAccessGroup
     }
 
     func resolve() -> String? {
-        DeviceRegistryService.durableDeviceID(defaults: defaults.value)
+        DeviceRegistryService.durableDeviceID(
+            appNamespace: appNamespace,
+            keychainAccessGroup: keychainAccessGroup,
+            defaults: defaults.value
+        )
     }
 }
 
@@ -160,6 +172,7 @@ public final class MobileIrohRuntimeComposition:
     /// under it would orphan the retained `(user, device, tag)` binding. When
     /// this returns `nil`, activation defers and retries on the next reconcile.
     private let deviceID: @MainActor @Sendable () async -> String?
+    private let clientNamespace: String
     private let tag: String
     private let discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     private let now: @Sendable () -> Date
@@ -218,8 +231,17 @@ public final class MobileIrohRuntimeComposition:
         defaults: UserDefaults = .standard,
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appNamespace injectedAppNamespace: MobileIOSAppNamespace? = nil,
+        keychainAccessGroup injectedKeychainAccessGroup: String? = nil,
         diagnosticLog: DiagnosticLog? = nil
     ) {
+        guard let appNamespace = injectedAppNamespace
+            ?? MobileIOSAppNamespace(bundleIdentifier: bundleIdentifier)
+        else {
+            preconditionFailure("cmux iOS requires a valid bundle identifier")
+        }
+        let keychainAccessGroup = injectedKeychainAccessGroup
+            ?? Self.keychainAccessGroup(infoDictionary: infoDictionary)
         #if DEBUG
         let transportVerificationMode = Self.initialTransportVerificationMode(
             defaults: defaults
@@ -246,7 +268,9 @@ public final class MobileIrohRuntimeComposition:
         )
         let networkPathState = MobileIrohNetworkPathState()
         let durableDeviceIDResolver = MobileIrohDurableDeviceIDResolver(
-            defaults: MobileIrohSendableDefaults(defaults)
+            defaults: MobileIrohSendableDefaults(defaults),
+            appNamespace: appNamespace,
+            keychainAccessGroup: keychainAccessGroup
         )
         let lanPeerDiscovery = CmxIrohLANPeerDiscovery(
             networkPath: { await networkPathState.snapshot() },
@@ -268,51 +292,59 @@ public final class MobileIrohRuntimeComposition:
             appInstances: CmxIrohAppInstanceRepository(store: installState),
             identities: CmxIrohIdentityRepository(
                 secureStore: Self.identityStore(
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 ),
                 installState: installState
             ),
             brokerCredentials: CmxIrohBrokerCredentialRepository(
                 secureStore: Self.credentialStore(
                     service: "broker-credentials",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 ),
                 installState: installState
             ),
             pendingRevocations: CmxIrohPendingRevocationOutbox(
                 secureStore: Self.credentialStore(
                     service: "pending-revocations",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             offlinePolicies: CmxIrohClientOfflinePolicyCache(
                 secureStore: Self.credentialStore(
                     service: "client-offline-policy",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             customRelayProfiles: CmxIrohCustomRelayProfileStore(
                 secureStore: Self.credentialStore(
                     service: "custom-relays",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             relayPolicyCache: CmxIrohRelayPolicyCache(
                 secureStore: Self.credentialStore(
                     service: "relay-policy",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             relayPreferenceStore: CmxIrohRelayPreferenceStore(
                 secureStore: Self.credentialStore(
                     service: "relay-preference",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             customRelayCredentials: CmxIrohCustomRelayCredentialStore(
                 secureStore: Self.credentialStore(
                     service: "custom-relay-credentials",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             customPrivatePaths: CmxIrohCustomPrivatePathStore(store: installState),
@@ -335,6 +367,7 @@ public final class MobileIrohRuntimeComposition:
                 return try CmxIrohTrustBrokerClient(
                     baseURL: baseURL,
                     tokenSource: tokenSource,
+                    clientNamespace: appNamespace.bundleIdentifier,
                     backpressureMode: .callerOwned
                 )
             },
@@ -342,6 +375,7 @@ public final class MobileIrohRuntimeComposition:
                 store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
             ),
             deviceID: { await durableDeviceIDResolver.resolve() },
+            clientNamespace: appNamespace.bundleIdentifier,
             tag: Self.currentTag(
                 infoDictionary: infoDictionary,
                 bundleIdentifier: bundleIdentifier
@@ -386,6 +420,7 @@ public final class MobileIrohRuntimeComposition:
         brokerFactory: @escaping BrokerFactory,
         brokerBackpressureGate: CmxIrohBrokerBackpressureGate = CmxIrohBrokerBackpressureGate(),
         deviceID: @escaping @MainActor @Sendable () async -> String?,
+        clientNamespace: String = "legacy",
         tag: String,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         now: @escaping @Sendable () -> Date,
@@ -417,6 +452,7 @@ public final class MobileIrohRuntimeComposition:
         self.brokerFactory = brokerFactory
         self.brokerBackpressureGate = brokerBackpressureGate
         self.deviceID = deviceID
+        self.clientNamespace = clientNamespace
         self.tag = tag
         self.discoveryCompatibilityPolicy = discoveryCompatibilityPolicy
         self.now = now
@@ -1475,6 +1511,7 @@ public final class MobileIrohRuntimeComposition:
             accountID: accountID,
             deviceID: deviceID,
             appInstanceID: appInstanceID,
+            clientNamespace: clientNamespace,
             tag: tag,
             displayName: nil,
             identity: identity,
@@ -1748,36 +1785,57 @@ public final class MobileIrohRuntimeComposition:
     }
 
     private static func identityStore(
-        bundleIdentifier: String?
+        appNamespace: MobileIOSAppNamespace,
+        keychainAccessGroup: String?
     ) -> any CmxIrohSecureIdentityStoring {
         #if DEBUG
         CmxIrohDevelopmentFileIdentityStore(
             directory: developmentStoreDirectory(
                 service: "identity",
-                bundleIdentifier: bundleIdentifier
+                bundleIdentifier: appNamespace.bundleIdentifier
             )
         )
         #else
-        CmxIrohKeychainIdentityStore()
+        CmxIrohKeychainIdentityStore(
+            service: appNamespace.keychainService(
+                base: "com.cmuxterm.iroh.endpoint-identity.v1"
+            ),
+            accessGroup: keychainAccessGroup
+        )
         #endif
     }
 
     private static func credentialStore(
         service: String,
-        bundleIdentifier: String?
+        appNamespace: MobileIOSAppNamespace,
+        keychainAccessGroup: String?
     ) -> any CmxIrohSecureCredentialStoring {
         #if DEBUG
         CmxIrohDevelopmentFileCredentialStore(
             directory: developmentStoreDirectory(
                 service: service,
-                bundleIdentifier: bundleIdentifier
+                bundleIdentifier: appNamespace.bundleIdentifier
             )
         )
         #else
         CmxIrohKeychainCredentialStore(
-            service: "com.cmuxterm.iroh.\(service).v1"
+            service: appNamespace.keychainService(
+                base: "com.cmuxterm.iroh.\(service).v1"
+            ),
+            accessGroup: keychainAccessGroup
         )
         #endif
+    }
+
+    private static func keychainAccessGroup(
+        infoDictionary: [String: Any]?
+    ) -> String? {
+        let raw = infoDictionary?["CMUXKeychainAccessGroup"] as? String
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty, !trimmed.contains("$(") else {
+            return nil
+        }
+        return trimmed
     }
 
     static func initialTransportVerificationMode(

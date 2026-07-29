@@ -83,35 +83,42 @@ export type IrohTrustBrokerShape = {
     userId: string,
     raw: unknown,
     now?: Date,
+    clientNamespace?: string,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly register: (
     userId: string,
     raw: unknown,
     now?: Date,
+    clientNamespace?: string,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly discover: (
     userId: string,
     now?: Date,
+    clientNamespace?: string,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly revoke: (
     userId: string,
     raw: unknown,
     now?: Date,
+    clientNamespace?: string,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly issuePairGrant: (
     userId: string,
     raw: unknown,
     now?: Date,
+    clientNamespace?: string,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly issueEndpointAttestation: (
     userId: string,
     raw: unknown,
     now?: Date,
+    clientNamespace?: string,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly issueRelayToken: (
     userId: string,
     raw: unknown,
     now?: Date,
+    clientNamespace?: string,
   ) => Effect.Effect<unknown, IrohExpectedError>;
 };
 
@@ -147,9 +154,15 @@ export function makeIrohTrustBroker(
     userId: string,
     raw: unknown,
     now = new Date(),
+    clientNamespace = "legacy",
   ): Effect.Effect<unknown, IrohExpectedError> => Effect.gen(function* () {
     const { bindingId } = yield* parseEffect(() => parseBindingIdBody(raw));
-    const reservation = yield* repository.reserveRelayIssuance({ userId, bindingId, now });
+    const reservation = yield* repository.reserveRelayIssuance({
+      userId,
+      bindingId,
+      clientNamespace,
+      now,
+    });
     const minted = yield* relayMinter.mint({
       endpointId: reservation.binding.endpointId,
       lifetimeSeconds: IROH_RELAY_TOKEN_LIFETIME_SECONDS,
@@ -188,13 +201,24 @@ export function makeIrohTrustBroker(
   });
 
   return {
-    issueChallenge: (userId, raw, now = new Date()) => Effect.gen(function* () {
+    issueChallenge: (
+      userId,
+      raw,
+      now = new Date(),
+      clientNamespace = "legacy",
+    ) => Effect.gen(function* () {
       const request = yield* parseEffect(() => parseChallengeRequest(raw));
+      if (request.clientNamespace !== clientNamespace) {
+        return yield* Effect.fail(
+          new IrohForbiddenError({ code: "client_namespace_mismatch" }),
+        );
+      }
       const nonce = randomBytes(32).toString("base64url");
       const challenge = yield* repository.issueChallenge({
         userId,
         deviceUuid: request.deviceId,
         appInstanceId: request.appInstanceId,
+        clientNamespace: request.clientNamespace,
         tag: request.tag,
         endpointId: request.endpointId,
         identityGeneration: request.identityGeneration,
@@ -211,9 +235,19 @@ export function makeIrohTrustBroker(
       };
     }),
 
-    register: (userId, raw, now = new Date()) => Effect.gen(function* () {
+    register: (
+      userId,
+      raw,
+      now = new Date(),
+      clientNamespace = "legacy",
+    ) => Effect.gen(function* () {
       const request = yield* parseEffect(() => parseRegisterRequest(raw));
       const decoded = yield* parseEffect(() => decodeRegistrationPayload(request.payload, now));
+      if (decoded.payload.clientNamespace !== clientNamespace) {
+        return yield* Effect.fail(
+          new IrohForbiddenError({ code: "client_namespace_mismatch" }),
+        );
+      }
       const challenge = yield* repository.findChallenge(userId, request.challengeId);
       if (!challenge) return yield* Effect.fail(new IrohNotFoundError({ resource: "challenge" }));
       if (challenge.consumedAt) return yield* Effect.fail(new IrohConflictError({ code: "challenge_replayed" }));
@@ -252,7 +286,12 @@ export function makeIrohTrustBroker(
       // Refreshes keep their existing credential and use the dedicated relay
       // route when it expires, so path-hint churn cannot consume mint quotas.
       const relay = registration.created
-        ? yield* issueRelayToken(userId, { bindingId: registration.binding.id }, now).pipe(
+        ? yield* issueRelayToken(
+          userId,
+          { bindingId: registration.binding.id },
+          now,
+          clientNamespace,
+        ).pipe(
           Effect.map((value) => ({ status: "issued" as const, ...value as object })),
           Effect.catchAll(() => Effect.succeed({ status: "unavailable" as const })),
         )
@@ -263,9 +302,17 @@ export function makeIrohTrustBroker(
       };
     }),
 
-    discover: (userId, now = new Date()) => Effect.gen(function* () {
+    discover: (
+      userId,
+      now = new Date(),
+      clientNamespace = "legacy",
+    ) => Effect.gen(function* () {
       yield* repository.pruneExpiredState({ userId, now });
-      const snapshot = yield* repository.discoverySnapshot({ userId, now });
+      const snapshot = yield* repository.discoverySnapshot({
+        userId,
+        clientNamespace,
+        now,
+      });
       const relayPreference = yield* accountRelayPreference(userId);
       const savedCustomRelayURLs = customRelayURLs(relayPreference);
       const rendezvousKey = yield* parseEffect(() => deriveLanRendezvousKey(
@@ -290,14 +337,29 @@ export function makeIrohTrustBroker(
       };
     }),
 
-    revoke: (userId, raw, now = new Date()) => Effect.gen(function* () {
+    revoke: (
+      userId,
+      raw,
+      now = new Date(),
+      clientNamespace = "legacy",
+    ) => Effect.gen(function* () {
       const { bindingId } = yield* parseEffect(() => parseBindingIdBody(raw));
-      const revoked = yield* repository.revokeBinding({ userId, bindingId, now });
+      const revoked = yield* repository.revokeBinding({
+        userId,
+        bindingId,
+        clientNamespace,
+        now,
+      });
       if (!revoked) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
       return { revoked: true, lan_rendezvous_rotated: true };
     }),
 
-    issuePairGrant: (userId, raw, now = new Date()) => Effect.gen(function* () {
+    issuePairGrant: (
+      userId,
+      raw,
+      now = new Date(),
+      clientNamespace = "legacy",
+    ) => Effect.gen(function* () {
       const request = yield* parseEffect(() => parsePairGrantRequest(raw));
       const bindings = yield* repository.findActiveBindings(userId, [
         request.initiatorBindingId,
@@ -308,6 +370,9 @@ export function makeIrohTrustBroker(
       const initiator = byId.get(request.initiatorBindingId);
       const acceptor = byId.get(request.acceptorBindingId);
       if (!initiator || !acceptor) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+      if (initiator.clientNamespace !== clientNamespace) {
+        return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+      }
       if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
         return yield* Effect.fail(new IrohForbiddenError({ code: "target_not_pairable" }));
       }
@@ -352,11 +417,19 @@ export function makeIrohTrustBroker(
       return { grant: token, expires_at: new Date(claims.exp * 1_000).toISOString() };
     }),
 
-    issueEndpointAttestation: (userId, raw, now = new Date()) => Effect.gen(function* () {
+    issueEndpointAttestation: (
+      userId,
+      raw,
+      now = new Date(),
+      clientNamespace = "legacy",
+    ) => Effect.gen(function* () {
       const { bindingId } = yield* parseEffect(() => parseBindingIdBody(raw));
       const bindings = yield* repository.findActiveBindings(userId, [bindingId]);
       const binding = bindings.length === 1 ? bindings[0] : undefined;
       if (!binding) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+      if (binding.clientNamespace !== clientNamespace) {
+        return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+      }
 
       const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
       const issuedAtSeconds = Math.floor(now.getTime() / 1_000);

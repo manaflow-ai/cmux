@@ -405,6 +405,43 @@ describe("Iroh route boundary", () => {
     expect(receivedUserId).not.toBe("selected-team-id");
   });
 
+  test("forwards the exact app namespace to every mutation", async () => {
+    const received: string[] = [];
+    const namespaced = (
+      _userId: string,
+      _raw: unknown,
+      _now?: Date,
+      clientNamespace?: string,
+    ) => {
+      received.push(clientNamespace ?? "");
+      return Effect.succeed({});
+    };
+    const namespacedBroker = broker({
+      issueEndpointAttestation: namespaced,
+      revoke: namespaced,
+      issuePairGrant: namespaced,
+      issueRelayToken: namespaced,
+    });
+    const operations = [
+      "endpoint_attestation",
+      "revoke",
+      "pair_grant",
+      "relay_token",
+    ] as const;
+    for (const operation of operations) {
+      const base = authedPost("/api/devices/iroh", {});
+      const headers = new Headers(base.headers);
+      headers.set("x-cmux-app-namespace", "dev.cmux.app.demo");
+      const response = await handleIrohRoute(
+        new Request(base, { headers }),
+        operation,
+        { verify: async () => USER, broker: namespacedBroker },
+      );
+      expect(response.status).toBe(operation === "revoke" ? 200 : 201);
+    }
+    expect(received).toEqual(Array(4).fill("dev.cmux.app.demo"));
+  });
+
   test("maps DB-authoritative quota failures to typed 429 with Retry-After", async () => {
     const response = await handleIrohRoute(authedPost("/api/devices/iroh/relay-token", {
       bindingId: "30000000-0000-4000-8000-000000000001",

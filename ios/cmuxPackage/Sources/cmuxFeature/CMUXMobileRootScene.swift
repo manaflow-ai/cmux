@@ -181,11 +181,16 @@ public struct CMUXMobileRootScene: View {
         pairedMacStore: (any MobilePairedMacStoring)?
     ) -> (any DeviceRegistryRefreshing)? {
         let baseURL = auth.config.apiBaseURL
-        guard !baseURL.isEmpty else { return nil }
+        guard !baseURL.isEmpty, let appNamespace = auth.appNamespace else {
+            return nil
+        }
         let coordinator = auth.coordinator
         let teamRegistry = DeviceRegistryService(
             apiBaseURL: baseURL,
-            deviceID: DeviceRegistryService.deviceID(),
+            deviceID: DeviceRegistryService.deviceID(
+                appNamespace: appNamespace,
+                keychainAccessGroup: auth.keychainAccessGroup
+            ),
             tokenSource: DeviceRegistryService.TokenSource(
                 accessToken: { try? await coordinator.accessToken() },
                 refreshToken: { await coordinator.refreshToken() }
@@ -258,6 +263,7 @@ public struct CMUXMobileRootScene: View {
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
         guard MobilePairedMacBackup.resolved().isEnabled,
+              let appNamespace = auth.appNamespace,
               let baseURL = PresenceClient.resolvedServiceBaseURL(
                   isDevelopmentAuthChannel: auth.authEnvironment == .development
               ) else {
@@ -270,7 +276,7 @@ public struct CMUXMobileRootScene: View {
                 currentUserID: { await coordinator.currentUser?.id }
             ),
             teamIDProvider: { await coordinator.resolvedTeamID },
-            clientScopeProvider: { buildScope?.serializedScope }
+            clientScopeProvider: { appNamespace.serverScope }
         )
         return BackingUpPairedMacStore(
             inner: scopedStore,

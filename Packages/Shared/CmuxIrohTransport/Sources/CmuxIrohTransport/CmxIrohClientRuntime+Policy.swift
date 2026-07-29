@@ -28,6 +28,7 @@ extension CmxIrohClientRuntime {
         let payload = try CmxIrohRegistrationPayload(
             deviceID: configuration.deviceID,
             appInstanceID: configuration.appInstanceID,
+            clientNamespace: configuration.clientNamespace,
             tag: configuration.tag,
             platform: .ios,
             displayName: configuration.displayName,

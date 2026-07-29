@@ -64,10 +64,15 @@ function deps(overrides: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
   };
 }
 
-function request(body: unknown): Request {
+function request(body: unknown, clientNamespace?: string): Request {
   return new Request("https://cmux.dev/api/relay/token", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(clientNamespace
+        ? { "x-cmux-app-namespace": clientNamespace }
+        : {}),
+    },
     body: JSON.stringify(body),
   });
 }
@@ -140,6 +145,7 @@ describe("POST /api/relay/token", () => {
         expect(input).toEqual({
           accountId: "account-a",
           endpointId: ENDPOINT_ID,
+          clientNamespace: "legacy",
           nowSeconds: 1_700_000_000,
         });
         return false;
@@ -162,6 +168,24 @@ describe("POST /api/relay/token", () => {
     expect(body.relays).toBeUndefined();
     expect(body.expiresAt).toBeUndefined();
     expect(body.ttlSeconds).toBeUndefined();
+  });
+
+  test("passes the exact app namespace into endpoint ownership checks", async () => {
+    let checkedNamespace = "";
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }, "dev.cmux.app.demo"),
+      deps({
+        isEndpointBound: async (input) => {
+          checkedNamespace = input.clientNamespace;
+          return false;
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(checkedNamespace).toBe("dev.cmux.app.demo");
+    const body = await response.json() as Record<string, unknown>;
+    expect(body.relayCredentials).toBeUndefined();
   });
 
   test("preserves distinct URL-token associations without ambiguous legacy fields", async () => {

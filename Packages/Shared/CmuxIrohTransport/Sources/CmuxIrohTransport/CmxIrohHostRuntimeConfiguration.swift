@@ -7,6 +7,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
 
     public let deviceID: String
     public let appInstanceID: String
+    public let clientNamespace: String
     public let tag: String
     public let displayName: String?
     public let identity: CmxIrohIdentityMaterial
@@ -43,6 +44,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         accountID: String,
         deviceID: String,
         appInstanceID: String,
+        clientNamespace: String? = nil,
         tag: String,
         displayName: String?,
         identity: CmxIrohIdentityMaterial,
@@ -57,6 +59,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         self.accountID = accountID
         self.deviceID = cmxCanonicalDeviceID(deviceID)
         self.appInstanceID = appInstanceID.lowercased()
+        self.clientNamespace = clientNamespace ?? "mac:\(tag)"
         self.tag = tag
         self.displayName = displayName
         self.identity = identity

@@ -101,6 +101,7 @@ extension CmxIrohHostRuntime {
         let payload = try CmxIrohRegistrationPayload(
             deviceID: configuration.deviceID,
             appInstanceID: configuration.appInstanceID,
+            clientNamespace: configuration.clientNamespace,
             tag: configuration.tag,
             platform: .mac,
             displayName: configuration.displayName,

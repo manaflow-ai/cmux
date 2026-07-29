@@ -46,6 +46,29 @@ beforeEach(async () => {
 });
 
 describe("device token route", () => {
+  test("rejects a bundle that does not match the authenticated app namespace", async () => {
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-app-namespace": "dev.cmux.app.demo",
+        },
+        body: JSON.stringify({
+          deviceToken: "b".repeat(64),
+          bundleId: "dev.cmux.app.internal",
+          platform: "ios",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "client_namespace_mismatch",
+    });
+  });
+
   dbTest("blocks registration while account deletion is in progress", async () => {
     if (!sql) throw new Error("test database not initialized");
 
@@ -142,6 +165,37 @@ describe("device token route", () => {
       select count(*)::int as total from device_tokens where user_id = 'push-user-1'
     `;
     expect(stored.total).toBe(10);
+  });
+
+  dbTest("applies registration capacity independently per app namespace", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const register = (index: number, bundleId: string) =>
+      POST(
+        new Request("https://cmux.test/api/device-tokens", {
+          method: "POST",
+          headers: {
+            authorization: "Bearer access-token",
+            "x-stack-refresh-token": "refresh-token",
+            "x-cmux-app-namespace": bundleId,
+          },
+          body: JSON.stringify({
+            deviceToken: `${bundleId === "dev.cmux.app.demo" ? "d" : "e"}${index
+              .toString(16)
+              .padStart(63, "0")}`,
+            bundleId,
+            platform: "ios",
+          }),
+        }),
+      );
+
+    const responses = await Promise.all([
+      ...Array.from({ length: 10 }, (_, index) =>
+        register(index, "dev.cmux.app.demo")),
+      ...Array.from({ length: 10 }, (_, index) =>
+        register(index, "dev.cmux.app.internal")),
+    ]);
+    expect(responses.every((response) => response.status === 200)).toBe(true);
   });
 
   dbTest("canonicalizes token casing for register and delete", async () => {

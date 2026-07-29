@@ -119,6 +119,9 @@ public struct MobileAnalyticsComposition {
     @MainActor private static func deviceSuperProperties(anonymousID: String) -> [String: AnalyticsValue] {
         let info = Bundle.main.infoDictionary
         var props: [String: AnalyticsValue] = ["client_id": .string(anonymousID)]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            props["bundle_identifier"] = .string(bundleIdentifier)
+        }
         if let version = info?["CFBundleShortVersionString"] as? String {
             props["app_version"] = .string(version)
         }
@@ -140,6 +143,9 @@ public struct MobileAnalyticsComposition {
             "client_id": .string(anonymousID),
             "platform": .string("ios"),
         ]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            props["bundle_identifier"] = .string(bundleIdentifier)
+        }
         if let version = info?["CFBundleShortVersionString"] as? String {
             props["app_version"] = .string(version)
         }

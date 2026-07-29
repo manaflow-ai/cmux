@@ -126,17 +126,20 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private let transport: any CmxIrohHTTPTransport
     private let requestTimeout: TimeInterval
     private let backpressureGate: CmxIrohBrokerBackpressureGate?
+    private let clientNamespace: String
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
+        clientNamespace: String = "legacy",
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
     ) throws {
         try self.init(
             baseURL: baseURL,
             tokenSource: tokenSource,
+            clientNamespace: clientNamespace,
             transport: CmxIrohURLSessionTransport(),
             requestTimeout: requestTimeout,
             backpressureMode: backpressureMode
@@ -147,17 +150,21 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
+        clientNamespace: String = "legacy",
         transport: any CmxIrohHTTPTransport,
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
     ) throws {
-        guard Self.isAllowedBaseURL(baseURL), requestTimeout > 0 else {
+        guard Self.isAllowedBaseURL(baseURL),
+              Self.isSafeClientNamespace(clientNamespace),
+              requestTimeout > 0 else {
             throw CmxIrohTrustBrokerClientError.invalidBaseURL
         }
         self.baseURL = baseURL
         self.tokenSource = tokenSource
         self.transport = transport
         self.requestTimeout = requestTimeout
+        self.clientNamespace = clientNamespace
         switch backpressureMode {
         case .automatic:
             backpressureGate = CmxIrohBrokerBackpressureGate()
@@ -411,6 +418,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         request.timeoutInterval = requestTimeout
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        request.setValue(clientNamespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             request.httpBody = body
@@ -472,6 +480,16 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private static func isSafeHeaderValue(_ value: String) -> Bool {
         (1 ... 16 * 1_024).contains(value.utf8.count)
             && !value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f })
+    }
+
+    private static func isSafeClientNamespace(_ value: String) -> Bool {
+        (1 ... 255).contains(value.utf8.count)
+            && value.utf8.allSatisfy {
+                (48 ... 57).contains($0)
+                    || (65 ... 90).contains($0)
+                    || (97 ... 122).contains($0)
+                    || [45, 46, 58, 95].contains($0)
+            }
     }
 
     private static func retryAfterSeconds(_ value: String?) -> Int? {

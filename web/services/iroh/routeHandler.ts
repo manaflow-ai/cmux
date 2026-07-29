@@ -83,6 +83,10 @@ export async function handleIrohRoute(
     return jsonResponse({ error: "unauthorized" }, 401);
   }
   if (!user) return unauthorized();
+  const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
+  if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace)) {
+    return jsonResponse({ error: "invalid_client_namespace" }, 400);
+  }
 
   if (operation !== "discover") {
     const mutationForbidden = enforceBrowserMutationProtection(request);
@@ -164,11 +168,25 @@ export async function handleIrohRoute(
 
   try {
     const value = dependencies.broker
-      ? await Effect.runPromise(invoke(dependencies.broker, operation, user.id, bodyResult.value))
+      ? await Effect.runPromise(
+        invoke(
+          dependencies.broker,
+          operation,
+          user.id,
+          bodyResult.value,
+          clientNamespace,
+        ),
+      )
       : await Effect.runPromise(
         Effect.gen(function* () {
           const broker = yield* IrohTrustBroker;
-          return yield* invoke(broker, operation, user.id, bodyResult.value);
+          return yield* invoke(
+            broker,
+            operation,
+            user.id,
+            bodyResult.value,
+            clientNamespace,
+          );
         }).pipe(Effect.provide(dependencies.runtime ?? IrohTrustBrokerRuntime)),
       );
     return irohJsonResponse(value, successStatus(operation), {
@@ -228,15 +246,23 @@ function invoke(
   operation: IrohRouteOperation,
   userId: string,
   body: unknown,
+  clientNamespace: string,
 ) {
   switch (operation) {
-    case "challenge": return broker.issueChallenge(userId, body);
-    case "register": return broker.register(userId, body);
-    case "discover": return broker.discover(userId);
-    case "endpoint_attestation": return broker.issueEndpointAttestation(userId, body);
-    case "revoke": return broker.revoke(userId, body);
-    case "pair_grant": return broker.issuePairGrant(userId, body);
-    case "relay_token": return broker.issueRelayToken(userId, body);
+    case "challenge":
+      return broker.issueChallenge(userId, body, undefined, clientNamespace);
+    case "register":
+      return broker.register(userId, body, undefined, clientNamespace);
+    case "discover":
+      return broker.discover(userId, undefined, clientNamespace);
+    case "endpoint_attestation":
+      return broker.issueEndpointAttestation(userId, body, undefined, clientNamespace);
+    case "revoke":
+      return broker.revoke(userId, body, undefined, clientNamespace);
+    case "pair_grant":
+      return broker.issuePairGrant(userId, body, undefined, clientNamespace);
+    case "relay_token":
+      return broker.issueRelayToken(userId, body, undefined, clientNamespace);
   }
 }
 
