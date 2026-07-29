@@ -31,9 +31,6 @@ final class SecondaryMacSubscription {
     /// Per-connection stream id for the `mobile.events.subscribe` handshake.
     let streamID: String
     var task: Task<Void, Never>?
-    /// Reasserts the lightweight server subscription often enough to keep relay
-    /// and carrier-NAT paths warm without requesting terminal render traffic.
-    var keepaliveTask: Task<Void, Never>?
     /// Coalesces hot `workspace.updated` bursts to one leading and one trailing fetch.
     var refreshTask: Task<Void, Never>?
     var refreshPending = false
@@ -64,8 +61,6 @@ final class SecondaryMacSubscription {
     func cancel() {
         task?.cancel()
         task = nil
-        keepaliveTask?.cancel()
-        keepaliveTask = nil
         refreshTask?.cancel()
         refreshTask = nil
         let client = self.client
@@ -76,8 +71,6 @@ final class SecondaryMacSubscription {
     func detachKeepingClient() {
         task?.cancel()
         task = nil
-        keepaliveTask?.cancel()
-        keepaliveTask = nil
         refreshTask?.cancel()
         refreshTask = nil
     }

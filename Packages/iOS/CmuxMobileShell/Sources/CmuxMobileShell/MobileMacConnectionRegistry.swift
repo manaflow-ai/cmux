@@ -44,45 +44,145 @@ final class MobileMacConnectionRegistry {
         case focused(MacConnection)
     }
 
+    /// Dictionary-like compatibility view whose keyed reads and writes stay
+    /// O(1). Enumeration intentionally snapshots only the control entries once.
+    @MainActor
+    struct ControlSubscriptions: @MainActor Sequence {
+        typealias Element = (key: String, value: SecondaryMacSubscription)
+
+        unowned let registry: MobileMacConnectionRegistry
+
+        subscript(macDeviceID: String) -> SecondaryMacSubscription? {
+            get { registry.controlSubscription(for: macDeviceID) }
+            nonmutating set {
+                registry.setControlSubscription(newValue, for: macDeviceID)
+            }
+        }
+
+        var keys: [String] {
+            registry.controlEntries.map(\.key)
+        }
+
+        var count: Int {
+            registry.controlEntryCount
+        }
+
+        var isEmpty: Bool {
+            count == 0
+        }
+
+        func makeIterator() -> Array<Element>.Iterator {
+            registry.controlEntries.makeIterator()
+        }
+
+        func removeAll() {
+            registry.removeAllControlSubscriptions()
+        }
+    }
+
+    /// Dictionary-like compatibility view whose keyed reads and writes stay
+    /// O(1). The app owns at most one focused entry, so no enumeration API is
+    /// needed.
+    @MainActor
+    struct FocusedConnections {
+        unowned let registry: MobileMacConnectionRegistry
+
+        subscript(macDeviceID: String) -> MacConnection? {
+            get { registry.focusedConnection(for: macDeviceID) }
+            nonmutating set {
+                registry.setFocusedConnection(newValue, for: macDeviceID)
+            }
+        }
+
+        func removeAll() {
+            registry.removeAllFocusedConnections()
+        }
+    }
+
     private var entriesByMacDeviceID: [String: Entry] = [:] {
         didSet { rebuildSnapshots() }
     }
 
     private(set) var snapshots: [MobileMacConnectionSnapshot] = []
 
-    var controlSubscriptions: [String: SecondaryMacSubscription] {
-        get {
-            entriesByMacDeviceID.compactMapValues { entry in
-                guard case .control(let subscription) = entry else { return nil }
-                return subscription
-            }
+    var controlSubscriptions: ControlSubscriptions {
+        ControlSubscriptions(registry: self)
+    }
+
+    var focusedConnections: FocusedConnections {
+        FocusedConnections(registry: self)
+    }
+
+    private var controlEntries: [ControlSubscriptions.Element] {
+        entriesByMacDeviceID.compactMap { macDeviceID, entry in
+            guard case .control(let subscription) = entry else { return nil }
+            return (key: macDeviceID, value: subscription)
         }
-        set {
-            entriesByMacDeviceID = entriesByMacDeviceID.filter {
-                if case .focused = $0.value { return true }
-                return false
-            }
-            for (macDeviceID, subscription) in newValue {
-                entriesByMacDeviceID[macDeviceID] = .control(subscription)
+    }
+
+    private var controlEntryCount: Int {
+        entriesByMacDeviceID.values.reduce(into: 0) { count, entry in
+            if case .control = entry {
+                count += 1
             }
         }
     }
 
-    var focusedConnections: [String: MacConnection] {
-        get {
-            entriesByMacDeviceID.compactMapValues { entry in
-                guard case .focused(let connection) = entry else { return nil }
-                return connection
-            }
+    private func controlSubscription(
+        for macDeviceID: String
+    ) -> SecondaryMacSubscription? {
+        guard case .control(let subscription) = entriesByMacDeviceID[macDeviceID] else {
+            return nil
         }
-        set {
-            entriesByMacDeviceID = entriesByMacDeviceID.filter {
-                if case .control = $0.value { return true }
-                return false
-            }
-            for (macDeviceID, connection) in newValue {
-                entriesByMacDeviceID[macDeviceID] = .focused(connection)
-            }
+        return subscription
+    }
+
+    private func setControlSubscription(
+        _ subscription: SecondaryMacSubscription?,
+        for macDeviceID: String
+    ) {
+        if let subscription {
+            entriesByMacDeviceID[macDeviceID] = .control(subscription)
+        } else if case .control = entriesByMacDeviceID[macDeviceID] {
+            entriesByMacDeviceID[macDeviceID] = nil
+        }
+    }
+
+    private func focusedConnection(for macDeviceID: String) -> MacConnection? {
+        guard case .focused(let connection) = entriesByMacDeviceID[macDeviceID] else {
+            return nil
+        }
+        return connection
+    }
+
+    private func setFocusedConnection(
+        _ connection: MacConnection?,
+        for macDeviceID: String
+    ) {
+        if let connection {
+            entriesByMacDeviceID[macDeviceID] = .focused(connection)
+        } else if case .focused = entriesByMacDeviceID[macDeviceID] {
+            entriesByMacDeviceID[macDeviceID] = nil
+        }
+    }
+
+    private func removeAllControlSubscriptions() {
+        let controlIDs = entriesByMacDeviceID.compactMap { macDeviceID, entry in
+            if case .control = entry { return macDeviceID }
+            return nil
+        }
+        for macDeviceID in controlIDs {
+            entriesByMacDeviceID[macDeviceID] = nil
+        }
+    }
+
+    private func removeAllFocusedConnections() {
+        let focusedIDs = entriesByMacDeviceID.compactMap { macDeviceID, entry in
+            if case .focused = entry { return macDeviceID }
+            return nil
+        }
+        for macDeviceID in focusedIDs {
+            entriesByMacDeviceID[macDeviceID] = nil
         }
     }
 

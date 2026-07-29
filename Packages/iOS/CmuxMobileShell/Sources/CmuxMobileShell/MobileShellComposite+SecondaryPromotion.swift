@@ -2,13 +2,32 @@ import Foundation
 import CmuxMobileShellModel
 import os
 
-private let secondaryPromotionLog = Logger(
+nonisolated private let secondaryPromotionLog = Logger(
     subsystem: "com.cmuxterm.app",
     category: "MobileSecondaryPromotion"
 )
 
 @MainActor
 extension MobileShellComposite {
+    /// Stop a focused client's terminal lane before changing its role. A valid
+    /// unsubscribe acknowledgement is mandatory before the client can stay in
+    /// the control pool; otherwise disconnect it so render traffic cannot leak
+    /// from a former foreground Mac.
+    func relinquishFocusedConnection(
+        _ connection: MacConnection,
+        retainAsControl: Bool
+    ) async {
+        let terminalStopped = await unsubscribeTerminalEventStream(
+            on: connection.client
+        )
+        connections[connection.macDeviceID] = nil
+        guard terminalStopped, retainAsControl else {
+            await connection.client.disconnect()
+            return
+        }
+        installControlConnection(from: connection)
+    }
+
     /// Change a retained focused client to control-only ownership after its
     /// terminal subscription has been removed. The workspace snapshot stays in
     /// `workspacesByMac`, so the aggregate never blinks while roles change.
@@ -99,17 +118,31 @@ extension MobileShellComposite {
         let previousForegroundConnection = previousForegroundID.flatMap {
             connections[$0]
         }
+        // Remove the target's control registration before disturbing the live
+        // foreground. If this acknowledgement fails, its client is discarded
+        // and the ordinary fresh-dial switch path can proceed.
+        guard await unsubscribeEventStream(
+            on: sub.client,
+            streamID: sub.streamID
+        ) else {
+            sub.cancel()
+            secondaryMacSubscriptions[macID] = nil
+            return false
+        }
         stopTerminalRefreshPolling()
         cancelRemoteOperationTasks()
         clearPendingTerminalInputForFocusChange()
-        // Remove both prior server registrations before changing roles. This is
-        // the hard boundary that guarantees only the newly focused Mac can emit
-        // terminal bytes or render grids.
-        await unsubscribeEventStream(on: sub.client, streamID: sub.streamID)
+        // The old foreground can stay warm only after the Mac proves its
+        // terminal registration is gone.
+        var previousForegroundCanStayWarm = false
         if let previousForegroundConnection {
-            await unsubscribeTerminalEventStream(
+            previousForegroundCanStayWarm = await unsubscribeTerminalEventStream(
                 on: previousForegroundConnection.client
             )
+            if !previousForegroundCanStayWarm {
+                connections[previousForegroundConnection.macDeviceID] = nil
+                await previousForegroundConnection.client.disconnect()
+            }
         }
         let previousForegroundKey = foregroundMacKey
         secondaryMacSubscriptions[macID] = nil
@@ -135,7 +168,8 @@ extension MobileShellComposite {
         )
         if let previousForegroundID,
            previousForegroundID != macID,
-           let previousForegroundConnection {
+           let previousForegroundConnection,
+           previousForegroundCanStayWarm {
             installControlConnection(from: previousForegroundConnection)
         }
         // Promotion reuses the live client without a fresh `mobile.host.status`

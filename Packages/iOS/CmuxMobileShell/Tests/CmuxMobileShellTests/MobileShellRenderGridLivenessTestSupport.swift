@@ -38,6 +38,8 @@ actor LivenessHostRouter {
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
+    private var unsubscribeRequestCount = 0
+    private var invalidUnsubscribeRequestNumbers: Set<Int> = []
     private var replayRequestCount = 0
     private var replayResponseCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
@@ -259,6 +261,11 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers.insert(number)
     }
 
+    /// Return a malformed acknowledgement for the Nth unsubscribe request.
+    func invalidateUnsubscribeRequest(number: Int) {
+        invalidUnsubscribeRequestNumbers.insert(number)
+    }
+
     /// Hold the Nth `mobile.terminal.replay` response (1-based), letting a test
     /// swap clients while the old request is still in flight.
     func holdReplayRequest(number: Int) {
@@ -302,7 +309,12 @@ actor LivenessHostRouter {
         for continuation in continuations { continuation.resume() }
     }
 
-    func response(method: String?, id: String?, viewportReport: LivenessViewportReport? = nil) async -> Data? {
+    func response(
+        method: String?,
+        id: String?,
+        streamID: String? = nil,
+        viewportReport: LivenessViewportReport? = nil
+    ) async -> Data? {
         switch method {
         case "mobile.attach_ticket.create":
             return try? Self.resultFrame(id: id, result: ["ticket": Self.attachTicketObject()])
@@ -405,7 +417,14 @@ actor LivenessHostRouter {
                 "data_b64": Data(text.utf8).base64EncodedString(),
             ])
         case "mobile.events.unsubscribe":
-            return try? Self.resultFrame(id: id, result: [:])
+            unsubscribeRequestCount += 1
+            guard !invalidUnsubscribeRequestNumbers.contains(unsubscribeRequestCount) else {
+                return try? Self.resultFrame(id: id, result: [:])
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "stream_id": streamID ?? "",
+                "removed": true,
+            ])
         case "mobile.sync.fetch":
             syncFetchRequestCount += 1
             if heldSyncFetchRequestNumbers.contains(syncFetchRequestCount) {
@@ -530,6 +549,7 @@ actor LivenessTransport: CmxByteTransport {
             let id = parsed?["id"] as? String
             let params = parsed?["params"] as? [String: Any]
             let topics = params?["topics"] as? [String]
+            let streamID = params?["stream_id"] as? String
             let viewportReport: LivenessViewportReport? = {
                 guard method == "mobile.terminal.viewport",
                       let columns = (params?["viewport_columns"] as? NSNumber)?.intValue,
@@ -547,7 +567,12 @@ actor LivenessTransport: CmxByteTransport {
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
             Task { [router, weak self] in
-                guard let response = await router.response(method: method, id: id, viewportReport: viewportReport) else {
+                guard let response = await router.response(
+                    method: method,
+                    id: id,
+                    streamID: streamID,
+                    viewportReport: viewportReport
+                ) else {
                     return
                 }
                 await self?.deliver(response)
