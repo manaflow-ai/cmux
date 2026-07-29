@@ -219,10 +219,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             || pendingVerifiedReplayViewportAnchorRestore != nil
             || pendingCopyableTextRead != nil || pendingVerifiedReplayPresentation != nil
     }
-    /// User viewport-interaction clock. Incremented on the main actor at
-    /// every user-driven viewport mutation; read inside output-queue blocks
-    /// immediately before a viewport-mutating C call so a stale restore
-    /// enqueued before a newer gesture cannot overwrite it.
+    /// User viewport-interaction clock. Its lock is held across at most one
+    /// viewport-scroll C call, so a main-actor bump blocks only for that call
+    /// and no path acquires Ghostty's lock before this clock.
     nonisolated let userViewportInteractionClock =
         OSAllocatedUnfairLock<UInt64>(initialState: 0)
     var userViewportInteractionGeneration: UInt64 {

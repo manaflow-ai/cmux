@@ -115,22 +115,27 @@ extension GhosttySurfaceView {
                         postReplayVisibleRows: postReplay.len
                     )
                     : nil
-                var restoredScrollbar = ghostty_surface_scrollbar_s()
-                let restored: Bool
-                if clock.withLock({ $0 }) != captured.interactionGeneration {
-                    MobileDebugLog.anchormux(
-                        "verified_replay.viewport_restore.skipped reason=user_interaction_late"
-                    )
-                    restored = false
-                } else {
-                    restored = targetTopRow.map {
+                let postReplayRevision = postReplay.row_space_revision
+                let restored = clock.withLock { generation -> Bool in
+                    guard generation == captured.interactionGeneration else {
+                        return false
+                    }
+                    var restoredScrollbar = ghostty_surface_scrollbar_s()
+                    return targetTopRow.map {
                         ghostty_surface_scroll_to_row_if_revision(
                             operation.surface,
                             $0,
-                            postReplay.row_space_revision,
+                            postReplayRevision,
                             &restoredScrollbar
                         )
                     } ?? false
+                }
+                if !restored,
+                   targetTopRow != nil,
+                   clock.withLock({ $0 }) != captured.interactionGeneration {
+                    MobileDebugLog.anchormux(
+                        "verified_replay.viewport_restore.skipped reason=user_interaction_late"
+                    )
                 }
                 if readPostReplay {
                     MobileDebugLog.anchormux(
@@ -297,6 +302,23 @@ extension GhosttySurfaceView {
         // zero-sized first target is correctly rejected by its size guard.
         guard !Task.isCancelled, !isDismantled, window != nil else { return nil }
         return makeVerifiedReplayBlankFrozenPresentation()
+    }
+
+    /// Renders the just-restored viewport behind the frozen presentation
+    /// and re-arms the ready fence to that frame, so reveal exposes the
+    /// restored position instead of the replay's bottom reset. Render
+    /// suppression is still active here, so no other frame can replace the
+    /// renderer identity between this present and the reveal.
+    @discardableResult
+    public func presentRestoredVerifiedReplayViewport() async -> Bool {
+        guard verifiedReplayFrozenTransactionID != nil,
+              verifiedReplayReadyTransactionID == verifiedReplayFrozenTransactionID else {
+            return false
+        }
+        return await submitVerifiedReplayRenderAndWait(
+            read: nil,
+            rearmReadyFenceOnPresent: true
+        ) != nil
     }
 
     /// Removes the retained last-good pixels only for the transaction that
@@ -504,7 +526,7 @@ extension GhosttySurfaceView {
         ) else {
             return
         }
-        if pending.observedFrame != nil,
+        if pending.observedFrame != nil || pending.rearmReadyFenceOnPresent,
            let transactionID = verifiedReplayFrozenTransactionID {
             verifiedReplayReadyFence = pending.fence
             verifiedReplayReadyTransactionID = transactionID

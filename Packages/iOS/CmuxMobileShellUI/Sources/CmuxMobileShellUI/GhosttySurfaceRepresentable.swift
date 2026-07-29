@@ -587,6 +587,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 observedFrame: observed
             ) {
             case .reveal:
+                if let viewportAnchor {
+                    let restored = await surfaceView.restoreVerifiedReplayViewportAnchor(
+                        viewportAnchor
+                    )
+                    guard !Task.isCancelled else { return }
+                    if restored {
+                        pendingReplayViewportAnchor = nil
+                        // Restore and re-fence happen under render suppression,
+                        // so the renderer identity cannot change before reveal.
+                        _ = await surfaceView.presentRestoredVerifiedReplayViewport()
+                        guard !Task.isCancelled else { return }
+                    }
+                }
                 guard surfaceView.revealVerifiedReplayPresentation(
                     transactionID: transactionID
                 ) else {
@@ -596,14 +609,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         streamToken: chunk.streamToken
                     )
                     return
-                }
-                // The ready fence is tied to the exact verification render.
-                // Re-presenting a restored viewport before reveal would replace
-                // that renderer identity and can keep the replay frozen forever.
-                // Reveal first, then let the normal draw pump render the restore.
-                if let viewportAnchor,
-                   await surfaceView.restoreVerifiedReplayViewportAnchor(viewportAnchor) {
-                    pendingReplayViewportAnchor = nil
                 }
                 store.terminalOutputDidProcess(
                     surfaceID: surfaceID,
