@@ -19,7 +19,7 @@ public final class ResourceError extends RuntimeException {
     ) {
         super(Objects.requireNonNull(message, "message"));
         this.code = Objects.requireNonNull(code, "code");
-        this.details = Map.copyOf(details);
+        this.details = JsonValue.immutableObject(details, "error details");
         this.retryable = retryable;
     }
 

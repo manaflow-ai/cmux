@@ -25,7 +25,7 @@ public final class ProviderAction {
         return Optional.ofNullable(snapshot);
     }
 
-    public MutationResult<Object> invoke(Options.ProviderInvoke options) {
+    public MutationResult<JsonValue> invoke(Options.ProviderInvoke options) {
         Map<String, Object> params = Client.copy(selectors);
         params.putAll(options.mutation().extra());
         params.put("parameters", options.parameters());
@@ -35,6 +35,8 @@ public final class ProviderAction {
         if (!response.result().containsKey("value")) {
             throw new ProtocolError("provider action result omitted value");
         }
-        return response.parts().withValue(response.result().get("value"));
+        return response.parts().withValue(
+            JsonValue.of(response.result().get("value"))
+        );
     }
 }

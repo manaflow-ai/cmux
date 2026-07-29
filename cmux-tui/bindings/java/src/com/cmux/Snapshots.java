@@ -17,7 +17,7 @@ public final class Snapshots {
         boolean deleted,
         boolean recoverable,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public MachineSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(name, "name");
@@ -44,7 +44,7 @@ public final class Snapshots {
         Decimal revision,
         boolean connected,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public SessionSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(machineId, "machineId");
@@ -59,10 +59,10 @@ public final class Snapshots {
         Ids.WorkspaceId id,
         Ids.SessionId sessionId,
         String name,
-        int index,
+        long index,
         boolean focused,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public WorkspaceSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(sessionId, "sessionId");
@@ -76,17 +76,17 @@ public final class Snapshots {
         Ids.ScreenId id,
         Ids.WorkspaceId workspaceId,
         Optional<String> name,
-        int index,
+        long index,
         boolean focused,
-        Map<String, Object> layout,
+        Layout.Document layout,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public ScreenSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(workspaceId, "workspaceId");
             name = opt(name);
             nonnegative(index, "index");
-            layout = copy(layout);
+            Objects.requireNonNull(layout, "layout");
             extra = copy(extra);
         }
     }
@@ -98,7 +98,7 @@ public final class Snapshots {
         boolean focused,
         boolean zoomed,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public PaneSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(screenId, "screenId");
@@ -111,18 +111,18 @@ public final class Snapshots {
         Ids.TabId id,
         Ids.PaneId paneId,
         Optional<String> name,
-        int index,
+        long index,
         boolean focused,
         String contentKind,
         Ids.Id contentId,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public TabSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(paneId, "paneId");
             name = opt(name);
             nonnegative(index, "index");
-            Objects.requireNonNull(contentKind, "contentKind");
+            oneOf(contentKind, "contentKind", "terminal", "browser");
             Objects.requireNonNull(contentId, "contentId");
             if (contentKind.equals("terminal") &&
                     !(contentId instanceof Ids.TerminalId)) {
@@ -145,33 +145,33 @@ public final class Snapshots {
         Ids.TabId tabId,
         String title,
         Optional<String> cwd,
-        int columns,
+        int cols,
         int rows,
         boolean running,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public TerminalSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(tabId, "tabId");
             Objects.requireNonNull(title, "title");
             cwd = opt(cwd);
-            positive(columns, "columns");
-            positive(rows, "rows");
+            positiveUint16(cols, "cols");
+            positiveUint16(rows, "rows");
             extra = copy(extra);
         }
     }
 
-    public record Size(int columns, int rows) {
+    public record Size(int cols, int rows) {
         public Size {
-            positive(columns, "columns");
-            positive(rows, "rows");
+            positiveUint16(cols, "cols");
+            positiveUint16(rows, "rows");
         }
     }
 
-    public record PixelSize(long width, long height) {
+    public record PixelSize(long widthPx, long heightPx) {
         public PixelSize {
-            positive(width, "width");
-            positive(height, "height");
+            positiveUint32(widthPx, "widthPx");
+            positiveUint32(heightPx, "heightPx");
         }
     }
 
@@ -187,7 +187,7 @@ public final class Snapshots {
         boolean framesStalled,
         Size size,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public BrowserSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(tabId, "tabId");
@@ -201,7 +201,7 @@ public final class Snapshots {
         }
     }
 
-    public record ConnectedClientSnapshot(
+    public record ClientSnapshot(
         Ids.ConnectedClientId id,
         Ids.SessionId sessionId,
         Optional<String> name,
@@ -212,8 +212,8 @@ public final class Snapshots {
         List<ClientTerminalSize> sizes,
         boolean self,
         Map<String, Object> extra
-    ) {
-        public ConnectedClientSnapshot {
+    ) implements ResourceEntitySnapshot {
+        public ClientSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(sessionId, "sessionId");
             name = opt(name);
@@ -236,8 +236,8 @@ public final class Snapshots {
             Objects.requireNonNull(terminalId, "terminalId");
             columns = opt(columns);
             rows = opt(rows);
-            columns.ifPresent(value -> positive(value, "columns"));
-            rows.ifPresent(value -> positive(value, "rows"));
+            columns.ifPresent(value -> positiveUint16(value, "columns"));
+            rows.ifPresent(value -> positiveUint16(value, "rows"));
             if (columns.isPresent() != rows.isPresent()) {
                 throw new IllegalArgumentException(
                     "client terminal columns and rows must both be present or both be absent"
@@ -256,7 +256,7 @@ public final class Snapshots {
         Decimal createdAtMS,
         boolean unread,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public NotificationSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(sessionId, "sessionId");
@@ -278,7 +278,7 @@ public final class Snapshots {
         Decimal updatedAtMS,
         Optional<String> sourceSession,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public AgentSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(sessionId, "sessionId");
@@ -299,7 +299,7 @@ public final class Snapshots {
         Decimal expiresInSeconds,
         String status,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public PairingRequestSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(sessionId, "sessionId");
@@ -314,13 +314,13 @@ public final class Snapshots {
     public record FrontendProjectionSnapshot(
         Ids.ProjectionId id,
         Ids.SessionId sessionId,
-        Object projection,
+        JsonValue projection,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public FrontendProjectionSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(sessionId, "sessionId");
-            projection = immutableJson(projection);
+            Objects.requireNonNull(projection, "projection");
             extra = copy(extra);
         }
     }
@@ -332,12 +332,12 @@ public final class Snapshots {
         int rows,
         boolean running,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public SidebarViewSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(sessionId, "sessionId");
-            positive(columns, "columns");
-            positive(rows, "rows");
+            positiveUint16(columns, "columns");
+            positiveUint16(rows, "rows");
             extra = copy(extra);
         }
     }
@@ -349,7 +349,7 @@ public final class Snapshots {
         boolean canAdmin,
         boolean selected,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public ProviderScopeSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(name, "name");
@@ -368,7 +368,7 @@ public final class Snapshots {
         boolean destructive,
         List<ProviderActionField> fields,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public ProviderActionSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(providerScopeId, "providerScopeId");
@@ -391,7 +391,7 @@ public final class Snapshots {
         String label,
         String kind,
         boolean required,
-        Optional<Integer> maxLength,
+        Optional<Long> maxLength,
         Optional<Integer> minimum,
         Optional<Integer> maximum,
         Optional<String> placeholder
@@ -423,7 +423,7 @@ public final class Snapshots {
         String level,
         String message,
         Map<String, Object> extra
-    ) {
+    ) implements ResourceEntitySnapshot {
         public ProviderNoticeSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(providerScopeId, "providerScopeId");
@@ -440,17 +440,9 @@ public final class Snapshots {
     }
 
     private static Map<String, Object> copy(Map<String, Object> value) {
-        return value == null ? Map.of() : Map.copyOf(value);
-    }
-
-    private static Object immutableJson(Object value) {
-        if (value instanceof Map<?, ?> map) {
-            return Map.copyOf(map);
-        }
-        if (value instanceof List<?> list) {
-            return List.copyOf(list);
-        }
-        return value;
+        return value == null
+            ? Map.of()
+            : JsonValue.immutableObject(value, "snapshot extra");
     }
 
     private static void nonnegative(long value, String name) {
@@ -462,6 +454,22 @@ public final class Snapshots {
     private static void positive(long value, String name) {
         if (value <= 0) {
             throw new IllegalArgumentException(name + " must be positive");
+        }
+    }
+
+    private static void positiveUint16(long value, String name) {
+        if (value <= 0 || value > 0xffffL) {
+            throw new IllegalArgumentException(
+                name + " must be positive and fit uint16"
+            );
+        }
+    }
+
+    private static void positiveUint32(long value, String name) {
+        if (value <= 0 || value > 0xffff_ffffL) {
+            throw new IllegalArgumentException(
+                name + " must be positive and fit uint32"
+            );
         }
     }
 

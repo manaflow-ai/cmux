@@ -113,7 +113,14 @@ public final class ProviderScope {
         return client.openStream(
             Operations.PROVIDER_NOTICE_EVENTS,
             params,
-            this::decodeNotice
+            (value, cursor) -> {
+                if (cursor == null) {
+                    throw new ProtocolError(
+                        "provider notice items require an envelope cursor"
+                    );
+                }
+                return decodeNotice(value);
+            }
         );
     }
 
@@ -192,12 +199,7 @@ public final class ProviderScope {
         Map<String, Object> fields = Wire.object(value, "provider notice item");
         String kind = Wire.string(fields.get(Wire.KIND), "provider notice kind");
         if (!kind.equals("notice")) {
-            return new ProviderNoticeItem(
-                kind,
-                Optional.empty(),
-                Optional.empty(),
-                fields
-            );
+            return new ProviderNoticeItem.Unknown(kind, fields);
         }
         Client.requireExactFields(
             fields,
@@ -217,11 +219,6 @@ public final class ProviderScope {
             Client.decodeProviderNotice(fields.get("notice")),
             sequence
         );
-        return new ProviderNoticeItem(
-            kind,
-            Optional.of(notice),
-            Optional.of(sequence),
-            Map.of()
-        );
+        return new ProviderNoticeItem.Known(notice, sequence);
     }
 }

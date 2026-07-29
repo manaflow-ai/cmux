@@ -34,6 +34,11 @@ public final class Client implements AutoCloseable {
 
     @FunctionalInterface
     interface Decoder<T> {
+        T decode(Object value, Cursor envelopeCursor);
+    }
+
+    @FunctionalInterface
+    interface ValueDecoder<T> {
         T decode(Object value);
     }
 
@@ -272,6 +277,7 @@ public final class Client implements AutoCloseable {
         envelope.put("id", requestId);
         envelope.put("operation", operation.wireName());
         Map<String, Object> encodedParams = copy(params);
+        String mutationKey = null;
         if (mutation != null) {
             mutation.expectedRevision().ifPresent(
                 revision -> encodedParams.put("expected_revision", revision)
@@ -279,13 +285,13 @@ public final class Client implements AutoCloseable {
         }
         envelope.put("params", Wire.encode(encodedParams));
         if (mutation != null) {
-            String key = mutation.idempotencyKey().orElseGet(idempotencyKeys);
-            if (key.isEmpty() || key.length() > 128) {
+            mutationKey = mutation.idempotencyKey().orElseGet(idempotencyKeys);
+            if (mutationKey.isEmpty() || mutationKey.length() > 128) {
                 throw new IllegalArgumentException(
                     "idempotency key must contain 1 to 128 characters"
                 );
             }
-            envelope.put(Wire.IDEMPOTENCY_KEY, key);
+            envelope.put(Wire.IDEMPOTENCY_KEY, mutationKey);
         }
         CompletableFuture<Object> future = new CompletableFuture<>();
         pending.put(requestId, future);
@@ -299,20 +305,38 @@ public final class Client implements AutoCloseable {
             }
         } catch (IOException | RuntimeException error) {
             pending.remove(requestId);
-            throw transportError("cannot send " + operation.wireName(), error);
+            RuntimeException failure = transportError(
+                "cannot send " + operation.wireName(),
+                error
+            );
+            throw uncertain(operation, mutationKey, failure);
         }
         try {
             return future.get(Math.max(1L, timeout.toMillis()), TimeUnit.MILLISECONDS);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             pending.remove(requestId);
-            throw new TransportError("interrupted while waiting for " + operation.wireName(), error);
+            throw uncertain(
+                operation,
+                mutationKey,
+                new TransportError(
+                    "interrupted while waiting for " + operation.wireName(),
+                    error
+                )
+            );
         } catch (TimeoutException error) {
             pending.remove(requestId);
-            throw new TransportError(operation.wireName() + " timed out", error);
+            throw uncertain(
+                operation,
+                mutationKey,
+                new TransportError(operation.wireName() + " timed out", error)
+            );
         } catch (ExecutionException error) {
             Throwable cause = error.getCause();
             if (cause instanceof RuntimeException runtime) {
+                if (runtime instanceof TransportError) {
+                    throw uncertain(operation, mutationKey, runtime);
+                }
                 throw runtime;
             }
             throw new TransportError(operation.wireName() + " failed", cause);
@@ -337,7 +361,30 @@ public final class Client implements AutoCloseable {
         streams.put(streamId, route);
         input.put(Wire.STREAM_ID, streamId);
         try {
-            request(operation, input, null);
+            Map<String, Object> opened = request(operation, input, null);
+            requireExactFields(
+                opened,
+                operation.wireName() + " opened result",
+                Wire.STREAM_ID,
+                Wire.CURSOR
+            );
+            Ids.StreamId returned = new Ids.StreamId(Wire.string(
+                opened.get(Wire.STREAM_ID),
+                operation.wireName() + " returned stream_id"
+            ));
+            if (!returned.equals(streamId)) {
+                throw new ProtocolError(
+                    operation.wireName() + " returned a different stream_id"
+                );
+            }
+            if (opened.containsKey(Wire.CURSOR)) {
+                if (opened.get(Wire.CURSOR) == null) {
+                    throw new ProtocolError(
+                        operation.wireName() + " returned a null cursor"
+                    );
+                }
+                decodeCursor(opened.get(Wire.CURSOR));
+            }
         } catch (RuntimeException error) {
             streams.remove(streamId);
             route.finish(error);
@@ -432,7 +479,11 @@ public final class Client implements AutoCloseable {
             streams.remove(id, route);
         }
         int size = Wire.json(envelope).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-        if (route.deliver(new StreamMessage(Map.copyOf(envelope), null, size))) {
+        if (route.deliver(new StreamMessage(
+                JsonValue.immutableObject(envelope, "stream envelope"),
+                null,
+                size
+            ))) {
             return;
         }
         streams.remove(id, route);
@@ -492,8 +543,10 @@ public final class Client implements AutoCloseable {
             cursor.get(Wire.GENERATION),
             "cursor generation"
         );
-        if (generation.isEmpty()) {
-            throw new ProtocolError("cursor generation must not be empty");
+        if (generation.isEmpty() || generation.length() > 128) {
+            throw new ProtocolError(
+                "cursor generation must contain 1 to 128 characters"
+            );
         }
         return new Cursor(
             generation,
@@ -502,24 +555,88 @@ public final class Client implements AutoCloseable {
     }
 
     static StreamEndError decodeStreamEnd(Map<String, Object> envelope) {
-        Optional<ResourceError> error = envelope.get("error") == null
-            ? Optional.empty()
-            : Optional.of(decodeResourceError(envelope.get("error")));
+        requireExactFields(
+            envelope,
+            "stream end envelope",
+            "protocol",
+            "type",
+            Wire.STREAM_ID,
+            "reason",
+            Wire.CURSOR,
+            "recovery",
+            "error"
+        );
+        String reason = Wire.string(
+            envelope.get("reason"),
+            "stream end reason"
+        );
+        if (!List.of(
+                "completed",
+                "canceled",
+                "closed",
+                "gap",
+                "error"
+            ).contains(reason)) {
+            throw new ProtocolError("stream end reason is unrecognized");
+        }
+        Optional<Cursor> cursor = Optional.empty();
+        if (envelope.containsKey(Wire.CURSOR)) {
+            if (envelope.get(Wire.CURSOR) == null) {
+                throw new ProtocolError("stream end cursor must not be null");
+            }
+            cursor = Optional.of(decodeCursor(envelope.get(Wire.CURSOR)));
+        }
+        Optional<String> recovery = optionalString(envelope, "recovery");
+        Optional<ResourceError> error = Optional.empty();
+        if (envelope.containsKey("error")) {
+            if (envelope.get("error") == null) {
+                throw new ProtocolError("stream end error must not be null");
+            }
+            error = Optional.of(decodeResourceError(envelope.get("error")));
+        }
+        if (reason.equals("error") != error.isPresent()) {
+            throw new ProtocolError(
+                "stream end error is present exactly when reason is error"
+            );
+        }
         return new StreamEndError(
-            Wire.string(envelope.get("reason"), "stream end reason"),
-            Optional.ofNullable(decodeCursor(envelope.get(Wire.CURSOR))),
+            reason,
+            cursor,
             error,
-            Optional.ofNullable((String) envelope.get("recovery"))
+            recovery
         );
     }
 
     static ResourceError decodeResourceError(Object value) {
         Map<String, Object> error = Wire.object(value, "resource error");
-        Object details = error.get(Wire.DETAILS);
+        requireExactFields(
+            error,
+            "resource error",
+            "code",
+            "message",
+            Wire.DETAILS,
+            "retryable"
+        );
+        for (String required : List.of(
+                "code",
+                "message",
+                Wire.DETAILS,
+                "retryable"
+            )) {
+            if (!error.containsKey(required)) {
+                throw new ProtocolError(
+                    "resource error omitted required field " + required
+                );
+            }
+        }
+        String code = Wire.string(error.get("code"), "error code");
+        if (code.isEmpty()) {
+            throw new ProtocolError("error code must not be empty");
+        }
         return new ResourceError(
-            Wire.string(error.get("code"), "error code"),
+            code,
             Wire.string(error.get("message"), "error message"),
-            details == null ? Map.of() : Wire.object(details, "error details"),
+            Wire.object(error.get(Wire.DETAILS), "error details"),
             Wire.bool(error.get("retryable"), "error retryable")
         );
     }
@@ -543,22 +660,18 @@ public final class Client implements AutoCloseable {
         params.putAll(command.toWire());
     }
 
-    static Document document(Map<String, Object> value) {
-        return new Document(value);
-    }
-
     static List<Object> listPayload(Object result, String field) {
         return Wire.array(result, field);
     }
 
     static Map<String, Object> resourcePayload(Map<String, Object> result, String field) {
-        Object value = result.get(field);
-        if (value == null) {
-            value = result.get("value");
+        if (result.containsKey(Wire.GENERATION) ||
+                result.containsKey(Wire.REVISION) ||
+                result.containsKey("replayed")) {
+            mutationParts(result);
+            return Wire.object(result.get(Wire.VALUE), field);
         }
-        return value instanceof Map<?, ?>
-            ? Wire.object(value, field)
-            : result;
+        return result;
     }
 
     static MutationParts mutationParts(Map<String, Object> result) {
@@ -586,8 +699,10 @@ public final class Client implements AutoCloseable {
             result.get(Wire.GENERATION),
             "mutation generation"
         );
-        if (generation.isEmpty()) {
-            throw new ProtocolError("mutation generation must not be empty");
+        if (generation.isEmpty() || generation.length() > 128) {
+            throw new ProtocolError(
+                "mutation generation must contain 1 to 128 characters"
+            );
         }
         Decimal revision = Wire.decimal(
             result.get(Wire.REVISION),
@@ -623,16 +738,83 @@ public final class Client implements AutoCloseable {
 
     static CreatedPath decodeCreatedPath(Map<String, Object> result) {
         Map<String, Object> path = Wire.object(result.get(Wire.VALUE), "created path");
-        return new CreatedPath(
-            optionalId(path, Wire.MACHINE, Ids.MachineId::new),
-            optionalId(path, Wire.SESSION, Ids.SessionId::new),
-            optionalId(path, Wire.WORKSPACE, Ids.WorkspaceId::new),
-            optionalId(path, Wire.SCREEN, Ids.ScreenId::new),
-            optionalId(path, Wire.PANE, Ids.PaneId::new),
-            optionalId(path, Wire.TAB, Ids.TabId::new),
-            optionalId(path, Wire.TERMINAL, Ids.TerminalId::new),
-            optionalId(path, Wire.BROWSER, Ids.BrowserId::new)
-        );
+        String kind = Wire.string(path.get(Wire.KIND), "created path kind");
+        return switch (kind) {
+            case "workspace" -> {
+                requireExactFields(
+                    path,
+                    "created workspace path",
+                    Wire.KIND,
+                    "workspace_id"
+                );
+                yield new CreatedWorkspaceOnly(requiredExactId(
+                    path,
+                    "workspace_id",
+                    Ids.WorkspaceId::new
+                ));
+            }
+            case "terminal" -> {
+                requireExactFields(
+                    path,
+                    "created terminal path",
+                    Wire.KIND,
+                    "workspace_id",
+                    "screen_id",
+                    "pane_id",
+                    "tab_id",
+                    "terminal_id"
+                );
+                yield new CreatedTerminalPath(
+                    requiredExactId(path, "workspace_id", Ids.WorkspaceId::new),
+                    requiredExactId(path, "screen_id", Ids.ScreenId::new),
+                    requiredExactId(path, "pane_id", Ids.PaneId::new),
+                    requiredExactId(path, "tab_id", Ids.TabId::new),
+                    requiredExactId(path, "terminal_id", Ids.TerminalId::new)
+                );
+            }
+            case "browser" -> {
+                requireExactFields(
+                    path,
+                    "created browser path",
+                    Wire.KIND,
+                    "workspace_id",
+                    "screen_id",
+                    "pane_id",
+                    "tab_id",
+                    "browser_id"
+                );
+                yield new CreatedBrowserPath(
+                    requiredExactId(path, "workspace_id", Ids.WorkspaceId::new),
+                    requiredExactId(path, "screen_id", Ids.ScreenId::new),
+                    requiredExactId(path, "pane_id", Ids.PaneId::new),
+                    requiredExactId(path, "tab_id", Ids.TabId::new),
+                    requiredExactId(path, "browser_id", Ids.BrowserId::new)
+                );
+            }
+            default -> throw new ProtocolError(
+                "created path kind is unrecognized"
+            );
+        };
+    }
+
+    static CreatedTerminalPath decodeCreatedTerminalPath(
+        Map<String, Object> result
+    ) {
+        CreatedPath path = decodeCreatedPath(result);
+        if (path instanceof CreatedTerminalPath terminal) {
+            return terminal;
+        }
+        throw new ProtocolError("creation result must have terminal kind");
+    }
+
+    static CreatedBrowserPath decodeCreatedBrowserPath(
+        Map<String, Object> result
+    ) {
+        CreatedPath path = decodeCreatedPath(result);
+        if (path instanceof CreatedBrowserPath browser) {
+            return browser;
+        }
+        throw new ProtocolError("creation result must have browser kind");
     }
 
     static EmptyResult decodeEmptyMutation(Map<String, Object> result) {
@@ -675,11 +857,20 @@ public final class Client implements AutoCloseable {
 
     static Snapshots.SessionSnapshot decodeSession(Object value) {
         Map<String, Object> fields = Wire.object(value, "session snapshot");
+        String generation = Wire.string(
+            fields.get(Wire.GENERATION),
+            "session generation"
+        );
+        if (generation.isEmpty() || generation.length() > 128) {
+            throw new ProtocolError(
+                "session generation must contain 1 to 128 characters"
+            );
+        }
         return new Snapshots.SessionSnapshot(
             new Ids.SessionId(Wire.string(fields.get("id"), "session id")),
             requiredExactId(fields, "machine_id", Ids.MachineId::new),
             optionalString(fields, Wire.NAME),
-            Wire.string(fields.get(Wire.GENERATION), "session generation"),
+            generation,
             Wire.decimal(fields.get(Wire.REVISION), "session revision"),
             Wire.bool(fields.get("connected"), "session connected"),
             snapshotExtra(
@@ -700,7 +891,7 @@ public final class Client implements AutoCloseable {
             new Ids.WorkspaceId(Wire.string(fields.get("id"), "workspace id")),
             requiredExactId(fields, "session_id", Ids.SessionId::new),
             Wire.string(fields.get(Wire.NAME), "workspace name"),
-            integer(fields, "index"),
+            uint32(fields, "index"),
             Wire.bool(fields.get(Wire.FOCUSED), "workspace focused"),
             snapshotExtra(
                 fields,
@@ -719,9 +910,9 @@ public final class Client implements AutoCloseable {
             new Ids.ScreenId(Wire.string(fields.get("id"), "screen id")),
             requiredExactId(fields, "workspace_id", Ids.WorkspaceId::new),
             requiredNullableString(fields, Wire.NAME),
-            integer(fields, "index"),
+            uint32(fields, "index"),
             Wire.bool(fields.get(Wire.FOCUSED), "screen focused"),
-            Map.copyOf(Wire.object(fields.get(Wire.LAYOUT), "screen layout")),
+            decodeLayoutDocument(fields.get(Wire.LAYOUT)),
             snapshotExtra(
                 fields,
                 "id",
@@ -768,7 +959,7 @@ public final class Client implements AutoCloseable {
             new Ids.TabId(Wire.string(fields.get("id"), "tab id")),
             requiredExactId(fields, "pane_id", Ids.PaneId::new),
             requiredNullableString(fields, Wire.NAME),
-            integer(fields, "index"),
+            uint32(fields, "index"),
             Wire.bool(fields.get(Wire.FOCUSED), "tab focused"),
             kind,
             contentId,
@@ -792,8 +983,8 @@ public final class Client implements AutoCloseable {
             requiredExactId(fields, "tab_id", Ids.TabId::new),
             Wire.string(fields.get(Wire.TITLE), "terminal title"),
             optionalString(fields, Wire.CWD),
-            integer(fields, Wire.COLS),
-            integer(fields, Wire.ROWS),
+            positiveUint16(fields, Wire.COLS),
+            positiveUint16(fields, Wire.ROWS),
             Wire.bool(fields.get("running"), "terminal running"),
             snapshotExtra(
                 fields,
@@ -822,7 +1013,7 @@ public final class Client implements AutoCloseable {
             Wire.string(fields.get("status"), "browser status"),
             requiredNullableString(fields, "error"),
             Wire.bool(fields.get("frames_stalled"), "browser frames stalled"),
-            new Snapshots.Size(integer(size, Wire.COLS), integer(size, Wire.ROWS)),
+            decodeSize(size),
             snapshotExtra(
                 fields,
                 "id",
@@ -839,7 +1030,7 @@ public final class Client implements AutoCloseable {
         );
     }
 
-    static Snapshots.ConnectedClientSnapshot decodeConnectedClient(Object value) {
+    static Snapshots.ClientSnapshot decodeConnectedClient(Object value) {
         Map<String, Object> fields = Wire.object(value, "client snapshot");
         List<Ids.TerminalId> attachedTerminalIds = Wire.array(
             fields.get("attached_terminal_ids"),
@@ -851,7 +1042,7 @@ public final class Client implements AutoCloseable {
             fields.get("sizes"),
             "client sizes"
         ).stream().map(Client::decodeClientTerminalSize).toList();
-        return new Snapshots.ConnectedClientSnapshot(
+        return new Snapshots.ClientSnapshot(
             new Ids.ConnectedClientId(Wire.string(fields.get("id"), "client id")),
             requiredExactId(fields, "session_id", Ids.SessionId::new),
             requiredNullableString(fields, Wire.NAME),
@@ -982,22 +1173,19 @@ public final class Client implements AutoCloseable {
         Object value
     ) {
         Map<String, Object> fields = Wire.object(value, "frontend projection snapshot");
-        Object rawProjection = fields.containsKey("projection")
-            ? fields.get("projection")
-            : fields.get(Wire.VALUE);
-        Map<String, Object> projection = rawProjection instanceof Map<?, ?>
-            ? Wire.object(rawProjection, "frontend projection")
-            : Map.of(Wire.VALUE, rawProjection);
+        if (!fields.containsKey("projection")) {
+            throw new ProtocolError("frontend projection omitted projection");
+        }
+        Object rawProjection = fields.get("projection");
         return new Snapshots.FrontendProjectionSnapshot(
             new Ids.ProjectionId(Wire.string(fields.get("id"), "projection id")),
             requiredExactId(fields, "session_id", Ids.SessionId::new),
-            projection,
+            JsonValue.of(rawProjection),
             snapshotExtra(
                 fields,
                 "id",
                 "session_id",
-                "projection",
-                Wire.VALUE
+                "projection"
             )
         );
     }
@@ -1007,8 +1195,8 @@ public final class Client implements AutoCloseable {
         return new Snapshots.SidebarViewSnapshot(
             new Ids.SidebarViewId(Wire.string(fields.get("id"), "sidebar view id")),
             requiredExactId(fields, "session_id", Ids.SessionId::new),
-            integer(fields, Wire.COLS),
-            integer(fields, Wire.ROWS),
+            positiveUint16(fields, Wire.COLS),
+            positiveUint16(fields, Wire.ROWS),
             Wire.bool(fields.get("running"), "sidebar view running"),
             snapshotExtra(
                 fields,
@@ -1096,7 +1284,7 @@ public final class Client implements AutoCloseable {
             Wire.string(fields.get(Wire.LABEL), "provider action field label"),
             Wire.string(fields.get(Wire.KIND), "provider action field kind"),
             Wire.bool(fields.get("required"), "provider action field required"),
-            optionalInteger(fields, "max_length"),
+            optionalUint32(fields, "max_length"),
             optionalInteger(fields, "minimum"),
             optionalInteger(fields, "maximum"),
             optionalString(fields, "placeholder")
@@ -1126,9 +1314,913 @@ public final class Client implements AutoCloseable {
         );
     }
 
+    static Layout.Document decodeLayoutDocument(Object value) {
+        Map<String, Object> fields = Wire.object(value, "layout document");
+        requireExactFields(
+            fields,
+            "layout document",
+            "version",
+            "screen_id",
+            "active_pane_id",
+            "zoomed_pane_id",
+            "root",
+            "extra"
+        );
+        if (!fields.containsKey("zoomed_pane_id")) {
+            throw new ProtocolError(
+                "layout document omitted required nullable zoomed_pane_id"
+            );
+        }
+        return new Layout.Document(
+            uint32(fields, "version"),
+            requiredExactId(fields, "screen_id", Ids.ScreenId::new),
+            requiredExactId(fields, "active_pane_id", Ids.PaneId::new),
+            requiredNullableExactId(
+                fields,
+                "zoomed_pane_id",
+                Ids.PaneId::new
+            ),
+            decodeLayoutNode(fields.get("root")),
+            explicitExtra(fields, "layout document")
+        );
+    }
+
+    private static Layout.Node decodeLayoutNode(Object value) {
+        Map<String, Object> fields = Wire.object(value, "layout node");
+        String kind = Wire.string(fields.get(Wire.KIND), "layout node kind");
+        return switch (kind) {
+            case "leaf" -> {
+                requireExactFields(
+                    fields,
+                    "layout leaf",
+                    Wire.KIND,
+                    "pane_id",
+                    "tab_ids",
+                    "active_tab_id"
+                );
+                yield new Layout.Leaf(
+                    requiredExactId(fields, "pane_id", Ids.PaneId::new),
+                    decodeIds(
+                        fields.get("tab_ids"),
+                        "layout tab_ids",
+                        Ids.TabId::new
+                    ),
+                    optionalExactId(fields, "active_tab_id", Ids.TabId::new)
+                );
+            }
+            case "split" -> {
+                requireExactFields(
+                    fields,
+                    "layout split",
+                    Wire.KIND,
+                    "split_id",
+                    Wire.DIRECTION,
+                    Wire.RATIO,
+                    "first",
+                    "second"
+                );
+                yield new Layout.Split(
+                    requiredExactId(fields, "split_id", Ids.SplitId::new),
+                    Wire.string(
+                        fields.get(Wire.DIRECTION),
+                        "layout split direction"
+                    ),
+                    finiteDouble(fields.get(Wire.RATIO), "layout split ratio"),
+                    decodeLayoutNode(fields.get("first")),
+                    decodeLayoutNode(fields.get("second"))
+                );
+            }
+            case "stack" -> {
+                requireExactFields(
+                    fields,
+                    "layout stack",
+                    Wire.KIND,
+                    "pane_ids",
+                    "expanded_pane_id"
+                );
+                yield new Layout.Stack(
+                    decodeIds(
+                        fields.get("pane_ids"),
+                        "layout pane_ids",
+                        Ids.PaneId::new
+                    ),
+                    requiredExactId(
+                        fields,
+                        "expanded_pane_id",
+                        Ids.PaneId::new
+                    )
+                );
+            }
+            case "viewport" -> {
+                requireExactFields(
+                    fields,
+                    "layout viewport",
+                    Wire.KIND,
+                    "base_width",
+                    "columns"
+                );
+                List<Layout.Column> columns = Wire.array(
+                    fields.get("columns"),
+                    "layout columns"
+                ).stream().map(Client::decodeLayoutColumn).toList();
+                yield new Layout.Viewport(
+                    finiteDouble(
+                        fields.get("base_width"),
+                        "layout base_width"
+                    ),
+                    columns
+                );
+            }
+            default -> throw new ProtocolError(
+                "layout node kind is unrecognized"
+            );
+        };
+    }
+
+    private static Layout.Column decodeLayoutColumn(Object value) {
+        Map<String, Object> fields = Wire.object(value, "layout column");
+        requireExactFields(
+            fields,
+            "layout column",
+            "column_id",
+            Wire.WIDTH,
+            "root"
+        );
+        return new Layout.Column(
+            requiredExactId(fields, "column_id", Ids.SplitId::new),
+            finiteDouble(fields.get(Wire.WIDTH), "layout column width"),
+            decodeLayoutNode(fields.get("root"))
+        );
+    }
+
+    static ResourceSnapshot decodeResourceSnapshot(Object value) {
+        Map<String, Object> fields = Wire.object(value, "resource snapshot");
+        requireExactFields(
+            fields,
+            "resource snapshot",
+            Wire.MACHINE,
+            Wire.SESSION,
+            "workspaces",
+            "screens",
+            "panes",
+            "tabs",
+            "terminals",
+            "browsers",
+            "clients",
+            "notifications",
+            "agents",
+            "frontend_projections",
+            "sidebar_views",
+            Wire.CURSOR,
+            "extra"
+        );
+        ResourceSnapshot snapshot = new ResourceSnapshot(
+            decodeMachine(fields.get(Wire.MACHINE)),
+            decodeSession(fields.get(Wire.SESSION)),
+            decodeList(fields, "workspaces", Client::decodeWorkspace),
+            decodeList(fields, "screens", Client::decodeScreen),
+            decodeList(fields, "panes", Client::decodePane),
+            decodeList(fields, "tabs", Client::decodeTab),
+            decodeList(fields, "terminals", Client::decodeTerminal),
+            decodeList(fields, "browsers", Client::decodeBrowser),
+            decodeList(fields, "clients", Client::decodeConnectedClient),
+            decodeList(fields, "notifications", Client::decodeNotification),
+            decodeList(fields, "agents", Client::decodeAgent),
+            decodeList(
+                fields,
+                "frontend_projections",
+                Client::decodeFrontendProjection
+            ),
+            decodeList(fields, "sidebar_views", Client::decodeSidebarView),
+            decodeCursor(fields.get(Wire.CURSOR)),
+            explicitExtra(fields, "resource snapshot")
+        );
+        if (!snapshot.machine().id().equals(snapshot.session().machineId())) {
+            throw new ProtocolError(
+                "resource snapshot session does not belong to its machine"
+            );
+        }
+        return snapshot;
+    }
+
+    static ResourceChange decodeResourceChange(Object value) {
+        Map<String, Object> fields = Wire.object(value, "resource change");
+        String kind = Wire.string(fields.get(Wire.KIND), "resource change kind");
+        if (!kind.equals("upsert") && !kind.equals("delete")) {
+            return new ResourceChange.Unknown(kind, fields);
+        }
+        boolean upsert = kind.equals("upsert");
+        requireExactFields(
+            fields,
+            "resource " + kind,
+            upsert
+                ? new String[]{
+                    Wire.KIND, "sequence", "resource", "id", Wire.VALUE
+                }
+                : new String[]{Wire.KIND, "sequence", "resource", "id"}
+        );
+        ResourceChange.ResourceKind resource;
+        try {
+            resource = ResourceChange.ResourceKind.valueOf(
+                Wire.string(fields.get("resource"), "resource kind")
+                    .toUpperCase(java.util.Locale.ROOT)
+            );
+        } catch (IllegalArgumentException error) {
+            throw new ProtocolError("resource kind is unrecognized", error);
+        }
+        Ids.Id id = decodeResourceId(resource, fields.get("id"));
+        long sequence = uint32(fields, "sequence");
+        if (!upsert) {
+            return new ResourceChange.Delete(sequence, resource, id);
+        }
+        return new ResourceChange.Upsert(
+            sequence,
+            resource,
+            id,
+            decodeResourceEntity(resource, fields.get(Wire.VALUE))
+        );
+    }
+
+    private static Ids.Id decodeResourceId(
+        ResourceChange.ResourceKind kind,
+        Object value
+    ) {
+        String text = Wire.string(value, "resource change id");
+        return switch (kind) {
+            case MACHINE -> new Ids.MachineId(text);
+            case SESSION -> new Ids.SessionId(text);
+            case WORKSPACE -> new Ids.WorkspaceId(text);
+            case SCREEN -> new Ids.ScreenId(text);
+            case PANE -> new Ids.PaneId(text);
+            case TAB -> new Ids.TabId(text);
+            case TERMINAL -> new Ids.TerminalId(text);
+            case BROWSER -> new Ids.BrowserId(text);
+            case CLIENT -> new Ids.ConnectedClientId(text);
+            case NOTIFICATION -> new Ids.NotificationId(text);
+            case AGENT -> new Ids.AgentId(text);
+            case PAIRING_REQUEST -> new Ids.PairingRequestId(text);
+            case FRONTEND_PROJECTION -> new Ids.ProjectionId(text);
+            case SIDEBAR_VIEW -> new Ids.SidebarViewId(text);
+            case PROVIDER_SCOPE -> new Ids.ProviderScopeId(text);
+            case PROVIDER_ACTION -> new Ids.ProviderActionId(text);
+            case PROVIDER_NOTICE -> new Ids.ProviderNoticeId(text);
+        };
+    }
+
+    private static ResourceEntitySnapshot decodeResourceEntity(
+        ResourceChange.ResourceKind kind,
+        Object value
+    ) {
+        return switch (kind) {
+            case MACHINE -> decodeMachine(value);
+            case SESSION -> decodeSession(value);
+            case WORKSPACE -> decodeWorkspace(value);
+            case SCREEN -> decodeScreen(value);
+            case PANE -> decodePane(value);
+            case TAB -> decodeTab(value);
+            case TERMINAL -> decodeTerminal(value);
+            case BROWSER -> decodeBrowser(value);
+            case CLIENT -> decodeConnectedClient(value);
+            case NOTIFICATION -> decodeNotification(value);
+            case AGENT -> decodeAgent(value);
+            case PAIRING_REQUEST -> decodePairingRequest(value);
+            case FRONTEND_PROJECTION -> decodeFrontendProjection(value);
+            case SIDEBAR_VIEW -> decodeSidebarView(value);
+            case PROVIDER_SCOPE -> decodeProviderScope(value);
+            case PROVIDER_ACTION -> decodeProviderAction(value);
+            case PROVIDER_NOTICE -> decodeProviderNotice(value);
+        };
+    }
+
+    static Render.Snapshot decodeRenderSnapshot(Object value) {
+        Map<String, Object> fields = Wire.object(value, "render snapshot");
+        requireExactFields(
+            fields,
+            "render snapshot",
+            "size",
+            Wire.CURSOR,
+            "default_fg",
+            "default_bg",
+            "scrollback_rows",
+            Wire.ROWS
+        );
+        return new Render.Snapshot(
+            decodeSize(fields.get("size")),
+            decodeRenderCursor(fields.get(Wire.CURSOR)),
+            Wire.string(fields.get("default_fg"), "render default_fg"),
+            Wire.string(fields.get("default_bg"), "render default_bg"),
+            uint32(fields, "scrollback_rows"),
+            decodeList(fields, Wire.ROWS, Client::decodeRenderRow)
+        );
+    }
+
+    static Render.Patch decodeRenderPatch(Object value) {
+        Map<String, Object> fields = Wire.object(value, "render patch");
+        requireExactFields(
+            fields,
+            "render patch",
+            Wire.CURSOR,
+            "full_reset",
+            "size",
+            "default_fg",
+            "default_bg",
+            "scrollback_rows",
+            Wire.ROWS
+        );
+        return new Render.Patch(
+            decodeRenderCursor(fields.get(Wire.CURSOR)),
+            Wire.bool(fields.get("full_reset"), "render full_reset"),
+            fields.containsKey("size")
+                ? Optional.of(decodeSize(fields.get("size")))
+                : Optional.empty(),
+            optionalString(fields, "default_fg"),
+            optionalString(fields, "default_bg"),
+            fields.containsKey("scrollback_rows")
+                ? Optional.of(uint32(fields, "scrollback_rows"))
+                : Optional.empty(),
+            decodeList(fields, Wire.ROWS, Client::decodeRenderRow)
+        );
+    }
+
+    static Render.Scroll decodeRenderScroll(Object value) {
+        Map<String, Object> fields = Wire.object(value, "render scroll");
+        requireExactFields(fields, "render scroll", "offset", "at_bottom");
+        return new Render.Scroll(
+            Wire.decimal(fields.get("offset"), "render scroll offset"),
+            Wire.bool(fields.get("at_bottom"), "render scroll at_bottom")
+        );
+    }
+
+    private static Render.Cursor decodeRenderCursor(Object value) {
+        Map<String, Object> fields = Wire.object(value, "render cursor");
+        requireExactFields(
+            fields,
+            "render cursor",
+            "x",
+            "y",
+            "style",
+            "blink",
+            "visible",
+            "color"
+        );
+        if (!fields.containsKey("color")) {
+            throw new ProtocolError(
+                "render cursor omitted required nullable color"
+            );
+        }
+        return new Render.Cursor(
+            uint16(fields, "x"),
+            uint16(fields, "y"),
+            Wire.string(fields.get("style"), "render cursor style"),
+            Wire.bool(fields.get("blink"), "render cursor blink"),
+            Wire.bool(fields.get("visible"), "render cursor visible"),
+            requiredNullableString(fields, "color")
+        );
+    }
+
+    private static Render.Row decodeRenderRow(Object value) {
+        Map<String, Object> fields = Wire.object(value, "render row");
+        requireExactFields(fields, "render row", "row", "runs");
+        return new Render.Row(
+            uint16(fields, "row"),
+            decodeList(fields, "runs", Client::decodeRenderRun)
+        );
+    }
+
+    private static Render.Run decodeRenderRun(Object value) {
+        Map<String, Object> fields = Wire.object(value, "render run");
+        requireExactFields(
+            fields,
+            "render run",
+            Wire.TEXT,
+            "fg",
+            "bg",
+            "attrs",
+            "underline",
+            "width_hint"
+        );
+        for (String required : List.of("fg", "bg")) {
+            if (!fields.containsKey(required)) {
+                throw new ProtocolError(
+                    "render run omitted required nullable " + required
+                );
+            }
+        }
+        return new Render.Run(
+            Wire.string(fields.get(Wire.TEXT), "render text"),
+            requiredNullableString(fields, "fg"),
+            requiredNullableString(fields, "bg"),
+            uint32(fields, "attrs"),
+            optionalString(fields, "underline"),
+            optionalInteger(fields, "width_hint")
+        );
+    }
+
+    static Results.PingResult decodePingResult(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "ping result",
+            "alive",
+            Wire.CURSOR
+        );
+        return new Results.PingResult(
+            Wire.bool(fields.get("alive"), "ping alive"),
+            decodeCursor(fields.get(Wire.CURSOR))
+        );
+    }
+
+    static Results.ShutdownResult decodeShutdownResult(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "shutdown result",
+            "accepted"
+        );
+        return new Results.ShutdownResult(
+            Wire.bool(fields.get("accepted"), "shutdown accepted")
+        );
+    }
+
+    static Results.ReloadConfigResult decodeReloadConfigResult(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "reload config result",
+            "reloaded",
+            "warnings"
+        );
+        return new Results.ReloadConfigResult(
+            Wire.bool(fields.get("reloaded"), "reload config reloaded"),
+            Wire.array(fields.get("warnings"), "reload config warnings").stream()
+                .map(item -> Wire.string(item, "reload config warning"))
+                .toList()
+        );
+    }
+
+    static Results.TerminalDefaultsSnapshot decodeTerminalDefaults(
+        Object value
+    ) {
+        Map<String, Object> fields = Wire.object(
+            value,
+            "terminal defaults snapshot"
+        );
+        requireExactFields(
+            fields,
+            "terminal defaults snapshot",
+            "foreground",
+            "background",
+            Wire.CURSOR,
+            "selection_background",
+            "selection_foreground",
+            "cursor_style",
+            "cursor_blink",
+            "palette"
+        );
+        Optional<Map<String, String>> palette = Optional.empty();
+        if (fields.containsKey("palette")) {
+            Map<String, Object> raw = Wire.object(
+                fields.get("palette"),
+                "terminal defaults palette"
+            );
+            Map<String, String> decoded = new LinkedHashMap<>();
+            for (Map.Entry<String, Object> entry : raw.entrySet()) {
+                decoded.put(
+                    entry.getKey(),
+                    Wire.string(entry.getValue(), "terminal palette color")
+                );
+            }
+            palette = Optional.of(Map.copyOf(decoded));
+        }
+        return new Results.TerminalDefaultsSnapshot(
+            nullableDefault(fields, "foreground", Wire::string),
+            nullableDefault(fields, "background", Wire::string),
+            nullableDefault(fields, Wire.CURSOR, Wire::string),
+            nullableDefault(fields, "selection_background", Wire::string),
+            nullableDefault(fields, "selection_foreground", Wire::string),
+            nullableDefault(fields, "cursor_style", Wire::string),
+            nullableDefault(fields, "cursor_blink", Wire::bool),
+            palette
+        );
+    }
+
+    static Results.PairingResolutionResult decodePairingResolution(
+        Object value
+    ) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "pairing resolution result",
+            "pairing_request"
+        );
+        return new Results.PairingResolutionResult(
+            decodePairingRequest(fields.get("pairing_request"))
+        );
+    }
+
+    static Results.PaneNeighborResult decodePaneNeighbor(Object value) {
+        Map<String, Object> fields = Wire.object(
+            value,
+            "pane neighbor result"
+        );
+        requireExactFields(fields, "pane neighbor result", Wire.PANE);
+        return new Results.PaneNeighborResult(
+            !fields.containsKey(Wire.PANE) || fields.get(Wire.PANE) == null
+                ? Optional.empty()
+                : Optional.of(decodePane(fields.get(Wire.PANE)))
+        );
+    }
+
+    static Results.TerminalScreenResult decodeTerminalScreen(Object value) {
+        Map<String, Object> fields = Wire.object(value, "terminal screen result");
+        requireExactFields(
+            fields,
+            "terminal screen result",
+            Wire.TEXT,
+            Wire.COLS,
+            Wire.ROWS,
+            "cursor_row",
+            "cursor_col",
+            "cursor_visible",
+            "extra"
+        );
+        return new Results.TerminalScreenResult(
+            Wire.string(fields.get(Wire.TEXT), "terminal screen text"),
+            positiveUint16(fields, Wire.COLS),
+            positiveUint16(fields, Wire.ROWS),
+            uint16(fields, "cursor_row"),
+            uint16(fields, "cursor_col"),
+            Wire.bool(fields.get("cursor_visible"), "terminal cursor visible"),
+            explicitExtra(fields, "terminal screen result")
+        );
+    }
+
+    static Results.TerminalHistoryResult decodeTerminalHistory(Object value) {
+        Map<String, Object> fields = Wire.object(value, "terminal history result");
+        requireExactFields(
+            fields,
+            "terminal history result",
+            Wire.START,
+            "next",
+            Wire.ROWS
+        );
+        return new Results.TerminalHistoryResult(
+            Wire.decimal(fields.get(Wire.START), "history start"),
+            nullableDefault(fields, "next", Wire::decimal),
+            decodeList(fields, Wire.ROWS, Client::decodeRenderRow)
+        );
+    }
+
+    static Results.TerminalStateResult decodeTerminalState(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "terminal state result",
+            "state_base64",
+            Wire.COLS,
+            Wire.ROWS
+        );
+        return new Results.TerminalStateResult(
+            decodeBase64(fields.get("state_base64"), "terminal state_base64"),
+            positiveUint16(fields, Wire.COLS),
+            positiveUint16(fields, Wire.ROWS)
+        );
+    }
+
+    static Results.TerminalWaitResult decodeTerminalWait(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "terminal wait result",
+            "matched",
+            Wire.TEXT
+        );
+        return new Results.TerminalWaitResult(
+            Wire.bool(fields.get("matched"), "terminal wait matched"),
+            Wire.string(fields.get(Wire.TEXT), "terminal wait text")
+        );
+    }
+
+    static Results.TerminalCopyResult decodeTerminalCopy(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "terminal copy result",
+            Wire.MODE,
+            Wire.TEXT
+        );
+        return new Results.TerminalCopyResult(
+            Wire.string(fields.get(Wire.MODE), "terminal copy mode"),
+            Wire.string(fields.get(Wire.TEXT), "terminal copy text")
+        );
+    }
+
+    static Results.ProcessInfoResult decodeProcessInfo(Object value) {
+        Map<String, Object> fields = Wire.object(value, "process info result");
+        requireExactFields(
+            fields,
+            "process info result",
+            "pid",
+            "executable",
+            Wire.ARGV,
+            Wire.CWD,
+            "children"
+        );
+        return new Results.ProcessInfoResult(
+            uint32(fields, "pid"),
+            optionalString(fields, "executable"),
+            Wire.array(fields.get(Wire.ARGV), "process argv").stream()
+                .map(item -> Wire.string(item, "process argv item"))
+                .toList(),
+            optionalString(fields, Wire.CWD),
+            Wire.array(fields.get("children"), "process children").stream()
+                .map(item -> uint32(item, "process child"))
+                .toList()
+        );
+    }
+
+    static RendererGrant decodeRendererGrant(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "renderer grant result",
+            "endpoint",
+            "terminal_id",
+            "token",
+            "rights",
+            "ttl_ms"
+        );
+        String token = Wire.string(fields.get("token"), "renderer token");
+        if (token.isEmpty()) {
+            throw new ProtocolError("renderer token must not be empty");
+        }
+        List<String> rights = Wire.array(
+            fields.get("rights"),
+            "renderer rights"
+        ).stream().map(item -> Wire.string(item, "renderer right")).toList();
+        if (rights.isEmpty()) {
+            throw new ProtocolError("renderer rights must not be empty");
+        }
+        long ttl = uint32(fields, "ttl_ms");
+        if (ttl < 1 || ttl > 60_000) {
+            throw new ProtocolError(
+                "renderer ttl_ms must be between 1 and 60000"
+            );
+        }
+        return new RendererGrant(
+            Wire.string(fields.get("endpoint"), "renderer endpoint"),
+            requiredExactId(fields, "terminal_id", Ids.TerminalId::new),
+            new Secret(token),
+            rights,
+            Math.toIntExact(ttl)
+        );
+    }
+
+    static Results.CellPixelsResult decodeCellPixels(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "cell pixels result",
+            "width_px",
+            "height_px",
+            "resized_terminals",
+            "failures"
+        );
+        Map<String, Object> rawFailures = Wire.object(
+            fields.get("failures"),
+            "cell pixel failures"
+        );
+        Map<String, String> failures = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : rawFailures.entrySet()) {
+            failures.put(
+                entry.getKey(),
+                Wire.string(entry.getValue(), "cell pixel failure")
+            );
+        }
+        return new Results.CellPixelsResult(
+            positiveUint32(fields, "width_px"),
+            positiveUint32(fields, "height_px"),
+            decodeIds(
+                fields.get("resized_terminals"),
+                "resized terminals",
+                Ids.TerminalId::new
+            ),
+            failures
+        );
+    }
+
+    static Results.ViewerResizeResult decodeViewerResize(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "viewer resize result",
+            "accepted",
+            "size"
+        );
+        return new Results.ViewerResizeResult(
+            Wire.bool(fields.get("accepted"), "viewer resize accepted"),
+            decodeSize(fields.get("size"))
+        );
+    }
+
+    static Results.BrowserViewerResizeResult decodeBrowserViewerResize(
+        Object value
+    ) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "browser viewer resize result",
+            "accepted",
+            "size"
+        );
+        return new Results.BrowserViewerResizeResult(
+            Wire.bool(fields.get("accepted"), "browser resize accepted"),
+            decodePixelSize(fields.get("size"))
+        );
+    }
+
+    static EmptyResult decodeEmptyResult(Object value, String context) {
+        Map<String, Object> fields = exactObject(value, context);
+        return new EmptyResult();
+    }
+
+    private static Snapshots.Size decodeSize(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "size",
+            Wire.COLS,
+            Wire.ROWS
+        );
+        return new Snapshots.Size(
+            positiveUint16(fields, Wire.COLS),
+            positiveUint16(fields, Wire.ROWS)
+        );
+    }
+
+    static Snapshots.PixelSize decodePixelSize(Object value) {
+        Map<String, Object> fields = exactObject(
+            value,
+            "pixel size",
+            "width_px",
+            "height_px"
+        );
+        return new Snapshots.PixelSize(
+            positiveUint32(fields, "width_px"),
+            positiveUint32(fields, "height_px")
+        );
+    }
+
+    private static Map<String, Object> exactObject(
+        Object value,
+        String context,
+        String... fields
+    ) {
+        Map<String, Object> decoded = Wire.object(value, context);
+        requireExactFields(decoded, context, fields);
+        for (String field : fields) {
+            if (!decoded.containsKey(field)) {
+                throw new ProtocolError(
+                    context + " omitted required field " + field
+                );
+            }
+        }
+        return decoded;
+    }
+
+    private static Map<String, Object> explicitExtra(
+        Map<String, Object> fields,
+        String context
+    ) {
+        if (!fields.containsKey("extra")) {
+            return Map.of();
+        }
+        return JsonValue.immutableObject(
+            Wire.object(fields.get("extra"), context + " extra"),
+            context + " extra"
+        );
+    }
+
+    private static <T> List<T> decodeList(
+        Map<String, Object> fields,
+        String key,
+        ValueDecoder<T> decoder
+    ) {
+        return Wire.array(fields.get(key), key).stream()
+            .map(decoder::decode)
+            .toList();
+    }
+
+    private static <T> List<T> decodeIds(
+        Object value,
+        String context,
+        java.util.function.Function<String, T> constructor
+    ) {
+        return Wire.array(value, context).stream()
+            .map(item -> constructor.apply(Wire.string(item, context + " item")))
+            .toList();
+    }
+
+    @FunctionalInterface
+    private interface NullableDecoder<T> {
+        T decode(Object value, String context);
+    }
+
+    private static <T> Results.NullableDefault<T> nullableDefault(
+        Map<String, Object> fields,
+        String key,
+        NullableDecoder<T> decoder
+    ) {
+        if (!fields.containsKey(key)) {
+            return Results.NullableDefault.absent();
+        }
+        if (fields.get(key) == null) {
+            return Results.NullableDefault.nullValue();
+        }
+        return Results.NullableDefault.of(
+            decoder.decode(fields.get(key), key)
+        );
+    }
+
+    static byte[] decodeBase64(Object value, String context) {
+        String encoded = Wire.string(value, context);
+        if (encoded.length() % 4 != 0 ||
+                !encoded.matches(
+                    "(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?"
+                )) {
+            throw new ProtocolError(context + " must be canonical base64");
+        }
+        try {
+            return Base64.getDecoder().decode(encoded);
+        } catch (IllegalArgumentException error) {
+            throw new ProtocolError(context + " is invalid", error);
+        }
+    }
+
+    private static int uint16(Map<String, Object> fields, String key) {
+        long value = integerLong(fields.get(key), key);
+        if (value < 0 || value > 0xffffL) {
+            throw new ProtocolError(key + " must fit uint16");
+        }
+        return Math.toIntExact(value);
+    }
+
+    private static int positiveUint16(
+        Map<String, Object> fields,
+        String key
+    ) {
+        int value = uint16(fields, key);
+        if (value == 0) {
+            throw new ProtocolError(key + " must be positive");
+        }
+        return value;
+    }
+
+    private static long uint32(Map<String, Object> fields, String key) {
+        return uint32(fields.get(key), key);
+    }
+
+    private static long uint32(Object value, String context) {
+        long decoded = integerLong(value, context);
+        if (decoded < 0 || decoded > 0xffff_ffffL) {
+            throw new ProtocolError(context + " must fit uint32");
+        }
+        return decoded;
+    }
+
+    private static long positiveUint32(
+        Map<String, Object> fields,
+        String key
+    ) {
+        long value = uint32(fields, key);
+        if (value == 0) {
+            throw new ProtocolError(key + " must be positive");
+        }
+        return value;
+    }
+
+    private static long integerLong(Object value, String context) {
+        if (!(value instanceof Number number)) {
+            throw new ProtocolError(context + " must be an integer");
+        }
+        try {
+            return new java.math.BigDecimal(number.toString()).longValueExact();
+        } catch (ArithmeticException | NumberFormatException error) {
+            throw new ProtocolError(
+                context + " must fit a signed 64-bit integer",
+                error
+            );
+        }
+    }
+
+    private static double finiteDouble(Object value, String context) {
+        if (!(value instanceof Number number)) {
+            throw new ProtocolError(context + " must be a number");
+        }
+        double decoded = number.doubleValue();
+        if (!Double.isFinite(decoded)) {
+            throw new ProtocolError(context + " must be finite");
+        }
+        return decoded;
+    }
+
     static Optional<String> optionalString(Map<String, Object> fields, String key) {
+        if (!fields.containsKey(key)) {
+            return Optional.empty();
+        }
         Object value = fields.get(key);
-        return value == null ? Optional.empty() : Optional.of(Wire.string(value, key));
+        if (value == null) {
+            throw new ProtocolError(key + " must not be null");
+        }
+        return Optional.of(Wire.string(value, key));
     }
 
     static Optional<String> requiredNullableString(
@@ -1138,7 +2230,10 @@ public final class Client implements AutoCloseable {
         if (!fields.containsKey(key)) {
             throw new ProtocolError(key + " is required, although it may be null");
         }
-        return optionalString(fields, key);
+        Object value = fields.get(key);
+        return value == null
+            ? Optional.empty()
+            : Optional.of(Wire.string(value, key));
     }
 
     static Optional<Decimal> optionalDecimal(Map<String, Object> fields) {
@@ -1163,9 +2258,26 @@ public final class Client implements AutoCloseable {
         Map<String, Object> fields,
         String key
     ) {
-        return fields.containsKey(key) && fields.get(key) != null
-            ? Optional.of(integer(fields, key))
-            : Optional.empty();
+        if (!fields.containsKey(key)) {
+            return Optional.empty();
+        }
+        if (fields.get(key) == null) {
+            throw new ProtocolError(key + " must not be null");
+        }
+        return Optional.of(integer(fields, key));
+    }
+
+    static Optional<Long> optionalUint32(
+        Map<String, Object> fields,
+        String key
+    ) {
+        if (!fields.containsKey(key)) {
+            return Optional.empty();
+        }
+        if (fields.get(key) == null) {
+            throw new ProtocolError(key + " must not be null");
+        }
+        return Optional.of(uint32(fields, key));
     }
 
     static Optional<Integer> requiredNullableInteger(
@@ -1175,7 +2287,9 @@ public final class Client implements AutoCloseable {
         if (!fields.containsKey(key)) {
             throw new ProtocolError(key + " is required, although it may be null");
         }
-        return optionalInteger(fields, key);
+        return fields.get(key) == null
+            ? Optional.empty()
+            : Optional.of(integer(fields, key));
     }
 
     static Map<String, Object> optionalObject(
@@ -1194,7 +2308,7 @@ public final class Client implements AutoCloseable {
     static Map<String, Object> extra(Map<String, Object> fields, String... known) {
         Map<String, Object> result = copy(fields);
         result.keySet().removeAll(List.of(known));
-        return Map.copyOf(result);
+        return JsonValue.immutableObject(result, "extra");
     }
 
     static Map<String, Object> snapshotExtra(
@@ -1213,7 +2327,10 @@ public final class Client implements AutoCloseable {
         if (!hasExplicitExtra) {
             return Map.of();
         }
-        return Map.copyOf(Wire.object(explicit, "snapshot extra"));
+        return JsonValue.immutableObject(
+            Wire.object(explicit, "snapshot extra"),
+            "snapshot extra"
+        );
     }
 
     static void requireExactFields(
@@ -1259,6 +2376,24 @@ public final class Client implements AutoCloseable {
         String key,
         java.util.function.Function<String, T> constructor
     ) {
+        if (!fields.containsKey(key)) {
+            return Optional.empty();
+        }
+        Object value = fields.get(key);
+        if (value == null) {
+            throw new ProtocolError(key + " must not be null");
+        }
+        return Optional.of(constructor.apply(Wire.string(value, key)));
+    }
+
+    private static <T> Optional<T> requiredNullableExactId(
+        Map<String, Object> fields,
+        String key,
+        java.util.function.Function<String, T> constructor
+    ) {
+        if (!fields.containsKey(key)) {
+            throw new ProtocolError(key + " is required, although it may be null");
+        }
         Object value = fields.get(key);
         return value == null
             ? Optional.empty()
@@ -1287,6 +2422,20 @@ public final class Client implements AutoCloseable {
         return error instanceof RuntimeException runtime
             ? runtime
             : new TransportError(message, error);
+    }
+
+    private static RuntimeException uncertain(
+        Operations operation,
+        String idempotencyKey,
+        RuntimeException failure
+    ) {
+        return idempotencyKey == null
+            ? failure
+            : new MutationOutcomeUncertain(
+                operation.wireName(),
+                idempotencyKey,
+                failure
+            );
     }
 
     private static Supplier<String> randomSource(String prefix) {

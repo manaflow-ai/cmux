@@ -2,31 +2,35 @@ package com.cmux;
 
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 
-/** Known notice delivery or a preserved future provider-notice stream variant. */
-public record ProviderNoticeItem(
-    String kind,
-    Optional<ProviderNotice> notice,
-    Optional<Decimal> sequence,
-    Map<String, Object> raw
-) {
-    public ProviderNoticeItem {
-        Objects.requireNonNull(kind, "kind");
-        notice = notice == null ? Optional.empty() : notice;
-        sequence = sequence == null ? Optional.empty() : sequence;
-        raw = raw == null ? Map.of() : Map.copyOf(raw);
-        if (kind.equals("notice") &&
-                (notice.isEmpty() || sequence.isEmpty() || !raw.isEmpty())) {
-            throw new IllegalArgumentException(
-                "known provider notice requires notice and sequence only"
-            );
+/** Open typed union for provider notice stream items. */
+public sealed interface ProviderNoticeItem permits
+        ProviderNoticeItem.Known, ProviderNoticeItem.Unknown {
+    String kind();
+
+    record Known(ProviderNotice notice, Decimal sequence)
+            implements ProviderNoticeItem {
+        public Known {
+            Objects.requireNonNull(notice, "notice");
+            Objects.requireNonNull(sequence, "sequence");
         }
-        if (!kind.equals("notice") &&
-                (notice.isPresent() || sequence.isPresent())) {
-            throw new IllegalArgumentException(
-                "unknown provider notice variants preserve only raw data"
-            );
+
+        @Override
+        public String kind() {
+            return "notice";
+        }
+    }
+
+    record Unknown(String kind, Map<String, Object> raw)
+            implements ProviderNoticeItem {
+        public Unknown {
+            Objects.requireNonNull(kind, "kind");
+            if (kind.isEmpty() || kind.equals("notice")) {
+                throw new IllegalArgumentException(
+                    "unknown notice requires an unrecognized non-empty kind"
+                );
+            }
+            raw = JsonValue.immutableObject(raw, "unknown provider notice");
         }
     }
 }

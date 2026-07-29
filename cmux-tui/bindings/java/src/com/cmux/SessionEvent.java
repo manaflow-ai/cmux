@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Closed typed union for protocol-v1 session event items. */
+/** Open typed union for protocol-v1 session event items. */
 public sealed interface SessionEvent permits
         SessionEvent.Snapshot, SessionEvent.Delta, SessionEvent.Unknown {
     String kind();
@@ -13,12 +13,23 @@ public sealed interface SessionEvent permits
     record Snapshot(
         Cursor cursor,
         Optional<String> resetReason,
-        Map<String, Object> snapshot
+        ResourceSnapshot snapshot
     ) implements SessionEvent {
         public Snapshot {
             Objects.requireNonNull(cursor, "cursor");
             resetReason = resetReason == null ? Optional.empty() : resetReason;
-            snapshot = Map.copyOf(snapshot);
+            resetReason.ifPresent(value -> {
+                if (!List.of(
+                        "initial",
+                        "generation_changed",
+                        "cursor_expired"
+                    ).contains(value)) {
+                    throw new IllegalArgumentException(
+                        "resetReason has an unsupported value"
+                    );
+                }
+            });
+            Objects.requireNonNull(snapshot, "snapshot");
         }
 
         @Override
@@ -31,13 +42,18 @@ public sealed interface SessionEvent permits
         Cursor cursor,
         Decimal previousRevision,
         Decimal revision,
-        List<Map<String, Object>> changes
+        List<ResourceChange> changes
     ) implements SessionEvent {
         public Delta {
             Objects.requireNonNull(cursor, "cursor");
             Objects.requireNonNull(previousRevision, "previousRevision");
             Objects.requireNonNull(revision, "revision");
             changes = List.copyOf(changes);
+            if (!revision.equals(cursor.revision())) {
+                throw new IllegalArgumentException(
+                    "delta revision must match its cursor"
+                );
+            }
         }
 
         @Override
@@ -57,7 +73,7 @@ public sealed interface SessionEvent permits
                     "unknown session event requires an unrecognized non-empty kind"
                 );
             }
-            raw = Map.copyOf(raw);
+            raw = JsonValue.immutableObject(raw, "unknown session event");
         }
     }
 }

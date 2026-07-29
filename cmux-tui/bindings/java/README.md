@@ -28,13 +28,15 @@ try (Client client = Client.builder().build()) {
     Session session = machine.session(Selector.current());
     Workspace workspace = session.workspace(Selector.current());
 
-    MutationResult<CreatedPath> created = workspace.run(
+    MutationResult<CreatedTerminalPath> created = workspace.run(
         Options.Run.builder(ExactCommand.of("printf", "hello\n")).build()
     );
     Terminal terminal = session.terminal(
-        Selector.id(created.value().terminal().orElseThrow())
+        Selector.id(created.value().terminalId())
     );
-    System.out.println(terminal.readScreen(Options.Read.defaults()).fields());
+    Results.TerminalScreenResult screen =
+        terminal.readScreen(Options.Read.defaults());
+    System.out.println(screen.text());
 }
 ```
 
@@ -53,12 +55,23 @@ try (ResourceStream<TerminalAttachmentItem> stream =
             Optional.empty(),
             true
         ))) {
-    StreamItem<TerminalAttachmentItem> item = stream.next();
+    Optional<StreamItem<TerminalAttachmentItem>> item =
+        stream.poll(Duration.ofSeconds(1));
 }
 ```
 
 Mutations receive an idempotency key generated from 128 bits of secure random
-data unless the caller supplies one. The client never retries mutations.
+data unless the caller supplies one. The client never retries mutations. A
+transport failure before a structured response throws
+`MutationOutcomeUncertain`, which retains the exact operation and idempotency
+key for state inspection. Interrupting a waiting thread cancels its local wait.
+`ResourceStream.poll(Duration)` adds a bounded wait without ending or consuming
+the stream when the bound elapses.
+
+Known protocol objects reject unknown fields and malformed recognized union
+variants. Open stream unions preserve an unrecognized variant as an immutable
+`Unknown.raw()` object.
+
 `Decimal` preserves the full unsigned 64-bit range as a canonical JSON string.
 `Secret`, `ProviderCredential`, and `RendererGrant` redact credential material
 from normal string formatting.

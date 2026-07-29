@@ -37,6 +37,24 @@ public final class ResourceStream<T> implements AutoCloseable {
     }
 
     public StreamItem<T> next(Duration timeout) {
+        return receive(timeout, false).orElseThrow();
+    }
+
+    /**
+     * Waits at most {@code timeout} for one item.
+     *
+     * <p>An empty result means the bound elapsed without consuming or ending
+     * the stream. A terminal stream envelope still throws {@link
+     * StreamEndError} and remains available through {@link #end()}.</p>
+     */
+    public Optional<StreamItem<T>> poll(Duration timeout) {
+        return receive(timeout, true);
+    }
+
+    private Optional<StreamItem<T>> receive(
+        Duration timeout,
+        boolean timeoutIsEmpty
+    ) {
         Objects.requireNonNull(timeout, "timeout");
         if (timeout.isNegative() || timeout.isZero()) {
             throw new IllegalArgumentException("timeout must be positive");
@@ -53,6 +71,9 @@ public final class ResourceStream<T> implements AutoCloseable {
             throw new TransportError("interrupted while waiting for stream item", error);
         }
         if (message == null) {
+            if (timeoutIsEmpty) {
+                return Optional.empty();
+            }
             throw new TransportError("stream did not produce an item before timeout");
         }
         if (message.error() != null) {
@@ -69,9 +90,19 @@ public final class ResourceStream<T> implements AutoCloseable {
             throw terminal;
         }
         Decimal sequence = WireAccess.decimal(message.envelope().get("sequence"), "sequence");
-        Cursor cursor = Client.decodeCursor(message.envelope().get("cursor"));
-        T value = decoder.decode(message.envelope().get("item"));
-        return new StreamItem<>(sequence, java.util.Optional.ofNullable(cursor), value);
+        boolean cursorPresent = message.envelope().containsKey("cursor");
+        if (cursorPresent && message.envelope().get("cursor") == null) {
+            throw new ProtocolError("stream item cursor must not be null");
+        }
+        Cursor cursor = cursorPresent
+            ? Client.decodeCursor(message.envelope().get("cursor"))
+            : null;
+        T value = decoder.decode(message.envelope().get("item"), cursor);
+        return Optional.of(new StreamItem<>(
+            sequence,
+            Optional.ofNullable(cursor),
+            value
+        ));
     }
 
     @Override

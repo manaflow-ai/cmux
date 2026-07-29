@@ -1,40 +1,91 @@
 package com.cmux;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 
-/** Snapshot, frame, state, or preserved future browser attachment item. */
-public record BrowserAttachmentItem(
-    String kind,
-    Optional<Snapshots.BrowserSnapshot> browser,
-    Optional<Snapshots.PixelSize> size,
-    Optional<String> url,
-    Optional<String> title,
-    Optional<Boolean> loading,
-    Optional<String> mimeType,
-    byte[] frame,
-    Optional<Integer> widthPX,
-    Optional<Integer> heightPX,
-    Map<String, Object> raw
-) {
-    public BrowserAttachmentItem {
-        Objects.requireNonNull(kind, "kind");
-        browser = browser == null ? Optional.empty() : browser;
-        size = size == null ? Optional.empty() : size;
-        url = url == null ? Optional.empty() : url;
-        title = title == null ? Optional.empty() : title;
-        loading = loading == null ? Optional.empty() : loading;
-        mimeType = mimeType == null ? Optional.empty() : mimeType;
-        frame = frame == null ? new byte[0] : Arrays.copyOf(frame, frame.length);
-        widthPX = widthPX == null ? Optional.empty() : widthPX;
-        heightPX = heightPX == null ? Optional.empty() : heightPX;
-        raw = raw == null ? Map.of() : Map.copyOf(raw);
+/** Open typed union for browser attachment items. */
+public sealed interface BrowserAttachmentItem permits
+        BrowserAttachmentItem.Snapshot,
+        BrowserAttachmentItem.Frame,
+        BrowserAttachmentItem.State,
+        BrowserAttachmentItem.Unknown {
+    String kind();
+
+    record Snapshot(
+        Snapshots.BrowserSnapshot browser,
+        Snapshots.PixelSize size
+    ) implements BrowserAttachmentItem {
+        public Snapshot {
+            Objects.requireNonNull(browser, "browser");
+            Objects.requireNonNull(size, "size");
+        }
+
+        @Override
+        public String kind() {
+            return "snapshot";
+        }
     }
 
-    @Override
-    public byte[] frame() {
-        return Arrays.copyOf(frame, frame.length);
+    record Frame(
+        String mimeType,
+        byte[] data,
+        long widthPx,
+        long heightPx
+    ) implements BrowserAttachmentItem {
+        public Frame {
+            if (!List.of("image/png", "image/jpeg").contains(mimeType)) {
+                throw new IllegalArgumentException("unsupported frame mimeType");
+            }
+            data = Arrays.copyOf(data, data.length);
+            positiveUint32(widthPx, "widthPx");
+            positiveUint32(heightPx, "heightPx");
+        }
+
+        @Override
+        public byte[] data() {
+            return Arrays.copyOf(data, data.length);
+        }
+
+        @Override
+        public String kind() {
+            return "frame";
+        }
+    }
+
+    record State(String url, String title, boolean loading)
+            implements BrowserAttachmentItem {
+        public State {
+            Objects.requireNonNull(url, "url");
+            Objects.requireNonNull(title, "title");
+        }
+
+        @Override
+        public String kind() {
+            return "state";
+        }
+    }
+
+    record Unknown(String kind, Map<String, Object> raw)
+            implements BrowserAttachmentItem {
+        public Unknown {
+            Objects.requireNonNull(kind, "kind");
+            if (kind.isEmpty() ||
+                    List.of("snapshot", "frame", "state").contains(kind)) {
+                throw new IllegalArgumentException(
+                    "unknown item requires an unrecognized non-empty kind"
+                );
+            }
+            raw = JsonValue.immutableObject(raw, "unknown browser attachment");
+        }
+    }
+
+    private static void positiveUint32(long value, String name) {
+        if (value <= 0 || value > 0xffff_ffffL) {
+            throw new IllegalArgumentException(
+                name + " must be positive and fit uint32"
+            );
+        }
     }
 }

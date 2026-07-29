@@ -2,28 +2,30 @@ package com.cmux;
 
 import java.util.Optional;
 
-public record CreatedPath(
-    Optional<Ids.MachineId> machine,
-    Optional<Ids.SessionId> session,
-    Optional<Ids.WorkspaceId> workspace,
-    Optional<Ids.ScreenId> screen,
-    Optional<Ids.PaneId> pane,
-    Optional<Ids.TabId> tab,
-    Optional<Ids.TerminalId> terminal,
-    Optional<Ids.BrowserId> browser
-) {
-    public CreatedPath {
-        machine = optional(machine);
-        session = optional(session);
-        workspace = optional(workspace);
-        screen = optional(screen);
-        pane = optional(pane);
-        tab = optional(tab);
-        terminal = optional(terminal);
-        browser = optional(browser);
+/** Closed catalog union for workspace, terminal, and browser creation paths. */
+public sealed interface CreatedPath permits
+        CreatedWorkspaceOnly,
+        CreatedTerminalPath,
+        CreatedBrowserPath {
+    Ids.WorkspaceId workspaceId();
+
+    default Optional<Ids.ScreenId> screen() {
+        return Optional.empty();
     }
 
-    private static <T> Optional<T> optional(Optional<T> value) {
-        return value == null ? Optional.empty() : value;
+    default Optional<Ids.PaneId> pane() {
+        return Optional.empty();
+    }
+
+    default Optional<Ids.TabId> tab() {
+        return Optional.empty();
+    }
+
+    default Optional<Ids.TerminalId> terminal() {
+        return Optional.empty();
+    }
+
+    default Optional<Ids.BrowserId> browser() {
+        return Optional.empty();
     }
 }

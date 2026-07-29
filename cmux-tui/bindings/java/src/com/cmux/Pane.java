@@ -35,7 +35,7 @@ public final class Pane {
         return snapshot;
     }
 
-    public MutationResult<CreatedPath> split(Options.PaneSplit options) {
+    public MutationResult<CreatedTerminalPath> split(Options.PaneSplit options) {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
         params.put(Wire.DIRECTION, options.direction().toWire());
         options.ratio().ifPresent(value -> params.put(Wire.RATIO, value));
@@ -45,7 +45,9 @@ public final class Pane {
         Client.MutationResponse response = client.mutation(
             Operations.PANE_SPLIT, params, options.mutation()
         );
-        return response.parts().withValue(Client.decodeCreatedPath(response.result()));
+        return response.parts().withValue(
+            Client.decodeCreatedTerminalPath(response.result())
+        );
     }
 
     public MutationResult<Snapshots.PaneSnapshot> rename(Options.PaneRename options) {
@@ -72,10 +74,14 @@ public final class Pane {
         );
     }
 
-    public Document neighbor(Options.DirectionRead options) {
+    public Results.PaneNeighborResult neighbor(Options.DirectionRead options) {
         Map<String, Object> params = withExtra(route.params(), options.read().extra());
         params.put(Wire.DIRECTION, options.direction().toWire());
-        return Client.document(client.request(Operations.PANE_NEIGHBOR_GET, params, null));
+        return Client.decodePaneNeighbor(client.requestValue(
+            Operations.PANE_NEIGHBOR_GET,
+            params,
+            null
+        ));
     }
 
     public MutationResult<Snapshots.PaneSnapshot> swap(Options.PaneSwap options) {
@@ -122,7 +128,7 @@ public final class Pane {
         );
     }
 
-    public MutationResult<CreatedPath> run(Options.Run options) {
+    public MutationResult<CreatedTerminalPath> run(Options.Run options) {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
         Client.command(params, options.command());
         options.cwd().ifPresent(value -> params.put(Wire.CWD, value));
@@ -132,7 +138,9 @@ public final class Pane {
         Client.MutationResponse response = client.mutation(
             Operations.PANE_RUN, params, options.mutation()
         );
-        return response.parts().withValue(Client.decodeCreatedPath(response.result()));
+        return response.parts().withValue(
+            Client.decodeCreatedTerminalPath(response.result())
+        );
     }
 
     public Tab tab(Selector<Ids.TabId> selector) {
@@ -160,7 +168,7 @@ public final class Pane {
             .toList();
     }
 
-    public MutationResult<CreatedPath> createTerminalTab(
+    public MutationResult<CreatedTerminalPath> createTerminalTab(
         Options.TabCreateTerminal options
     ) {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
@@ -171,10 +179,12 @@ public final class Pane {
         Client.MutationResponse response = client.mutation(
             Operations.TAB_CREATE_TERMINAL, params, options.mutation()
         );
-        return response.parts().withValue(Client.decodeCreatedPath(response.result()));
+        return response.parts().withValue(
+            Client.decodeCreatedTerminalPath(response.result())
+        );
     }
 
-    public MutationResult<CreatedPath> createBrowserTab(
+    public MutationResult<CreatedBrowserPath> createBrowserTab(
         Options.TabCreateBrowser options
     ) {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
@@ -185,7 +195,9 @@ public final class Pane {
         Client.MutationResponse response = client.mutation(
             Operations.TAB_CREATE_BROWSER, params, options.mutation()
         );
-        return response.parts().withValue(Client.decodeCreatedPath(response.result()));
+        return response.parts().withValue(
+            Client.decodeCreatedBrowserPath(response.result())
+        );
     }
 
     private MutationResult<Snapshots.PaneSnapshot> mutateSnapshot(

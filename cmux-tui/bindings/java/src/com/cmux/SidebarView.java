@@ -53,7 +53,9 @@ public final class SidebarView {
             params.putAll(options.extra());
         }
         return client.openStream(
-            Operations.SIDEBAR_VIEW_ATTACH, params, SidebarView::decodeItem
+            Operations.SIDEBAR_VIEW_ATTACH,
+            params,
+            (value, cursor) -> decodeItem(value, cursor)
         );
     }
 
@@ -106,7 +108,15 @@ public final class SidebarView {
         return route.target("sidebar_view", selector);
     }
 
-    private static SidebarViewItem decodeItem(Object value) {
+    private static SidebarViewItem decodeItem(
+        Object value,
+        Cursor envelopeCursor
+    ) {
+        if (envelopeCursor != null) {
+            throw new ProtocolError(
+                "sidebar attachment items must not carry a cursor"
+            );
+        }
         Map<String, Object> fields = Wire.object(value, "sidebar attachment item");
         String kind = Wire.string(fields.get(Wire.KIND), "sidebar item kind");
         if (kind.equals("snapshot")) {
@@ -117,13 +127,9 @@ public final class SidebarView {
                 "sidebar_view",
                 "render"
             );
-            return new SidebarViewItem(
-                kind,
-                Optional.of(Client.decodeSidebarView(fields.get("sidebar_view"))),
-                Optional.empty(),
-                Wire.object(fields.get("render"), "sidebar render"),
-                Map.of(),
-                Map.of()
+            return new SidebarViewItem.Snapshot(
+                Client.decodeSidebarView(fields.get("sidebar_view")),
+                Client.decodeRenderSnapshot(fields.get("render"))
             );
         }
         if (kind.equals("patch")) {
@@ -134,16 +140,12 @@ public final class SidebarView {
                 "sidebar_view_id",
                 "render"
             );
-            return new SidebarViewItem(
-                kind,
-                Optional.empty(),
-                Optional.of(new Ids.SidebarViewId(Wire.string(
+            return new SidebarViewItem.Patch(
+                new Ids.SidebarViewId(Wire.string(
                     fields.get("sidebar_view_id"),
                     "sidebar view id"
-                ))),
-                Wire.object(fields.get("render"), "sidebar render"),
-                Map.of(),
-                Map.of()
+                )),
+                Client.decodeRenderPatch(fields.get("render"))
             );
         }
         if (kind.equals("scroll")) {
@@ -154,25 +156,14 @@ public final class SidebarView {
                 "sidebar_view_id",
                 "scroll"
             );
-            return new SidebarViewItem(
-                kind,
-                Optional.empty(),
-                Optional.of(new Ids.SidebarViewId(Wire.string(
+            return new SidebarViewItem.Scroll(
+                new Ids.SidebarViewId(Wire.string(
                     fields.get("sidebar_view_id"),
                     "sidebar view id"
-                ))),
-                Map.of(),
-                Wire.object(fields.get("scroll"), "sidebar scroll"),
-                Map.of()
+                )),
+                Client.decodeRenderScroll(fields.get("scroll"))
             );
         }
-        return new SidebarViewItem(
-            kind,
-            Optional.empty(),
-            Optional.empty(),
-            Map.of(),
-            Map.of(),
-            fields
-        );
+        return new SidebarViewItem.Unknown(kind, fields);
     }
 }

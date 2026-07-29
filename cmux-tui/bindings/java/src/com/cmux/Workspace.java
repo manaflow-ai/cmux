@@ -70,7 +70,7 @@ public final class Workspace {
         );
     }
 
-    public MutationResult<CreatedPath> run(Options.Run options) {
+    public MutationResult<CreatedTerminalPath> run(Options.Run options) {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
         Client.command(params, options.command());
         options.cwd().ifPresent(value -> params.put(Wire.CWD, value));
@@ -80,7 +80,9 @@ public final class Workspace {
         Client.MutationResponse response = client.mutation(
             Operations.WORKSPACE_RUN, params, options.mutation()
         );
-        return response.parts().withValue(Client.decodeCreatedPath(response.result()));
+        return response.parts().withValue(
+            Client.decodeCreatedTerminalPath(response.result())
+        );
     }
 
     public MutationResult<Snapshots.WorkspaceSnapshot> applyLayout(
@@ -122,7 +124,7 @@ public final class Workspace {
             .toList();
     }
 
-    public MutationResult<CreatedPath> createScreen(
+    public MutationResult<CreatedTerminalPath> createScreen(
         Options.ScreenCreate options
     ) {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
@@ -131,7 +133,7 @@ public final class Workspace {
             Operations.SCREEN_CREATE, params, options.mutation()
         );
         return response.parts().withValue(
-            Client.decodeCreatedPath(response.result())
+            Client.decodeCreatedTerminalPath(response.result())
         );
     }
 

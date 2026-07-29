@@ -11,7 +11,7 @@ public final class ConnectedClient {
     private final Client client;
     private final Route route;
     private final Selector<Ids.ConnectedClientId> selector;
-    private volatile Snapshots.ConnectedClientSnapshot snapshot;
+    private volatile Snapshots.ClientSnapshot snapshot;
 
     ConnectedClient(
         Client client,
@@ -25,7 +25,7 @@ public final class ConnectedClient {
         Client client,
         Route route,
         Selector<Ids.ConnectedClientId> selector,
-        Snapshots.ConnectedClientSnapshot snapshot
+        Snapshots.ClientSnapshot snapshot
     ) {
         this.client = Objects.requireNonNull(client, "client");
         this.route = Objects.requireNonNull(route, "route");
@@ -33,11 +33,11 @@ public final class ConnectedClient {
         this.snapshot = snapshot;
     }
 
-    public Optional<Snapshots.ConnectedClientSnapshot> cached() {
+    public Optional<Snapshots.ClientSnapshot> cached() {
         return Optional.ofNullable(snapshot);
     }
 
-    public Snapshots.ConnectedClientSnapshot refresh() {
+    public Snapshots.ClientSnapshot refresh() {
         snapshot = Client.decodeConnectedClient(Client.resourcePayload(
             client.request(Operations.CLIENT_GET, params(), null),
             Wire.CLIENT
@@ -45,7 +45,7 @@ public final class ConnectedClient {
         return snapshot;
     }
 
-    public Snapshots.ConnectedClientSnapshot updateMetadata(
+    public Snapshots.ClientSnapshot updateMetadata(
         Options.ClientMetadata options
     ) {
         Map<String, Object> params = withExtra(params(), options.control().extra());
@@ -62,7 +62,7 @@ public final class ConnectedClient {
         return snapshot;
     }
 
-    public Snapshots.ConnectedClientSnapshot setSizing(Options.ClientSizing options) {
+    public Snapshots.ClientSnapshot setSizing(Options.ClientSizing options) {
         Map<String, Object> params = withExtra(params(), options.control().extra());
         params.put(Wire.ENABLED, options.enabled());
         options.exclusive().ifPresent(value -> params.put("exclusive", value));
@@ -73,7 +73,7 @@ public final class ConnectedClient {
         return snapshot;
     }
 
-    public Snapshots.ConnectedClientSnapshot releaseSizing(Options.Control options) {
+    public Snapshots.ClientSnapshot releaseSizing(Options.Control options) {
         snapshot = Client.decodeConnectedClient(Client.resourcePayload(
             client.request(
                 Operations.CLIENT_SIZING_RELEASE,
@@ -85,21 +85,21 @@ public final class ConnectedClient {
         return snapshot;
     }
 
-    public Document setCellPixels(Options.CellPixels options) {
+    public Results.CellPixelsResult setCellPixels(Options.CellPixels options) {
         Map<String, Object> params = withExtra(params(), options.control().extra());
         params.put("width_px", options.width());
         params.put("height_px", options.height());
-        return Client.document(client.request(
+        return Client.decodeCellPixels(client.requestValue(
             Operations.CLIENT_CELL_PIXELS_SET, params, null
         ));
     }
 
-    public Document detach(Options.Control options) {
-        return Client.document(client.request(
+    public EmptyResult detach(Options.Control options) {
+        return Client.decodeEmptyResult(client.requestValue(
             Operations.CLIENT_DETACH,
             withExtra(params(), options == null ? Map.of() : options.extra()),
             null
-        ));
+        ), "client detach result");
     }
 
     private Map<String, Object> params() {

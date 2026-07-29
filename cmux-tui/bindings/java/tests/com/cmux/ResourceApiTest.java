@@ -21,9 +21,11 @@ public final class ResourceApiTest {
         sensitiveValuesAreRedacted();
         exactCommandAndRouting();
         nullableMetadata();
+        strictTypedModels();
         typedStream();
         streamCancellationPreservesRouteAndEnd();
         structuredErrorsAreNotRetried();
+        transportFailureReportsUncertainMutation();
     }
 
     private static void decimalAndIdentifiers() {
@@ -93,7 +95,7 @@ public final class ResourceApiTest {
             Workspace workspace = session.workspace(
                 Selector.id(new Ids.WorkspaceId("ws_" + HEX))
             );
-            MutationResult<CreatedPath> created = workspace.run(
+            MutationResult<CreatedTerminalPath> created = workspace.run(
                 Options.Run.builder(
                     ExactCommand.of("printf", "%s", "hello world")
                 ).build()
@@ -148,6 +150,77 @@ public final class ResourceApiTest {
             require(params.get("name") == null, "nullable name clears with null");
             require(params.get("kind").equals(""), "empty kind is preserved");
         }
+    }
+
+    private static void strictTypedModels() {
+        ResourceChange change = Client.decodeResourceChange(Map.of(
+            "kind", "delete",
+            "sequence", 7,
+            "resource", "terminal",
+            "id", "term_" + HEX
+        ));
+        require(
+            change instanceof ResourceChange.Delete deleted &&
+                deleted.sequence() == 7 &&
+                deleted.id().value().equals("term_" + HEX),
+            "known resource change is typed"
+        );
+        expect(
+            ProtocolError.class,
+            () -> Client.decodeResourceChange(Map.of(
+                "kind", "delete",
+                "sequence", 7,
+                "resource", "terminal",
+                "id", "term_" + HEX,
+                "future", true
+            ))
+        );
+        ResourceChange future = Client.decodeResourceChange(Map.of(
+            "kind", "future-change",
+            "future", Map.of("preserved", true)
+        ));
+        require(
+            future instanceof ResourceChange.Unknown unknown &&
+                object(unknown.raw().get("future")).get("preserved")
+                    .equals(true),
+            "unknown resource change preserves its raw object"
+        );
+
+        Render.Scroll scroll = Client.decodeRenderScroll(Map.of(
+            "offset", "18446744073709551615",
+            "at_bottom", true
+        ));
+        require(
+            scroll.offset().equals(Decimal.MAX_VALUE) && scroll.atBottom(),
+            "render result preserves uint64 and typed fields"
+        );
+        expect(
+            ProtocolError.class,
+            () -> Client.decodeRenderScroll(Map.of(
+                "offset", "0",
+                "at_bottom", true,
+                "future", true
+            ))
+        );
+
+        Map<String, Object> layoutFields = new LinkedHashMap<>();
+        layoutFields.put("version", 1);
+        layoutFields.put("screen_id", "screen_" + HEX);
+        layoutFields.put("active_pane_id", "pane_" + HEX);
+        layoutFields.put("zoomed_pane_id", null);
+        layoutFields.put("root", Map.of(
+            "kind", "leaf",
+            "pane_id", "pane_" + HEX,
+            "tab_ids", List.of("tab_" + HEX),
+            "active_tab_id", "tab_" + HEX
+        ));
+        Layout.Document layout = Client.decodeLayoutDocument(layoutFields);
+        require(
+            layout.root() instanceof Layout.Leaf leaf &&
+                leaf.activeTabId().orElseThrow().value()
+                    .equals("tab_" + HEX),
+            "layout result is recursively typed"
+        );
     }
 
     private static void typedStream() {
@@ -212,6 +285,37 @@ public final class ResourceApiTest {
         }
     }
 
+    private static void transportFailureReportsUncertainMutation() {
+        FakeTransport transport = new FakeTransport();
+        transport.failMutationTransport = true;
+        try (Client client = client(transport)) {
+            Browser browser = client.machine(Selector.current())
+                .session(Selector.current())
+                .browser(Selector.id(new Ids.BrowserId("browser_" + HEX)));
+            MutationOutcomeUncertain error = expect(
+                MutationOutcomeUncertain.class,
+                () -> browser.navigate(
+                    new Options.Navigate(
+                        Options.Mutation.keyed("exact-key"),
+                        "https://example.com"
+                    )
+                )
+            );
+            require(
+                error.operation().equals("browser.navigate"),
+                "uncertain mutation retains its exact operation"
+            );
+            require(
+                error.idempotencyKey().equals("exact-key"),
+                "uncertain mutation retains its exact idempotency key"
+            );
+            require(
+                transport.operationCount("browser.navigate") == 1,
+                "transport-failed mutation is not retried"
+            );
+        }
+    }
+
     private static void streamCancellationPreservesRouteAndEnd() {
         FakeTransport transport = new FakeTransport();
         transport.cancelableStream = true;
@@ -224,6 +328,10 @@ public final class ResourceApiTest {
                     Options.Stream.defaults(),
                     Optional.empty()
                 ));
+            require(
+                stream.poll(Duration.ofMillis(10)).isEmpty(),
+                "bounded stream poll reports a local timeout"
+            );
             stream.close();
             stream.close();
             Map<String, Object> request = transport.lastSent();
@@ -299,16 +407,22 @@ public final class ResourceApiTest {
         private final List<Map<String, Object>> sent = new ArrayList<>();
         private volatile boolean closed;
         private boolean failBrowserNavigate;
+        private boolean failMutationTransport;
         private boolean cancelableStream;
         private String openStreamId;
 
         @Override
-        public synchronized void send(Map<String, Object> message) {
+        public synchronized void send(Map<String, Object> message)
+                throws IOException {
             Map<String, Object> copy = new LinkedHashMap<>(message);
             sent.add(copy);
             String operation = String.valueOf(copy.get("operation"));
             String id = String.valueOf(copy.get("id"));
             Map<String, Object> params = object(copy.get("params"));
+            if (failMutationTransport &&
+                    operation.equals("browser.navigate")) {
+                throw new IOException("response path failed");
+            }
             if (cancelableStream && operation.equals("stream.cancel")) {
                 inbound.add(Map.of(
                     "protocol", "cmux.protocol/1",
@@ -339,10 +453,12 @@ public final class ResourceApiTest {
             }
             Map<String, Object> result = switch (operation) {
                 case "workspace.run" -> workspaceRunResult();
-                case "client.metadata.update" -> Map.of(
-                    "client", clientSnapshot()
+                case "client.metadata.update" -> clientSnapshot();
+                case "session.events" -> Map.of(
+                    "stream_id",
+                    String.valueOf(params.get("stream_id"))
                 );
-                case "session.events", "stream.cancel" -> Map.of();
+                case "stream.cancel" -> Map.of();
                 default -> Map.of();
             };
             inbound.add(response(id, true, result, Map.of()));

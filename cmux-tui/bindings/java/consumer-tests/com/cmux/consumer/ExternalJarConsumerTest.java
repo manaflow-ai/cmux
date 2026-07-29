@@ -1,10 +1,15 @@
 package com.cmux.consumer;
 
 import com.cmux.Client;
+import com.cmux.CreatedTerminalPath;
 import com.cmux.ExactCommand;
+import com.cmux.MutationOutcomeUncertain;
+import com.cmux.MutationResult;
+import com.cmux.Results;
 import com.cmux.ResourceStream;
 import com.cmux.Session;
 import com.cmux.Transport;
+import com.cmux.Workspace;
 import com.cmux.raw.CmuxClient;
 import com.cmux.raw.RenderText;
 import com.cmux.raw.UInt64;
@@ -12,6 +17,7 @@ import com.cmux.raw.WorkspaceLease;
 import com.cmux.raw.CreateWorkspaceRequest;
 import com.cmux.raw.RenderRow;
 import com.cmux.raw.RenderRun;
+import java.time.Duration;
 import java.util.List;
 
 public final class ExternalJarConsumerTest {
@@ -59,6 +65,13 @@ public final class ExternalJarConsumerTest {
             ExactCommand.of("printf", "%s", "hello").argv().size() == 3,
             "exact argv is public from the jar"
         );
+        Workspace.class.getMethod("run", com.cmux.Options.Run.class);
+        MutationResult.class.getMethod("value");
+        CreatedTerminalPath.class.getMethod("terminalId");
+        Results.TerminalScreenResult.class.getMethod("text");
+        ResourceStream.class.getMethod("poll", Duration.class);
+        MutationOutcomeUncertain.class.getMethod("operation");
+        MutationOutcomeUncertain.class.getMethod("idempotencyKey");
     }
 
     private static void require(boolean condition, String message) {

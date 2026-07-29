@@ -37,9 +37,11 @@ public final class Session {
         return snapshot;
     }
 
-    public Document snapshot(Options.Read options) {
+    public ResourceSnapshot snapshot(Options.Read options) {
         Map<String, Object> params = withExtra(route.params(), options);
-        return Client.document(client.request(Operations.SESSION_SNAPSHOT, params, null));
+        return Client.decodeResourceSnapshot(
+            client.requestValue(Operations.SESSION_SNAPSHOT, params, null)
+        );
     }
 
     public ResourceStream<SessionEvent> events(Options.SessionEvents options) {
@@ -48,15 +50,17 @@ public final class Session {
         return client.openStream(Operations.SESSION_EVENTS, params, Session::decodeEvent);
     }
 
-    public Document ping(Options.Read options) {
-        return Client.document(client.request(
+    public Results.PingResult ping(Options.Read options) {
+        return Client.decodePingResult(client.requestValue(
             Operations.SESSION_PING,
             withExtra(route.params(), options),
             null
         ));
     }
 
-    public MutationResult<Document> shutdown(Options.SessionShutdown options) {
+    public MutationResult<Results.ShutdownResult> shutdown(
+        Options.SessionShutdown options
+    ) {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
         if (options.force()) {
             params.put(Wire.FORCE, true);
@@ -64,19 +68,25 @@ public final class Session {
         Client.MutationResponse response = client.mutation(
             Operations.SESSION_SHUTDOWN, params, options.mutation()
         );
-        return response.parts().withValue(Client.document(response.result()));
+        return response.parts().withValue(Client.decodeShutdownResult(
+            response.result().get(Wire.VALUE)
+        ));
     }
 
-    public MutationResult<Document> reloadConfig(Options.Mutation options) {
+    public MutationResult<Results.ReloadConfigResult> reloadConfig(
+        Options.Mutation options
+    ) {
         Client.MutationResponse response = client.mutation(
             Operations.SESSION_RELOAD_CONFIG,
             withExtra(route.params(), options.extra()),
             options
         );
-        return response.parts().withValue(Client.document(response.result()));
+        return response.parts().withValue(Client.decodeReloadConfigResult(
+            response.result().get(Wire.VALUE)
+        ));
     }
 
-    public MutationResult<Document> updateTerminalDefaults(
+    public MutationResult<Results.TerminalDefaultsSnapshot> updateTerminalDefaults(
         Options.TerminalDefaults options
     ) {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
@@ -86,7 +96,9 @@ public final class Session {
             params,
             options.mutation()
         );
-        return response.parts().withValue(Client.document(response.result()));
+        return response.parts().withValue(Client.decodeTerminalDefaults(
+            response.result().get(Wire.VALUE)
+        ));
     }
 
     public MutationResult<EmptyResult> setWindowTitle(Options.WindowTitle options) {
@@ -168,7 +180,7 @@ public final class Session {
         List<Object> values = Client.listPayload(result, "clients");
         List<ConnectedClient> clients = new ArrayList<>(values.size());
         for (Object value : values) {
-            Snapshots.ConnectedClientSnapshot decoded = Client.decodeConnectedClient(value);
+            Snapshots.ClientSnapshot decoded = Client.decodeConnectedClient(value);
             clients.add(new ConnectedClient(
                 client, route, Selector.id(decoded.id()), decoded
             ));
@@ -321,7 +333,15 @@ public final class Session {
         ));
     }
 
-    private static SessionEvent decodeEvent(Object value) {
+    private static SessionEvent decodeEvent(
+        Object value,
+        Cursor envelopeCursor
+    ) {
+        if (envelopeCursor == null) {
+            throw new ProtocolError(
+                "session stream items require an envelope cursor"
+            );
+        }
         Map<String, Object> fields = Wire.object(value, "session event");
         String kind = Wire.string(fields.get(Wire.KIND), "session event kind");
         if (kind.equals("snapshot")) {
@@ -348,10 +368,12 @@ public final class Session {
                     );
                 }
             });
+            Cursor cursor = Client.decodeCursor(fields.get(Wire.CURSOR));
+            requireEnvelopeCursor(cursor, envelopeCursor);
             return new SessionEvent.Snapshot(
-                Client.decodeCursor(fields.get(Wire.CURSOR)),
+                cursor,
                 resetReason,
-                Wire.object(fields.get("snapshot"), "resource snapshot")
+                Client.decodeResourceSnapshot(fields.get("snapshot"))
             );
         }
         if (kind.equals("delta")) {
@@ -364,14 +386,14 @@ public final class Session {
                 Wire.REVISION,
                 "changes"
             );
-            List<Map<String, Object>> changes = Wire.array(
+            List<ResourceChange> changes = Wire.array(
                 fields.get("changes"),
                 "session changes"
-            ).stream().map(item -> Map.copyOf(
-                Wire.object(item, "session resource change")
-            )).toList();
+            ).stream().map(Client::decodeResourceChange).toList();
+            Cursor cursor = Client.decodeCursor(fields.get(Wire.CURSOR));
+            requireEnvelopeCursor(cursor, envelopeCursor);
             return new SessionEvent.Delta(
-                Client.decodeCursor(fields.get(Wire.CURSOR)),
+                cursor,
                 Wire.decimal(
                     fields.get("previous_revision"),
                     "session previous_revision"
@@ -384,6 +406,17 @@ public final class Session {
             );
         }
         return new SessionEvent.Unknown(kind, fields);
+    }
+
+    private static void requireEnvelopeCursor(
+        Cursor item,
+        Cursor envelope
+    ) {
+        if (envelope == null || !item.equals(envelope)) {
+            throw new ProtocolError(
+                "session item cursor must match its stream envelope"
+            );
+        }
     }
 
     private static Map<String, Object> cursorMap(Cursor cursor) {

@@ -10,8 +10,10 @@ public record MutationResult<T>(
 ) {
     public MutationResult {
         Objects.requireNonNull(generation, "generation");
-        if (generation.isEmpty()) {
-            throw new IllegalArgumentException("generation must not be empty");
+        if (generation.isEmpty() || generation.length() > 128) {
+            throw new IllegalArgumentException(
+                "generation must contain 1 to 128 characters"
+            );
         }
         Objects.requireNonNull(revision, "revision");
     }

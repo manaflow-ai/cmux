@@ -62,8 +62,8 @@ public final class Screen {
         );
     }
 
-    public Document exportLayout(Options.Read options) {
-        return Client.document(client.request(
+    public Layout.Document exportLayout(Options.Read options) {
+        return Client.decodeLayoutDocument(client.requestValue(
             Operations.SCREEN_LAYOUT_EXPORT,
             withExtra(route.params(), options == null ? Map.of() : options.extra()),
             null
@@ -105,7 +105,9 @@ public final class Screen {
             .toList();
     }
 
-    public MutationResult<CreatedPath> createPane(Options.PaneCreate options) {
+    public MutationResult<CreatedTerminalPath> createPane(
+        Options.PaneCreate options
+    ) {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
         options.cwd().ifPresent(value -> params.put(Wire.CWD, value));
         options.columns().ifPresent(value -> params.put(Wire.COLS, value));
@@ -113,7 +115,9 @@ public final class Screen {
         Client.MutationResponse response = client.mutation(
             Operations.PANE_CREATE, params, options.mutation()
         );
-        return response.parts().withValue(Client.decodeCreatedPath(response.result()));
+        return response.parts().withValue(
+            Client.decodeCreatedTerminalPath(response.result())
+        );
     }
 
     private MutationResult<Snapshots.ScreenSnapshot> mutateSnapshot(

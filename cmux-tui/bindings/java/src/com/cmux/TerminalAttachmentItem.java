@@ -2,21 +2,74 @@ package com.cmux;
 
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 
-/** Render snapshot, patch, scroll, or preserved future terminal attachment item. */
-public record TerminalAttachmentItem(
-    String kind,
-    Optional<Ids.TerminalId> terminalId,
-    Map<String, Object> render,
-    Map<String, Object> scroll,
-    Map<String, Object> raw
-) {
-    public TerminalAttachmentItem {
+/** Open typed union for terminal attachment items. */
+public sealed interface TerminalAttachmentItem permits
+        TerminalAttachmentItem.Snapshot,
+        TerminalAttachmentItem.Patch,
+        TerminalAttachmentItem.Scroll,
+        TerminalAttachmentItem.Unknown {
+    String kind();
+
+    record Snapshot(
+        Ids.TerminalId terminalId,
+        Render.Snapshot render
+    ) implements TerminalAttachmentItem {
+        public Snapshot {
+            Objects.requireNonNull(terminalId, "terminalId");
+            Objects.requireNonNull(render, "render");
+        }
+
+        @Override
+        public String kind() {
+            return "snapshot";
+        }
+    }
+
+    record Patch(
+        Ids.TerminalId terminalId,
+        Render.Patch render
+    ) implements TerminalAttachmentItem {
+        public Patch {
+            Objects.requireNonNull(terminalId, "terminalId");
+            Objects.requireNonNull(render, "render");
+        }
+
+        @Override
+        public String kind() {
+            return "patch";
+        }
+    }
+
+    record Scroll(
+        Ids.TerminalId terminalId,
+        Render.Scroll scroll
+    ) implements TerminalAttachmentItem {
+        public Scroll {
+            Objects.requireNonNull(terminalId, "terminalId");
+            Objects.requireNonNull(scroll, "scroll");
+        }
+
+        @Override
+        public String kind() {
+            return "scroll";
+        }
+    }
+
+    record Unknown(String kind, Map<String, Object> raw)
+            implements TerminalAttachmentItem {
+        public Unknown {
+            unknown(kind, "snapshot", "patch", "scroll");
+            raw = JsonValue.immutableObject(raw, "unknown terminal attachment");
+        }
+    }
+
+    private static void unknown(String kind, String... recognized) {
         Objects.requireNonNull(kind, "kind");
-        terminalId = terminalId == null ? Optional.empty() : terminalId;
-        render = render == null ? Map.of() : Map.copyOf(render);
-        scroll = scroll == null ? Map.of() : Map.copyOf(scroll);
-        raw = raw == null ? Map.of() : Map.copyOf(raw);
+        if (kind.isEmpty() || java.util.List.of(recognized).contains(kind)) {
+            throw new IllegalArgumentException(
+                "unknown item requires an unrecognized non-empty kind"
+            );
+        }
     }
 }

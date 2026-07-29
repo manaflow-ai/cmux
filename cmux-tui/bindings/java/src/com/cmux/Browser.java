@@ -2,7 +2,6 @@ package com.cmux;
 
 import com.cmux.internal.Operations;
 import com.cmux.internal.Wire;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -108,24 +107,26 @@ public final class Browser {
         );
     }
 
-    public Document resizeViewer(Options.ViewerSize options) {
+    public Results.BrowserViewerResizeResult resizeViewer(
+        Options.ViewerSize options
+    ) {
         Map<String, Object> params = params();
         params.putAll(options.control().extra());
         params.put("width_px", options.width());
         params.put("height_px", options.height());
-        return Client.document(client.request(
+        return Client.decodeBrowserViewerResize(client.requestValue(
             Operations.BROWSER_VIEWER_RESIZE, params, null
         ));
     }
 
-    public Document releaseViewer(Options.Control options) {
+    public EmptyResult releaseViewer(Options.Control options) {
         Map<String, Object> params = params();
         if (options != null) {
             params.putAll(options.extra());
         }
-        return Client.document(client.request(
+        return Client.decodeEmptyResult(client.requestValue(
             Operations.BROWSER_VIEWER_RELEASE, params, null
-        ));
+        ), "browser viewer release result");
     }
 
     public ResourceStream<BrowserAttachmentItem> attach(
@@ -136,7 +137,9 @@ public final class Browser {
         options.width().ifPresent(value -> params.put("width_px", value));
         options.height().ifPresent(value -> params.put("height_px", value));
         return client.openStream(
-            Operations.BROWSER_ATTACH, params, Browser::decodeAttachment
+            Operations.BROWSER_ATTACH,
+            params,
+            (value, cursor) -> decodeAttachment(value, cursor)
         );
     }
 
@@ -179,7 +182,15 @@ public final class Browser {
         );
     }
 
-    private static BrowserAttachmentItem decodeAttachment(Object value) {
+    private static BrowserAttachmentItem decodeAttachment(
+        Object value,
+        Cursor envelopeCursor
+    ) {
+        if (envelopeCursor != null) {
+            throw new ProtocolError(
+                "browser attachment items must not carry a cursor"
+            );
+        }
         Map<String, Object> fields = Wire.object(value, "browser attachment item");
         String kind = Wire.string(fields.get(Wire.KIND), "browser item kind");
         if (kind.equals("snapshot")) {
@@ -200,21 +211,9 @@ public final class Browser {
                 "width_px",
                 "height_px"
             );
-            return new BrowserAttachmentItem(
-                kind,
-                Optional.of(Client.decodeBrowser(fields.get(Wire.BROWSER))),
-                Optional.of(new Snapshots.PixelSize(
-                    Client.integer(size, "width_px"),
-                    Client.integer(size, "height_px")
-                )),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                new byte[0],
-                Optional.empty(),
-                Optional.empty(),
-                Map.of()
+            return new BrowserAttachmentItem.Snapshot(
+                Client.decodeBrowser(fields.get(Wire.BROWSER)),
+                Client.decodePixelSize(size)
             );
         }
         if (kind.equals("frame")) {
@@ -234,37 +233,20 @@ public final class Browser {
             if (!mimeType.equals("image/png") && !mimeType.equals("image/jpeg")) {
                 throw new ProtocolError("browser frame mime_type is invalid");
             }
-            byte[] frame;
-            try {
-                frame = Base64.getDecoder().decode(Wire.string(
-                    fields.get("data_base64"),
-                    "browser frame data_base64"
-                ));
-            } catch (IllegalArgumentException error) {
-                throw new ProtocolError(
-                    "browser frame data_base64 is invalid",
-                    error
-                );
-            }
-            int width = Client.integer(fields, "width_px");
-            int height = Client.integer(fields, "height_px");
-            if (width <= 0 || height <= 0) {
-                throw new ProtocolError(
-                    "browser frame dimensions must be positive"
-                );
-            }
-            return new BrowserAttachmentItem(
-                kind,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.of(mimeType),
+            byte[] frame = Client.decodeBase64(
+                fields.get("data_base64"),
+                "browser frame data_base64"
+            );
+            Map<String, Object> rawDimensions = new LinkedHashMap<>();
+            rawDimensions.put("width_px", fields.get("width_px"));
+            rawDimensions.put("height_px", fields.get("height_px"));
+            Snapshots.PixelSize dimensions =
+                Client.decodePixelSize(rawDimensions);
+            return new BrowserAttachmentItem.Frame(
+                mimeType,
                 frame,
-                Optional.of(width),
-                Optional.of(height),
-                Map.of()
+                dimensions.widthPx(),
+                dimensions.heightPx()
             );
         }
         if (kind.equals("state")) {
@@ -276,38 +258,12 @@ public final class Browser {
                 Wire.TITLE,
                 "loading"
             );
-            return new BrowserAttachmentItem(
-                kind,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.of(Wire.string(fields.get(Wire.URL), "browser state url")),
-                Optional.of(Wire.string(
-                    fields.get(Wire.TITLE),
-                    "browser state title"
-                )),
-                Optional.of(Wire.bool(
-                    fields.get("loading"),
-                    "browser state loading"
-                )),
-                Optional.empty(),
-                new byte[0],
-                Optional.empty(),
-                Optional.empty(),
-                Map.of()
+            return new BrowserAttachmentItem.State(
+                Wire.string(fields.get(Wire.URL), "browser state url"),
+                Wire.string(fields.get(Wire.TITLE), "browser state title"),
+                Wire.bool(fields.get("loading"), "browser state loading")
             );
         }
-        return new BrowserAttachmentItem(
-            kind,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            new byte[0],
-            Optional.empty(),
-            Optional.empty(),
-            fields
-        );
+        return new BrowserAttachmentItem.Unknown(kind, fields);
     }
 }

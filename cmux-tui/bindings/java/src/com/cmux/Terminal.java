@@ -71,22 +71,30 @@ public final class Terminal {
         return emptyMutation(Operations.TERMINAL_INPUT_FOCUS, params, options.mutation());
     }
 
-    public Document readScreen(Options.Read options) {
-        return read(Operations.TERMINAL_SCREEN_READ, options);
+    public Results.TerminalScreenResult readScreen(Options.Read options) {
+        return Client.decodeTerminalScreen(readValue(
+            Operations.TERMINAL_SCREEN_READ,
+            options
+        ));
     }
 
-    public Document readState(Options.Read options) {
-        return read(Operations.TERMINAL_STATE_READ, options);
+    public Results.TerminalStateResult readState(Options.Read options) {
+        return Client.decodeTerminalState(readValue(
+            Operations.TERMINAL_STATE_READ,
+            options
+        ));
     }
 
-    public Document readHistory(Options.HistoryRead options) {
+    public Results.TerminalHistoryResult readHistory(
+        Options.HistoryRead options
+    ) {
         Map<String, Object> params = withExtra(params(), options.read().extra());
         options.before().ifPresent(value -> params.put("before", value));
         options.limit().ifPresent(value -> params.put("limit", value));
         if (options.styled()) {
             params.put("styled", true);
         }
-        return Client.document(client.request(
+        return Client.decodeTerminalHistory(client.requestValue(
             Operations.TERMINAL_HISTORY_READ, params, null
         ));
     }
@@ -99,66 +107,60 @@ public final class Terminal {
         );
     }
 
-    public Document waitFor(Options.Wait options) {
+    public Results.TerminalWaitResult waitFor(Options.Wait options) {
         Map<String, Object> params = withExtra(params(), options.read().extra());
         params.put("pattern", options.condition());
         if (options.timeoutMillis() > 0) {
             params.put(Wire.TIMEOUT_MS, Long.toUnsignedString(options.timeoutMillis()));
         }
-        return Client.document(client.request(Operations.TERMINAL_WAIT, params, null));
+        return Client.decodeTerminalWait(
+            client.requestValue(Operations.TERMINAL_WAIT, params, null)
+        );
     }
 
-    public Document copy(Options.Copy options) {
+    public Results.TerminalCopyResult copy(Options.Copy options) {
         Map<String, Object> params = withExtra(params(), options.read().extra());
         if (!options.mode().isEmpty()) {
             params.put(Wire.MODE, options.mode());
         }
-        return Client.document(client.request(Operations.TERMINAL_COPY, params, null));
+        return Client.decodeTerminalCopy(
+            client.requestValue(Operations.TERMINAL_COPY, params, null)
+        );
     }
 
-    public Document process(Options.Read options) {
-        return read(Operations.TERMINAL_PROCESS_GET, options);
+    public Results.ProcessInfoResult process(Options.Read options) {
+        return Client.decodeProcessInfo(readValue(
+            Operations.TERMINAL_PROCESS_GET,
+            options
+        ));
     }
 
     public RendererGrant createRendererGrant(Options.RendererGrant options) {
         Map<String, Object> params = withExtra(params(), options.control().extra());
         options.ttlMillis().ifPresent(value -> params.put("ttl_ms", value));
-        Map<String, Object> result = client.request(
+        Object result = client.requestValue(
             Operations.TERMINAL_RENDERER_GRANT_CREATE, params, null
         );
-        Map<String, Object> fields = new LinkedHashMap<>(
-            Client.resourcePayload(result, "grant")
-        );
-        String endpoint = Wire.string(fields.remove("endpoint"), "renderer endpoint");
-        Ids.TerminalId terminal = new Ids.TerminalId(
-            Wire.string(fields.remove("terminal_id"), "renderer terminal id")
-        );
-        Secret token = new Secret(
-            Wire.string(fields.remove("token"), "renderer token")
-        );
-        List<String> rights = new ArrayList<>();
-        for (Object value : Wire.array(fields.remove("rights"), "renderer rights")) {
-            rights.add(Wire.string(value, "renderer right"));
-        }
-        int ttl = ((Number) fields.remove("ttl_ms")).intValue();
-        return new RendererGrant(endpoint, terminal, token, rights, ttl);
+        return Client.decodeRendererGrant(result);
     }
 
-    public Document resizeViewer(Options.ViewerSize options) {
+    public Results.ViewerResizeResult resizeViewer(
+        Options.ViewerSize options
+    ) {
         Map<String, Object> params = withExtra(params(), options.control().extra());
         params.put(Wire.COLS, options.width());
         params.put(Wire.ROWS, options.height());
-        return Client.document(client.request(
+        return Client.decodeViewerResize(client.requestValue(
             Operations.TERMINAL_VIEWER_RESIZE, params, null
         ));
     }
 
-    public Document releaseViewer(Options.Control options) {
-        return Client.document(client.request(
+    public EmptyResult releaseViewer(Options.Control options) {
+        return Client.decodeEmptyResult(client.requestValue(
             Operations.TERMINAL_VIEWER_RELEASE,
             withExtra(params(), options == null ? Map.of() : options.extra()),
             null
-        ));
+        ), "terminal viewer release result");
     }
 
     public MutationResult<EmptyResult> scrollViewport(Options.Scroll options) {
@@ -196,7 +198,9 @@ public final class Terminal {
             params.put("read_only", true);
         }
         return client.openStream(
-            Operations.TERMINAL_ATTACH, params, Terminal::decodeAttachment
+            Operations.TERMINAL_ATTACH,
+            params,
+            (value, cursor) -> decodeAttachment(value, cursor)
         );
     }
 
@@ -212,12 +216,12 @@ public final class Terminal {
         return route.target(Wire.TERMINAL, selector);
     }
 
-    private Document read(Operations operation, Options.Read options) {
-        return Client.document(client.request(
+    private Object readValue(Operations operation, Options.Read options) {
+        return client.requestValue(
             operation,
             withExtra(params(), options == null ? Map.of() : options.extra()),
             null
-        ));
+        );
     }
 
     private MutationResult<EmptyResult> emptyMutation(
@@ -231,25 +235,45 @@ public final class Terminal {
         );
     }
 
-    private static TerminalAttachmentItem decodeAttachment(Object value) {
+    private static TerminalAttachmentItem decodeAttachment(
+        Object value,
+        Cursor envelopeCursor
+    ) {
+        if (envelopeCursor != null) {
+            throw new ProtocolError(
+                "terminal attachment items must not carry a cursor"
+            );
+        }
         Map<String, Object> fields = Wire.object(value, "terminal attachment");
         String kind = Wire.string(fields.get(Wire.KIND), "terminal item kind");
-        if (kind.equals("snapshot") || kind.equals("patch")) {
+        if (kind.equals("snapshot")) {
             Client.requireExactFields(
                 fields,
-                "terminal " + kind + " item",
+                "terminal snapshot item",
                 Wire.KIND,
                 "terminal_id",
                 "render"
             );
-            return new TerminalAttachmentItem(
-                kind,
-                Optional.of(new Ids.TerminalId(
+            return new TerminalAttachmentItem.Snapshot(
+                new Ids.TerminalId(
                     Wire.string(fields.get("terminal_id"), "terminal item id")
-                )),
-                Wire.object(fields.get("render"), "terminal render"),
-                Map.of(),
-                Map.of()
+                ),
+                Client.decodeRenderSnapshot(fields.get("render"))
+            );
+        }
+        if (kind.equals("patch")) {
+            Client.requireExactFields(
+                fields,
+                "terminal patch item",
+                Wire.KIND,
+                "terminal_id",
+                "render"
+            );
+            return new TerminalAttachmentItem.Patch(
+                new Ids.TerminalId(
+                    Wire.string(fields.get("terminal_id"), "terminal item id")
+                ),
+                Client.decodeRenderPatch(fields.get("render"))
             );
         }
         if (kind.equals("scroll")) {
@@ -260,23 +284,14 @@ public final class Terminal {
                 "terminal_id",
                 "scroll"
             );
-            return new TerminalAttachmentItem(
-                kind,
-                Optional.of(new Ids.TerminalId(
+            return new TerminalAttachmentItem.Scroll(
+                new Ids.TerminalId(
                     Wire.string(fields.get("terminal_id"), "terminal item id")
-                )),
-                Map.of(),
-                Wire.object(fields.get("scroll"), "terminal scroll"),
-                Map.of()
+                ),
+                Client.decodeRenderScroll(fields.get("scroll"))
             );
         }
-        return new TerminalAttachmentItem(
-            kind,
-            Optional.empty(),
-            Map.of(),
-            Map.of(),
-            fields
-        );
+        return new TerminalAttachmentItem.Unknown(kind, fields);
     }
 
     private static Map<String, Object> withExtra(

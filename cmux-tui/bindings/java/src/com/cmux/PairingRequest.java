@@ -25,7 +25,7 @@ public final class PairingRequest {
         return snapshot;
     }
 
-    public MutationResult<Snapshots.PairingRequestSnapshot> resolve(
+    public MutationResult<Results.PairingResolutionResult> resolve(
         Options.PairingResolve options
     ) {
         Map<String, Object> params = route.target(
@@ -37,10 +37,10 @@ public final class PairingRequest {
         Client.MutationResponse response = client.mutation(
             Operations.PAIRING_REQUEST_RESOLVE, params, options.mutation()
         );
-        Map<String, Object> result = Client.resourcePayload(
-            response.result(), "pairing_request"
+        Results.PairingResolutionResult result = Client.decodePairingResolution(
+            response.result().get(Wire.VALUE)
         );
-        snapshot = Client.decodePairingRequest(result);
-        return response.parts().withValue(snapshot);
+        snapshot = result.pairingRequest();
+        return response.parts().withValue(result);
     }
 }

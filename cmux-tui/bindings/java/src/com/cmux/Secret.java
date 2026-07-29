@@ -8,6 +8,9 @@ public final class Secret {
 
     public Secret(String value) {
         this.value = Objects.requireNonNull(value, "value");
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException("secret must not be empty");
+        }
     }
 
     public String reveal() {

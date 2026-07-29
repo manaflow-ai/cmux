@@ -86,7 +86,9 @@ public final class Machine {
         Client.MutationResponse response = client.mutation(
             Operations.MACHINE_PURGE, route.params(), options
         );
-        return response.parts().withValue(new EmptyResult());
+        return response.parts().withValue(
+            Client.decodeEmptyMutation(response.result())
+        );
     }
 
     public Session session(Selector<Ids.SessionId> session) {
