@@ -92,6 +92,21 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.temporaryFiles.isEmpty)
     }
 
+    @Test(arguments: [
+        "Connection to 192.0.2.1 port 22 timed out",
+        "Connection to example.test closed by remote host.",
+        "send disconnect: Connection to 192.0.2.1 port 22: Broken pipe",
+        "ssh: connect to host example.test port 22: Network is down",
+        "ssh: connect to host example.test port 22: Host is down",
+    ])
+    func mapsStandardOpenSSHTransportDiagnosticToRetryableStatus(_ diagnostic: String) throws {
+        let result = try run("printf '%s\\n' '\(diagnostic)' >&2; exit 255")
+
+        #expect(result.status == 254)
+        #expect(result.stderr.contains(diagnostic))
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
     @Test(arguments: ["Connection refused", "Connection reset by peer"])
     func mapsDirectConnectionStartupFailureToRetryableStatus(_ diagnostic: String) throws {
         let result = try run(
