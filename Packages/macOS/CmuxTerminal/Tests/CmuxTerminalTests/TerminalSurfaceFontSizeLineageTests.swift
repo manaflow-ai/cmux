@@ -804,7 +804,8 @@ private func setFontBindingResult(_ result: Bool)
         #expect(
             state == MobileViewportFontFitState(
                 baseRuntimePointSize: 7,
-                fittedRuntimePointSize: 7
+                fittedRuntimePointSize: 7,
+                viewportFitCeilingRuntimePointSize: 8
             )
         )
 
@@ -1318,7 +1319,8 @@ private func setFontBindingResult(_ result: Bool)
             surface.mobileViewportFontFitState
                 == MobileViewportFontFitState(
                     baseRuntimePointSize: 7,
-                    fittedRuntimePointSize: 7
+                    fittedRuntimePointSize: 7,
+                    viewportFitCeilingRuntimePointSize: 8
                 )
         )
     }

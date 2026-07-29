@@ -962,29 +962,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
             WorkspaceTerminalFontSizeArbiter(),
         maximumOutstandingRequestCount: Int = 256,
         schedule: @escaping DrainScheduler = { delay, action in
-            let boundedDelay = max(0, delay)
-            let maximumDelay =
-                Double(Int.max) / 1_000_000_000.0
-            let nanoseconds = Int(
-                (
-                    min(boundedDelay, maximumDelay)
-                    * 1_000_000_000.0
-                ).rounded(.up)
-            )
-            let timer = DispatchSource.makeTimerSource(queue: .main)
-            timer.schedule(
-                deadline: .now() + .nanoseconds(nanoseconds)
-            )
-            timer.setEventHandler {
-                MainActor.assumeIsolated {
-                    action()
-                }
-            }
-            timer.resume()
-            return {
-                timer.setEventHandler {}
-                timer.cancel()
-            }
+            WorkspaceTerminalFontSizeCoordinator
+                .scheduleDefaultDrain(
+                    after: delay,
+                    action: action
+                )
         },
         configurationSnapshot: @escaping
             ConfigurationSnapshotProvider = {
@@ -1012,6 +994,33 @@ final class WorkspaceTerminalFontSizeCoordinator {
         self.schedule = schedule
         self.configurationSnapshot = configurationSnapshot
         self.applyChange = applyChange
+    }
+
+    static func scheduleDefaultDrain(
+        after delay: TimeInterval,
+        action: @escaping @MainActor () -> Void
+    ) -> DrainCancellation {
+        let boundedDelay = max(0, delay)
+        let maximumDelay =
+            Double(Int.max) / 1_000_000_000.0
+        let nanoseconds = Int(
+            (
+                min(boundedDelay, maximumDelay)
+                * 1_000_000_000.0
+            ).rounded(.up)
+        )
+        let workItem = DispatchWorkItem {
+            MainActor.assumeIsolated {
+                action()
+            }
+        }
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + .nanoseconds(nanoseconds),
+            execute: workItem
+        )
+        return {
+            workItem.cancel()
+        }
     }
 
     func attachWindowDock(_ dock: DockSplitStore) {

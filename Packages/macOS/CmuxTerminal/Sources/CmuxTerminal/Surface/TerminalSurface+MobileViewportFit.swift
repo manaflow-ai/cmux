@@ -440,7 +440,8 @@ extension TerminalSurface {
                 fittedRuntimePointSize: points
             )
         } else {
-            mobileViewportFontFitState?.fittedRuntimePointSize = points
+            mobileViewportFontFitState?
+                .updateViewportFit(to: points)
         }
         return true
     }
