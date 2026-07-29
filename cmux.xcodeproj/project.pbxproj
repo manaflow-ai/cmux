@@ -1085,6 +1085,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0053865B0053865B005 /* GlobalSearchShortcutSettingsTests.swift */; };
 		8561A0038561A0038561A003 /* GlobalSearchVisiblePopoverShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561B0038561B0038561B003 /* GlobalSearchVisiblePopoverShortcutTests.swift */; };
 		CC000000A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000001A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift */; };
+		CC2639000000000000000001 /* GotoSplitCycleUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2639000000000000000002 /* GotoSplitCycleUITestSupport.swift */; };
 		5B11E5A100000000000000B1 /* GPUSpinner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B11E5A100000000000000B2 /* GPUSpinner.swift */; };
 		A6AC72010000000000000001 /* GPUSpinnerNSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72010000000000000002 /* GPUSpinnerNSView.swift */; };
 		A6AC72020000000000000001 /* GPUSpinnerStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72020000000000000002 /* GPUSpinnerStyle.swift */; };
@@ -3501,6 +3502,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		3865B0053865B0053865B005 /* GlobalSearchShortcutSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchShortcutSettingsTests.swift; sourceTree = "<group>"; };
 		8561B0038561B0038561B003 /* GlobalSearchVisiblePopoverShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchVisiblePopoverShortcutTests.swift; sourceTree = "<group>"; };
 		CC000001A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GotoSplitCycleUITests.swift; sourceTree = "<group>"; };
+		CC2639000000000000000002 /* GotoSplitCycleUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/UITests/GotoSplitCycleUITestSupport.swift; sourceTree = "<group>"; };
 		5B11E5A100000000000000B2 /* GPUSpinner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/GPUSpinner.swift; sourceTree = "<group>"; };
 		A6AC72010000000000000002 /* GPUSpinnerNSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/GPUSpinnerNSView.swift; sourceTree = "<group>"; };
 		A6AC72020000000000000002 /* GPUSpinnerStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/GPUSpinnerStyle.swift; sourceTree = "<group>"; };
@@ -5581,6 +5583,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */,
 				875200000000000000000004 /* SurfacePaneMovement.swift */,
 				822900000000000000000002 /* Workspace+TerminalResizeInteraction.swift */,
+				CC2639000000000000000002 /* GotoSplitCycleUITestSupport.swift */,
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
 				A5001416 /* Workspace.swift */,
@@ -8442,6 +8445,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
 					8561A0058561A0058561A005 /* GlobalSearchKeyEvent+QueryEditing.swift in Sources */,
 					3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
+				CC2639000000000000000001 /* GotoSplitCycleUITestSupport.swift in Sources */,
 					5B11E5A100000000000000B1 /* GPUSpinner.swift in Sources */,
 					A6AC72010000000000000001 /* GPUSpinnerNSView.swift in Sources */,
 					A6AC72020000000000000001 /* GPUSpinnerStyle.swift in Sources */,
