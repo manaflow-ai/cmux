@@ -1925,13 +1925,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testPersistentReverseRelayDoesNotAttachToSharedControlMaster() throws {
+    func testPersistentReverseRelayCancelsInheritedForwardBeforeDedicatedLaunch() throws {
         let daemonTransportStarted = DispatchSemaphore(value: 0)
         let relayLaunch = ReverseRelayLaunchRecorder()
-        let controlMasterTouched = expectation(
-            description: "workspace-scoped reverse relay must not mutate the host-shared ControlMaster"
-        )
-        controlMasterTouched.isInverted = true
+        let inheritedForwardCancelled = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var controlOperations: [(command: String, spec: String)] = []
 
@@ -1947,7 +1944,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 lock.lock()
                 controlOperations.append((command: operation, spec: spec))
                 lock.unlock()
-                controlMasterTouched.fulfill()
+                if operation == "cancel" {
+                    inheritedForwardCancelled.signal()
+                }
                 return (status: 0, stdout: "", stderr: "")
             }
 
@@ -1986,9 +1985,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             port: 1,
             identityFile: nil,
             sshOptions: [
-                "ControlMaster=auto",
-                "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-issue-8894-%C",
                 "StrictHostKeyChecking=accept-new",
             ],
             localProxyPort: nil,
@@ -2005,8 +2001,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: true)
 
         XCTAssertEqual(daemonTransportStarted.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(inheritedForwardCancelled.wait(timeout: .now() + 2), .success)
         XCTAssertEqual(relayLaunch.wait(timeout: .now() + 2), .success)
-        wait(for: [controlMasterTouched], timeout: 1)
         lock.lock()
         let operations = controlOperations
         lock.unlock()
@@ -2023,9 +2019,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             reverseForwardSpec.hasPrefix("127.0.0.1:64044:127.0.0.1:"),
             "expected dedicated relay forwarding argv, got \(arguments)"
         )
-        XCTAssertTrue(
-            operations.isEmpty,
-            "the relay must use its own app-owned ssh process, got ControlMaster operations: \(operations)"
+        XCTAssertEqual(operations.count, 1)
+        XCTAssertEqual(operations.first?.command, "cancel")
+        XCTAssertEqual(operations.first?.spec, "127.0.0.1:64044")
+        XCTAssertFalse(
+            operations.contains(where: { $0.command == "forward" }),
+            "the relay must never install its forward on the shared ControlMaster: \(operations)"
         )
     }
 
