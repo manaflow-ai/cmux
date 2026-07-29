@@ -169,13 +169,19 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let grokBinary = directory.appendingPathComponent("grok")
-        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: grokBinary.path)
+        // cat blocked on an open pipe lives until terminated, so the test has
+        // no wall-clock dependency on the helper process's lifetime.
+        try FileManager.default.copyItem(atPath: "/bin/cat", toPath: grokBinary.path)
 
         let process = Process()
         process.executableURL = grokBinary
-        process.arguments = ["5"]
+        let stdinPipe = Pipe()
+        process.standardInput = stdinPipe
         try process.run()
-        defer { process.terminate() }
+        defer {
+            process.terminate()
+            process.waitUntilExit()
+        }
 
         let pid = Int(process.processIdentifier)
         #expect(CmuxTopProcessSnapshot.codingAgentDefinition(foregroundPID: pid)?.id == "grok")
