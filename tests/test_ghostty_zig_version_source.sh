@@ -33,8 +33,8 @@ for consumer in \
   "$ROOT_DIR/scripts/install-zig-ci.sh" \
   "$ROOT_DIR/scripts/build-ghostty-cli-helper.sh"
 do
-  if ! grep -Fq 'ghostty-required-zig-version.sh' "$consumer"; then
-    echo "FAIL: $(basename "$consumer") does not use the shared resolver" >&2
+  if ! grep -Fq 'ZIG_REQUIRED="${ZIG_REQUIRED:-$("$SCRIPT_DIR/ghostty-required-zig-version.sh")}"' "$consumer"; then
+    echo "FAIL: $(basename "$consumer") does not assign the shared resolver result" >&2
     exit 1
   fi
 done
