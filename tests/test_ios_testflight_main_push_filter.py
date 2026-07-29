@@ -226,6 +226,7 @@ const outputs = {{}};
 const compareCalls = [];
 const warnings = [];
 const waitCalls = [];
+const workflowRunRequests = [];
 const priorRunStatuses = [];
 const uploadJobStatuses = [];
 let workflowRunCalls = 0;
@@ -267,8 +268,9 @@ const github = {{
   }},
   rest: {{
     actions: {{
-      listWorkflowRuns: async () => {{
+      listWorkflowRuns: async (request) => {{
         workflowRunCalls += 1;
+        workflowRunRequests.push(request);
         if (
           orderingFailurePending &&
           scenario.orderingApiFailure === 'runs'
@@ -374,6 +376,7 @@ process.stdout.write(JSON.stringify({{
   warnings,
   waitCalls,
   workflowRunCalls,
+  workflowRunRequests,
   priorRunStatuses,
   uploadJobStatuses,
   producedArtifactName,
