@@ -27,6 +27,56 @@
     "backToMac": "cmux for Mac",
     "galleryItemAlt": "{name} running in a cmux terminal on iPhone"
   },
+  "browserDownloads": {
+    "eyebrow": "cmux Browser",
+    "title": "cmux for {platform}",
+    "tagline": "A Chromium browser and agent workspace, built together.",
+    "logoAlt": "cmux app icon",
+    "portableCta": "Portable ZIP",
+    "featuresTitle": "Built for agentic work",
+    "features": {
+      "chromium": {
+        "title": "Real Chromium",
+        "description": ": Chrome-quality tabs, rendering, extensions, and omnibox behavior"
+      },
+      "workspaces": {
+        "title": "Task-shaped workspaces",
+        "description": ": organize web tabs and tools around the task instead of one endless tab strip"
+      },
+      "terminals": {
+        "title": "Terminal surfaces",
+        "description": ": keep shells and browser tabs in the same window and compositor"
+      },
+      "openSource": {
+        "title": "Free and open source",
+        "description": ": inspect the code, file issues, and build from source on GitHub"
+      }
+    },
+    "installTitle": "Install",
+    "releaseTitle": "Releases and updates",
+    "releaseBody": "These links always point to the latest stable release on <github>GitHub Releases</github>. cmux verifies signed update manifests before installing an update.",
+    "sourceLink": "View source on GitHub",
+    "otherPlatform": "cmux for {platform}",
+    "macLink": "cmux terminal for Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Download cmux for Windows",
+      "metaDescription": "Download cmux for Windows x64: a free, open-source Chromium browser and agent workspace with task-shaped tabs and terminal surfaces.",
+      "subtitle": "A native x64 build with Chromium tabs, cmux workspaces, and familiar Windows keyboard conventions.",
+      "primaryCta": "Download installer (.exe)",
+      "requirements": "Windows 10 or later · x64",
+      "installBody": "Run the installer and follow the Windows prompts. Choose the portable ZIP if you prefer to keep cmux in a folder without a system-wide install."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Download cmux for Linux",
+      "metaDescription": "Download cmux for Linux x64: a free, open-source Chromium browser and agent workspace with task-shaped tabs and terminal surfaces.",
+      "subtitle": "A native x64 build with Chromium tabs, cmux workspaces, and integrated terminal surfaces.",
+      "primaryCta": "Download .deb",
+      "requirements": "Debian or Ubuntu · x64",
+      "installBody": "Download the Debian package and install it with your package manager. Choose the portable ZIP for a per-user install and in-app updates."
+    }
+  },
   "meta": {
     "title": "cmux — The terminal built for multitasking, organization, and programmability",
     "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
@@ -242,6 +292,9 @@
       "eyebrow": "cmux Vault",
       "title": "Approve CLI access",
       "description": "Confirm the code shown by cmux-vault to connect this device to your signed-in cmux account.",
+      "subrouterEyebrow": "Subrouter",
+      "subrouterTitle": "Approve Subrouter access",
+      "subrouterDescription": "Confirm the code shown by sr to connect this device to your signed-in cmux team.",
       "codeLabel": "User code",
       "approveButton": "Approve access",
       "approving": "Approving...",
@@ -662,7 +715,7 @@
     "faqGhosttyQ": "How does cmux relate to Ghostty?",
     "faqGhosttyA": "cmux is not a fork of Ghostty. It uses <link>libghostty</link> as a library for terminal rendering, the same way apps use WebKit for web views. Ghostty is a standalone terminal; cmux is a different app built on top of its rendering engine.",
     "faqPlatformQ": "What platforms does it support?",
-    "faqPlatformA": "macOS only, for now. cmux is a native Swift + AppKit app. <waitlist>Join the waitlist</waitlist> to hear when Linux, Windows, and Android are ready.",
+    "faqPlatformA": "Open the Download menu to see available cmux builds. <waitlist>Join the waitlist</waitlist> for any platform that is not released yet.",
     "faqAgentsQ": "What coding agents does cmux work with?",
     "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
     "faqNotificationsQ": "How do notifications work?",
@@ -919,6 +972,21 @@
     "metaTitle": "Blog",
     "metaDescription": "News and updates from the cmux team",
     "description": "News and updates from the cmux team",
+    "tokenMultitasking": {
+      "metaTitle": "How I used 367 billion tokens in 30 days",
+      "metaDescription": "I used 367 billion tokens in 30 days by running Codex and Claude Code in parallel with cmux, then reviewing each completion through Cmd+Shift+U.",
+      "metaKeywords": [
+        "367 billion tokens",
+        "GPT 5.6 Sol",
+        "Codex CLI",
+        "Claude Code",
+        "cmux",
+        "AI coding agents",
+        "parallel coding agents",
+        "Cmd+Shift+U",
+        "CodexBar"
+      ]
+    },
     "passkeyAuth": {
       "metaTitle": "Passkey auth in the cmux browser",
       "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
@@ -1023,6 +1091,28 @@
       "metaDescription": "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side."
     },
     "posts": {
+      "tokenMultitasking": {
+        "title": "How I used 367 billion tokens in 30 days",
+        "summary": "My cmux loop is Cmd+Shift+U, review the next finished agent, reply, repeat, then start another task when the notification queue is empty.",
+        "date": "July 29, 2026",
+        "p1": "I used 367 billion tokens in the last 30 days. My peak day was 37 billion tokens on GPT 5.6 Sol.",
+        "videoTitle": "How I used 367 billion tokens in 30 days with Codex CLI and cmux",
+        "watchVideo": "<link>Watch the video on YouTube</link>.",
+        "workflowTitle": "The entire workflow",
+        "workflowIntro": "I run one task per cmux workspace with vanilla Codex or Claude Code. Each agent notifies me when it needs a review.",
+        "workflowJump": "Press <shortcut>Cmd+Shift+U</shortcut>. cmux jumps to the newest unread notification and focuses the exact workspace and pane.",
+        "workflowReview": "Review the dev build, artifact, or bug fix. Reply to the agent.",
+        "workflowRepeat": "Press Cmd+Shift+U again and repeat.",
+        "workflowStart": "When no notifications are waiting, create a workspace and start another task.",
+        "workflowClose": "That loop is the 80/20. cmux keeps active work visible and turns completed agent work into a review queue.",
+        "simpleTitle": "No custom harness",
+        "simpleP1": "I use vanilla Claude Code and Codex. Their built-in subagents handle the occasional delegated task.",
+        "simpleP2": "I do not use a custom agent harness or external orchestration. I do not use <code>/loop</code>, and I rarely use <code>/goal</code>.",
+        "economicsTitle": "The economics",
+        "economicsP1": "At API prices, this usage would have cost about $85,000. We paid $7,400 for 37 ChatGPT Pro 20x accounts and used the quota resets Tibo issued. <codexBar>CodexBar</codexBar> produced the local token and API-cost estimates.",
+        "economicsP2": "The 367-billion figure still understates the accounts' total usage. <subrouter>Subrouter</subrouter> lets my cofounder share the same account pool, while CodexBar records only the local token usage on my machine.",
+        "closing": "The workflow keeps my attention on decisions. I review completed work and unblock agents; when the queue clears, I start another task."
+      },
       "passkeyAuth": {
         "title": "Passkey auth in the cmux browser",
         "summary": "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
@@ -1722,6 +1812,7 @@
           "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "terminal": {
+          "autoRetryAgentSessions": "Automatically resume a managed agent session when its active command exits with a nonzero, non-signal error status. Retries are bounded and use exponential backoff; normal completion and explicit user termination are never retried.",
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
           "scrollSpeed": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower.",
           "sessionContentMaxWidth": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width.",
@@ -4654,8 +4745,8 @@
     "title": "Join the {platform} waitlist",
     "titleAny": "Join the waitlist",
     "description": "{platform} support is on the way. Leave your email and we'll let you know the moment it's ready.",
-    "descriptionAny": "cmux is macOS-first today. Leave your email and we'll tell you the moment Linux, Windows, or Android is ready.",
-    "calloutText": "Coming to Linux, Windows, and Android.",
+    "descriptionAny": "Choose an unreleased platform and leave your email. We'll tell you when that build is ready.",
+    "calloutText": "More cmux builds are on the way.",
     "platformsLabel": "Which platforms?",
     "selectPlatform": "Pick at least one platform.",
     "emailLabel": "Email",
