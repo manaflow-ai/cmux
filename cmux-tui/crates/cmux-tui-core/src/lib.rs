@@ -16,6 +16,7 @@ mod pairing;
 pub mod provider_management;
 pub mod resource;
 mod resource_mutation;
+mod resource_selector;
 mod short_id;
 mod surface;
 mod workspace_registry;
@@ -47,6 +48,7 @@ pub use mux::{
     WorkspaceMutationResult, WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,

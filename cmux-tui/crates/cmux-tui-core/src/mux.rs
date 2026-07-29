@@ -33,6 +33,9 @@ use crate::resource::{
     TabResourceIdentity, WorkspacePublicId,
 };
 use crate::resource_mutation::{ResourceMutationMetrics, ResourceMutationPlan};
+use crate::resource_selector::{
+    ResolvedResourceSlots, ResourceSelectorContext, resolve_resource_selectors,
+};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_runtime::TerminalHostIdentity;
@@ -921,6 +924,9 @@ pub struct Mux {
     #[cfg(test)]
     workspace_close_after_selector_resolution: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    resource_rename_after_selector_resolution:
+        Mutex<Option<Arc<dyn Fn(&WorkspacePublicId) + Send + Sync>>>,
+    #[cfg(test)]
     layout_apply_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     terminal_create_after_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -969,6 +975,50 @@ struct RestoredResourceState {
 impl Mux {
     fn default_workspace_name(state: &State) -> String {
         state.workspaces.len().to_string()
+    }
+
+    /// Resolve one public resource path from a single live-state snapshot.
+    /// Direct content IDs use the reverse resource indexes and never trigger
+    /// a registry snapshot or process query.
+    pub fn resolve_resource_path(
+        &self,
+        target: crate::ResourceTarget,
+        selectors: &crate::ResourceSelectors,
+    ) -> Result<crate::ResolvedResourcePath, crate::resource::ResourceError> {
+        let registry = self.workspace_registry.lock().unwrap();
+        let state = self.state.lock().unwrap();
+        resolve_resource_selectors(
+            &state,
+            ResourceSelectorContext {
+                machine_id: registry.machine_id(),
+                machine_name: None,
+                session_id: registry.session_id(),
+                session_name: &self.session,
+            },
+            target,
+            selectors,
+        )
+        .map(|resolved| resolved.path)
+    }
+
+    fn resolve_resource_path_in_state(
+        &self,
+        state: &State,
+        registry: &WorkspaceRegistry,
+        target: crate::ResourceTarget,
+        selectors: &crate::ResourceSelectors,
+    ) -> Result<ResolvedResourceSlots, crate::resource::ResourceError> {
+        resolve_resource_selectors(
+            state,
+            ResourceSelectorContext {
+                machine_id: registry.machine_id(),
+                machine_name: None,
+                session_id: registry.session_id(),
+                session_name: &self.session,
+            },
+            target,
+            selectors,
+        )
     }
 
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
@@ -1141,6 +1191,8 @@ impl Mux {
             workspace_close_before_empty_check: Mutex::new(None),
             #[cfg(test)]
             workspace_close_after_selector_resolution: Mutex::new(None),
+            #[cfg(test)]
+            resource_rename_after_selector_resolution: Mutex::new(None),
             #[cfg(test)]
             layout_apply_after_workspace_reservation: Mutex::new(None),
             #[cfg(test)]
@@ -2376,6 +2428,99 @@ impl Mux {
                 let index = state
                     .workspace_index(slot)
                     .with_context(|| format!("workspace {target} has no live slot"))?;
+                let workspace = &state.workspaces[index];
+                let changed = workspace.name != name;
+                let active_screen = workspace
+                    .screens
+                    .get(workspace.active_screen)
+                    .map(|screen| screen.public_id.clone());
+                let durable = RegistryWorkspace {
+                    id: workspace.id,
+                    public_id: workspace.public_id.clone(),
+                    key: workspace.key.clone(),
+                    name: name.clone(),
+                    group_key: self.session.clone(),
+                };
+                let result = serde_json::json!({
+                    "workspace": target.as_str(),
+                    "name": name,
+                    "changed": changed,
+                });
+                let deltas = serde_json::json!([{
+                    "kind": "workspace.renamed",
+                    "workspace": target.as_str(),
+                    "name": name,
+                    "changed": changed,
+                }]);
+                Ok(ResourceMutationPlan::new(
+                    ResourcePatch {
+                        changes: vec![ResourceChange::UpsertWorkspace {
+                            workspace: durable,
+                            position: index,
+                            active_screen,
+                        }],
+                    },
+                    result,
+                    deltas,
+                    move |state| {
+                        state.workspaces[index].name = name;
+                        state.workspace_revision = state.workspace_revision.saturating_add(1);
+                    },
+                )
+                .with_metrics(ResourceMutationMetrics {
+                    touched_resources: 1,
+                    order_entries: 0,
+                    terminal_queries: 0,
+                    changed_rows: 1,
+                }))
+            },
+        )
+    }
+
+    pub(crate) fn resource_rename_workspace_selected(
+        &self,
+        selectors: crate::ResourceSelectors,
+        name: String,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        Self::validate_workspace_name(&name)?;
+        let fingerprint = serde_json::json!({
+            "operation": "workspace.rename",
+            "selectors": selectors,
+            "name": name,
+        });
+        self.commit_resource_mutation_plan(
+            mutation,
+            "workspace.rename",
+            &fingerprint,
+            expected_generation,
+            expected_revision,
+            move |state, registry| {
+                let resolved = self
+                    .resolve_resource_path_in_state(
+                        state,
+                        registry,
+                        crate::ResourceTarget::Workspace,
+                        &selectors,
+                    )
+                    .map_err(anyhow::Error::new)?;
+                let target = resolved
+                    .path
+                    .workspace
+                    .expect("workspace target resolution returns a workspace");
+                let slot =
+                    resolved.workspace.expect("workspace target resolution returns a live slot");
+                let index = state
+                    .workspace_index(slot)
+                    .with_context(|| format!("workspace {target} has no live slot"))?;
+                #[cfg(test)]
+                if let Some(hook) =
+                    self.resource_rename_after_selector_resolution.lock().unwrap().clone()
+                {
+                    hook(&target);
+                }
                 let workspace = &state.workspaces[index];
                 let changed = workspace.name != name;
                 let active_screen = workspace
@@ -9878,7 +10023,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
-    use crate::resource::{BrowserPublicId, SessionPublicId, TabPublicId};
+    use crate::resource::{BrowserPublicId, MachinePublicId, SessionPublicId, TabPublicId};
     use crate::workspace_registry::{
         RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceChange, ResourcePatch,
     };
@@ -10101,6 +10246,255 @@ mod tests {
                 browsers,
             },
         )
+    }
+
+    fn selector_fixture()
+    -> (RestoredResourceState, MachinePublicId, SessionPublicId, ResourceTopologySnapshot) {
+        let (snapshot, topology) = resource_restore_fixture();
+        let session = snapshot.session_id.clone();
+        let restored = restore_resource_state(snapshot, topology.clone()).unwrap();
+        (restored, MachinePublicId::random().unwrap(), session, topology)
+    }
+
+    fn routed_selectors(
+        machine: &MachinePublicId,
+        session: &SessionPublicId,
+    ) -> crate::ResourceSelectors {
+        crate::ResourceSelectors {
+            machine: Some(machine.to_string()),
+            session: Some(session.to_string()),
+            ..crate::ResourceSelectors::default()
+        }
+    }
+
+    #[test]
+    fn direct_browser_id_derives_its_complete_path_without_structural_selectors() {
+        let (restored, machine, session, topology) = selector_fixture();
+        let browser = topology.browsers[0].public_id.clone();
+        let tab = topology
+            .tabs
+            .iter()
+            .find(|tab| tab.content_id == ContentPublicId::Browser(browser.clone()))
+            .unwrap();
+        let pane = topology.panes.iter().find(|pane| pane.public_id == tab.pane_id).unwrap();
+        let screen =
+            topology.screens.iter().find(|screen| screen.public_id == pane.screen_id).unwrap();
+        let mut selectors = routed_selectors(&machine, &session);
+        selectors.browser = Some(browser.to_string());
+
+        let resolved = resolve_resource_selectors(
+            &restored.state,
+            ResourceSelectorContext {
+                machine_id: &machine,
+                machine_name: None,
+                session_id: &session,
+                session_name: "test",
+            },
+            crate::ResourceTarget::Browser,
+            &selectors,
+        )
+        .unwrap()
+        .path;
+        assert_eq!(resolved.workspace, Some(screen.workspace_id.clone()));
+        assert_eq!(resolved.screen, Some(screen.public_id.clone()));
+        assert_eq!(resolved.pane, Some(pane.public_id.clone()));
+        assert_eq!(resolved.tab, Some(tab.public_id.clone()));
+        assert_eq!(resolved.browser, Some(browser));
+    }
+
+    #[test]
+    fn selector_names_preserve_empty_whitespace_and_unicode_and_report_duplicates() {
+        let (mut restored, machine, session, _) = selector_fixture();
+        let before = restored.state.resource_revision;
+        let mut selectors = routed_selectors(&machine, &session);
+        selectors.workspace = Some("Duplicate".into());
+        let duplicate = resolve_resource_selectors(
+            &restored.state,
+            ResourceSelectorContext {
+                machine_id: &machine,
+                machine_name: None,
+                session_id: &session,
+                session_name: "test",
+            },
+            crate::ResourceTarget::Workspace,
+            &selectors,
+        )
+        .unwrap_err();
+        assert_eq!(duplicate.code, "selector.ambiguous");
+        assert_eq!(
+            duplicate.details["candidates"],
+            serde_json::json!([restore_workspace_id(1), restore_workspace_id(2)])
+        );
+        assert_eq!(restored.state.resource_revision, before);
+
+        for (index, name) in ["", "  日本語  "].into_iter().enumerate() {
+            restored.state.workspaces[index].name = name.into();
+            selectors.workspace = Some(format!("name:{name}"));
+            let resolved = resolve_resource_selectors(
+                &restored.state,
+                ResourceSelectorContext {
+                    machine_id: &machine,
+                    machine_name: None,
+                    session_id: &session,
+                    session_name: "test",
+                },
+                crate::ResourceTarget::Workspace,
+                &selectors,
+            )
+            .unwrap();
+            assert_eq!(
+                resolved.path.workspace,
+                Some(restored.state.workspaces[index].public_id.clone())
+            );
+        }
+    }
+
+    #[test]
+    fn selector_rejects_incomplete_name_chain_wrong_type_stale_id_and_wrong_parent() {
+        let (restored, machine, session, topology) = selector_fixture();
+        let context = ResourceSelectorContext {
+            machine_id: &machine,
+            machine_name: None,
+            session_id: &session,
+            session_name: "test",
+        };
+
+        let mut incomplete = routed_selectors(&machine, &session);
+        incomplete.screen = Some(topology.screens[0].public_id.to_string());
+        incomplete.pane = Some("one".into());
+        let error = resolve_resource_selectors(
+            &restored.state,
+            context.clone(),
+            crate::ResourceTarget::Pane,
+            &incomplete,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "selector.invalid");
+        assert_eq!(error.details["context"]["missing_parent"], "workspace");
+
+        let mut wrong_type = routed_selectors(&machine, &session);
+        wrong_type.workspace = Some(topology.browsers[0].public_id.to_string());
+        assert_eq!(
+            resolve_resource_selectors(
+                &restored.state,
+                context.clone(),
+                crate::ResourceTarget::Workspace,
+                &wrong_type,
+            )
+            .unwrap_err()
+            .code,
+            "selector.invalid"
+        );
+
+        let mut stale = routed_selectors(&machine, &session);
+        stale.workspace = Some(WorkspacePublicId::random().unwrap().to_string());
+        assert_eq!(
+            resolve_resource_selectors(
+                &restored.state,
+                context.clone(),
+                crate::ResourceTarget::Workspace,
+                &stale,
+            )
+            .unwrap_err()
+            .code,
+            "selector.not_found"
+        );
+
+        let mut wrong_parent = routed_selectors(&machine, &session);
+        wrong_parent.workspace = Some(restore_workspace_id(2).to_string());
+        wrong_parent.browser = Some(topology.browsers[0].public_id.to_string());
+        let error = resolve_resource_selectors(
+            &restored.state,
+            context,
+            crate::ResourceTarget::Browser,
+            &wrong_parent,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "selector.wrong_parent");
+        assert!(error.details["selected_parent"].as_str().unwrap().starts_with("ws_"));
+        let encoded = serde_json::to_string(&error).unwrap();
+        for private in ["workspace_key", "surface", "numeric_id", "short_id", "\"slot\""] {
+            assert!(!encoded.contains(private));
+        }
+    }
+
+    #[test]
+    fn selector_rename_and_concurrent_rename_share_one_locked_snapshot() {
+        let mux = test_mux();
+        let first = mux
+            .resource_create_empty_workspace(
+                Some("target".into()),
+                None,
+                Some(0),
+                &WorkspaceMutation::new("selector-race-first", "test").unwrap(),
+            )
+            .unwrap();
+        let second = mux
+            .resource_create_empty_workspace(
+                Some("other".into()),
+                None,
+                Some(1),
+                &WorkspaceMutation::new("selector-race-second", "test").unwrap(),
+            )
+            .unwrap();
+        let first_id =
+            WorkspacePublicId::parse(first.result["workspace"].as_str().unwrap()).unwrap();
+        let second_id =
+            WorkspacePublicId::parse(second.result["workspace"].as_str().unwrap()).unwrap();
+        let (machine, session) = {
+            let registry = mux.workspace_registry.lock().unwrap();
+            (registry.machine_id().clone(), registry.session_id().clone())
+        };
+        let mut selectors = routed_selectors(&machine, &session);
+        selectors.workspace = Some("target".into());
+
+        let (resolved_tx, resolved_rx) = std::sync::mpsc::sync_channel(1);
+        let overlap = Arc::new(std::sync::Barrier::new(2));
+        *mux.resource_rename_after_selector_resolution.lock().unwrap() = Some(Arc::new({
+            let overlap = overlap.clone();
+            move |resolved| {
+                resolved_tx.send(resolved.clone()).unwrap();
+                overlap.wait();
+            }
+        }));
+        let selected = {
+            let mux = mux.clone();
+            std::thread::spawn(move || {
+                mux.resource_rename_workspace_selected(
+                    selectors,
+                    "renamed".into(),
+                    None,
+                    Some(2),
+                    &WorkspaceMutation::new("selector-race-selected", "test").unwrap(),
+                )
+            })
+        };
+        assert_eq!(resolved_rx.recv().unwrap(), first_id);
+        let concurrent = {
+            let mux = mux.clone();
+            let overlap = overlap.clone();
+            let second_id = second_id.clone();
+            std::thread::spawn(move || {
+                overlap.wait();
+                mux.resource_rename_workspace(
+                    &second_id,
+                    "target".into(),
+                    None,
+                    None,
+                    &WorkspaceMutation::new("selector-race-direct", "test").unwrap(),
+                )
+            })
+        };
+        selected.join().unwrap().unwrap();
+        concurrent.join().unwrap().unwrap();
+        *mux.resource_rename_after_selector_resolution.lock().unwrap() = None;
+
+        mux.with_state(|state| {
+            let first = state.resource_indexes.workspaces[&first_id];
+            let second = state.resource_indexes.workspaces[&second_id];
+            assert_eq!(state.workspaces[state.workspace_index(first).unwrap()].name, "renamed");
+            assert_eq!(state.workspaces[state.workspace_index(second).unwrap()].name, "target");
+        });
     }
 
     #[test]
