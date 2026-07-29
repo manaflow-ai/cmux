@@ -6184,6 +6184,9 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionIDsByPanelId.removeValue(forKey: surfaceId)
         removeRemoteRelaySurfaceAliases(targeting: surfaceId)
         untrackRemoteTerminalSurface(surfaceId)
+        if wasTracked, remoteConfiguration?.preserveAfterTerminalExit == true {
+            reconcileRemoteTerminalPresentationAfterSessionEnd()
+        }
         return (true, wasTracked)
     }
 

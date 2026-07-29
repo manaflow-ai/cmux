@@ -3004,35 +3004,69 @@ final class SocketClient {
 }
 
 private struct SSHPTYTerminalReadinessReport: Sendable {
+    private enum DeliveryOutcome {
+        case acknowledged
+        case transientFailure
+        case permanentRejection
+    }
+
+    private static let permanentV2RejectionCodes: Set<String> = [
+        "auth_failed",
+        "auth_required",
+        "auth_unconfigured",
+        "forbidden",
+        "invalid_params",
+        "invalid_request",
+        "invalid_utf8",
+        "method_not_found",
+        "not_found",
+        "not_supported",
+        "permission_denied",
+        "pty_lifecycle_closed",
+        "stale_state",
+        "unauthorized",
+        "unsupported",
+        "validation_failed",
+        "workspace_not_found",
+    ]
+
     let socketPath: String
     let explicitPassword: String?
     let params: [String: String]
     let attemptTimeout: TimeInterval
     let retryDelay: TimeInterval
+    let maximumRetryDelay: TimeInterval
 
     func deliverUntilAcknowledged() async {
+        let initialRetryDelay = max(0, retryDelay)
+        let retryDelayCap = max(initialRetryDelay, maximumRetryDelay)
+        var nextRetryDelay = initialRetryDelay
         while !Task.isCancelled {
-            if deliverOnce() {
+            switch deliverOnce() {
+            case .acknowledged, .permanentRejection:
                 return
+            case .transientFailure:
+                break
             }
             do {
                 try await Task.sleep(
-                    nanoseconds: UInt64(max(0, retryDelay) * 1_000_000_000)
+                    nanoseconds: UInt64(nextRetryDelay * 1_000_000_000)
                 )
             } catch {
                 return
             }
+            nextRetryDelay = min(retryDelayCap, nextRetryDelay * 2)
         }
     }
 
-    private func deliverOnce() -> Bool {
+    private func deliverOnce() -> DeliveryOutcome {
         let deadline = Date.now.addingTimeInterval(attemptTimeout)
         let reportingClient = SocketClient(path: socketPath)
         defer { reportingClient.close() }
         do {
             try reportingClient.connectWithoutRetry(responseTimeout: attemptTimeout)
             let authenticationTimeout = deadline.timeIntervalSinceNow
-            guard authenticationTimeout > 0 else { return false }
+            guard authenticationTimeout > 0 else { return .transientFailure }
             try CMUXCLI.authenticateSocketClientIfNeeded(
                 reportingClient,
                 explicitPassword: explicitPassword,
@@ -3041,7 +3075,7 @@ private struct SSHPTYTerminalReadinessReport: Sendable {
                 deadline: deadline
             )
             let reportTimeout = deadline.timeIntervalSinceNow
-            guard reportTimeout > 0 else { return false }
+            guard reportTimeout > 0 else { return .transientFailure }
             let jsonParams = params.reduce(into: [String: Any]()) {
                 $0[$1.key] = $1.value
             }
@@ -3050,9 +3084,15 @@ private struct SSHPTYTerminalReadinessReport: Sendable {
                 params: jsonParams,
                 responseTimeout: reportTimeout
             )
-            return true
+            return .acknowledged
+        } catch let error as CLIError {
+            if error.message.hasPrefix("ERROR:") ||
+                error.v2Code.map(Self.permanentV2RejectionCodes.contains) == true {
+                return .permanentRejection
+            }
+            return .transientFailure
         } catch {
-            return false
+            return .transientFailure
         }
     }
 }
@@ -3067,6 +3107,7 @@ struct CMUXCLI {
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let sshPTYTerminalConnectedResponseTimeoutSeconds: TimeInterval = 0.5
     private static let sshPTYTerminalConnectedRetryDelaySeconds: TimeInterval = 0.1
+    private static let sshPTYTerminalConnectedMaximumRetryDelaySeconds: TimeInterval = 2
     // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
     // both the backend create idempotency key and the local daemon slot so every open,
     // reconnect, session restore, and mobile attach targets the same provider VM once
@@ -12945,7 +12986,8 @@ struct CMUXCLI {
             explicitPassword: explicitPassword,
             params: params,
             attemptTimeout: Self.sshPTYTerminalConnectedResponseTimeoutSeconds,
-            retryDelay: Self.sshPTYTerminalConnectedRetryDelaySeconds
+            retryDelay: Self.sshPTYTerminalConnectedRetryDelaySeconds,
+            maximumRetryDelay: Self.sshPTYTerminalConnectedMaximumRetryDelaySeconds
         )
         return Task.detached(priority: .userInitiated) {
             await report.deliverUntilAcknowledged()
