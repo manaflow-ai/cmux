@@ -23,6 +23,7 @@ bytes.workspace = true
 cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 diffy.workspace = true
+fs4.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
 ghostty-vt.workspace = true

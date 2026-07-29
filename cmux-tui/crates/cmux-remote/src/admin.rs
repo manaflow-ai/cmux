@@ -6,7 +6,6 @@
 use std::fmt;
 use std::future::Future;
 use std::io;
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,12 +14,12 @@ use cmux_remote_protocol::SessionId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::UnixStream;
 use tokio::sync::{Semaphore, oneshot, watch};
 
 use crate::daemon::RemoteDaemon;
 use crate::identity::{EnrollmentRelayAccess, IdentityError};
-use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
+use crate::unix_socket::{OwnedUnixListener, UnixSocketError};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_ADMIN_CONNECTIONS: usize = 32;
@@ -180,17 +179,19 @@ pub async fn serve_admin_with_shutdown(
     owner_shutdown: Option<watch::Sender<bool>>,
 ) -> Result<AdminServer, AdminError> {
     let path = path.into();
-    prepare_socket_path(&path).await?;
-    let listener = UnixListener::bind(&path)?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    let listener = OwnedUnixListener::bind(path.clone()).await.map_err(|error| match error {
+        UnixSocketError::Io(error) => AdminError::Io(error),
+        UnixSocketError::Protocol(message) => {
+            AdminError::Protocol(format!("could not own admin Unix socket: {message}"))
+        }
+    })?;
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
-    let task_path = path.clone();
     let permits = Arc::new(Semaphore::new(MAX_ADMIN_CONNECTIONS));
     let task = tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = &mut shutdown_rx => break,
-                accepted = listener.accept() => {
+                accepted = listener.listener().accept() => {
                     let Ok((stream, _)) = accepted else { break };
                     if validate_peer(&stream).is_err() {
                         continue;
@@ -214,7 +215,6 @@ pub async fn serve_admin_with_shutdown(
                 }
             }
         }
-        let _ = std::fs::remove_file(task_path);
     });
     Ok(AdminServer { path, shutdown: Some(shutdown_tx), task: Some(task) })
 }
@@ -399,29 +399,6 @@ async fn dispatch(
     }
 }
 
-async fn prepare_socket_path(path: &Path) -> Result<(), AdminError> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| AdminError::Protocol("admin socket path has no parent".into()))?;
-    ensure_secure_directory(parent, DirectoryAccess::OwnerControlled)?;
-    if let Ok(metadata) = std::fs::symlink_metadata(path) {
-        if !metadata.file_type().is_socket() {
-            return Err(AdminError::Protocol(format!(
-                "refusing to replace non-socket admin path {}",
-                path.display()
-            )));
-        }
-        if UnixStream::connect(path).await.is_ok() {
-            return Err(AdminError::Protocol(format!(
-                "another daemon owns admin socket {}",
-                path.display()
-            )));
-        }
-        std::fs::remove_file(path)?;
-    }
-    Ok(())
-}
-
 fn validate_peer(stream: &UnixStream) -> Result<(), AdminError> {
     verify_unix_peer_owner(stream).map_err(AdminError::from)
 }
@@ -541,7 +518,7 @@ mod tests {
         std::fs::create_dir(&target).unwrap();
         symlink(&target, &alias).unwrap();
 
-        let result = prepare_socket_path(&alias.join("missing/admin.sock")).await;
+        let result = OwnedUnixListener::bind(alias.join("missing/admin.sock")).await;
 
         assert!(result.is_err(), "intermediate symlink was accepted");
         assert!(!target.join("missing").exists());

@@ -16,6 +16,7 @@ use crate::crypto::{
     AuthGrant, AuthKind, AuthRequest, ConnectionAttemptId, CryptoError, InboundAuthEvidence,
     ServerAuthenticator, StaticIdentity, public_key_fingerprint,
 };
+use crate::owner_lock::{OwnerFileLock, sibling_lock_path};
 use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 
 const STATE_VERSION: u32 = 1;
@@ -185,24 +186,10 @@ impl ClientIdentityStore {
         secure_directory(&state_dir)?;
         let identity = load_or_create_identity(&state_dir.join("client-identity.json"))?;
         let path = state_dir.join("known-daemons.json");
-        let mut state = if path.exists() {
-            let data = fs::read(&path).map_err(IdentityError::Io)?;
-            let state: PersistedClientState =
-                serde_json::from_slice(&data).map_err(IdentityError::Json)?;
-            if state.version != STATE_VERSION {
-                return Err(IdentityError::Invalid(format!(
-                    "known-daemon state version {} is unsupported",
-                    state.version
-                )));
-            }
-            state
-        } else {
-            PersistedClientState::default()
-        };
-        let mut routes_changed = false;
-        for daemon in state.daemons.values_mut() {
-            routes_changed |= sanitize_loaded_known_daemon(daemon);
-        }
+        let lock_path = sibling_lock_path(&path).map_err(IdentityError::Io)?;
+        let _path_lock = OwnerFileLock::acquire(&lock_path).map_err(IdentityError::Io)?;
+        let (state, routes_changed) =
+            load_client_state(&path)?.unwrap_or_else(|| (PersistedClientState::default(), false));
         if routes_changed {
             atomic_json(&path, &state)?;
         }
@@ -258,7 +245,7 @@ impl ClientIdentityStore {
         let fingerprint = public_key_fingerprint(&public_key);
         let now = unix_time()?;
         let mut state = self.state.lock().await;
-        let mut candidate = state.clone();
+        let (_path_lock, mut candidate, _) = self.reload_client_state_locked(&mut state).await?;
         if let Some(existing) = candidate.daemons.get_mut(&fingerprint) {
             if decode_key(&existing.public_key)? != public_key {
                 return Err(IdentityError::Invalid("known daemon fingerprint collision".into()));
@@ -302,8 +289,12 @@ impl ClientIdentityStore {
         let route = credential_free_route_hint(route)?;
         let now = unix_time()?;
         let mut state = self.state.lock().await;
-        let mut candidate = state.clone();
+        let (_path_lock, mut candidate, routes_changed) =
+            self.reload_client_state_locked(&mut state).await?;
         let Some(existing) = candidate.daemons.get_mut(fingerprint) else {
+            if routes_changed {
+                self.commit_client_state_locked(&mut state, candidate)?;
+            }
             return Ok(None);
         };
         existing.last_used_at_unix = now;
@@ -327,12 +318,26 @@ impl ClientIdentityStore {
 
     pub async fn forget_daemon(&self, fingerprint: &str) -> Result<bool, IdentityError> {
         let mut state = self.state.lock().await;
-        let mut candidate = state.clone();
+        let (_path_lock, mut candidate, routes_changed) =
+            self.reload_client_state_locked(&mut state).await?;
         let removed = candidate.daemons.remove(fingerprint).is_some();
-        if removed {
+        if removed || routes_changed {
             self.commit_client_state_locked(&mut state, candidate)?;
         }
         Ok(removed)
+    }
+
+    async fn reload_client_state_locked(
+        &self,
+        state: &mut PersistedClientState,
+    ) -> Result<(OwnerFileLock, PersistedClientState, bool), IdentityError> {
+        let path = self.state_dir.join("known-daemons.json");
+        let lock_path = sibling_lock_path(&path).map_err(IdentityError::Io)?;
+        let path_lock = OwnerFileLock::acquire_async(lock_path).await.map_err(IdentityError::Io)?;
+        let (disk_state, routes_changed) =
+            load_client_state(&path)?.unwrap_or_else(|| (state.clone(), false));
+        *state = disk_state.clone();
+        Ok((path_lock, disk_state, routes_changed))
     }
 
     fn commit_client_state_locked(
@@ -1477,6 +1482,8 @@ impl std::fmt::Debug for PersistedInvitation {
 }
 
 fn load_or_create_identity(path: &Path) -> Result<StaticIdentity, IdentityError> {
+    let lock_path = sibling_lock_path(path).map_err(IdentityError::Io)?;
+    let _path_lock = OwnerFileLock::acquire(&lock_path).map_err(IdentityError::Io)?;
     if path.exists() {
         let data = fs::read(path).map_err(IdentityError::Io)?;
         let persisted: PersistedIdentity =
@@ -1498,6 +1505,27 @@ fn load_or_create_identity(path: &Path) -> Result<StaticIdentity, IdentityError>
         },
     )?;
     Ok(identity)
+}
+
+fn load_client_state(path: &Path) -> Result<Option<(PersistedClientState, bool)>, IdentityError> {
+    let data = match fs::read(path) {
+        Ok(data) => data,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(IdentityError::Io(error)),
+    };
+    let mut state: PersistedClientState =
+        serde_json::from_slice(&data).map_err(IdentityError::Json)?;
+    if state.version != STATE_VERSION {
+        return Err(IdentityError::Invalid(format!(
+            "known-daemon state version {} is unsupported",
+            state.version
+        )));
+    }
+    let mut routes_changed = false;
+    for daemon in state.daemons.values_mut() {
+        routes_changed |= sanitize_loaded_known_daemon(daemon);
+    }
+    Ok(Some((state, routes_changed)))
 }
 
 fn load_state(path: &Path) -> Result<PersistedState, IdentityError> {
@@ -1958,6 +1986,29 @@ mod tests {
                 .public_key(),
             identity.public_key()
         );
+    }
+
+    #[test]
+    fn concurrent_identity_creation_converges_on_one_key() {
+        const CREATORS: usize = 8;
+
+        let directory = tempfile::tempdir().unwrap();
+        let identity_path = Arc::new(directory.path().join("client-identity.json"));
+        let start = Arc::new(std::sync::Barrier::new(CREATORS));
+        let creators = (0..CREATORS)
+            .map(|_| {
+                let identity_path = identity_path.clone();
+                let start = start.clone();
+                std::thread::spawn(move || {
+                    start.wait();
+                    load_or_create_identity(&identity_path).unwrap().public_key()
+                })
+            })
+            .collect::<Vec<_>>();
+        let public_keys =
+            creators.into_iter().map(|creator| creator.join().unwrap()).collect::<Vec<_>>();
+
+        assert!(public_keys.iter().all(|public_key| *public_key == public_keys[0]));
     }
 
     #[cfg(unix)]

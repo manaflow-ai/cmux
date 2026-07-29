@@ -1,0 +1,244 @@
+use std::fmt;
+use std::fs;
+use std::io;
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use tokio::net::UnixListener;
+
+use crate::owner_lock::{OwnerFileLock, sibling_lock_path};
+use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
+
+const SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+
+#[derive(Debug)]
+pub(crate) enum UnixSocketError {
+    Io(io::Error),
+    Protocol(String),
+}
+
+impl fmt::Display for UnixSocketError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(error) => error.fmt(formatter),
+            Self::Protocol(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for UnixSocketError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Protocol(_) => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct OwnedUnixListener {
+    listener: UnixListener,
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+    linked: bool,
+    _path_lock: OwnerFileLock,
+}
+
+impl OwnedUnixListener {
+    pub(crate) async fn bind(path: PathBuf) -> Result<Self, UnixSocketError> {
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .ok_or_else(|| UnixSocketError::Protocol("Unix socket path has no parent".into()))?;
+        ensure_secure_directory(parent, DirectoryAccess::OwnerControlled).map_err(|error| {
+            contextual_io(
+                error,
+                format!("could not secure Unix socket directory {}", parent.display()),
+            )
+        })?;
+        validate_socket_directory_for_uid(parent, unsafe { libc::geteuid() })?;
+
+        let lock_path = sibling_lock_path(&path).map_err(UnixSocketError::Io)?;
+        let path_lock = match OwnerFileLock::try_acquire(&lock_path) {
+            Ok(lock) => lock,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                return Err(UnixSocketError::Protocol(format!(
+                    "Unix socket path {} is already leased",
+                    path.display()
+                )));
+            }
+            Err(error) => {
+                return Err(contextual_io(
+                    error,
+                    format!("could not lease Unix socket path {}", path.display()),
+                ));
+            }
+        };
+        remove_stale_socket(&path).await?;
+
+        let listener = UnixListener::bind(&path).map_err(|error| {
+            contextual_io(error, format!("could not bind Unix socket {}", path.display()))
+        })?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                return Err(contextual_io(
+                    error,
+                    format!("could not inspect bound Unix socket {}", path.display()),
+                ));
+            }
+        };
+        if !metadata.file_type().is_socket() {
+            return Err(UnixSocketError::Protocol(format!(
+                "bound Unix socket path {} is not a socket",
+                path.display()
+            )));
+        }
+        let mut lease = Self {
+            listener,
+            path,
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            linked: true,
+            _path_lock: path_lock,
+        };
+        if let Err(error) = fs::set_permissions(&lease.path, fs::Permissions::from_mode(0o600)) {
+            let _ = lease.unlink();
+            return Err(contextual_io(
+                error,
+                format!("could not secure Unix socket {}", lease.path.display()),
+            ));
+        }
+        Ok(lease)
+    }
+
+    pub(crate) fn listener(&self) -> &UnixListener {
+        &self.listener
+    }
+
+    fn unlink(&mut self) -> io::Result<()> {
+        if !self.linked {
+            return Ok(());
+        }
+        let metadata = match fs::symlink_metadata(&self.path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                self.linked = false;
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        if !metadata.file_type().is_socket()
+            || metadata.dev() != self.device
+            || metadata.ino() != self.inode
+        {
+            self.linked = false;
+            return Ok(());
+        }
+        fs::remove_file(&self.path)?;
+        self.linked = false;
+        Ok(())
+    }
+}
+
+impl Drop for OwnedUnixListener {
+    fn drop(&mut self) {
+        let _ = self.unlink();
+    }
+}
+
+pub(crate) fn validate_socket_directory_for_uid(
+    parent: &Path,
+    effective_uid: u32,
+) -> Result<(), UnixSocketError> {
+    let metadata = fs::symlink_metadata(parent).map_err(UnixSocketError::Io)?;
+    if !metadata.file_type().is_dir() {
+        return Err(UnixSocketError::Protocol(format!(
+            "socket directory {} must be a non-symlink directory",
+            parent.display()
+        )));
+    }
+    if metadata.uid() != effective_uid {
+        return Err(UnixSocketError::Protocol(format!(
+            "socket directory {} is not owned by the effective user",
+            parent.display()
+        )));
+    }
+    if metadata.permissions().mode() & 0o022 != 0 {
+        return Err(UnixSocketError::Protocol(format!(
+            "socket directory {} is writable by the group or other users",
+            parent.display()
+        )));
+    }
+    Ok(())
+}
+
+async fn remove_stale_socket(path: &Path) -> Result<(), UnixSocketError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(contextual_io(
+                error,
+                format!("could not inspect Unix socket {}", path.display()),
+            ));
+        }
+        Ok(metadata) => metadata,
+    };
+    if !metadata.file_type().is_socket() {
+        return Err(UnixSocketError::Protocol(format!(
+            "refusing to replace non-socket path {}",
+            path.display()
+        )));
+    }
+    match tokio::time::timeout(SOCKET_PROBE_TIMEOUT, tokio::net::UnixStream::connect(path)).await {
+        Ok(Ok(_)) => Err(UnixSocketError::Protocol(format!(
+            "another process is listening at {}",
+            path.display()
+        ))),
+        Ok(Err(error)) if error.kind() == io::ErrorKind::ConnectionRefused => {
+            remove_socket_if_unchanged(path, &metadata)
+        }
+        Ok(Err(error)) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Ok(Err(error)) => Err(contextual_io(
+            error,
+            format!("could not verify Unix socket ownership at {}", path.display()),
+        )),
+        Err(_) => Err(UnixSocketError::Protocol(format!(
+            "timed out checking whether another process owns {}",
+            path.display()
+        ))),
+    }
+}
+
+fn remove_socket_if_unchanged(path: &Path, expected: &fs::Metadata) -> Result<(), UnixSocketError> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(contextual_io(
+            error,
+            format!("could not recheck stale Unix socket {}", path.display()),
+        )),
+        Ok(current)
+            if current.file_type().is_socket()
+                && current.dev() == expected.dev()
+                && current.ino() == expected.ino() =>
+        {
+            fs::remove_file(path).map_err(|error| {
+                contextual_io(
+                    error,
+                    format!("could not remove stale Unix socket {}", path.display()),
+                )
+            })?;
+            Ok(())
+        }
+        Ok(_) => Err(UnixSocketError::Protocol(format!(
+            "Unix socket {} changed during stale-owner detection",
+            path.display()
+        ))),
+    }
+}
+
+fn contextual_io(error: io::Error, context: String) -> UnixSocketError {
+    UnixSocketError::Io(io::Error::new(error.kind(), format!("{context}: {error}")))
+}

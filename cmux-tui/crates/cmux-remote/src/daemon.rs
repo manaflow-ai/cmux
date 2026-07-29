@@ -3,8 +3,6 @@ use std::fmt;
 use std::io;
 use std::net::SocketAddr;
 #[cfg(unix)]
-use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
-#[cfg(unix)]
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,8 +21,6 @@ use axum::serve::{IncomingStream, Listener};
 use bytes::Bytes;
 use cmux_remote_protocol::{FrameFlags, Lane, SessionId};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-#[cfg(unix)]
-use tokio::net::UnixListener;
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, oneshot, watch};
 
 use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
@@ -39,9 +35,9 @@ use crate::identity::{AuthDatabase, IdentityError};
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
-#[cfg(unix)]
-use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
+#[cfg(unix)]
+use crate::unix_socket::OwnedUnixListener;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -1359,45 +1355,15 @@ pub async fn serve_unix(
     maximum_frame_bytes: usize,
 ) -> Result<UnixServer, DaemonError> {
     let path = path.into();
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    ensure_secure_directory(parent, DirectoryAccess::OwnerControlled).map_err(|error| {
-        DaemonError::Protocol(format!("could not secure socket directory: {error}"))
-    })?;
-    let parent_metadata = std::fs::symlink_metadata(parent).map_err(|error| {
-        DaemonError::Protocol(format!("could not inspect socket directory: {error}"))
-    })?;
-    validate_unix_socket_directory(parent, &parent_metadata, unsafe { libc::geteuid() })?;
-    if let Ok(metadata) = std::fs::symlink_metadata(&path) {
-        if !metadata.file_type().is_socket() {
-            return Err(DaemonError::Protocol(format!(
-                "refusing to replace non-socket path {}",
-                path.display()
-            )));
-        }
-        if tokio::net::UnixStream::connect(&path).await.is_ok() {
-            return Err(DaemonError::Protocol(format!(
-                "another daemon is listening at {}",
-                path.display()
-            )));
-        }
-        std::fs::remove_file(&path).map_err(|error| {
-            DaemonError::Protocol(format!("could not remove stale socket: {error}"))
-        })?;
-    }
-    let listener = UnixListener::bind(&path)
-        .map_err(|error| DaemonError::Protocol(format!("could not bind Unix socket: {error}")))?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-        .map_err(|error| DaemonError::Protocol(format!("could not secure Unix socket: {error}")))?;
+    let listener = OwnedUnixListener::bind(path.clone())
+        .await
+        .map_err(|error| DaemonError::Protocol(format!("could not own Unix socket: {error:#}")))?;
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
-    let task_path = path.clone();
     let task = tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = &mut shutdown_rx => break,
-                accepted = listener.accept() => {
+                accepted = listener.listener().accept() => {
                     let Ok((stream, _)) = accepted else { break };
                     let Ok(peer) = stream.peer_cred() else { continue };
                     let owner = unsafe { libc::geteuid() };
@@ -1422,36 +1388,8 @@ pub async fn serve_unix(
                 }
             }
         }
-        let _ = std::fs::remove_file(task_path);
     });
     Ok(UnixServer { path, shutdown: Some(shutdown_tx), task: Some(task) })
-}
-
-#[cfg(unix)]
-fn validate_unix_socket_directory(
-    parent: &Path,
-    metadata: &std::fs::Metadata,
-    effective_uid: u32,
-) -> Result<(), DaemonError> {
-    if !metadata.file_type().is_dir() {
-        return Err(DaemonError::Protocol(format!(
-            "socket directory {} must be a non-symlink directory",
-            parent.display()
-        )));
-    }
-    if metadata.uid() != effective_uid {
-        return Err(DaemonError::Protocol(format!(
-            "socket directory {} is not owned by the daemon user",
-            parent.display()
-        )));
-    }
-    if metadata.permissions().mode() & 0o022 != 0 {
-        return Err(DaemonError::Protocol(format!(
-            "socket directory {} is writable by the group or other users",
-            parent.display()
-        )));
-    }
-    Ok(())
 }
 
 #[derive(Debug)]
@@ -1533,6 +1471,8 @@ mod tests {
     use async_trait::async_trait;
     use cmux_remote_protocol::{LanePolicy, WireFrame};
     use tempfile::{TempDir, tempdir};
+    #[cfg(unix)]
+    use tokio::net::UnixListener;
     use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
     use super::*;
@@ -1680,12 +1620,15 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn unix_socket_directory_requires_effective_uid_ownership() {
+        use std::os::unix::fs::MetadataExt;
+
         let directory = tempdir().unwrap();
         let metadata = std::fs::symlink_metadata(directory.path()).unwrap();
         let wrong_uid = metadata.uid().wrapping_add(1);
         let error =
-            validate_unix_socket_directory(directory.path(), &metadata, wrong_uid).unwrap_err();
-        assert!(matches!(error, DaemonError::Protocol(message) if message.contains("owned")));
+            crate::unix_socket::validate_socket_directory_for_uid(directory.path(), wrong_uid)
+                .unwrap_err();
+        assert!(error.to_string().contains("owned"));
     }
 
     #[cfg(unix)]

@@ -695,21 +695,28 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         }
         let observed = connection.last_received();
         let generation = connection.session.read().await.generation();
-        if connection
-            .send_in_generation(
+        let deadline = tokio::time::Instant::now() + timeout;
+        match tokio::time::timeout_at(
+            deadline,
+            connection.send_in_generation(
                 Some(generation),
                 Lane::Control,
                 0,
                 Bytes::new(),
                 FrameFlags::HEARTBEAT_REQUEST,
-            )
-            .await
-            .is_err()
+            ),
+        )
+        .await
         {
-            continue;
+            Ok(Ok(_)) => {}
+            Ok(Err(_)) => continue,
+            Err(_) => {
+                let _ = connection.recover(generation).await;
+                continue;
+            }
         }
         drop(connection);
-        tokio::time::sleep(timeout).await;
+        tokio::time::sleep_until(deadline).await;
         let Some(connection) = weak.upgrade() else { return };
         if connection.closed.load(Ordering::Acquire)
             || connection.session.read().await.generation() != generation
