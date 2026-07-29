@@ -1,6 +1,6 @@
 import CmuxSettingsUI
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,43 +8,47 @@ import XCTest
 @testable import cmux
 #endif
 
+@Suite
 @MainActor
-final class AccountSignInModelTests: XCTestCase {
-    func testInitialPresentationStartsOneAttemptAndKeepsItsFallbackURL() async {
+struct AccountSignInModelTests {
+    @Test
+    func initialPresentationStartsOneAttemptAndKeepsItsFallbackURL() async {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
 
         model.startSignInIfNeeded()
         model.startSignInIfNeeded()
 
-        XCTAssertEqual(model.phase, .loading(.openingBrowser))
+        #expect(model.phase == .loading(.openingBrowser))
         await Task.yield()
 
-        XCTAssertEqual(flow.startCount, 1)
-        XCTAssertEqual(model.signInURL, flow.issuedURL)
-        XCTAssertEqual(model.phase, .loading(.waiting))
+        #expect(flow.startCount == 1)
+        #expect(model.signInURL == flow.issuedURL)
+        #expect(model.phase == .loading(.waiting))
     }
 
-    func testFallbackActionsKeepUsingIssuedURLAfterAttemptSettles() async {
+    @Test
+    func fallbackActionsKeepUsingIssuedURLAfterAttemptSettles() async {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
         await Task.yield()
         flow.isPresentingSignIn = false
 
-        XCTAssertEqual(model.phase, .failed(.cancelled))
+        #expect(model.phase == .failed(.cancelled))
 
         model.openSignInInBrowser()
-        XCTAssertEqual(model.browserOpenState, .opened)
+        #expect(model.browserOpenState == .opened)
         model.copySignInLink()
 
-        XCTAssertEqual(flow.openedURL, flow.issuedURL)
-        XCTAssertEqual(flow.copiedURL, flow.issuedURL)
-        XCTAssertEqual(model.linkCopyState, .copied)
-        XCTAssertEqual(model.browserOpenState, .idle)
+        #expect(flow.openedURL == flow.issuedURL)
+        #expect(flow.copiedURL == flow.issuedURL)
+        #expect(model.linkCopyState == .copied)
+        #expect(model.browserOpenState == .idle)
     }
 
-    func testStackIdentityImmediatelyReplacesWaitingStateWithAvatarIdentity() async {
+    @Test
+    func stackIdentityImmediatelyReplacesWaitingStateWithAvatarIdentity() async {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
@@ -58,11 +62,12 @@ final class AccountSignInModelTests: XCTestCase {
 
         flow.currentIdentity = identity
 
-        XCTAssertEqual(model.phase, .signedIn(identity))
-        XCTAssertEqual(flow.currentIdentity?.avatarURL, identity.avatarURL)
+        #expect(model.phase == .signedIn(identity))
+        #expect(flow.currentIdentity?.avatarURL == identity.avatarURL)
     }
 
-    func testTypedFailureReplacesGenericFailureCopy() async {
+    @Test
+    func typedFailureReplacesGenericFailureCopy() async {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
@@ -70,10 +75,11 @@ final class AccountSignInModelTests: XCTestCase {
         flow.isPresentingSignIn = false
         flow.lastSignInFailure = .offline
 
-        XCTAssertEqual(model.phase, .failed(.offline))
+        #expect(model.phase == .failed(.offline))
     }
 
-    func testFallbackActionsExposeBrowserAndCopyFailures() async {
+    @Test
+    func fallbackActionsExposeBrowserAndCopyFailures() async {
         let flow = FakeAccountSignInFlow()
         flow.openSucceeds = false
         flow.copySucceeds = false
@@ -82,25 +88,53 @@ final class AccountSignInModelTests: XCTestCase {
         await Task.yield()
 
         model.openSignInInBrowser()
-        XCTAssertEqual(model.browserOpenState, .failed)
-        XCTAssertEqual(model.linkCopyState, .idle)
+        #expect(model.browserOpenState == .failed)
+        #expect(model.linkCopyState == .idle)
         model.copySignInLink()
 
-        XCTAssertEqual(model.browserOpenState, .idle)
-        XCTAssertEqual(model.linkCopyState, .failed)
+        #expect(model.browserOpenState == .idle)
+        #expect(model.linkCopyState == .failed)
     }
 
-    func testSlowAndFinishingLoadingStagesAreObservable() async {
+    @Test
+    func slowAndFinishingLoadingStagesAreObservable() async {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
         await Task.yield()
 
         flow.signInIsSlow = true
-        XCTAssertEqual(model.phase, .loading(.waitingSlow))
+        #expect(model.phase == .loading(.waitingSlow))
 
         flow.isCompletingSignIn = true
-        XCTAssertEqual(model.phase, .loading(.finishing))
+        #expect(model.phase == .loading(.finishing))
+    }
+
+    @Test
+    func transientAccountAndPairingWorkspacesAreNotRestorable() throws {
+        let manager = TabManager()
+        let accountWorkspace = try #require(manager.selectedWorkspace)
+        let accountInitialPanelID = try #require(accountWorkspace.focusedPanelId)
+        let accountPaneID = try #require(accountWorkspace.paneId(forPanelId: accountInitialPanelID))
+        _ = try #require(
+            accountWorkspace.newAccountSignInSurface(
+                inPane: accountPaneID,
+                flow: FakeAccountSignInFlow(),
+                focus: false
+            )
+        )
+        _ = accountWorkspace.closePanel(accountInitialPanelID, force: true)
+
+        let pairingWorkspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let pairingInitialPanelID = try #require(pairingWorkspace.focusedPanelId)
+        let pairingPaneID = try #require(pairingWorkspace.paneId(forPanelId: pairingInitialPanelID))
+        _ = try #require(
+            pairingWorkspace.newMobilePairingSurface(inPane: pairingPaneID, focus: false)
+        )
+        _ = pairingWorkspace.closePanel(pairingInitialPanelID, force: true)
+
+        #expect(!accountWorkspace.isRestorableInSessionSnapshot)
+        #expect(!pairingWorkspace.isRestorableInSessionSnapshot)
     }
 }
 
