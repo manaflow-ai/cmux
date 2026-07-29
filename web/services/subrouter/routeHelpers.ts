@@ -105,13 +105,23 @@ export function subrouterErrorResponse(err: unknown): Response {
     err instanceof SubrouterTenantKeySecretError ||
     err instanceof SubrouterTenantKeyDecryptionError
   ) {
+    console.error("Subrouter control-plane configuration failed", {
+      errorType: err.name,
+    });
     return serviceUnavailableResponse();
   }
   if (err instanceof SubrouterClientError) {
+    console.error("Subrouter upstream request failed", {
+      operation: err.operation,
+      status: err.status,
+    });
     const status = err.status !== null && err.status >= 400 && err.status < 500
       ? err.status
       : 502;
     return jsonResponse({ error: "upstream_request_failed" }, status);
   }
+  console.error("Subrouter control-plane request failed", {
+    errorType: err instanceof Error ? err.name : typeof err,
+  });
   return jsonResponse({ error: "upstream_request_failed" }, 500);
 }
