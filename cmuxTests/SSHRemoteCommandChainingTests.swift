@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 struct SSHRemoteCommandChainingTests {
     @Test
     func resolvedSSHConfigurationDistinguishesConfiguredCommandFromNone() {
-        let cli = CMUXCLI(args: [])
+        let policy = SSHHostConfiguredRemoteCommand()
         let configured = """
         hostname example.internal
         remotecommand cd "/scratch/project dir" && exec fish
@@ -19,11 +20,11 @@ struct SSHRemoteCommandChainingTests {
         """
 
         #expect(
-            cli.resolvedUserSSHRemoteCommand(fromSSHConfigOutput: configured)
+            policy.configuredCommand(fromSSHConfigOutput: configured)
                 == #"cd "/scratch/project dir" && exec fish"#
         )
         #expect(
-            cli.resolvedUserSSHRemoteCommand(
+            policy.configuredCommand(
                 fromSSHConfigOutput: "remotecommand none\nrequesttty auto\n"
             ) == nil
         )

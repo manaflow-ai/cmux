@@ -9179,11 +9179,26 @@ struct CMUXCLI {
     ) throws {
         var sshOptions = inputSSHOptions
         let sharingOptions = SSHConnectionSharingOptions()
+        let resolvedUserSSHConfiguration = resolvedSSHConfigurationOutput(for: inputSSHOptions)
         sshOptions.sshOptions = sharingOptions.mergingDefaults(
             into: inputSSHOptions.sshOptions,
-            userConfiguredControlOptions: resolvedUserSSHControlOptions(for: inputSSHOptions)
+            userConfiguredControlOptions: resolvedUserSSHConfiguration.flatMap {
+                sharingOptions.userConfiguredControlOptions(fromSSHConfigOutput: $0)
+            }
         )
         sshOptions.sshOptions = resolvedCmuxControlPathOptions(for: sshOptions)
+        // Treat the OpenSSH setting as the host's default interactive
+        // program. Explicit cmux commands and terminal profiles continue to
+        // take precedence over that default.
+        let configuredInteractiveRemoteCommand =
+            !sshOptions.skipDaemonBootstrap &&
+            sshOptions.extraArguments.isEmpty &&
+            sshOptions.initialCommand == nil &&
+            sshOptions.terminalProfile.kind == .shell
+                ? resolvedUserSSHConfiguration.flatMap {
+                    SSHHostConfiguredRemoteCommand().configuredCommand(fromSSHConfigOutput: $0)
+                }
+                : nil
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
             let elapsedMs = Int(Date().timeIntervalSince(sshStartedAt) * 1000)
@@ -9221,6 +9236,7 @@ struct CMUXCLI {
                     remoteRelayPort: sshOptions.remoteRelayPort,
                     shellFeatures: shellFeaturesValue,
                     initialCommand: sshOptions.initialCommand,
+                    configuredRemoteCommand: configuredInteractiveRemoteCommand,
                     terminfoSource: terminfoSource,
                     terminalProfile: sshOptions.terminalProfile
                 )
@@ -10087,6 +10103,7 @@ struct CMUXCLI {
         remoteRelayPort: Int,
         shellFeatures: String,
         initialCommand: String? = nil,
+        configuredRemoteCommand: String? = nil,
         terminfoSource: String? = nil,
         terminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) -> String {
@@ -10094,6 +10111,7 @@ struct CMUXCLI {
             remoteRelayPort: remoteRelayPort,
             shellFeatures: shellFeatures,
             initialCommand: initialCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
             terminfoSource: terminfoSource,
             bundledZshIntegration: bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
             bundledBashIntegration: bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
