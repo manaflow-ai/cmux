@@ -117,6 +117,8 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+    private nonisolated static let maximumConcurrentReloadConfigurationWaiters =
+        4
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     /// One process-wide admission budget shared by every mobile connection.
@@ -133,6 +135,13 @@ class TerminalController {
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
+    /// Bounds worker threads and completion contexts parked for synchronous
+    /// `reload_config` acknowledgements. Excess callers receive backpressure.
+    private nonisolated let reloadConfigurationWaiterAdmission =
+        SocketReloadConfigurationWaiterAdmission(
+            maximumConcurrentWaiters:
+                maximumConcurrentReloadConfigurationWaiters
+        )
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
@@ -1214,12 +1223,17 @@ class TerminalController {
         ).isEmpty else {
             return "ERROR: Usage: reload_config"
         }
+        guard let waiterLease =
+                reloadConfigurationWaiterAdmission.claim() else {
+            return "ERROR: reload_config busy"
+        }
         let didComplete: Void? = socketAwaitCallback(
             timeout: 30
         ) { completion in
             Task { @MainActor in
                 self.controlSidebarReloadConfig {
                     completion(())
+                    waiterLease.retire()
                 }
             }
         }

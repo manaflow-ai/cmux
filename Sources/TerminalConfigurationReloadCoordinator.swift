@@ -1,12 +1,5 @@
 import Foundation
 
-enum TerminalConfigurationReloadPhase: Equatable {
-    case idle
-    case waitingForFontWork
-    case preparing
-    case reconciling
-}
-
 /// Serializes app-scoped Ghostty configuration replacement.
 ///
 /// Requests that arrive while a transaction is preparing or reconciling are

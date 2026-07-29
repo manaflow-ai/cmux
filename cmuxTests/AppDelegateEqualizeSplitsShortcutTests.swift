@@ -3,7 +3,7 @@ import Bonsplit
 import CmuxFoundation
 import CmuxRemoteSession
 import CmuxTerminalCore
-import XCTest
+import Testing
 @testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
@@ -12,8 +12,365 @@ import XCTest
 @testable import cmux
 #endif
 
+private func testComment(
+    _ message: @autoclosure () -> String
+) -> Comment? {
+    let value = message()
+    return value.isEmpty ? nil : Comment(rawValue: value)
+}
+
+private func XCTAssertEqual<T: Equatable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(
+            value1 == value2,
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertEqual<T: FloatingPoint>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    accuracy: T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(
+            abs(value1 - value2) <= accuracy,
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertNotEqual<T: Equatable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(
+            value1 != value2,
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertNotEqual<T: FloatingPoint>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    accuracy: T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(
+            abs(value1 - value2) > accuracy,
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertTrue(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try expression(),
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertFalse(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try !expression(),
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertNil<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try expression() == nil,
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertNotNil<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try expression() != nil,
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertGreaterThan<T: Comparable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try expression1() > expression2(),
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertGreaterThanOrEqual<T: Comparable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try expression1() >= expression2(),
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertLessThan<T: Comparable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try expression1() < expression2(),
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertLessThanOrEqual<T: Comparable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try expression1() <= expression2(),
+            testComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTUnwrap<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) throws -> T {
+    let value = try expression()
+    return try #require(
+        value,
+        testComment(message()),
+        sourceLocation: sourceLocation
+    )
+}
+
+private func XCTFail(
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    Issue.record(
+        Comment(rawValue: message()),
+        sourceLocation: sourceLocation
+    )
+}
+
+private final class TestExpectation: @unchecked Sendable {
+    let description: String
+    private let condition = NSCondition()
+    private var fulfillmentCount = 0
+    private var expectedCount = 1
+
+    init(description: String) {
+        self.description = description
+    }
+
+    var expectedFulfillmentCount: Int {
+        get {
+            condition.withLock { expectedCount }
+        }
+        set {
+            condition.withLock {
+                precondition(newValue > 0)
+                expectedCount = newValue
+            }
+        }
+    }
+
+    var isFulfilled: Bool {
+        condition.withLock {
+            fulfillmentCount >= expectedCount
+        }
+    }
+
+    func fulfill() {
+        condition.withLock {
+            fulfillmentCount += 1
+            condition.broadcast()
+        }
+    }
+}
+
+private func expectation(
+    description: String
+) -> TestExpectation {
+    TestExpectation(description: description)
+}
+
 @MainActor
-final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
+private func wait(
+    for expectations: [TestExpectation],
+    timeout: TimeInterval
+) {
+    let deadline = Date(timeIntervalSinceNow: timeout)
+    while expectations.contains(where: { !$0.isFulfilled }),
+          Date() < deadline {
+        RunLoop.main.run(
+            mode: .default,
+            before: min(
+                deadline,
+                Date(timeIntervalSinceNow: 0.01)
+            )
+        )
+    }
+    for expectation in expectations
+    where !expectation.isFulfilled {
+        XCTFail(
+            "Timed out waiting for \(expectation.description)"
+        )
+    }
+}
+
+@MainActor
+private func waitWhileSuspended(
+    for expectations: [TestExpectation],
+    timeout: TimeInterval
+) async {
+    let deadline = Date(timeIntervalSinceNow: timeout)
+    while expectations.contains(where: { !$0.isFulfilled }),
+          Date() < deadline {
+        await Task.yield()
+        try? await Task<Never, Never>.sleep(
+            nanoseconds: 1_000_000
+        )
+    }
+    for expectation in expectations
+    where !expectation.isFulfilled {
+        XCTFail(
+            "Timed out waiting for \(expectation.description)"
+        )
+    }
+}
+
+@Suite(.serialized)
+@MainActor
+final class AppDelegateEqualizeSplitsShortcutTests {
+    @Test
     func testCmdShiftReturnFocusedBrowserTogglesSplitZoom() {
         withTemporaryShortcut(action: .toggleSplitZoom) {
             guard let appDelegate = AppDelegate.shared else {
@@ -67,6 +424,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -162,6 +520,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         shortcutRoutingAssertPaneFramesMatch(cachedEqualizedLayout, liveEqualizedLayout)
     }
 
+    @Test
     func testConfiguredWorkspaceTerminalFontSizeShortcutAdjustsEverySplit() {
         withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -259,6 +618,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeShortcutSeedsDockCreatedAfterShortcut() {
         withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -316,6 +676,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeRepeatEventsCoalesceUntilFlush() {
         withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -383,6 +744,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeRepeatEventsCoalesceAcrossRunLoopTurns() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -441,7 +803,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
-    func testDefaultWorkspaceTerminalFontSizeDrainScheduleIsOneShotAndCancellable() {
+    @Test
+    func testDefaultWorkspaceTerminalFontSizeDrainScheduleIsOneShotAndCancellable()
+        async {
         var firedCount = 0
         let fired = expectation(
             description: "default drain schedule fires"
@@ -453,10 +817,10 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                     fired.fulfill()
                 }
 
-        wait(for: [fired], timeout: 1)
+        await waitWhileSuspended(for: [fired], timeout: 1)
         completedCancellation()
-        RunLoop.main.run(
-            until: Date(timeIntervalSinceNow: 0.05)
+        try? await Task<Never, Never>.sleep(
+            nanoseconds: 50_000_000
         )
         XCTAssertEqual(firedCount, 1)
 
@@ -467,12 +831,13 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                     cancelledFireCount += 1
                 }
         pendingCancellation()
-        RunLoop.main.run(
-            until: Date(timeIntervalSinceNow: 0.1)
+        try? await Task<Never, Never>.sleep(
+            nanoseconds: 100_000_000
         )
         XCTAssertEqual(cancelledFireCount, 0)
     }
 
+    @Test
     func testGhosttyConfigDoesNotRetainWorkspaceFontIncreaseEqualizeFallback() {
         // cmux owns Cmd+Ctrl+= through KeyboardShortcutSettings. Ghostty's
         // built-in super+ctrl+= fallback must be unbound so clearing the cmux
@@ -506,6 +871,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeResetRepeatDoesNotQueueFanout() {
         withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -541,6 +907,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeRepeatDrainBoundsOneTurn() {
         withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -603,6 +970,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeDrainSeedsLateTerminalsExactlyOnce() {
         withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -739,6 +1107,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeDrainSeedsLazyWindowDockOnce() {
         withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -836,6 +1205,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeSharedDockPreservesCrossWorkspaceEventOrder() {
         withTemporaryShortcut(action: .increaseWorkspaceTerminalFontSize) {
             withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
@@ -921,6 +1291,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testMatchedWorkspaceFontShortcutIsConsumedWhenQueueRejects() {
         withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -963,6 +1334,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testDefaultTerminalDependenciesUseAppliedMagnificationDuringQueuedReload() {
         let defaults = UserDefaults.standard
         let originalValue =
@@ -1002,6 +1374,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeDrainBudgetCapsLiveActionsAndPanelVisits() {
         var liveBudget = WorkspaceTerminalFontSizeDrainBudget()
         for _ in 0..<4 {
@@ -1046,6 +1419,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertFalse(requestBudget.reserveRequestVisit())
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeDiscoveryConstructionDoesNotScanPanels() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
@@ -1097,6 +1471,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testPendingWorkspaceTerminalFontSizeChangeBoundsAlternatingStorage() {
         var change = WorkspaceTerminalFontSizeChange.relative([])
         for index in 0..<10_000 {
@@ -1110,6 +1485,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testPendingWorkspaceTerminalFontSizeChangeBoundsAlternatingWorkspaceStorage() {
         let manager = TabManager()
         guard let firstWorkspace = manager.selectedWorkspace else {
@@ -1150,6 +1526,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeEnqueueDoesNotProbeDockPanels() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
@@ -1192,6 +1569,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeDrainFollowsWorkspaceMovedToAnotherManager() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -1272,6 +1650,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeMoveSerializesDestinationShortcut() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -1374,6 +1753,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testCrossWindowTerminalTransferSerializesDestinationShortcut() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -1475,6 +1855,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testSourceWindowClosePreservesTransferredTerminalWork() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -1568,6 +1949,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testSourceWindowCloseCancelsLaterRequestBehindTransferredWork() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -1691,6 +2073,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testClosedWindowHistoryProjectsAcceptedMultiTurnFontChangeWithoutDraining() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -1809,6 +2192,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWorkspaceSnapshotProjectsAcceptedMultiTurnFontChangeWithoutDraining() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -1893,6 +2277,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testWorkspaceSnapshotProjectsPendingResetOrdering() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -1965,6 +2350,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWorkspaceSnapshotProjectsJoinDeferredBehindConfigurationBarrier() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -2095,6 +2481,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWorkspaceSnapshotWithholdsPostBarrierChangeUntilExecutionConfigurationIsKnown() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -2193,6 +2580,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testClosedPanelHistoryProjectsPendingFontChange() throws {
         ClosedItemHistoryStore.shared.removeAll()
         defer { ClosedItemHistoryStore.shared.removeAll() }
@@ -2298,6 +2686,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testDestinationSnapshotProjectsTransferredPendingFontChange() throws {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -2386,6 +2775,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testClosedWindowSnapshotDoesNotDrainAnotherWindowFontChange() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -2489,6 +2879,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testForwardedWorkspaceFontSizeShortcutUsesDestinationWindowDock() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -2605,6 +2996,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testForeignCoordinatorAssociatesPanelTransferWithEnteredDock() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -2750,6 +3142,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testLazyDestinationDockTransferUsesForeignRequestCoordinator() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -2874,6 +3267,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testForwardedShortcutWaitsForDestinationDockOwner() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -2983,6 +3377,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testLaterDestinationEventCannotBypassDeferredJoin() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -3097,6 +3492,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testParkedCrossWindowOwnersWakeAndBoundDeferredBacklog() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -3255,6 +3651,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testParkedCoordinatorBackpressuresBoundedRequestLedger() {
         let manager = TabManager()
         guard let firstWorkspace = manager.selectedWorkspace else {
@@ -3341,6 +3738,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testTransferredDescendantPreservesEveryReconciledRequestToken() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -3433,6 +3831,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testCrossWindowTransferredDescendantInheritsPendingSourceRequest() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -3532,6 +3931,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testSourceWindowTeardownPreservesMovedWorkspaceFontSizeWork() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -3595,6 +3995,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testSourceWindowTeardownPreservesMovedWorkspaceDeferredBehindConfigurationBarrier() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -3723,6 +4124,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeDrainReconcilesMovedOutTerminal() {
         let manager = TabManager()
         guard let sourceWorkspace = manager.selectedWorkspace,
@@ -3811,6 +4213,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeDrainAppliesToUnrelatedEnteringTerminal() {
         let manager = TabManager()
         guard let sourceWorkspace = manager.selectedWorkspace,
@@ -3909,6 +4312,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testEnteringTerminalReconcilesEachOutstandingRequestToken() {
         let manager = TabManager()
         guard let sourceWorkspace = manager.selectedWorkspace,
@@ -4000,6 +4404,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testEnteringTerminalReconcilesOutstandingRequestsWithinDrainBudgets() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
@@ -4106,6 +4511,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testFailedTransferFontSizeActionRetriesBeforeRecordingProvenance() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -4169,6 +4575,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testFailedStationaryFontSizeActionRetriesBeforeRetiringRequest() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -4232,6 +4639,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testReconciledFailedFontSizeActionDoesNotReplayRelativeDelta() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -4296,6 +4704,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testPersistentFontSizeFailureBacksOffThenWaitsForSignal() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -4350,6 +4759,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testBlockedTransferStageDoesNotWakeParkedOwnerOrSpin() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -4454,6 +4864,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testParkedFontSizeRetryDoesNotRetainUnvisitedPanels() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
@@ -4519,6 +4930,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testClosingFailedWorkspacePanelWakesParkedRequest() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
@@ -4595,6 +5007,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testRemovingAllFailedDockPanelsWakesParkedRequest() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -4660,6 +5073,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testRemovingFailedRemoteTmuxPaneWakesParkedRequest() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -4794,6 +5208,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testClosingWindowCancelsRequestsOwnedByForeignCoordinator() {
         let sourceManager = TabManager()
         let closingManager = TabManager()
@@ -4874,6 +5289,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testConfigurationRefreshWaitsForMultiTurnFontDrain() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
@@ -4924,6 +5340,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didRefreshConfiguration)
     }
 
+    @Test
     func testExtendedConfigurationBarrierWaitsForAsyncReconciliation() {
         let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
         var releaseReconciliation: (@MainActor () -> Void)?
@@ -4943,6 +5360,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertEqual(observedOrder, ["config", "next"])
     }
 
+    @Test
     func testConfigurationFontReconcilerBoundsCaptureBeforeApply() {
         let scheduler =
             ManualTerminalFontConfigurationReloadScheduler()
@@ -5001,6 +5419,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didComplete)
     }
 
+    @Test
     func testFullConfigurationReloadStagesAppearanceUntilConfigurationCommit()
         throws {
 #if DEBUG
@@ -5084,6 +5503,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testConfigurationReloadRemainsActiveUntilAsyncReconciliationCompletes()
         throws {
 #if DEBUG
@@ -5119,6 +5539,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testConfigurationReloadQueuesRequestDuringAsyncReconciliation()
         throws {
 #if DEBUG
@@ -5184,8 +5605,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testReloadConfigSocketReplyWaitsForConfigurationCommit()
-        throws {
+        async throws {
 #if DEBUG
         let app = GhosttyApp.shared
         let retainedPanels = (0..<16).map { _ in
@@ -5213,7 +5635,10 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             replyReturned.fulfill()
         }
 
-        wait(for: [replyReturned], timeout: 5)
+        await waitWhileSuspended(
+            for: [replyReturned],
+            timeout: 5
+        )
         responseLock.lock()
         let returnedResponse = response
         responseLock.unlock()
@@ -5231,7 +5656,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
-    func testReloadConfigBoundsConcurrentWaiters() {
+    @Test
+    func testReloadConfigBoundsConcurrentWaiters() async {
         let requestCount = 8
         let maximumConcurrentWaiters = 4
         let expectedBusyResponses =
@@ -5294,7 +5720,10 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
         )
 
-        wait(for: [allResponses], timeout: 5)
+        await waitWhileSuspended(
+            for: [allResponses],
+            timeout: 5
+        )
         responseCondition.lock()
         let finalResponses = responses
         responseCondition.unlock()
@@ -5312,6 +5741,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testConfigurationFontReconcilerLateWorkCannotExtendCapture() {
         let scheduler =
             ManualTerminalFontConfigurationReloadScheduler()
@@ -5369,6 +5799,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testConfigurationFontReconcilerRetriesFailedWork() {
         let scheduler =
             ManualTerminalFontConfigurationReloadScheduler()
@@ -5409,6 +5840,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didComplete)
     }
 
+    @Test
     func testConfigurationFontReconcilerAbandonsExhaustedWork() {
         let scheduler =
             ManualTerminalFontConfigurationReloadScheduler()
@@ -5455,6 +5887,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didComplete)
     }
 
+    @Test
     func testConfigurationReloadReadsMagnificationAfterSettingsReload() {
         var storedMagnificationPercent = 100
 
@@ -5483,6 +5916,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testConfigurationRefreshWakesParkedFontMutation() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -5549,6 +5983,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didRefreshConfiguration)
     }
 
+    @Test
     func testFontMutationAfterConfigurationBarrierWaitsForRefresh() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -5631,6 +6066,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testGhosttyAppConfigUpdateWaitsForFontBarrier() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -5712,6 +6148,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didUpdateGhosttyAppConfig)
     }
 
+    @Test
     func testConfigurationBarrierSettlesPersistentNativeFailure() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -5773,6 +6210,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    @Test
     func testFontRequestSnapshotsMagnificationAcrossDrainTurns() {
         let defaults = UserDefaults.standard
         let originalPercent = defaults.object(
@@ -5862,6 +6300,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testHibernatedFontFollowerPredictsFromConfiguredBaseline() {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(12, isExplicitOverride: false)
@@ -5902,6 +6341,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testZeroNetRelativeChangeMakesProjectedLineageExplicit() {
         let lineage =
             WorkspaceTerminalFontSizeChange
@@ -5922,6 +6362,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testResetThenZeroNetRelativeChangeMakesProjectedLineageExplicit() {
         let lineage =
             WorkspaceTerminalFontSizeChange
@@ -5942,6 +6383,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testFailedTransferRetriesAfterPanelLeavesCoordinatorOwnership() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -6037,6 +6479,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testSessionRestoreDuringActiveDrainReceivesOutstandingChange() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -6103,6 +6546,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testFailedTransferFontSizeActionBlocksLaterRequestAtNativeBound() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -6200,6 +6644,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWindowDockFontSizeDrainAppliesToUnrelatedEnteringTerminal() {
         let manager = TabManager()
         guard let requestedWorkspace = manager.selectedWorkspace else {
@@ -6306,6 +6751,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testFinishedDockRequestProtectsTransferUntilWorkspaceSiblingFinishes() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -6421,6 +6867,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWorkspaceTransferDoesNotCoverAnotherWorkspacesDockEvent() {
         let manager = TabManager()
         guard let firstWorkspace = manager.selectedWorkspace,
@@ -6491,6 +6938,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testTransferOnlyDockTerminalSeedsTerminalFreeWorkspace() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -6580,6 +7028,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testWorkspaceTerminalFontSizeDrainDoesNotDoubleApplyDockMove() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -6682,6 +7131,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testPendingFontSizeEventDoesNotReplayOnMoveIntoWindowDock() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -6740,6 +7190,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    @Test
     func testClosingWindowCancelsPendingWorkspaceTerminalFontSizeChange() {
         ClosedItemHistoryStore.shared.removeAll()
         defer { ClosedItemHistoryStore.shared.removeAll() }
@@ -6854,6 +7305,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testPendingWorkspaceTerminalFontSizeChangePreservesResetOrdering() {
         var change = WorkspaceTerminalFontSizeChange.relative([-1])
         change.appendAdjustment(-1)
@@ -6869,6 +7321,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertEqual(change, .resetThen([]))
     }
 
+    @Test
     func testPendingWorkspaceTerminalFontSizeChangePreservesOppositeDirections() {
         var change = WorkspaceTerminalFontSizeChange.relative([1])
         change.appendAdjustment(-1)
@@ -6876,6 +7329,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertEqual(change, .relative([1, -1]))
     }
 
+    @Test
     func testExplicitWorkspaceFontSizeBindingWinsOverAnotherImplicitFontSizeDefault() {
         withIsolatedShortcutFileStore {
             withDefaultShortcutFallback(action: .increaseWorkspaceTerminalFontSize) {
@@ -6952,6 +7406,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testConfiguredWorkspaceTerminalFontSizeResetRestoresEverySplit() {
         withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -7045,6 +7500,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testPersistedLegacyEqualizeShortcutWinsOverNewFontSizeDefault() {
         withIsolatedShortcutFileStore {
             withDefaultShortcutFallback(action: .increaseWorkspaceTerminalFontSize) {
@@ -7121,6 +7577,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testPersistedSplitShortcutWinsOverNewFontSizeDefaults() {
         withIsolatedShortcutFileStore {
             let cases: [
@@ -7194,6 +7651,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testPersistedSplitShortcutWinsOverNewEqualizeDefault() {
         withIsolatedShortcutFileStore {
             withDefaultShortcutFallback(action: .equalizeSplits) {
@@ -7249,6 +7707,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    @Test
     func testWorkspaceFontSizeDefaultsAreNotSuppressedAfterRebinding() {
         withIsolatedShortcutFileStore {
             let cases: [

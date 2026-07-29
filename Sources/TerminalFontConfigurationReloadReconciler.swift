@@ -10,35 +10,6 @@ final class TerminalFontConfigurationReloadReconciler {
     typealias Scheduler =
         @MainActor (@escaping @MainActor () -> Void) -> Void
 
-    struct ReconciliationWork {
-        let attempt: @MainActor () -> Bool
-        let abandon: Work
-
-        init(
-            attempt: @escaping @MainActor () -> Bool,
-            abandon: @escaping Work = {}
-        ) {
-            self.attempt = attempt
-            self.abandon = abandon
-        }
-    }
-
-    private final class WorkNode {
-        let work: ReconciliationWork
-        var attemptCount = 0
-        var next: WorkNode?
-
-        init(_ work: ReconciliationWork) {
-            self.work = work
-        }
-    }
-
-    private enum Phase {
-        case idle
-        case capturing
-        case reconciling
-    }
-
     nonisolated static let defaultMaximumSurfaceVisitsPerDrain = 8
     nonisolated static let defaultMaximumAttemptsPerWork = 3
 

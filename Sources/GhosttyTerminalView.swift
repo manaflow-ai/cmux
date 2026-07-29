@@ -2294,7 +2294,7 @@ class GhosttyApp {
                 synchronize()
             }
         } else {
-            DispatchQueue.main.sync {
+            Task { @MainActor in
                 synchronize()
             }
         }
