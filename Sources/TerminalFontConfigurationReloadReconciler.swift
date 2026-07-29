@@ -8,7 +8,7 @@ final class TerminalFontConfigurationReloadReconciler {
     typealias CaptureNextWork =
         @MainActor () -> ReconciliationWork?
     typealias Scheduler =
-        @MainActor (@escaping @MainActor () -> Void) -> Void
+        @MainActor @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void
 
     nonisolated static let defaultMaximumSurfaceVisitsPerDrain = 8
     nonisolated static let defaultMaximumAttemptsPerWork = 3

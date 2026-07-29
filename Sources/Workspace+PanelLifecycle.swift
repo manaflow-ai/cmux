@@ -405,6 +405,7 @@ extension Workspace {
         publishSurfaceClosedEvent: Bool,
         clearSurfaceNotifications: Bool,
         requestTransferredRemoteCleanup: Bool,
+        discardAgentHibernationTracking: Bool = true,
         cleanupControllerSurfaceState: Bool = false,
         preservesTerminalForTransfer: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
@@ -447,6 +448,12 @@ extension Workspace {
         }
 
         let removedPanel = panels.removeValue(forKey: panelId)
+        if discardAgentHibernationTracking {
+            AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+                workspaceId: id,
+                panelId: panelId
+            )
+        }
         if let terminalPanel =
                 (removedPanel ?? panel) as? TerminalPanel {
             terminalFontSizeChangeCoordinator?
