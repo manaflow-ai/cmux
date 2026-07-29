@@ -2648,15 +2648,18 @@ pub fn connect_existing_until(
 }
 
 #[cfg(any(not(unix), test))]
-fn cleanup_without_stable_identity(path: &Path) {
-    let _ = std::fs::remove_file(path);
+fn cleanup_without_stable_identity(_path: &Path) {
+    // Windows does not expose a race-free socket publication identity through
+    // this transport. Leave the path in place; the next server performs a
+    // bounded liveness probe before reclaiming a stale socket.
 }
 
 /// Identity-coupled ownership of one published local server socket.
 ///
-/// Cleanup removes only the socket inode created by the matching successful
-/// publication. A failed bind or a later replacement at the same path remains
-/// outside this owner's authority.
+/// Unix cleanup removes only the socket inode created by the matching
+/// successful publication. Platforms without a stable socket identity leave
+/// cleanup to the next server's liveness probe. A failed bind or a later
+/// replacement at the same path remains outside this owner's authority.
 pub struct PublishedSocket {
     path: PathBuf,
     #[cfg(unix)]
