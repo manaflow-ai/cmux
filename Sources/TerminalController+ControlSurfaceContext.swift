@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxSettings
 import Foundation
 import GhosttyKit
 
