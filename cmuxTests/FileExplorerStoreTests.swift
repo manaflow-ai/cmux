@@ -581,7 +581,7 @@ struct FileExplorerStoreTests {
         #expect(outlineView.reloadRowsCallCount == 1)
         #expect(outlineView.lastReloadedRowCount == visibleRowCount)
         #expect(outlineView.reloadItemCallCount == 0)
-        #expect(outlineView.itemAtRowCallCount == 0)
+        #expect(outlineView.itemAtRowCallCount == visibleRowCount)
     }
 
     @Test
@@ -709,6 +709,37 @@ struct FileExplorerStoreTests {
             return (outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode)?.path
                 == selectedPath
         }
+    }
+
+    @Test
+    func explicitExpansionPromotesActivePrefetchToVisibleLoading() async throws {
+        let provider = DeferredListFileExplorerProvider()
+        let store = FileExplorerStore()
+        let directory = FileExplorerNode(
+            name: "Sources",
+            path: "/project/Sources",
+            isDirectory: true
+        )
+        store.rootPath = "/project"
+        store.rootNodes = [directory]
+        store.setProviderForTesting(provider, reloadIfAvailable: false)
+
+        store.prefetchChildren(for: directory)
+        try await waitFor("prefetch listing started") {
+            provider.listCallPaths == [directory.path]
+        }
+
+        store.expand(node: directory)
+
+        #expect(directory.isLoading)
+        #expect(store.isExpanded(directory))
+        #expect(provider.listCallPaths == [directory.path])
+
+        provider.resumeListing(returning: [])
+        try await waitFor("promoted prefetch completed") {
+            directory.children != nil
+        }
+        #expect(!directory.isLoading)
     }
 
     @Test

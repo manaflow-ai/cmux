@@ -145,6 +145,10 @@ import Testing
     }
 
     @Test func taskCancellationBeforeRunReturnsWithoutCrashing() async throws {
+        let marker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-command-runner-pre-cancel-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: marker) }
+
         let command = Task {
             withUnsafeCurrentTask { task in
                 task?.cancel()
@@ -152,7 +156,12 @@ import Testing
             return await runner.run(
                 directory: tempDir,
                 executable: "sh",
-                arguments: ["-c", "sleep 10 & wait"],
+                arguments: [
+                    "-c",
+                    "printf launched > \"$1\"; sleep 10",
+                    "cmux-command-runner-test",
+                    marker.path,
+                ],
                 timeout: 30
             )
         }
@@ -165,6 +174,7 @@ import Testing
         #expect(result.executionError == nil)
         #expect(result.timedOut == false)
         #expect(result.exitStatus == nil)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 
     @Test func taskCancellationTerminatesDescendantProcessGroup() async throws {
