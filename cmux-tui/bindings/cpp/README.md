@@ -43,7 +43,34 @@ a creation result’s value.
 The socket binds a client to its current machine and session. The client adds
 those routing selectors when callers supply only an opaque target ID.
 `ClientOptions::machine_selector` and `session_selector` can select another
-route. Handles serialize their target and do no I/O when copied or destroyed.
+route. Direct opaque nested IDs remain globally addressable without repeating
+their structural ancestors.
+
+Every resource factory also accepts `Selector<Id>::by_id(id)`,
+`Selector<Id>::current()`, or `Selector<Id>::exact_name(name)`. Child factories
+retain the complete parent route without performing I/O:
+
+```cpp
+auto terminal =
+    client.session(cmux::Selector<cmux::SessionId>::current())
+        .workspace(
+            cmux::Selector<cmux::WorkspaceId>::exact_name("build"))
+        .screen(cmux::Selector<cmux::ScreenId>::current())
+        .pane(cmux::Selector<cmux::PaneId>::exact_name("tests"))
+        .tab(cmux::Selector<cmux::TabId>::current())
+        .terminal(cmux::Selector<cmux::TerminalId>::current());
+
+auto visible = terminal.read_screen();
+```
+
+Exact names are tagged as `name:` on the wire, so names equal to `current` or
+an opaque ID remain names. Nested handles send every supplied ancestor, which
+lets the server reject a mismatched parent before an operation runs. A direct
+current or name selector fills missing structural ancestors with `current`;
+chain from an explicit parent when that context should differ. Constructing,
+copying, and destroying handles performs no I/O. `selected_id()` is populated
+for ID selectors. `refresh()` resolves the opaque ID for current and name
+selectors from the server snapshot.
 
 Names preserve exact bytes. Workspace and machine `clear_name()` set the
 empty string. Screen, pane, and tab `clear_name()` send JSON null.

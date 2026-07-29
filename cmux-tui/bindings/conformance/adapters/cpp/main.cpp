@@ -1,10 +1,13 @@
 #include <cmux/client.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <map>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -12,6 +15,7 @@
 #include <system_error>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace {
 
@@ -385,6 +389,240 @@ template <typename Id>
     return false;
 }
 
+[[nodiscard]] cmux::MutationOptions key(
+    std::string_view prefix,
+    std::string_view suffix) {
+    return take(cmux::MutationOptions::with_key(
+        std::string(prefix) + "-" + std::string(suffix)));
+}
+
+[[nodiscard]] cmux::WorkspaceId create_empty_workspace(
+    cmux::Session& session,
+    std::string name,
+    cmux::MutationOptions mutation) {
+    cmux::CreateWorkspaceOptions create;
+    create.name = std::move(name);
+    create.initial_content = cmux::InitialContent::empty;
+    auto created = take(session.create_workspace(
+        std::move(create), std::move(mutation)));
+    auto path = take(created.created_path());
+    if (!path) {
+        throw AdapterError("workspace.create omitted its created path");
+    }
+    return std::visit(
+        [](const auto& value) { return value.workspace_id; },
+        *path);
+}
+
+[[nodiscard]] std::map<std::string, std::string> workspace_rows(
+    cmux::Session& session) {
+    const auto listed = take(session.workspaces());
+    auto array = listed.as_array();
+    if (!array) {
+        throw AdapterError("workspace.list did not return an array");
+    }
+    std::map<std::string, std::string> rows;
+    for (const auto& item : *array.value()) {
+        const auto identifier = string_field(item, "id");
+        const auto* name = item.find("name");
+        if (!name || name->is_null()) {
+            rows.emplace(identifier, "");
+            continue;
+        }
+        rows.emplace(identifier, string_value(*name));
+    }
+    return rows;
+}
+
+[[nodiscard]] std::vector<std::string> string_array_field(
+    const cmux::Json& value,
+    std::string_view name) {
+    auto array = field(value, name).as_array();
+    if (!array) {
+        throw AdapterError(
+            "expected a JSON string array: " + std::string(name));
+    }
+    std::vector<std::string> result;
+    result.reserve(array.value()->size());
+    for (const auto& item : *array.value()) {
+        result.push_back(string_value(item));
+    }
+    return result;
+}
+
+[[nodiscard]] cmux::Json string_array_json(
+    const std::vector<std::string>& values) {
+    cmux::Json::Array result;
+    result.reserve(values.size());
+    for (const auto& value : values) {
+        result.emplace_back(value);
+    }
+    return cmux::Json(std::move(result));
+}
+
+[[nodiscard]] cmux::Json run_live_setup(const cmux::Json& request) {
+    auto client = connect(request, "current");
+    auto current =
+        client.session(cmux::Selector<cmux::SessionId>::current());
+    const auto pinged = bool_field(take(current.ping()), "alive");
+    const auto base = string_field(request, "workspace_name");
+    const auto key_prefix = string_field(request, "key_prefix");
+
+    const auto stable_id = create_empty_workspace(
+        current, base, key(key_prefix, "stable-create"));
+    const auto renamed_name = base + "-renamed";
+    const auto renamed = take(
+        current.workspace(stable_id).rename(
+            renamed_name,
+            key(key_prefix, "stable-rename")));
+    const auto stable_renamed =
+        string_field(renamed.value, "name") == renamed_name;
+
+    const auto duplicate_name = base + "-duplicate";
+    std::vector<std::string> duplicate_ids;
+    duplicate_ids.reserve(2);
+    for (const auto suffix : {"duplicate-a", "duplicate-b"}) {
+        duplicate_ids.push_back(
+            create_empty_workspace(
+                current,
+                duplicate_name,
+                key(key_prefix, suffix))
+                .value());
+    }
+
+    auto ambiguity =
+        current.workspace(
+                   cmux::Selector<cmux::WorkspaceId>::exact_name(
+                       duplicate_name))
+            .rename(
+                base + "-must-not-apply",
+                key(key_prefix, "ambiguous-rename"));
+    if (ambiguity) {
+        throw AdapterError(
+            "duplicate workspace selector unexpectedly mutated");
+    }
+    const auto ambiguity_code = ambiguity.error().protocol_code;
+    std::vector<std::string> ambiguity_candidates;
+    if (ambiguity.error().details) {
+        if (const auto* candidates =
+                ambiguity.error().details->find("candidates")) {
+            auto array = candidates->as_array();
+            if (array) {
+                ambiguity_candidates.reserve(array.value()->size());
+                for (const auto& candidate : *array.value()) {
+                    ambiguity_candidates.push_back(string_value(candidate));
+                }
+            }
+        }
+    }
+    const std::set<std::string> expected_candidates(
+        duplicate_ids.begin(), duplicate_ids.end());
+    const std::set<std::string> observed_candidates(
+        ambiguity_candidates.begin(), ambiguity_candidates.end());
+    const auto candidates_preserved =
+        ambiguity_candidates.size() == duplicate_ids.size() &&
+        observed_candidates == expected_candidates;
+
+    const auto rows = workspace_rows(current);
+    const auto no_mutation =
+        rows.contains(stable_id.value()) &&
+        rows.at(stable_id.value()) == renamed_name &&
+        std::ranges::all_of(
+            duplicate_ids,
+            [&rows, &duplicate_name](const auto& identifier) {
+                const auto found = rows.find(identifier);
+                return found != rows.end() &&
+                       found->second == duplicate_name;
+            }) &&
+        std::ranges::none_of(
+            rows,
+            [&base](const auto& entry) {
+                return entry.second == base + "-must-not-apply";
+            });
+
+    return cmux::Json(cmux::Json::Object{
+        {"pinged", cmux::Json(pinged)},
+        {"stable_id", cmux::Json(stable_id.value())},
+        {"stable_renamed", cmux::Json(stable_renamed)},
+        {"duplicate_ids", string_array_json(duplicate_ids)},
+        {"ambiguity_code", cmux::Json(ambiguity_code)},
+        {"ambiguity_preserved_all_candidates",
+         cmux::Json(candidates_preserved)},
+        {"no_mutation", cmux::Json(no_mutation)},
+    });
+}
+
+[[nodiscard]] cmux::Json run_live_restart(const cmux::Json& request) {
+    auto client = connect(request, "current");
+    auto current =
+        client.session(cmux::Selector<cmux::SessionId>::current());
+    const auto base = string_field(request, "workspace_name");
+    const auto key_prefix = string_field(request, "key_prefix");
+    const auto stable_text = string_field(request, "expected_stable_id");
+    const auto duplicate_text =
+        string_array_field(request, "expected_duplicate_ids");
+    if (duplicate_text.size() != 2) {
+        throw AdapterError(
+            "expected_duplicate_ids must contain exactly two IDs");
+    }
+    const auto stable_id =
+        opaque_id<cmux::WorkspaceId>(stable_text);
+    std::vector<cmux::WorkspaceId> duplicate_ids;
+    duplicate_ids.reserve(2);
+    for (const auto& identifier : duplicate_text) {
+        duplicate_ids.push_back(
+            opaque_id<cmux::WorkspaceId>(identifier));
+    }
+
+    const auto rows = workspace_rows(current);
+    const auto same_ids =
+        rows.contains(stable_text) &&
+        std::ranges::all_of(
+            duplicate_text,
+            [&rows](const auto& identifier) {
+                return rows.contains(identifier);
+            });
+    const auto stable_name_preserved =
+        rows.contains(stable_text) &&
+        rows.at(stable_text) == base + "-renamed";
+    const auto duplicate_name = base + "-duplicate";
+    const auto duplicates_preserved =
+        std::ranges::all_of(
+            duplicate_text,
+            [&rows, &duplicate_name](const auto& identifier) {
+                const auto found = rows.find(identifier);
+                return found != rows.end() &&
+                       found->second == duplicate_name;
+            });
+
+    static_cast<void>(take(
+        current.workspace(stable_id).close(
+            key(key_prefix, "close-stable"))));
+    for (std::size_t index = 0; index < duplicate_ids.size(); ++index) {
+        static_cast<void>(take(
+            current.workspace(duplicate_ids[index]).close(
+                key(
+                    key_prefix,
+                    index == 0 ? "close-a" : "close-b"))));
+    }
+    const auto remaining = workspace_rows(current);
+    const auto disappeared =
+        !remaining.contains(stable_text) &&
+        std::ranges::none_of(
+            duplicate_text,
+            [&remaining](const auto& identifier) {
+                return remaining.contains(identifier);
+            });
+
+    return cmux::Json(cmux::Json::Object{
+        {"same_ids", cmux::Json(same_ids)},
+        {"stable_name_preserved", cmux::Json(stable_name_preserved)},
+        {"duplicates_preserved", cmux::Json(duplicates_preserved)},
+        {"closed", cmux::Json(true)},
+        {"disappeared", cmux::Json(disappeared)},
+    });
+}
+
 [[nodiscard]] cmux::Json run_live(const cmux::Json& request) {
     auto client = connect(request, "current");
     const auto available_sessions = take(client.sessions());
@@ -456,6 +694,12 @@ template <typename Id>
     }
     if (operation == "redaction") {
         return run_redaction();
+    }
+    if (operation == "live-setup") {
+        return run_live_setup(request);
+    }
+    if (operation == "live-restart") {
+        return run_live_restart(request);
     }
     if (operation == "live-flow") {
         return run_live(request);

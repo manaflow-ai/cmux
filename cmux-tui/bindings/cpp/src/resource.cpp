@@ -625,13 +625,12 @@ template <typename Id>
 template <typename Id>
 [[nodiscard]] Result<ResourceSnapshot<Id>> decode_snapshot(
     Json value,
-    const Id& fallback_id) {
+    std::optional<Id> fallback_id) {
     auto object = value.as_object();
     if (!object) {
         return make_error(ErrorCode::decode, "resource snapshot must be an object");
     }
-    ResourceSnapshot<Id> snapshot;
-    snapshot.id = fallback_id;
+    std::optional<Id> resolved_id = std::move(fallback_id);
     if (const Json* id = value.find("id")) {
         auto text = id->as_string();
         if (!text) {
@@ -641,8 +640,15 @@ template <typename Id>
         if (!parsed) {
             return std::move(parsed).error();
         }
-        snapshot.id = std::move(parsed).value();
+        resolved_id = std::move(parsed).value();
     }
+    if (!resolved_id) {
+        return make_error(
+            ErrorCode::decode,
+            "resource selected by current or name omitted its opaque ID");
+    }
+    ResourceSnapshot<Id> snapshot;
+    snapshot.id = std::move(*resolved_id);
     if (const Json* name = value.find("name"); name && !name->is_null()) {
         auto text = name->as_string();
         if (!text) {
@@ -994,6 +1000,32 @@ Result<Json::Object> CreateBrowserTabOptions::to_params() const {
 
 namespace detail {
 
+void complete_structural_route(
+    Json::Object& route,
+    std::string_view target_scope) {
+    constexpr std::array<std::string_view, 4> structural_ancestors{
+        "workspace",
+        "screen",
+        "pane",
+        "tab",
+    };
+    std::size_t required = 0;
+    if (target_scope == "screen") {
+        required = 1;
+    } else if (target_scope == "pane") {
+        required = 2;
+    } else if (target_scope == "tab") {
+        required = 3;
+    } else if (target_scope == "terminal" || target_scope == "browser") {
+        required = 4;
+    }
+    for (std::size_t index = 0; index < required; ++index) {
+        route.try_emplace(
+            std::string(structural_ancestors[index]),
+            Json("current"));
+    }
+}
+
 class ResourceClientState
     : public std::enable_shared_from_this<ResourceClientState> {
 public:
@@ -1292,73 +1324,154 @@ Result<ProviderNoticeStream> Client::open_provider_notices(
     return ProviderNoticeStream(std::move(stream).value());
 }
 
+Machine Client::machine(Selector<MachineId> selector) const {
+    return Machine(state_, std::move(selector), "machine");
+}
+
 Machine Client::machine(MachineId id) const {
-    return Machine(state_, std::move(id), "machine");
+    return machine(Selector<MachineId>::by_id(std::move(id)));
+}
+
+Session Client::session(Selector<SessionId> selector) const {
+    return Session(state_, std::move(selector), "session");
 }
 
 Session Client::session(SessionId id) const {
-    return Session(state_, std::move(id), "session");
+    return session(Selector<SessionId>::by_id(std::move(id)));
+}
+
+Workspace Client::workspace(Selector<WorkspaceId> selector) const {
+    return Workspace(state_, std::move(selector), "workspace");
 }
 
 Workspace Client::workspace(WorkspaceId id) const {
-    return Workspace(state_, std::move(id), "workspace");
+    return workspace(Selector<WorkspaceId>::by_id(std::move(id)));
+}
+
+Screen Client::screen(Selector<ScreenId> selector) const {
+    return Screen(state_, std::move(selector), "screen");
 }
 
 Screen Client::screen(ScreenId id) const {
-    return Screen(state_, std::move(id), "screen");
+    return screen(Selector<ScreenId>::by_id(std::move(id)));
+}
+
+Pane Client::pane(Selector<PaneId> selector) const {
+    return Pane(state_, std::move(selector), "pane");
 }
 
 Pane Client::pane(PaneId id) const {
-    return Pane(state_, std::move(id), "pane");
+    return pane(Selector<PaneId>::by_id(std::move(id)));
+}
+
+Tab Client::tab(Selector<TabId> selector) const {
+    return Tab(state_, std::move(selector), "tab");
 }
 
 Tab Client::tab(TabId id) const {
-    return Tab(state_, std::move(id), "tab");
+    return tab(Selector<TabId>::by_id(std::move(id)));
+}
+
+Terminal Client::terminal(Selector<TerminalId> selector) const {
+    return Terminal(state_, std::move(selector), "terminal");
 }
 
 Terminal Client::terminal(TerminalId id) const {
-    return Terminal(state_, std::move(id), "terminal");
+    return terminal(Selector<TerminalId>::by_id(std::move(id)));
+}
+
+Browser Client::browser(Selector<BrowserId> selector) const {
+    return Browser(state_, std::move(selector), "browser");
 }
 
 Browser Client::browser(BrowserId id) const {
-    return Browser(state_, std::move(id), "browser");
+    return browser(Selector<BrowserId>::by_id(std::move(id)));
+}
+
+ConnectedClient Client::connected_client(
+    Selector<ConnectedClientId> selector) const {
+    return ConnectedClient(state_, std::move(selector), "client");
 }
 
 ConnectedClient Client::connected_client(ConnectedClientId id) const {
-    return ConnectedClient(state_, std::move(id), "client");
+    return connected_client(
+        Selector<ConnectedClientId>::by_id(std::move(id)));
+}
+
+Notification Client::notification(
+    Selector<NotificationId> selector) const {
+    return Notification(state_, std::move(selector), "notification");
 }
 
 Notification Client::notification(NotificationId id) const {
-    return Notification(state_, std::move(id), "notification");
+    return notification(Selector<NotificationId>::by_id(std::move(id)));
+}
+
+Agent Client::agent(Selector<AgentId> selector) const {
+    return Agent(state_, std::move(selector), "agent");
 }
 
 Agent Client::agent(AgentId id) const {
-    return Agent(state_, std::move(id), "agent");
+    return agent(Selector<AgentId>::by_id(std::move(id)));
+}
+
+PairingRequest Client::pairing_request(
+    Selector<PairingRequestId> selector) const {
+    return PairingRequest(state_, std::move(selector), "pairing_request");
 }
 
 PairingRequest Client::pairing_request(PairingRequestId id) const {
-    return PairingRequest(state_, std::move(id), "pairing_request");
+    return pairing_request(
+        Selector<PairingRequestId>::by_id(std::move(id)));
+}
+
+FrontendProjection Client::projection(
+    Selector<FrontendProjectionId> selector) const {
+    return FrontendProjection(
+        state_, std::move(selector), "frontend_projection");
 }
 
 FrontendProjection Client::projection(FrontendProjectionId id) const {
-    return FrontendProjection(
-        state_, std::move(id), "frontend_projection");
+    return projection(
+        Selector<FrontendProjectionId>::by_id(std::move(id)));
+}
+
+SidebarView Client::sidebar_view(
+    Selector<SidebarViewId> selector) const {
+    return SidebarView(state_, std::move(selector), "sidebar_view");
 }
 
 SidebarView Client::sidebar_view(SidebarViewId id) const {
-    return SidebarView(state_, std::move(id), "sidebar_view");
+    return sidebar_view(Selector<SidebarViewId>::by_id(std::move(id)));
+}
+
+ProviderScope Client::provider_scope(
+    Selector<ProviderScopeId> selector) const {
+    return ProviderScope(state_, std::move(selector), "provider_scope");
 }
 
 ProviderScope Client::provider_scope(ProviderScopeId id) const {
-    return ProviderScope(state_, std::move(id), "provider_scope");
+    return provider_scope(Selector<ProviderScopeId>::by_id(std::move(id)));
+}
+
+ProviderAction Client::provider_action(
+    Selector<ProviderActionId> selector) const {
+    return ProviderAction(state_, std::move(selector), "provider_action");
 }
 
 ProviderAction Client::provider_action(ProviderActionId id) const {
-    return ProviderAction(state_, std::move(id), "provider_action");
+    return provider_action(Selector<ProviderActionId>::by_id(std::move(id)));
+}
+
+ProviderNoticeHandle Client::provider_notice(
+    Selector<ProviderNoticeId> selector) const {
+    return ProviderNoticeHandle(
+        state_, std::move(selector), "provider_notice");
 }
 
 ProviderNoticeHandle Client::provider_notice(ProviderNoticeId id) const {
-    return ProviderNoticeHandle(state_, std::move(id), "provider_notice");
+    return provider_notice(
+        Selector<ProviderNoticeId>::by_id(std::move(id)));
 }
 
 Result<Json> Client::machines() const {
@@ -1457,11 +1570,19 @@ Result<ResourceSnapshot<MachineId>> Machine::refresh() const {
     if (!value) {
         return std::move(value).error();
     }
-    return decode_snapshot(std::move(value).value(), id_);
+    return decode_snapshot(std::move(value).value(), selected_id_);
 }
 
 Result<Json> Machine::sessions() const {
     return read(Operation::session_list);
+}
+
+Session Machine::session(Selector<SessionId> selector) const {
+    return Session(state_, std::move(selector), "session", route_);
+}
+
+Session Machine::session(SessionId id) const {
+    return session(Selector<SessionId>::by_id(std::move(id)));
 }
 
 Result<MutationResult> Machine::rename(
@@ -1494,7 +1615,7 @@ Result<ResourceSnapshot<SessionId>> Session::refresh() const {
     if (!value) {
         return std::move(value).error();
     }
-    return decode_snapshot(std::move(value).value(), id_);
+    return decode_snapshot(std::move(value).value(), selected_id_);
 }
 
 Result<Json> Session::snapshot() const {
@@ -1507,6 +1628,14 @@ Result<Json> Session::ping() const {
 
 Result<Json> Session::workspaces() const {
     return read(Operation::workspace_list);
+}
+
+Workspace Session::workspace(Selector<WorkspaceId> selector) const {
+    return Workspace(state_, std::move(selector), "workspace", route_);
+}
+
+Workspace Session::workspace(WorkspaceId id) const {
+    return workspace(Selector<WorkspaceId>::by_id(std::move(id)));
 }
 
 Result<MutationResult> Session::create_workspace(
@@ -1528,7 +1657,7 @@ Result<MutationResult> Session::create_workspace(
 
 Result<SessionEventStream> Session::events(
     std::optional<Cursor> cursor) const {
-    Json::Object params{{"session", Json(id_.value())}};
+    Json::Object params = routed_params();
     if (cursor) {
         params.emplace("cursor", cursor_json(*cursor));
     }
@@ -1577,11 +1706,19 @@ Result<ResourceSnapshot<WorkspaceId>> Workspace::refresh() const {
     if (!value) {
         return std::move(value).error();
     }
-    return decode_snapshot(std::move(value).value(), id_);
+    return decode_snapshot(std::move(value).value(), selected_id_);
 }
 
 Result<Json> Workspace::screens() const {
     return read(Operation::screen_list);
+}
+
+Screen Workspace::screen(Selector<ScreenId> selector) const {
+    return Screen(state_, std::move(selector), "screen", route_);
+}
+
+Screen Workspace::screen(ScreenId id) const {
+    return screen(Selector<ScreenId>::by_id(std::move(id)));
 }
 
 Result<MutationResult> Workspace::create_screen(
@@ -1650,11 +1787,19 @@ Result<ResourceSnapshot<ScreenId>> Screen::refresh() const {
     if (!value) {
         return std::move(value).error();
     }
-    return decode_snapshot(std::move(value).value(), id_);
+    return decode_snapshot(std::move(value).value(), selected_id_);
 }
 
 Result<Json> Screen::panes() const {
     return read(Operation::pane_list);
+}
+
+Pane Screen::pane(Selector<PaneId> selector) const {
+    return Pane(state_, std::move(selector), "pane", route_);
+}
+
+Pane Screen::pane(PaneId id) const {
+    return pane(Selector<PaneId>::by_id(std::move(id)));
 }
 
 Result<MutationResult> Screen::create_pane(
@@ -1701,11 +1846,19 @@ Result<ResourceSnapshot<PaneId>> Pane::refresh() const {
     if (!value) {
         return std::move(value).error();
     }
-    return decode_snapshot(std::move(value).value(), id_);
+    return decode_snapshot(std::move(value).value(), selected_id_);
 }
 
 Result<Json> Pane::tabs() const {
     return read(Operation::tab_list);
+}
+
+Tab Pane::tab(Selector<TabId> selector) const {
+    return Tab(state_, std::move(selector), "tab", route_);
+}
+
+Tab Pane::tab(TabId id) const {
+    return tab(Selector<TabId>::by_id(std::move(id)));
 }
 
 Result<MutationResult> Pane::split(
@@ -1842,7 +1995,23 @@ Result<ResourceSnapshot<TabId>> Tab::refresh() const {
     if (!value) {
         return std::move(value).error();
     }
-    return decode_snapshot(std::move(value).value(), id_);
+    return decode_snapshot(std::move(value).value(), selected_id_);
+}
+
+Terminal Tab::terminal(Selector<TerminalId> selector) const {
+    return Terminal(state_, std::move(selector), "terminal", route_);
+}
+
+Terminal Tab::terminal(TerminalId id) const {
+    return terminal(Selector<TerminalId>::by_id(std::move(id)));
+}
+
+Browser Tab::browser(Selector<BrowserId> selector) const {
+    return Browser(state_, std::move(selector), "browser", route_);
+}
+
+Browser Tab::browser(BrowserId id) const {
+    return browser(Selector<BrowserId>::by_id(std::move(id)));
 }
 
 Result<MutationResult> Tab::rename(
@@ -1888,7 +2057,7 @@ Result<ResourceSnapshot<TerminalId>> Terminal::refresh() const {
     if (!value) {
         return std::move(value).error();
     }
-    return decode_snapshot(std::move(value).value(), id_);
+    return decode_snapshot(std::move(value).value(), selected_id_);
 }
 
 Result<MutationResult> Terminal::write(
@@ -1974,7 +2143,7 @@ Result<Json> Terminal::process() const {
 }
 
 Result<RendererGrant> Terminal::renderer_grant(Json::Object params) const {
-    params.insert_or_assign("terminal", Json(id_.value()));
+    params = routed_params(std::move(params));
     auto result = detail::resource_control(
         state_,
         Operation::terminal_renderer_grant_create,
@@ -2035,18 +2204,17 @@ Result<Json> Terminal::resize_viewer(
     return detail::resource_control(
         state_,
         Operation::terminal_viewer_resize,
-        Json::Object{
-            {"terminal", Json(id_.value())},
+        routed_params(Json::Object{
             {"cols", Json(static_cast<std::uint64_t>(columns))},
             {"rows", Json(static_cast<std::uint64_t>(rows))},
-        });
+        }));
 }
 
 Result<Json> Terminal::release_viewer() const {
     return detail::resource_control(
         state_,
         Operation::terminal_viewer_release,
-        Json::Object{{"terminal", Json(id_.value())}});
+        routed_params());
 }
 
 Result<MutationResult> Terminal::scroll(
@@ -2074,7 +2242,7 @@ Result<MutationResult> Terminal::move(
 
 Result<TerminalAttachmentStream> Terminal::attach(
     Json::Object params) const {
-    params.insert_or_assign("terminal", Json(id_.value()));
+    params = routed_params(std::move(params));
     auto stream = detail::resource_open_stream(
         state_, Operation::terminal_attach, std::move(params));
     if (!stream) {
@@ -2092,7 +2260,7 @@ Result<ResourceSnapshot<BrowserId>> Browser::refresh() const {
     if (!value) {
         return std::move(value).error();
     }
-    return decode_snapshot(std::move(value).value(), id_);
+    return decode_snapshot(std::move(value).value(), selected_id_);
 }
 
 Result<MutationResult> Browser::navigate(
@@ -2169,23 +2337,22 @@ Result<Json> Browser::resize_viewer(
     return detail::resource_control(
         state_,
         Operation::browser_viewer_resize,
-        Json::Object{
-            {"browser", Json(id_.value())},
+        routed_params(Json::Object{
             {"width_px", Json(static_cast<std::uint64_t>(width_px))},
             {"height_px", Json(static_cast<std::uint64_t>(height_px))},
-        });
+        }));
 }
 
 Result<Json> Browser::release_viewer() const {
     return detail::resource_control(
         state_,
         Operation::browser_viewer_release,
-        Json::Object{{"browser", Json(id_.value())}});
+        routed_params());
 }
 
 Result<BrowserAttachmentStream> Browser::attach(
     Json::Object params) const {
-    params.insert_or_assign("browser", Json(id_.value()));
+    params = routed_params(std::move(params));
     auto stream = detail::resource_open_stream(
         state_, Operation::browser_attach, std::move(params));
     if (!stream) {
@@ -2203,12 +2370,12 @@ Result<ResourceSnapshot<ConnectedClientId>> ConnectedClient::refresh() const {
     if (!value) {
         return std::move(value).error();
     }
-    return decode_snapshot(std::move(value).value(), id_);
+    return decode_snapshot(std::move(value).value(), selected_id_);
 }
 
 Result<Json> ConnectedClient::update_metadata(
     ClientMetadataUpdate update) const {
-    Json::Object params{{"client", Json(id_.value())}};
+    Json::Object params;
     const auto add = [&params](
                          std::string key,
                          const OptionalStringUpdate& value) {
@@ -2225,7 +2392,7 @@ Result<Json> ConnectedClient::update_metadata(
     };
     add("name", update.name);
     add("kind", update.kind);
-    if (params.size() == 1) {
+    if (params.empty()) {
         return make_error(
             ErrorCode::invalid_argument,
             "client metadata update must change name or kind");
@@ -2233,7 +2400,7 @@ Result<Json> ConnectedClient::update_metadata(
     return detail::resource_control(
         state_,
         Operation::client_metadata_update,
-        std::move(params));
+        routed_params(std::move(params)));
 }
 
 Result<Json> ConnectedClient::set_name(std::string name) const {
@@ -2259,15 +2426,17 @@ Result<Json> ConnectedClient::clear_kind() const {
 }
 
 Result<Json> ConnectedClient::set_sizing(Json::Object params) const {
-    params.insert_or_assign("client", Json(id_.value()));
     return detail::resource_control(
-        state_, Operation::client_sizing_set, std::move(params));
+        state_,
+        Operation::client_sizing_set,
+        routed_params(std::move(params)));
 }
 
 Result<Json> ConnectedClient::release_sizing(Json::Object params) const {
-    params.insert_or_assign("client", Json(id_.value()));
     return detail::resource_control(
-        state_, Operation::client_sizing_release, std::move(params));
+        state_,
+        Operation::client_sizing_release,
+        routed_params(std::move(params)));
 }
 
 Result<Json> ConnectedClient::set_cell_pixels(
@@ -2281,18 +2450,17 @@ Result<Json> ConnectedClient::set_cell_pixels(
     return detail::resource_control(
         state_,
         Operation::client_cell_pixels_set,
-        Json::Object{
-            {"client", Json(id_.value())},
+        routed_params(Json::Object{
             {"width_px", Json(static_cast<std::uint64_t>(width_px))},
             {"height_px", Json(static_cast<std::uint64_t>(height_px))},
-        });
+        }));
 }
 
 Result<Json> ConnectedClient::detach() const {
     return detail::resource_control(
         state_,
         Operation::client_detach,
-        Json::Object{{"client", Json(id_.value())}});
+        routed_params());
 }
 
 Result<Json> SidebarView::refresh() const {
@@ -2301,7 +2469,7 @@ Result<Json> SidebarView::refresh() const {
 
 Result<SidebarViewStream> SidebarView::attach(
     Json::Object params) const {
-    params.insert_or_assign("sidebar_view", Json(id_.value()));
+    params = routed_params(std::move(params));
     auto stream = detail::resource_open_stream(
         state_, Operation::sidebar_view_attach, std::move(params));
     if (!stream) {
@@ -2339,7 +2507,7 @@ Result<MutationResult> ProviderScope::invoke(
 
 Result<ProviderNoticeStream> ProviderScope::notices(
     std::optional<Cursor> cursor) const {
-    Json::Object params{{"provider_scope", Json(id_.value())}};
+    Json::Object params = routed_params();
     if (cursor) {
         params.emplace("cursor", cursor_json(*cursor));
     }
@@ -2351,12 +2519,17 @@ Result<ProviderNoticeStream> ProviderScope::notices(
     return ProviderNoticeStream(std::move(stream).value());
 }
 
-ProviderNoticeHandle ProviderScope::notice(ProviderNoticeId id) const {
+ProviderNoticeHandle ProviderScope::notice(
+    Selector<ProviderNoticeId> selector) const {
     return ProviderNoticeHandle(
         state_,
-        std::move(id),
+        std::move(selector),
         "provider_notice",
-        id_);
+        route_);
+}
+
+ProviderNoticeHandle ProviderScope::notice(ProviderNoticeId id) const {
+    return notice(Selector<ProviderNoticeId>::by_id(std::move(id)));
 }
 
 Result<MutationResult> ProviderScope::mark_workspace(
@@ -2404,15 +2577,9 @@ Result<MutationResult> ProviderScope::close_workspace(
 
 Result<Json> ProviderNoticeHandle::acknowledge(
     std::uint64_t sequence) const {
-    Json::Object params{
-        {"provider_notice", Json(id_.value())},
+    Json::Object params = routed_params(Json::Object{
         {"sequence", Json(std::to_string(sequence))},
-    };
-    if (provider_scope_) {
-        params.emplace(
-            "provider_scope",
-            Json(provider_scope_->value()));
-    }
+    });
     return detail::resource_control(
         state_,
         Operation::provider_notice_acknowledge,

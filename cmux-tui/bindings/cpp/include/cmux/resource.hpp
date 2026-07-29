@@ -11,6 +11,7 @@
 #include <optional>
 #include <ostream>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -196,6 +197,9 @@ class ResourceClientState;
     Operation operation,
     Json::Object params,
     MutationOptions options);
+void complete_structural_route(
+    Json::Object& route,
+    std::string_view target_scope);
 
 }  // namespace detail
 
@@ -265,17 +269,21 @@ public:
     };
 
     [[nodiscard]] static Selector by_id(Id id) {
-        return Selector(Kind::id, id.value());
+        auto value = id.value();
+        return Selector(Kind::id, std::move(value), std::move(id));
     }
     [[nodiscard]] static Selector current() {
-        return Selector(Kind::current, "current");
+        return Selector(Kind::current, "current", std::nullopt);
     }
     [[nodiscard]] static Selector exact_name(std::string name) {
-        return Selector(Kind::name, std::move(name));
+        return Selector(Kind::name, std::move(name), std::nullopt);
     }
 
     [[nodiscard]] Kind kind() const noexcept { return kind_; }
     [[nodiscard]] const std::string& value() const noexcept { return value_; }
+    [[nodiscard]] const std::optional<Id>& selected_id() const noexcept {
+        return selected_id_;
+    }
 
     // Names are always explicitly tagged. This avoids ambiguity with
     // "current", opaque-ID-shaped names, and future selector syntax.
@@ -284,11 +292,14 @@ public:
     }
 
 private:
-    Selector(Kind kind, std::string value)
-        : kind_(kind), value_(std::move(value)) {}
+    Selector(Kind kind, std::string value, std::optional<Id> selected_id)
+        : kind_(kind),
+          value_(std::move(value)),
+          selected_id_(std::move(selected_id)) {}
 
     Kind kind_;
     std::string value_;
+    std::optional<Id> selected_id_;
 };
 
 struct MutationOptions {
@@ -751,13 +762,33 @@ struct ClientMetadataUpdate {
 };
 
 class Client;
+class Machine;
+class Session;
+class Workspace;
+class Screen;
+class Pane;
+class Tab;
+class Terminal;
+class Browser;
 
 template <typename Id>
 class ResourceHandle {
 public:
     ResourceHandle() = default;
 
-    [[nodiscard]] const Id& id() const noexcept { return id_; }
+    [[nodiscard]] const Selector<Id>& selector() const noexcept {
+        return selector_;
+    }
+    [[nodiscard]] const std::optional<Id>& selected_id() const noexcept {
+        return selected_id_;
+    }
+    [[nodiscard]] const Id& id() const {
+        if (!selected_id_) {
+            throw std::logic_error(
+                "resource handle uses a current or name selector");
+        }
+        return *selected_id_;
+    }
 
     [[nodiscard]] Result<Json> read(
         Operation operation,
@@ -765,8 +796,8 @@ public:
         if (!state_) {
             return make_error(ErrorCode::closed, "resource handle has no client");
         }
-        params.insert_or_assign(scope_, Json(id_.value()));
-        return detail::resource_read(state_, operation, std::move(params));
+        return detail::resource_read(
+            state_, operation, routed_params(std::move(params)));
     }
 
     [[nodiscard]] Result<MutationResult> mutate(
@@ -777,13 +808,40 @@ public:
 public:
     ResourceHandle(
         std::shared_ptr<detail::ResourceClientState> state,
+        Selector<Id> selector,
+        std::string scope,
+        Json::Object ancestors = {})
+        : state_(std::move(state)),
+          selector_(std::move(selector)),
+          selected_id_(selector_.selected_id()),
+          route_(std::move(ancestors)) {
+        if (selector_.kind() != Selector<Id>::Kind::id) {
+            detail::complete_structural_route(route_, scope);
+        }
+        route_.insert_or_assign(std::move(scope), Json(selector_.wire()));
+    }
+    ResourceHandle(
+        std::shared_ptr<detail::ResourceClientState> state,
         Id id,
-        std::string scope)
-        : state_(std::move(state)), id_(std::move(id)), scope_(std::move(scope)) {}
+        std::string scope,
+        Json::Object ancestors = {})
+        : ResourceHandle(
+              std::move(state),
+              Selector<Id>::by_id(std::move(id)),
+              std::move(scope),
+              std::move(ancestors)) {}
 
+protected:
+    [[nodiscard]] Json::Object routed_params(Json::Object params = {}) const {
+        for (const auto& [scope, selector] : route_) {
+            params.insert_or_assign(scope, selector);
+        }
+        return params;
+    }
     std::shared_ptr<detail::ResourceClientState> state_;
-    Id id_;
-    std::string scope_;
+    Selector<Id> selector_{Selector<Id>::current()};
+    std::optional<Id> selected_id_;
+    Json::Object route_;
 };
 
 class Machine final : public ResourceHandle<MachineId> {
@@ -791,6 +849,8 @@ public:
     using ResourceHandle::ResourceHandle;
     [[nodiscard]] Result<ResourceSnapshot<MachineId>> refresh() const;
     [[nodiscard]] Result<Json> sessions() const;
+    [[nodiscard]] Session session(Selector<SessionId> selector) const;
+    [[nodiscard]] Session session(SessionId id) const;
     [[nodiscard]] Result<MutationResult> rename(
         std::string name,
         MutationOptions options = MutationOptions::unique()) const;
@@ -811,6 +871,9 @@ public:
     [[nodiscard]] Result<Json> snapshot() const;
     [[nodiscard]] Result<Json> ping() const;
     [[nodiscard]] Result<Json> workspaces() const;
+    [[nodiscard]] Workspace workspace(
+        Selector<WorkspaceId> selector) const;
+    [[nodiscard]] Workspace workspace(WorkspaceId id) const;
     [[nodiscard]] Result<MutationResult> create_workspace(
         CreateWorkspaceOptions create = {},
         MutationOptions mutation = MutationOptions::unique()) const;
@@ -835,6 +898,8 @@ public:
     using ResourceHandle::ResourceHandle;
     [[nodiscard]] Result<ResourceSnapshot<WorkspaceId>> refresh() const;
     [[nodiscard]] Result<Json> screens() const;
+    [[nodiscard]] Screen screen(Selector<ScreenId> selector) const;
+    [[nodiscard]] Screen screen(ScreenId id) const;
     [[nodiscard]] Result<MutationResult> create_screen(
         Json::Object params = {},
         MutationOptions options = MutationOptions::unique()) const;
@@ -863,6 +928,8 @@ public:
     using ResourceHandle::ResourceHandle;
     [[nodiscard]] Result<ResourceSnapshot<ScreenId>> refresh() const;
     [[nodiscard]] Result<Json> panes() const;
+    [[nodiscard]] Pane pane(Selector<PaneId> selector) const;
+    [[nodiscard]] Pane pane(PaneId id) const;
     [[nodiscard]] Result<MutationResult> create_pane(
         Json::Object params = {},
         MutationOptions options = MutationOptions::unique()) const;
@@ -885,6 +952,8 @@ public:
     using ResourceHandle::ResourceHandle;
     [[nodiscard]] Result<ResourceSnapshot<PaneId>> refresh() const;
     [[nodiscard]] Result<Json> tabs() const;
+    [[nodiscard]] Tab tab(Selector<TabId> selector) const;
+    [[nodiscard]] Tab tab(TabId id) const;
     [[nodiscard]] Result<MutationResult> split(
         Json::Object params,
         MutationOptions options = MutationOptions::unique()) const;
@@ -929,6 +998,11 @@ class Tab final : public ResourceHandle<TabId> {
 public:
     using ResourceHandle::ResourceHandle;
     [[nodiscard]] Result<ResourceSnapshot<TabId>> refresh() const;
+    [[nodiscard]] Terminal terminal(
+        Selector<TerminalId> selector) const;
+    [[nodiscard]] Terminal terminal(TerminalId id) const;
+    [[nodiscard]] Browser browser(Selector<BrowserId> selector) const;
+    [[nodiscard]] Browser browser(BrowserId id) const;
     [[nodiscard]] Result<MutationResult> rename(
         std::string name,
         MutationOptions options = MutationOptions::unique()) const;
@@ -1075,6 +1149,8 @@ public:
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<ProviderNoticeStream> notices(
         std::optional<Cursor> cursor = std::nullopt) const;
+    [[nodiscard]] ProviderNoticeHandle notice(
+        Selector<ProviderNoticeId> selector) const;
     [[nodiscard]] ProviderNoticeHandle notice(ProviderNoticeId id) const;
     [[nodiscard]] Result<MutationResult> mark_workspace(
         SessionId session,
@@ -1094,21 +1170,8 @@ public:
 using ProviderAction = AuxiliaryHandle<ProviderActionId>;
 class ProviderNoticeHandle final : public ResourceHandle<ProviderNoticeId> {
 public:
-    ProviderNoticeHandle(
-        std::shared_ptr<detail::ResourceClientState> state,
-        ProviderNoticeId id,
-        std::string scope,
-        std::optional<ProviderScopeId> provider_scope = std::nullopt)
-        : ResourceHandle(
-              std::move(state),
-              std::move(id),
-              std::move(scope)),
-          provider_scope_(std::move(provider_scope)) {}
-
+    using ResourceHandle::ResourceHandle;
     [[nodiscard]] Result<Json> acknowledge(std::uint64_t sequence) const;
-
-private:
-    std::optional<ProviderScopeId> provider_scope_;
 };
 
 class Client {
@@ -1148,23 +1211,49 @@ public:
     [[nodiscard]] Result<ProviderNoticeStream> open_provider_notices(
         Json::Object params) const;
 
+    [[nodiscard]] Machine machine(Selector<MachineId> selector) const;
     [[nodiscard]] Machine machine(MachineId id) const;
+    [[nodiscard]] Session session(Selector<SessionId> selector) const;
     [[nodiscard]] Session session(SessionId id) const;
+    [[nodiscard]] Workspace workspace(Selector<WorkspaceId> selector) const;
     [[nodiscard]] Workspace workspace(WorkspaceId id) const;
+    [[nodiscard]] Screen screen(Selector<ScreenId> selector) const;
     [[nodiscard]] Screen screen(ScreenId id) const;
+    [[nodiscard]] Pane pane(Selector<PaneId> selector) const;
     [[nodiscard]] Pane pane(PaneId id) const;
+    [[nodiscard]] Tab tab(Selector<TabId> selector) const;
     [[nodiscard]] Tab tab(TabId id) const;
+    [[nodiscard]] Terminal terminal(Selector<TerminalId> selector) const;
     [[nodiscard]] Terminal terminal(TerminalId id) const;
+    [[nodiscard]] Browser browser(Selector<BrowserId> selector) const;
     [[nodiscard]] Browser browser(BrowserId id) const;
+    [[nodiscard]] ConnectedClient connected_client(
+        Selector<ConnectedClientId> selector) const;
     [[nodiscard]] ConnectedClient connected_client(ConnectedClientId id) const;
+    [[nodiscard]] Notification notification(
+        Selector<NotificationId> selector) const;
     [[nodiscard]] Notification notification(NotificationId id) const;
+    [[nodiscard]] Agent agent(Selector<AgentId> selector) const;
     [[nodiscard]] Agent agent(AgentId id) const;
+    [[nodiscard]] PairingRequest pairing_request(
+        Selector<PairingRequestId> selector) const;
     [[nodiscard]] PairingRequest pairing_request(PairingRequestId id) const;
+    [[nodiscard]] FrontendProjection projection(
+        Selector<FrontendProjectionId> selector) const;
     [[nodiscard]] FrontendProjection projection(FrontendProjectionId id) const;
+    [[nodiscard]] SidebarView sidebar_view(
+        Selector<SidebarViewId> selector) const;
     [[nodiscard]] SidebarView sidebar_view(SidebarViewId id) const;
+    [[nodiscard]] ProviderScope provider_scope(
+        Selector<ProviderScopeId> selector) const;
     [[nodiscard]] ProviderScope provider_scope(ProviderScopeId id) const;
+    [[nodiscard]] ProviderAction provider_action(
+        Selector<ProviderActionId> selector) const;
     [[nodiscard]] ProviderAction provider_action(ProviderActionId id) const;
-    [[nodiscard]] ProviderNoticeHandle provider_notice(ProviderNoticeId id) const;
+    [[nodiscard]] ProviderNoticeHandle provider_notice(
+        Selector<ProviderNoticeId> selector) const;
+    [[nodiscard]] ProviderNoticeHandle provider_notice(
+        ProviderNoticeId id) const;
 
     [[nodiscard]] Result<Json> machines() const;
     [[nodiscard]] Result<Json> sessions(
@@ -1208,9 +1297,11 @@ Result<MutationResult> ResourceHandle<Id>::mutate(
     if (!state_) {
         return make_error(ErrorCode::closed, "resource handle has no client");
     }
-    params.insert_or_assign(scope_, Json(id_.value()));
     return detail::resource_mutate(
-        state_, operation, std::move(params), std::move(options));
+        state_,
+        operation,
+        routed_params(std::move(params)),
+        std::move(options));
 }
 
 // Lowercase alias for projects that standardize on result<T>.

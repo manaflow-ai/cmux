@@ -111,6 +111,16 @@ std::string response(
            id + "\",\"ok\":true,\"result\":" + result + "}";
 }
 
+std::string error_response(
+    std::string id,
+    std::string code,
+    std::string details = "{}") {
+    return "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\",\"id\":\"" +
+           id + "\",\"ok\":false,\"error\":{\"code\":\"" + code +
+           "\",\"message\":\"test error\",\"details\":" + details +
+           ",\"retryable\":false}}";
+}
+
 }  // namespace
 
 static_assert(!std::is_copy_constructible_v<cmux::ResourceStream>);
@@ -433,7 +443,7 @@ TEST("renderer grants and provider secrets never format capabilities") {
     CHECK(grant_output.str().find("[REDACTED]") != std::string::npos);
 }
 
-TEST("copying and dropping a handle performs no IO") {
+TEST("constructing copying and dropping selector handles performs no IO") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);
     auto id = cmux::WorkspaceId::parse(
@@ -443,9 +453,191 @@ TEST("copying and dropping a handle performs no IO") {
         auto workspace = client.workspace(std::move(id).value());
         auto copied = workspace;
         CHECK_EQ(copied.id().value(), workspace.id().value());
+        CHECK(copied.selected_id().has_value());
+
+        auto terminal =
+            client.machine(
+                      cmux::Selector<cmux::MachineId>::exact_name("remote"))
+                .session(cmux::Selector<cmux::SessionId>::current())
+                .workspace(
+                    cmux::Selector<cmux::WorkspaceId>::exact_name(
+                        "duplicate"))
+                .screen(cmux::Selector<cmux::ScreenId>::current())
+                .pane(cmux::Selector<cmux::PaneId>::exact_name("editor"))
+                .tab(cmux::Selector<cmux::TabId>::current())
+                .terminal(
+                    cmux::Selector<cmux::TerminalId>::exact_name("shell"));
+        auto terminal_copy = terminal;
+        CHECK_EQ(
+            terminal_copy.selector().kind(),
+            cmux::Selector<cmux::TerminalId>::Kind::name);
+        CHECK_EQ(terminal_copy.selector().value(), std::string("shell"));
+        CHECK(!terminal_copy.selected_id().has_value());
+
+        auto browser =
+            client.tab(cmux::Selector<cmux::TabId>::current())
+                .browser(cmux::Selector<cmux::BrowserId>::current());
+        CHECK_EQ(
+            browser.selector().kind(),
+            cmux::Selector<cmux::BrowserId>::Kind::current);
     }
     std::lock_guard lock(state->mutex);
     CHECK(state->outgoing.empty());
+}
+
+TEST("duplicate name selectors preserve ambiguity candidates and route") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    enqueue(
+        state,
+        error_response(
+            "cpp-request-1",
+            "selector.ambiguous",
+            R"({"candidates":["ws_11111111111111111111111111111111","ws_22222222222222222222222222222222"]})"));
+    auto result =
+        client.session(cmux::Selector<cmux::SessionId>::current())
+            .workspace(
+                cmux::Selector<cmux::WorkspaceId>::exact_name("duplicate"))
+            .rename("must-not-apply");
+    CHECK(!result);
+    CHECK_EQ(
+        result.error().protocol_code,
+        std::string("selector.ambiguous"));
+    CHECK(result.error().details != nullptr);
+    const auto* candidates =
+        result.error().details->find("candidates")->as_array().value();
+    CHECK_EQ(candidates->size(), 2U);
+
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 1U);
+    auto envelope = cmux::Json::parse(state->outgoing.front());
+    CHECK(envelope);
+    const auto* params =
+        envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        params->at("machine").as_string().value(),
+        std::string_view("current"));
+    CHECK_EQ(
+        params->at("session").as_string().value(),
+        std::string_view("current"));
+    CHECK_EQ(
+        params->at("workspace").as_string().value(),
+        std::string_view("name:duplicate"));
+    CHECK_EQ(
+        params->at("name").as_string().value(),
+        std::string_view("must-not-apply"));
+}
+
+TEST("nested selectors send the complete route for wrong-parent checks") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    enqueue(
+        state,
+        error_response("cpp-request-1", "selector.wrong_parent"));
+    auto result =
+        client.machine(
+                  cmux::Selector<cmux::MachineId>::exact_name("edge"))
+            .session(
+                cmux::Selector<cmux::SessionId>::exact_name("development"))
+            .workspace(
+                cmux::Selector<cmux::WorkspaceId>::exact_name("parent-a"))
+            .screen(
+                cmux::Selector<cmux::ScreenId>::exact_name(
+                    "screen-under-parent-b"))
+            .pane(cmux::Selector<cmux::PaneId>::current())
+            .tab(cmux::Selector<cmux::TabId>::exact_name("logs"))
+            .terminal(cmux::Selector<cmux::TerminalId>::current())
+            .read_screen();
+    CHECK(!result);
+    CHECK_EQ(
+        result.error().protocol_code,
+        std::string("selector.wrong_parent"));
+
+    std::lock_guard lock(state->mutex);
+    auto envelope = cmux::Json::parse(state->outgoing.front());
+    CHECK(envelope);
+    const auto* params =
+        envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        params->at("machine").as_string().value(),
+        std::string_view("name:edge"));
+    CHECK_EQ(
+        params->at("session").as_string().value(),
+        std::string_view("name:development"));
+    CHECK_EQ(
+        params->at("workspace").as_string().value(),
+        std::string_view("name:parent-a"));
+    CHECK_EQ(
+        params->at("screen").as_string().value(),
+        std::string_view("name:screen-under-parent-b"));
+    CHECK_EQ(
+        params->at("pane").as_string().value(),
+        std::string_view("current"));
+    CHECK_EQ(
+        params->at("tab").as_string().value(),
+        std::string_view("name:logs"));
+    CHECK_EQ(
+        params->at("terminal").as_string().value(),
+        std::string_view("current"));
+}
+
+TEST("direct opaque nested IDs remain globally addressable") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    constexpr std::string_view pane_value =
+        "pane_0123456789abcdef0123456789abcdef";
+    enqueue(
+        state,
+        response(
+            "cpp-request-1",
+            R"({"id":"pane_0123456789abcdef0123456789abcdef","name":"detached","revision":"3"})"));
+    auto pane_id = cmux::PaneId::parse(pane_value);
+    CHECK(pane_id);
+    auto refreshed = client.pane(std::move(pane_id).value()).refresh();
+    CHECK(refreshed);
+    CHECK_EQ(refreshed.value().id.value(), std::string(pane_value));
+
+    std::lock_guard lock(state->mutex);
+    auto envelope = cmux::Json::parse(state->outgoing.front());
+    CHECK(envelope);
+    const auto* params =
+        envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        params->at("pane").as_string().value(),
+        pane_value);
+    CHECK(!params->contains("workspace"));
+    CHECK(!params->contains("screen"));
+}
+
+TEST("direct current selectors synthesize missing contiguous ancestors") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    enqueue(state, response("cpp-request-1"));
+    auto result =
+        client.terminal(cmux::Selector<cmux::TerminalId>::current())
+            .read_screen();
+    CHECK(result);
+
+    std::lock_guard lock(state->mutex);
+    auto envelope = cmux::Json::parse(state->outgoing.front());
+    CHECK(envelope);
+    const auto* params =
+        envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        params->at("workspace").as_string().value(),
+        std::string_view("current"));
+    CHECK_EQ(
+        params->at("screen").as_string().value(),
+        std::string_view("current"));
+    CHECK_EQ(
+        params->at("pane").as_string().value(),
+        std::string_view("current"));
+    CHECK_EQ(
+        params->at("tab").as_string().value(),
+        std::string_view("current"));
+    CHECK_EQ(
+        params->at("terminal").as_string().value(),
+        std::string_view("current"));
 }
 
 TEST("typed streams preserve unknown items and cancel deterministically") {
