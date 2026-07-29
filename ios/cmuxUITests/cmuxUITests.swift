@@ -493,12 +493,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(restoredMinimizedSearchMatches.firstMatch.waitForExistence(timeout: 3))
     }
 
-    /// Regression: on iOS 26 the workspace list's New Task control rendered in
-    /// the same bottom-trailing slot as the system search tab pill, so the two
-    /// stacked and New Task was occluded. The shared list host must lay the
-    /// button out clear of the search pill and keep both tappable.
+    /// Regression: the workspace list's New Task control first overlapped the
+    /// system search tab pill, then moved into a separate bar stacked above it.
+    /// Both controls belong in one horizontal bottom-control row with matching
+    /// circular geometry.
     @MainActor
-    func testWorkspaceListNewTaskButtonClearsSearchPill() throws {
+    func testWorkspaceListNewTaskButtonSharesSearchControlRow() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search pill requires iOS 26.")
         }
@@ -526,13 +526,36 @@ final class cmuxUITests: XCTestCase {
             composerFrame.intersects(searchPillFrame),
             "New Task \(composerFrame) must not overlap the search pill \(searchPillFrame)"
         )
+        XCTAssertLessThan(
+            composerFrame.maxX,
+            searchPillFrame.minX,
+            "New Task \(composerFrame) must sit before Search \(searchPillFrame) in the bottom control row"
+        )
+        XCTAssertEqual(
+            composerFrame.midY,
+            searchPillFrame.midY,
+            accuracy: 2,
+            "New Task \(composerFrame) and Search \(searchPillFrame) must share one horizontal control row"
+        )
+        XCTAssertEqual(
+            composerFrame.width,
+            searchPillFrame.width,
+            accuracy: 2,
+            "New Task \(composerFrame) must match the Search control's width \(searchPillFrame)"
+        )
+        XCTAssertEqual(
+            composerFrame.height,
+            searchPillFrame.height,
+            accuracy: 2,
+            "New Task \(composerFrame) must match the Search control's height \(searchPillFrame)"
+        )
         XCTAssertTrue(
             waitForHittable(composer, timeout: 3),
-            "New Task must be tappable next to the search pill"
+            "New Task must be tappable beside the search pill"
         )
         XCTAssertTrue(
             waitForHittable(searchPill, timeout: 3),
-            "The search pill must stay tappable next to New Task"
+            "The search pill must stay tappable beside New Task"
         )
     }
 
