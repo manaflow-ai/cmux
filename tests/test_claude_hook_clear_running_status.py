@@ -185,6 +185,160 @@ def has_command_with(commands: list[str], *fragments: str) -> bool:
     return any(all(fragment in command for fragment in fragments) for command in commands)
 
 
+def hook_environment(
+    server: HookSocketServer,
+    workspace_id: str,
+    surface_id: str,
+    state_path: Path,
+) -> dict[str, str]:
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = server.socket_path
+    env["CMUX_WORKSPACE_ID"] = workspace_id
+    env["CMUX_SURFACE_ID"] = surface_id
+    env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)
+    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+    return env
+
+
+def verify_stale_start_preserves_pending_clear_handoff(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    old_session_id = f"pending-old-{uuid.uuid4().hex}"
+    stale_session_id = f"pending-stale-{uuid.uuid4().hex}"
+    clear_session_id = f"pending-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "pending-clear-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": old_session_id, "turn_id": "turn-1", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": old_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "reason": "clear", "cwd": "/tmp"},
+            env,
+        )
+
+        # A late, non-establishing SessionStart from the old process can race
+        # between SessionEnd(clear) and the matching SessionStart(clear).
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": stale_session_id, "source": "startup", "cwd": "/tmp"},
+            env,
+        )
+
+        clear_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": clear_session_id, "source": "clear", "cwd": "/tmp"},
+            env,
+        )
+        clear_commands = server.commands[clear_start:]
+
+        if not has_command_with(
+            clear_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "A non-establishing SessionStart erased the pending /clear handoff:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+        if has_command_with(
+            clear_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "Pending background work became Idle after a stale SessionStart:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        clear_record = state["sessions"][clear_session_id]
+        if clear_record.get("agentLifecycle") != "running":
+            raise RuntimeError(
+                "The clear session did not inherit the pending lifecycle:\n"
+                f"clear_record={clear_record!r}"
+            )
+
+
+def verify_failed_clear_store_preserves_visible_state(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    running_session_id = f"running-{uuid.uuid4().hex}"
+    clear_session_id = f"failed-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        valid_state_path = Path(server.root.name) / "running-state.json"
+        env = hook_environment(server, workspace_id, surface_id, valid_state_path)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": running_session_id, "turn_id": "turn-1", "cwd": "/tmp"},
+            env,
+        )
+
+        blocked_parent = Path(server.root.name) / "not-a-directory"
+        blocked_parent.write_text("blocks state-store creation")
+        failed_store_env = hook_environment(
+            server,
+            workspace_id,
+            surface_id,
+            blocked_parent / "claude-hook-state.json",
+        )
+
+        failed_clear_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": clear_session_id, "source": "clear", "cwd": "/tmp"},
+            failed_store_env,
+        )
+        failed_clear_commands = server.commands[failed_clear_start:]
+
+        forbidden_fragments = [
+            "set_agent_lifecycle claude_code idle ",
+            "set_status claude_code Idle ",
+            "clear_notifications ",
+            '"method":"surface.resume.set"',
+        ]
+        for fragment in forbidden_fragments:
+            if has_command(failed_clear_commands, fragment):
+                raise RuntimeError(
+                    "A failed /clear state transaction published a new Idle boundary:\n"
+                    f"fragment={fragment!r}\ncommands={failed_clear_commands!r}"
+                )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -199,13 +353,7 @@ def main() -> int:
 
     with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
         state_path = Path(server.root.name) / "claude-hook-state.json"
-        env = os.environ.copy()
-        env["CMUX_SOCKET_PATH"] = server.socket_path
-        env["CMUX_WORKSPACE_ID"] = workspace_id
-        env["CMUX_SURFACE_ID"] = surface_id
-        env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)
-        env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
         old_pid_env = env.copy()
         old_pid_env["CMUX_CLAUDE_PID"] = "11111"
         clear_pid_env = env.copy()
@@ -379,7 +527,14 @@ def main() -> int:
                 print(f"old_session_end_commands={old_session_end_commands!r}")
                 return 1
 
-    print("PASS: Claude /clear stays Idle until prompt-submit begins the next turn")
+    try:
+        verify_stale_start_preserves_pending_clear_handoff(cli_path)
+        verify_failed_clear_store_preserves_visible_state(cli_path)
+    except Exception as exc:
+        print(f"FAIL: {exc}")
+        return 1
+
+    print("PASS: Claude /clear lifecycle boundaries remain idle, current, and failure-safe")
     return 0
 
 
