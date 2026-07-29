@@ -459,6 +459,22 @@ import Testing
             supportedHostCapabilities: ["old.capability"],
             actionCapabilities: .none
         )
+        shell.workspacesByMac["mac-a"] = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: .init(rawValue: "workspace-a"),
+                    macDeviceID: "mac-a",
+                    name: "Workspace A",
+                    terminals: []
+                ),
+            ],
+            status: .connected
+        )
+        shell.setSelectedWorkspaceID(
+            shell.workspaces.first(where: { $0.macDeviceID == "mac-a" })?.id
+        )
         shell.secondaryMacSubscriptions["mac-b"] = SecondaryMacSubscription(
             macDeviceID: "mac-b",
             client: displacedControlClient,
@@ -493,6 +509,8 @@ import Testing
         #expect(shell.activeTicket?.macDeviceID == "mac-b")
         #expect(shell.activeRoute == targetRoute)
         #expect(shell.connectedHostName == "Mac B")
+        #expect(shell.selectedWorkspace?.macDeviceID == "mac-b")
+        #expect(shell.selectedWorkspace?.rpcWorkspaceID.rawValue == "live-workspace")
         #expect(shell.secondaryMacSubscriptions["mac-b"] == nil)
         #expect(shell.connections["mac-b"]?.supportedHostCapabilities
             == Set(targetCapabilities))
@@ -508,6 +526,62 @@ import Testing
         } catch {
             // Expected: the old control owner was retired before focus published.
         }
+    }
+
+    @Test func lateAnonymousIdentityRegistersFocusedConnection() async throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "late-identity",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let anonymousTicket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: anonymousTicket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected
+        )
+        shell.remoteClient = client
+        shell.activeTicket = anonymousTicket
+        shell.activeRoute = route
+        shell.supportedHostCapabilities = ["workspace.actions.v1"]
+
+        await shell.applyHostReportedIdentityForTesting(
+            deviceID: "mac-late",
+            displayName: "Late Mac",
+            instanceTag: "mmpool"
+        )
+
+        #expect(shell.foregroundMacDeviceIDForTesting() == "mac-late")
+        #expect(shell.liveMacConnections == [
+            MobileMacConnectionSnapshot(
+                macDeviceID: "mac-late",
+                displayName: "Late Mac",
+                instanceTag: "mmpool",
+                role: .focused
+            ),
+        ])
+        #expect(shell.connections["mac-late"]?.client === client)
     }
 
     @Test func anonymousSwitchClearsPreviousFocusedIdentity() async throws {
@@ -662,6 +736,8 @@ import Testing
             supportedHostCapabilities: [],
             actionCapabilities: .none
         )
+        shell.beginSecondaryRetryBackoffForTesting()
+        #expect(shell.secondaryRetryBackoffIsScheduledForTesting())
         shell.applyPresenceUpdate(
             Self.snapshot([
                 Self.instance(
@@ -677,8 +753,11 @@ import Testing
             )
         )
 
-        await shell.refreshSecondaryMacWorkspaces()
+        let removedAfterPresence = try await pollUntil {
+            shell.secondaryMacSubscriptions["mac-offline"] == nil
+        }
 
+        #expect(removedAfterPresence)
         #expect(shell.secondaryMacSubscriptions["mac-offline"] == nil)
         #expect(shell.workspacesByMac["mac-offline"]?.status == .unavailable)
         #expect(shell.workspacesByMac["mac-offline"]?.workspaces.map(\.name)

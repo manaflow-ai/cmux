@@ -910,6 +910,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var secondaryAggregationTask: Task<Void, Never>?
     private var secondaryAggregationTaskGeneration = UUID()
     private var secondaryAggregationPending = false
+    /// Incremental presence edges are reconciled only for their affected Macs.
+    /// One coalesced task drains the pending id set without widening each edge
+    /// into a pool-wide workspace refresh.
+    private var secondaryPresenceAggregationTask: Task<Void, Never>?
+    private var secondaryPresencePendingMacIDs: Set<String> = []
     /// Coalesced retry after any control-pool dial or stream failure. One task
     /// covers all online Macs so simultaneous cellular path loss does not fan
     /// out timers.
@@ -2489,8 +2494,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             switch update {
             case .seen:
                 break
-            case .snapshot, .online, .offline, .routes:
+            case .snapshot:
                 scheduleSecondaryAggregation()
+            case .online(let instance), .routes(let instance):
+                scheduleSecondaryPresenceAggregation(
+                    forMacDeviceID: instance.deviceId
+                )
+            case .offline(let instance, _):
+                scheduleSecondaryPresenceAggregation(
+                    forMacDeviceID: instance.deviceId
+                )
             }
         }
     }
@@ -3100,13 +3113,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             routes: ticket.routes,
             expiresAt: ticket.expiresAt,
             authToken: ticket.authToken
-           ) {
+            ) {
             resolvedTicket = adopted
             activeTicket = adopted
-            // Move the foreground aggregate key from the anonymous key to the real
-            // id so the Computers screen recognizes this Mac as connected and
-            // secondary aggregation excludes it (no duplicate connection to self).
-            adoptForegroundMacIdentity(reportedID)
         } else {
             // An authenticated status response may refresh metadata only for
             // the Mac this connection already represents. A mismatched reply
@@ -3140,6 +3149,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if activeMacInstanceTag == nil, let resolvedTag, !resolvedTag.isEmpty {
             activeMacInstanceTag = resolvedTag
         }
+        // Move the foreground aggregate and connection-registry keys from the
+        // anonymous placeholder to the authenticated id.
+        adoptForegroundMacIdentity(reportedID)
         let tagUpdate: PairedMacInstanceTagUpdate
         if resolvedTag?.isEmpty == false {
             tagUpdate = .replace(resolvedTag)
@@ -3646,10 +3658,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// triggers into one in-flight pass plus one trailing pass so a valid connect
     /// is never starved by cancel/restart churn.
     func scheduleSecondaryAggregation() {
-        // The shared retry timer owns the next dial opportunity. Presence pushes
-        // remain useful for pool membership, but cannot bypass the cooldown and
-        // multiply a cellular or broker outage by the number of online Macs.
-        guard secondaryAggregationRetryTask == nil else { return }
         guard secondaryAggregationTask == nil else {
             secondaryAggregationPending = true
             return
@@ -3660,17 +3668,42 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self else { return }
             repeat {
                 self.secondaryAggregationPending = false
-                await self.refreshSecondaryMacWorkspaces()
+                await self.refreshSecondaryMacWorkspaces(
+                    allowsNewConnections: self.secondaryAggregationRetryTask == nil
+                )
             } while self.secondaryAggregationTaskGeneration == taskGeneration
                 && self.secondaryAggregationPending
-                && self.secondaryAggregationRetryTask == nil
                 && !Task.isCancelled
             guard self.secondaryAggregationTaskGeneration == taskGeneration else { return }
             self.secondaryAggregationTask = nil
             self.secondaryAggregationPending = false
         }
     }
-    func refreshSecondaryMacWorkspaces() async {
+
+    private func scheduleSecondaryPresenceAggregation(
+        forMacDeviceID macDeviceID: String
+    ) {
+        secondaryPresencePendingMacIDs.insert(cmxCanonicalDeviceID(macDeviceID))
+        guard secondaryPresenceAggregationTask == nil else { return }
+        secondaryPresenceAggregationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !self.secondaryPresencePendingMacIDs.isEmpty,
+                  !Task.isCancelled {
+                let macIDs = self.secondaryPresencePendingMacIDs
+                self.secondaryPresencePendingMacIDs = []
+                await self.refreshSecondaryMacWorkspaces(
+                    onlyMacDeviceIDs: macIDs,
+                    allowsNewConnections: self.secondaryAggregationRetryTask == nil
+                )
+            }
+            self.secondaryPresenceAggregationTask = nil
+        }
+    }
+
+    func refreshSecondaryMacWorkspaces(
+        onlyMacDeviceIDs: Set<String>? = nil,
+        allowsNewConnections: Bool = true
+    ) async {
         guard let pairedMacStore, multiMacAggregationEnabled else { return }
         // Require a concrete signed-in user before any load/connection: a nil/empty
         // account would make `loadAll(stackUserID: nil)` read EVERY locally stored
@@ -3688,12 +3721,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isAggregationScopeValid(scope) else { return }
         let visibleLoadedMacs = await visibleStoredPairedMacs(from: loadedMacs, scope: scope)
         guard await isAggregationScopeValid(scope) else { return }
-        let macs = secondaryAggregationCandidateMacs(from: visibleLoadedMacs)
+        let requestedCanonicalIDs = onlyMacDeviceIDs.map {
+            Set($0.map(cmxCanonicalDeviceID))
+        }
+        func isRequested(_ macDeviceID: String) -> Bool {
+            requestedCanonicalIDs?.contains(cmxCanonicalDeviceID(macDeviceID))
+                ?? true
+        }
+        let macs = secondaryAggregationCandidateMacs(
+            from: visibleLoadedMacs
+        ).filter { isRequested($0.macDeviceID) }
         let wanted = Set(macs.map(\.macDeviceID))
         let visibleMacIDs = Set(visibleLoadedMacs.map(\.macDeviceID))
         let canonicalForegroundMacID = foregroundMacDeviceID.map(cmxCanonicalDeviceID)
         // Tear down subscriptions for Macs that are gone or are now the foreground.
-        for (macID, subscription) in secondaryMacSubscriptions where !wanted.contains(macID) {
+        for (macID, subscription) in secondaryMacSubscriptions
+            where isRequested(macID) && !wanted.contains(macID) {
             subscription.cancel()
             secondaryMacSubscriptions[macID] = nil
             if !visibleMacIDs.contains(macID) {
@@ -3723,7 +3766,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     existing.cancel()
                     secondaryMacSubscriptions[mac.macDeviceID] = nil
                     markSecondaryMacUnavailable(mac.macDeviceID)
-                    await establishSecondaryMacSubscription(for: mac, scope: scope)
+                    if allowsNewConnections {
+                        await establishSecondaryMacSubscription(for: mac, scope: scope)
+                    }
                     continue
                 }
                 let previews = await fetchSecondaryWorkspaces(on: existing.client, macDeviceID: mac.macDeviceID)
@@ -3751,19 +3796,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     existing.cancel()
                     secondaryMacSubscriptions[mac.macDeviceID] = nil
                     markSecondaryMacUnavailable(mac.macDeviceID)
-                    await establishSecondaryMacSubscription(
-                        for: mac, scope: scope)
+                    if allowsNewConnections {
+                        await establishSecondaryMacSubscription(
+                            for: mac, scope: scope)
+                    }
                 }
-            } else {
+            } else if allowsNewConnections {
                 await establishSecondaryMacSubscription(
                     for: mac, scope: scope)
             }
         }
-        if wanted.allSatisfy({ secondaryMacSubscriptions[$0] != nil }) {
+        let allWantedConnected = wanted.allSatisfy {
+            secondaryMacSubscriptions[$0] != nil
+        }
+        if onlyMacDeviceIDs == nil, allWantedConnected {
             secondaryAggregationRetryTask?.cancel()
             secondaryAggregationRetryTask = nil
             secondaryAggregationRetryState.reset()
-        } else if !wanted.isEmpty {
+        } else if !wanted.isEmpty, !allWantedConnected {
             // Initial dial failures need the same shared cooldown as ended live
             // streams. Otherwise every presence heartbeat immediately retries all
             // unavailable Macs and defeats the coalesced exponential backoff.
@@ -4359,6 +4409,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationTask = nil
         secondaryAggregationTaskGeneration = UUID()
         secondaryAggregationPending = false
+        secondaryPresenceAggregationTask?.cancel()
+        secondaryPresenceAggregationTask = nil
+        secondaryPresencePendingMacIDs = []
         secondaryAggregationRetryTask?.cancel()
         secondaryAggregationRetryTask = nil
         secondaryAggregationRetryState.reset()
@@ -4582,6 +4635,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markSecondaryMacUnavailable(macID)
     }
     func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
+    func beginSecondaryRetryBackoffForTesting() {
+        scheduleSecondaryAggregationRetry()
+    }
+    func secondaryRetryBackoffIsScheduledForTesting() -> Bool {
+        secondaryAggregationRetryTask != nil
+    }
+    func applyHostReportedIdentityForTesting(
+        deviceID: String,
+        displayName: String?,
+        instanceTag: String?
+    ) async {
+        guard let client = remoteClient else { return }
+        await applyHostReportedIdentity(
+            client: client,
+            deviceID: deviceID,
+            displayName: displayName,
+            instanceTag: instanceTag
+        )
+    }
     func pooledRouteForTesting(macDeviceID: String) -> CmxAttachRoute? {
         connections[macDeviceID]?.route
     }
@@ -4654,8 +4726,41 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspacesByMac[macDeviceID] = state
         }
         if let connection = connections[oldKey] {
-            connections[oldKey] = nil
-            connections[macDeviceID] = connection
+            removeFocusedConnection(ifMatching: connection)
+            installFocusedConnection(MacConnection(
+                macDeviceID: macDeviceID,
+                ticket: activeTicket ?? connection.ticket,
+                route: connection.route,
+                client: connection.client,
+                generation: connection.generation,
+                displayName: connectedHostName,
+                instanceTag: activeMacInstanceTag ?? connection.instanceTag,
+                supportedHostCapabilities: supportedHostCapabilities,
+                actionCapabilities: Self.workspaceActionCapabilities(
+                    from: supportedHostCapabilities,
+                    allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
+                )
+            ))
+        } else if let client = remoteClient,
+                  let ticket = activeTicket,
+                  let route = activeRoute {
+            // Anonymous connections have no registry key at initial auth time.
+            // Once status supplies the real id, register the already-live client
+            // so a later Mac switch can demote it into the warm control pool.
+            installFocusedConnection(MacConnection(
+                macDeviceID: macDeviceID,
+                ticket: ticket,
+                route: route,
+                client: client,
+                generation: connectionGeneration,
+                displayName: connectedHostName,
+                instanceTag: activeMacInstanceTag,
+                supportedHostCapabilities: supportedHostCapabilities,
+                actionCapabilities: Self.workspaceActionCapabilities(
+                    from: supportedHostCapabilities,
+                    allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
+                )
+            ))
         }
     }
 
@@ -5931,6 +6036,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     applyRemoteWorkspaceList(
                         response,
                         preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget,
+                        forceForegroundSelection:
+                            previousForegroundKey != foregroundMacKey,
                         // Scoped requests omit groups; only a non-scoped (full) list
                         // is authoritative for the device-local collapse store.
                         groupsAreAuthoritative: !workspaceListRequest.isScoped
@@ -8788,6 +8895,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func applyRemoteWorkspaceList(
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
+        forceForegroundSelection: Bool = false,
         mergeExistingWorkspaces: Bool = false,
         groupsAreAuthoritative: Bool = true,
         changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope = .fullSnapshot
@@ -8818,6 +8926,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             scheduleWorkspaceChangesSummaryRefresh(
                 workspaceIDs: changesSummaryWorkspaceIDs
             )
+        }
+        if forceForegroundSelection {
+            selectWorkspaceOnCurrentForegroundMac()
+            return
         }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
@@ -8897,6 +9009,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             syncSelectedTerminalForWorkspace()
         }
         return true
+    }
+
+    /// A Mac focus change must also move selection to a workspace owned by that
+    /// Mac. Aggregate rows from the demoted Mac stay visible, so ordinary
+    /// selection preservation cannot enforce this ownership boundary.
+    func selectWorkspaceOnCurrentForegroundMac() {
+        if selectActiveTicketTargetIfAvailable() {
+            return
+        }
+        let target = workspaces.first { workspace in
+            if let foregroundMacDeviceID {
+                return workspace.macDeviceID == foregroundMacDeviceID
+            }
+            return workspace.macDeviceID == nil
+        }
+        setSelectedWorkspaceID(target?.id)
+        syncSelectedTerminalForWorkspace()
     }
 
     func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
