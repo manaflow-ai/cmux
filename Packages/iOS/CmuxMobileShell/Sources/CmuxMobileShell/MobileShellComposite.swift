@@ -6659,11 +6659,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let generation = connectionGeneration
         if let terminalLaneCoordinator {
             let laneResult: MobileTerminalLaneCoordinator.InputResult
-            if terminalInputRPCPipeline.hasUnsettledRequests {
+            if terminalInputRPCPipeline.hasUnsettledRequests(
+                surfaceID: terminalID.rawValue
+            ) {
                 if await terminalLaneCoordinator.isOutputReady(
                     surfaceID: terminalID.rawValue
                 ) {
-                    await terminalInputRPCPipeline.waitUntilAllSettled()
+                    await terminalInputRPCPipeline.waitUntilAllSettled(
+                        surfaceID: terminalID.rawValue
+                    )
                     // The barrier can also resume via a connection-lifecycle
                     // clear() (sign-out, reconnect, new pairing attempt). The
                     // captured generation/client are then stale; fail closed
@@ -6709,6 +6713,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            ) {
             do {
                 try await terminalInputRPCPipeline.enqueue(
+                    surfaceID: terminalID.rawValue,
                     makeRequest: {
                         try await client.sendRequestPipelined(
                             MobileCoreRPCClient.requestData(

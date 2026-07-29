@@ -9,6 +9,7 @@ final class MobileTerminalInputRPCPipeline {
 
     private struct Entry {
         let id: UUID
+        let surfaceID: String
         let request: MobileCoreRPCPipelinedRequest
         let settlementHandler: SettlementHandler
     }
@@ -17,13 +18,19 @@ final class MobileTerminalInputRPCPipeline {
 
     private var entries: [Entry] = []
     private var capacityWaiters: [CheckedContinuation<Void, Never>] = []
-    private var allSettledWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Lane-transition barriers are per surface: ordering only matters within
+    /// one PTY, and an app-wide wait would let one terminal's slow response
+    /// stall a different terminal's healthy lane.
+    private var settledWaitersBySurfaceID: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var reaperTask: Task<Void, Never>?
     private var generation = UUID()
 
-    var hasUnsettledRequests: Bool { !entries.isEmpty }
+    func hasUnsettledRequests(surfaceID: String) -> Bool {
+        entries.contains { $0.surfaceID == surfaceID }
+    }
 
     func enqueue(
+        surfaceID: String,
         makeRequest: @MainActor () async throws -> MobileCoreRPCPipelinedRequest,
         settlementHandler: @escaping SettlementHandler
     ) async throws {
@@ -46,16 +53,17 @@ final class MobileTerminalInputRPCPipeline {
         }
         entries.append(Entry(
             id: UUID(),
+            surfaceID: surfaceID,
             request: request,
             settlementHandler: settlementHandler
         ))
         startReaperIfNeeded()
     }
 
-    func waitUntilAllSettled() async {
-        guard !entries.isEmpty else { return }
+    func waitUntilAllSettled(surfaceID: String) async {
+        guard hasUnsettledRequests(surfaceID: surfaceID) else { return }
         await withCheckedContinuation { continuation in
-            allSettledWaiters.append(continuation)
+            settledWaitersBySurfaceID[surfaceID, default: []].append(continuation)
         }
     }
 
@@ -100,6 +108,9 @@ final class MobileTerminalInputRPCPipeline {
             }
             entries.removeFirst()
             entry.settlementHandler(result)
+            if !hasUnsettledRequests(surfaceID: entry.surfaceID) {
+                resumeSettledWaiters(surfaceID: entry.surfaceID)
+            }
             // One settlement frees exactly one slot; waking only the
             // longest-parked producer keeps enqueue arrival order even if a
             // second producer ever appears. clear() still wakes everyone.
@@ -127,11 +138,22 @@ final class MobileTerminalInputRPCPipeline {
         }
     }
 
-    private func resumeAllSettledWaiters() {
-        let waiters = allSettledWaiters
-        allSettledWaiters = []
+    private func resumeSettledWaiters(surfaceID: String) {
+        guard let waiters = settledWaitersBySurfaceID.removeValue(forKey: surfaceID) else {
+            return
+        }
         for waiter in waiters {
             waiter.resume()
+        }
+    }
+
+    private func resumeAllSettledWaiters() {
+        let waitersBySurfaceID = settledWaitersBySurfaceID
+        settledWaitersBySurfaceID = [:]
+        for waiters in waitersBySurfaceID.values {
+            for waiter in waiters {
+                waiter.resume()
+            }
         }
     }
 }
