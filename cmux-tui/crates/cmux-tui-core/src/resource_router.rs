@@ -511,15 +511,6 @@ fn validate_operation_constraints(
                 ],
             )?;
         }
-        ResourceOperation::MachineConnectExternal => {
-            let specifier = fields["specifier"].as_str().expect("catalog string validation");
-            if specifier.chars().any(char::is_control) {
-                return Err(invalid_value(
-                    "machine.connect_external.specifier",
-                    "specifier must not contain control characters",
-                ));
-            }
-        }
         ResourceOperation::PaneSplitRatioSet | ResourceOperation::PaneSplit => {
             if let Some(ratio) = fields.get("ratio").and_then(Value::as_f64) {
                 if !(0.0 < ratio && ratio < 1.0) {
@@ -751,21 +742,9 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
     match operation {
         ResourceOperation::MachineList
         | ResourceOperation::MachineGet
-        | ResourceOperation::MachineCreate
-        | ResourceOperation::MachineRename
-        | ResourceOperation::MachineDelete
-        | ResourceOperation::MachineRestore
-        | ResourceOperation::MachinePurge
-        | ResourceOperation::MachineConnectExternal
         | ResourceOperation::SessionList
         | ResourceOperation::SessionOpen
-        | ResourceOperation::SessionGet
-        | ResourceOperation::ProviderScopeList
-        | ResourceOperation::ProviderActionInvoke
-        | ResourceOperation::ProviderNoticeAcknowledge
-        | ResourceOperation::ProviderWorkspaceMark
-        | ResourceOperation::ProviderWorkspaceRename
-        | ResourceOperation::ProviderWorkspaceClose => OperationOwner::Machine,
+        | ResourceOperation::SessionGet => OperationOwner::Machine,
         ResourceOperation::SessionShutdown
         | ResourceOperation::SessionCreationResolve
         | ResourceOperation::SessionReloadConfig
@@ -871,7 +850,6 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::BrowserViewerRelease
         | ResourceOperation::BrowserAttach
         | ResourceOperation::SidebarViewAttach
-        | ResourceOperation::ProviderNoticeEvents
         | ResourceOperation::StreamCancel => OperationOwner::Connection,
     }
 }
@@ -1370,7 +1348,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 124);
+        assert_eq!(operations.len(), 111);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();

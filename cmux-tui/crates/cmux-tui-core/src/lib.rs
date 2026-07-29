@@ -52,10 +52,7 @@ pub use mux::{
     ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
-pub use resource_api::{
-    ResourceMachineRequest, ResourceMachineService, ResourceProviderNoticeItem,
-    ResourceProviderNoticeStream,
-};
+pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;
 pub use surface::{

@@ -86,12 +86,6 @@ pub struct ResourceSelectors {
     pub pairing_request: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidebar_view: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_scope: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_action: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_notice: Option<String>,
 }
 
 impl ResourceSelectors {
@@ -139,9 +133,6 @@ impl ResourceSelectors {
             .or_else(|| self.frontend_projection.is_some().then_some("frontend_projection"))
             .or_else(|| self.pairing_request.is_some().then_some("pairing_request"))
             .or_else(|| self.sidebar_view.is_some().then_some("sidebar_view"))
-            .or_else(|| self.provider_scope.is_some().then_some("provider_scope"))
-            .or_else(|| self.provider_action.is_some().then_some("provider_action"))
-            .or_else(|| self.provider_notice.is_some().then_some("provider_notice"))
     }
 }
 

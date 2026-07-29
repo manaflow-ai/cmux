@@ -49,8 +49,8 @@ use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
 use crate::resource::{
     BrowserPublicId, ClientPublicId, ContentPublicId, RequestId as ResourceRequestId,
-    ResourceCursor, ResourceError, ResourceOperation, ResponseEnvelope as ResourceResponseEnvelope,
-    Selector, SessionPublicId, StreamPublicId, TerminalPublicId, WireDecimal,
+    ResourceError, ResourceOperation, ResponseEnvelope as ResourceResponseEnvelope, Selector,
+    SessionPublicId, StreamPublicId, TerminalPublicId, WireDecimal,
 };
 use crate::sidebar_resource::{
     SidebarRenderAttachment, SidebarRenderClientState, attach_sidebar_render, resolve_sidebar_view,
@@ -63,10 +63,9 @@ use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux,
     MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
-    RenderAttachStream, ResourceMachineRequest, ResourceProviderNoticeStream, Rgb, ScreenId,
-    SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
-    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
-    WorkspaceMutation, ZoomMode, assign_short_ids,
+    RenderAttachStream, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId,
+    SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind,
+    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -3150,7 +3149,6 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
             | ResourceOperation::BrowserViewerRelease
             | ResourceOperation::BrowserAttach
             | ResourceOperation::SidebarViewAttach
-            | ResourceOperation::ProviderNoticeEvents
             | ResourceOperation::StreamCancel
     )
 }
@@ -3245,20 +3243,6 @@ fn handle_resource_connection_message(
                         return false;
                     }
                     start_sidebar_resource_attach(mux.clone(), client, writer.clone(), start);
-                    true
-                }
-                Err(error) => send_resource_response(writer, id, Err(error)),
-            }
-        }
-        ResourceOperation::ProviderNoticeEvents => {
-            match prepare_provider_notice_stream(mux, client, writer, &request) {
-                Ok((result, mut start)) => {
-                    if !send_resource_response(writer, id, Ok(result)) {
-                        start.stream.cancel();
-                        cleanup_resource_stream(mux, client, &start.stream_id);
-                        return false;
-                    }
-                    start_provider_notice_stream(mux.clone(), client, writer.clone(), start);
                     true
                 }
                 Err(error) => send_resource_response(writer, id, Err(error)),
@@ -3893,13 +3877,6 @@ struct SidebarResourceAttachStart {
     outbound: OutboundStream,
     canceled: Arc<AtomicBool>,
     attachment: SidebarRenderAttachment,
-}
-
-struct ProviderNoticeStreamStart {
-    stream_id: StreamPublicId,
-    outbound: OutboundStream,
-    canceled: Arc<AtomicBool>,
-    stream: Box<dyn ResourceProviderNoticeStream>,
 }
 
 fn resource_stream_id(
@@ -4564,149 +4541,6 @@ fn start_sidebar_resource_attach(
             Some("open a fresh sidebar attachment"),
             Some(ResourceError::operation_failed(
                 "sidebar_view.attach",
-                error.to_string(),
-                json!({}),
-            )),
-        );
-        let _ = writer.send_terminal(&end, &outbound);
-        cleanup_resource_stream(&mux, client, &stream_id);
-    }
-}
-
-fn prepare_provider_notice_stream(
-    mux: &Arc<Mux>,
-    client: u64,
-    writer: &MessageWriter,
-    request: &crate::resource_router::ParsedResourceRequest,
-) -> Result<(Value, ProviderNoticeStreamStart), ResourceError> {
-    let stream_id = resource_stream_id(request)?;
-    let machine_request = ResourceMachineRequest {
-        operation: request.envelope.operation,
-        selectors: request.selectors.clone(),
-        fields: request.fields.clone(),
-        idempotency_key: request.envelope.idempotency_key.clone(),
-    };
-    let mut stream =
-        mux.resource_machine_service().open_provider_notice_stream(&machine_request)?;
-    let (outbound, canceled) = match install_resource_outbound(
-        mux,
-        client,
-        writer,
-        &stream_id,
-        "provider_notice.events",
-    ) {
-        Ok(installed) => installed,
-        Err(error) => {
-            stream.cancel();
-            return Err(error);
-        }
-    };
-    Ok((
-        json!({"stream_id":stream_id}),
-        ProviderNoticeStreamStart { stream_id, outbound, canceled, stream },
-    ))
-}
-
-fn send_provider_notice_stream_item(
-    writer: &MessageWriter,
-    outbound: &OutboundStream,
-    stream_id: &StreamPublicId,
-    sequence: u64,
-    cursor: Option<&ResourceCursor>,
-    item: Value,
-) -> bool {
-    let mut envelope = json!({
-        "protocol":"cmux.protocol/1",
-        "type":"stream_item",
-        "stream_id":stream_id,
-        "sequence":sequence.to_string(),
-        "item":item,
-    });
-    if let Some(cursor) = cursor {
-        envelope["cursor"] = json!(cursor);
-    }
-    writer.send_stream(&envelope, outbound).is_ok()
-}
-
-fn start_provider_notice_stream(
-    mux: Arc<Mux>,
-    client: u64,
-    writer: MessageWriter,
-    start: ProviderNoticeStreamStart,
-) {
-    let stream_id = start.stream_id.clone();
-    let outbound = start.outbound.clone();
-    let shared_stream = Arc::new(Mutex::new(Some(start.stream)));
-    let worker_stream = shared_stream.clone();
-    let worker_mux = mux.clone();
-    let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-provider-notices".into()).spawn(move || {
-            let Some(mut stream) = worker_stream.lock().unwrap().take() else { return };
-            let mut sequence = 0u64;
-            let mut last_cursor = None;
-            let mut terminal_error = None;
-            while worker_writer.is_open()
-                && start.outbound.is_open()
-                && !start.canceled.load(Ordering::Acquire)
-            {
-                match stream.next(STREAM_DISCONNECT_POLL) {
-                    Ok(Some(notice)) => {
-                        last_cursor = notice
-                            .cursor
-                            .as_ref()
-                            .and_then(|cursor| serde_json::to_value(cursor).ok());
-                        if !send_provider_notice_stream_item(
-                            &worker_writer,
-                            &start.outbound,
-                            &start.stream_id,
-                            sequence,
-                            notice.cursor.as_ref(),
-                            notice.item,
-                        ) {
-                            break;
-                        }
-                        sequence = sequence.saturating_add(1);
-                    }
-                    Ok(None) => continue,
-                    Err(error) => {
-                        terminal_error = Some(error);
-                        break;
-                    }
-                }
-            }
-            stream.cancel();
-            if let Some(error) = terminal_error
-                && worker_writer.is_open()
-                && start.outbound.is_open()
-                && !start.canceled.load(Ordering::Acquire)
-            {
-                let end = resource_stream_end(
-                    &start.stream_id,
-                    "error",
-                    last_cursor,
-                    Some("reopen from the last delivered cursor"),
-                    Some(error),
-                );
-                let _ = worker_writer.send_terminal(&end, &start.outbound);
-            }
-            worker_mux.control_clients.finish_resource_stream(
-                client,
-                &start.stream_id,
-                start.outbound.id,
-            );
-        });
-    if let Err(error) = spawn {
-        if let Some(mut stream) = shared_stream.lock().unwrap().take() {
-            stream.cancel();
-        }
-        let end = resource_stream_end(
-            &stream_id,
-            "error",
-            None,
-            Some("open a fresh provider notice stream"),
-            Some(ResourceError::operation_failed(
-                "provider_notice.events",
                 error.to_string(),
                 json!({}),
             )),
@@ -8406,168 +8240,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 18);
-    }
-
-    #[test]
-    fn local_provider_notice_stream_returns_typed_missing_provider_error() {
-        let mux = test_mux();
-        let (writer, outbound) = captured_writer();
-        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-        let scheduler =
-            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
-        let provider_scope = "provider_scope_00000000000000000000000000000001";
-        let open = resource_request(
-            "provider-notice-local-open",
-            "provider_notice.events",
-            json!({
-                "machine":"current",
-                "provider_scope":provider_scope,
-                "stream_id":"stream_00000000000000000000000000000023",
-            }),
-            None,
-        );
-        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
-        let response = pop_json(&outbound);
-        assert_eq!(response["type"], "response");
-        assert_eq!(response["id"], "provider-notice-local-open");
-        assert_eq!(response["ok"], false);
-        assert_eq!(response["error"]["code"], "selector.not_found");
-        assert_eq!(response["error"]["details"]["scope"], "provider_scope");
-        assert_eq!(response["error"]["details"]["selector"], provider_scope);
-        assert_eq!(response["error"]["retryable"], false);
-        assert!(outbound.try_pop().is_none());
-        disconnect_client(&mux, client, false);
-    }
-
-    #[test]
-    fn provider_notice_stream_acknowledges_before_item_and_cancels_provider() {
-        struct FakeNoticeService {
-            canceled: Arc<AtomicBool>,
-        }
-
-        struct FakeNoticeStream {
-            delivered: bool,
-            canceled: Arc<AtomicBool>,
-        }
-
-        impl crate::ResourceMachineService for FakeNoticeService {
-            fn dispatch(&self, request: &ResourceMachineRequest) -> Result<Value, ResourceError> {
-                Err(ResourceError::operation_failed(
-                    serde_json::to_value(request.operation).unwrap().as_str().unwrap().to_string(),
-                    "fake notice service only opens streams",
-                    json!({}),
-                ))
-            }
-
-            fn open_provider_notice_stream(
-                &self,
-                request: &ResourceMachineRequest,
-            ) -> Result<Box<dyn ResourceProviderNoticeStream>, ResourceError> {
-                assert_eq!(request.operation, ResourceOperation::ProviderNoticeEvents);
-                assert_eq!(
-                    request.selectors.provider_scope.as_deref(),
-                    Some("provider_scope_00000000000000000000000000000001")
-                );
-                assert_eq!(request.fields["cursor"]["generation"], "provider-generation");
-                assert_eq!(request.fields["cursor"]["revision"], "3");
-                Ok(Box::new(FakeNoticeStream { delivered: false, canceled: self.canceled.clone() }))
-            }
-        }
-
-        impl ResourceProviderNoticeStream for FakeNoticeStream {
-            fn next(
-                &mut self,
-                timeout: Duration,
-            ) -> Result<Option<crate::ResourceProviderNoticeItem>, ResourceError> {
-                if !self.delivered {
-                    self.delivered = true;
-                    return Ok(Some(crate::ResourceProviderNoticeItem {
-                        item: json!({
-                            "kind":"notice",
-                            "notice":{
-                                "id":"provider_notice_00000000000000000000000000000001",
-                                "provider_scope_id":
-                                    "provider_scope_00000000000000000000000000000001",
-                                "level":"warning",
-                                "message":"provider needs attention",
-                            },
-                            "sequence":"9",
-                        }),
-                        cursor: Some(ResourceCursor {
-                            generation: "provider-generation".to_string(),
-                            revision: WireDecimal::new(9),
-                        }),
-                    }));
-                }
-                std::thread::sleep(timeout.min(Duration::from_millis(5)));
-                Ok(None)
-            }
-
-            fn cancel(&mut self) {
-                self.canceled.store(true, Ordering::Release);
-            }
-        }
-
-        let mux = test_mux();
-        let canceled = Arc::new(AtomicBool::new(false));
-        mux.install_resource_machine_service(Arc::new(FakeNoticeService {
-            canceled: canceled.clone(),
-        }))
-        .unwrap();
-        let (writer, outbound) = captured_writer();
-        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-        let scheduler =
-            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
-        let stream_id = "stream_00000000000000000000000000000024";
-        let open = resource_request(
-            "provider-notice-open",
-            "provider_notice.events",
-            json!({
-                "machine":"current",
-                "provider_scope":"provider_scope_00000000000000000000000000000001",
-                "stream_id":stream_id,
-                "cursor":{"generation":"provider-generation","revision":"3"},
-            }),
-            None,
-        );
-        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
-        let response = pop_json(&outbound);
-        assert_eq!(response["type"], "response");
-        assert_eq!(response["id"], "provider-notice-open");
-        assert_eq!(response["ok"], true);
-        assert_eq!(response["result"]["stream_id"], stream_id);
-        let item = pop_json(&outbound);
-        assert_eq!(item["type"], "stream_item");
-        assert_eq!(item["stream_id"], stream_id);
-        assert_eq!(item["sequence"], "0");
-        assert_eq!(item["cursor"]["generation"], "provider-generation");
-        assert_eq!(item["cursor"]["revision"], "9");
-        assert_eq!(item["item"]["kind"], "notice");
-        assert_eq!(item["item"]["sequence"], "9");
-
-        let cancel = resource_request(
-            "provider-notice-cancel",
-            "stream.cancel",
-            json!({
-                "machine":"current",
-                "session":"current",
-                "stream":stream_id,
-            }),
-            None,
-        );
-        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
-        let end = pop_json(&outbound);
-        assert_eq!(end["type"], "stream_end");
-        assert_eq!(end["stream_id"], stream_id);
-        assert_eq!(end["reason"], "canceled");
-        assert_eq!(pop_json(&outbound)["id"], "provider-notice-cancel");
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while !canceled.load(Ordering::Acquire) {
-            assert!(Instant::now() < deadline, "provider stream was not canceled");
-            std::thread::sleep(Duration::from_millis(2));
-        }
-        disconnect_client(&mux, client, false);
+        assert_eq!(connection_operations, 17);
     }
 
     #[test]

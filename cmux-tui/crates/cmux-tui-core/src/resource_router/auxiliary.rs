@@ -534,9 +534,6 @@ fn resolve_session(
     session_selectors.frontend_projection = None;
     session_selectors.pairing_request = None;
     session_selectors.sidebar_view = None;
-    session_selectors.provider_scope = None;
-    session_selectors.provider_action = None;
-    session_selectors.provider_notice = None;
     mux.resolve_resource_path(ResourceTarget::Session, &session_selectors)?
         .session
         .ok_or_else(|| ResourceError::not_found("session", "<resolved>"))

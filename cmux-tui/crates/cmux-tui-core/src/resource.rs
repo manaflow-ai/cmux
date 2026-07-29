@@ -105,18 +105,6 @@ pub enum ResourceOperation {
     MachineList,
     #[serde(rename = "machine.get")]
     MachineGet,
-    #[serde(rename = "machine.create")]
-    MachineCreate,
-    #[serde(rename = "machine.rename")]
-    MachineRename,
-    #[serde(rename = "machine.delete")]
-    MachineDelete,
-    #[serde(rename = "machine.restore")]
-    MachineRestore,
-    #[serde(rename = "machine.purge")]
-    MachinePurge,
-    #[serde(rename = "machine.connect_external")]
-    MachineConnectExternal,
     #[serde(rename = "session.list")]
     SessionList,
     #[serde(rename = "session.open")]
@@ -333,20 +321,6 @@ pub enum ResourceOperation {
     SidebarViewResize,
     #[serde(rename = "sidebar_view.reload")]
     SidebarViewReload,
-    #[serde(rename = "provider_scope.list")]
-    ProviderScopeList,
-    #[serde(rename = "provider_action.invoke")]
-    ProviderActionInvoke,
-    #[serde(rename = "provider_notice.events")]
-    ProviderNoticeEvents,
-    #[serde(rename = "provider_notice.acknowledge")]
-    ProviderNoticeAcknowledge,
-    #[serde(rename = "provider_workspace.mark")]
-    ProviderWorkspaceMark,
-    #[serde(rename = "provider_workspace.rename")]
-    ProviderWorkspaceRename,
-    #[serde(rename = "provider_workspace.close")]
-    ProviderWorkspaceClose,
     #[serde(rename = "stream.cancel")]
     StreamCancel,
 }
@@ -391,7 +365,6 @@ impl ResourceOperation {
                 | Self::TerminalAttach
                 | Self::BrowserAttach
                 | Self::SidebarViewAttach
-                | Self::ProviderNoticeEvents
         ) {
             OperationClass::StreamOpen
         } else if matches!(
@@ -407,7 +380,6 @@ impl ResourceOperation {
                 | Self::TerminalViewerRelease
                 | Self::BrowserViewerResize
                 | Self::BrowserViewerRelease
-                | Self::ProviderNoticeAcknowledge
         ) {
             OperationClass::ConnectionControl
         } else if matches!(
@@ -447,7 +419,6 @@ impl ResourceOperation {
                 | Self::NotificationList
                 | Self::AgentList
                 | Self::SidebarViewGet
-                | Self::ProviderScopeList
         ) {
             OperationClass::Read
         } else {
@@ -689,9 +660,6 @@ public_id!(FrontendProjectionPublicId, "projection");
 public_id!(PairingRequestPublicId, "pairing");
 public_id!(SidebarViewPublicId, "sidebar_view");
 public_id!(SidebarPluginPublicId, "sidebar_plugin");
-public_id!(ProviderScopePublicId, "provider_scope");
-public_id!(ProviderActionPublicId, "provider_action");
-public_id!(ProviderNoticePublicId, "provider_notice");
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -933,16 +901,12 @@ fn canonical_resource_scope(kind: &str) -> &'static str {
         "pairing_request" | "PairingRequestPublicId" | "pairing" => "pairing_request",
         "sidebar_view" | "SidebarViewPublicId" => "sidebar_view",
         "sidebar_plugin" | "SidebarPluginPublicId" => "sidebar_plugin",
-        "provider_scope" | "ProviderScopePublicId" => "provider_scope",
-        "provider_action" | "ProviderActionPublicId" => "provider_action",
-        "provider_notice" | "ProviderNoticePublicId" => "provider_notice",
         "stream" | "StreamPublicId" => "stream",
         other => panic!("unknown catalog resource scope {other:?}"),
     }
 }
 
 pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
-    "authority.denied",
     "confirmation.required",
     "creation.conflict",
     "cursor.gap",
@@ -1061,9 +1025,6 @@ fn resource_id_has_kind(value: &str, kind: &str) -> bool {
         "frontend_projection" => "projection_",
         "pairing_request" => "pairing_",
         "sidebar_view" => "sidebar_view_",
-        "provider_scope" => "provider_scope_",
-        "provider_action" => "provider_action_",
-        "provider_notice" => "provider_notice_",
         "stream" => "stream_",
         _ => return false,
     };
@@ -1223,9 +1184,6 @@ fn is_registered_public_id(value: &str) -> bool {
             | "pairing"
             | "sidebar_view"
             | "sidebar_plugin"
-            | "provider_scope"
-            | "provider_action"
-            | "provider_notice"
     ) && payload.len() == 32
         && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
@@ -1424,7 +1382,6 @@ mod tests {
     fn catalog_error_details_and_retryability_are_recursively_enforced() {
         let cursor = json!({"generation":"generation","revision":"4"});
         let cases = [
-            ("authority.denied", json!({"operation":"machine.delete"}), false),
             (
                 "confirmation.required",
                 json!({"revision":"4","closes_panes":[format!("pane_{}", "0".repeat(32))]}),
@@ -1531,20 +1488,13 @@ mod tests {
     }
 
     #[test]
-    fn auxiliary_resource_ids_use_the_canonical_prefix_registry() {
+    fn projection_and_pairing_ids_use_the_canonical_prefix_registry() {
         let payload = "0".repeat(32);
         assert_eq!(
             FrontendProjectionPublicId::parse(format!("projection_{payload}")).unwrap().as_str(),
             format!("projection_{payload}")
         );
         assert!(PairingRequestPublicId::parse(format!("pairing_{payload}")).is_ok());
-        assert!(ProviderScopePublicId::parse(format!("provider_scope_{payload}")).is_ok());
-        assert!(ProviderActionPublicId::parse(format!("provider_action_{payload}")).is_ok());
-        assert!(ProviderNoticePublicId::parse(format!("provider_notice_{payload}")).is_ok());
-        for prefix in ["provider_scope", "provider_action", "provider_notice"] {
-            let id = format!("{prefix}_{payload}");
-            assert_eq!(Selector::parse(&id).unwrap(), Selector::Id(id));
-        }
     }
 
     #[test]
@@ -1666,7 +1616,6 @@ mod tests {
             ResourceOperation::TerminalAttach,
             ResourceOperation::BrowserAttach,
             ResourceOperation::SidebarViewAttach,
-            ResourceOperation::ProviderNoticeEvents,
         ] {
             assert_eq!(operation.class(), OperationClass::StreamOpen);
         }
@@ -1682,7 +1631,6 @@ mod tests {
             ResourceOperation::TerminalViewerRelease,
             ResourceOperation::BrowserViewerResize,
             ResourceOperation::BrowserViewerRelease,
-            ResourceOperation::ProviderNoticeAcknowledge,
         ];
         for operation in connection_control {
             assert_eq!(operation.class(), OperationClass::ConnectionControl);
@@ -1699,7 +1647,6 @@ mod tests {
             ResourceOperation::StreamCancel,
             ResourceOperation::ClientMetadataUpdate,
             ResourceOperation::ClientDetach,
-            ResourceOperation::ProviderNoticeAcknowledge,
         ] {
             let request = RequestEnvelope {
                 protocol: PROTOCOL.into(),

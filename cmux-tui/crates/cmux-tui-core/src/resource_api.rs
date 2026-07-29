@@ -7,14 +7,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Weak;
-use std::time::Duration;
 
 use anyhow::Context;
 use serde_json::{Map, Value, json};
 
 use crate::resource::{
-    ContentPublicId, MachinePublicId, PanePublicId, ResourceCursor, ResourceError,
-    ResourceOperation, Selector, SessionPublicId,
+    ContentPublicId, MachinePublicId, PanePublicId, ResourceError, ResourceOperation, Selector,
+    SessionPublicId,
 };
 use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
@@ -32,28 +31,8 @@ pub struct ResourceMachineRequest {
     pub idempotency_key: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ResourceProviderNoticeItem {
-    pub item: Value,
-    pub cursor: Option<ResourceCursor>,
-}
-
-pub trait ResourceProviderNoticeStream: Send {
-    fn next(
-        &mut self,
-        timeout: Duration,
-    ) -> Result<Option<ResourceProviderNoticeItem>, ResourceError>;
-
-    fn cancel(&mut self);
-}
-
 pub trait ResourceMachineService: Send + Sync {
     fn dispatch(&self, request: &ResourceMachineRequest) -> Result<Value, ResourceError>;
-
-    fn open_provider_notice_stream(
-        &self,
-        request: &ResourceMachineRequest,
-    ) -> Result<Box<dyn ResourceProviderNoticeStream>, ResourceError>;
 }
 
 #[derive(Debug, Clone)]
@@ -108,49 +87,13 @@ impl ResourceMachineService for LocalResourceMachineService {
                 resolve_local_session(&request.selectors, &context)?;
                 Ok(session_snapshot(&context))
             }
-            ResourceOperation::ProviderScopeList => {
-                resolve_local_machine(&request.selectors, &context)?;
-                Ok(json!([]))
-            }
             ResourceOperation::SessionOpen => self.open_local_session(request, &context),
-            ResourceOperation::MachineCreate | ResourceOperation::MachineConnectExternal => {
-                Err(missing_provider_resource(request, "provider_scope"))
-            }
-            ResourceOperation::ProviderActionInvoke
-            | ResourceOperation::ProviderNoticeEvents
-            | ResourceOperation::ProviderNoticeAcknowledge
-            | ResourceOperation::ProviderWorkspaceMark
-            | ResourceOperation::ProviderWorkspaceRename
-            | ResourceOperation::ProviderWorkspaceClose => {
-                resolve_local_machine(&request.selectors, &context)?;
-                Err(missing_provider_resource(request, "provider_scope"))
-            }
-            ResourceOperation::MachineRename
-            | ResourceOperation::MachineDelete
-            | ResourceOperation::MachineRestore
-            | ResourceOperation::MachinePurge => {
-                resolve_local_machine(&request.selectors, &context)?;
-                Err(ResourceError::operation_failed(
-                    resource_operation_name(request.operation),
-                    "the built-in local machine is immutable",
-                    json!({}),
-                ))
-            }
             operation => Err(ResourceError::operation_failed(
                 resource_operation_name(operation),
                 "operation was routed to the wrong machine service",
                 json!({}),
             )),
         }
-    }
-
-    fn open_provider_notice_stream(
-        &self,
-        request: &ResourceMachineRequest,
-    ) -> Result<Box<dyn ResourceProviderNoticeStream>, ResourceError> {
-        let context = self.context()?;
-        resolve_local_machine(&request.selectors, &context)?;
-        Err(missing_provider_resource(request, "provider_scope"))
     }
 }
 
@@ -276,17 +219,6 @@ fn local_indeterminate_error(key: &str, operation: &str) -> ResourceError {
         }),
         false,
     )
-}
-
-fn missing_provider_resource(request: &ResourceMachineRequest, kind: &str) -> ResourceError {
-    let selector = match kind {
-        "provider_scope" => request.selectors.provider_scope.as_deref(),
-        "provider_action" => request.selectors.provider_action.as_deref(),
-        "provider_notice" => request.selectors.provider_notice.as_deref(),
-        _ => None,
-    }
-    .unwrap_or("<missing>");
-    ResourceError::not_found(kind, selector)
 }
 
 fn machine_snapshot(context: &LocalResourceContext) -> Value {
@@ -835,47 +767,12 @@ mod tests {
     }
 
     #[test]
-    fn local_machine_service_routes_provider_workspace_mutations_to_provider_scope_lookup() {
-        let mux = Mux::new_for_test("dev", SurfaceOptions::default());
-        let service = LocalResourceMachineService::new(Arc::downgrade(&mux));
-        let provider_scope = "provider_scope_00000000000000000000000000000001";
-        for operation in [
-            ResourceOperation::ProviderWorkspaceMark,
-            ResourceOperation::ProviderWorkspaceRename,
-            ResourceOperation::ProviderWorkspaceClose,
-        ] {
-            let error = service
-                .dispatch(&ResourceMachineRequest {
-                    operation,
-                    selectors: ResourceSelectors {
-                        machine: Some("current".to_string()),
-                        provider_scope: Some(provider_scope.to_string()),
-                        ..ResourceSelectors::default()
-                    },
-                    fields: Map::new(),
-                    idempotency_key: Some("provider-workspace-local".to_string()),
-                })
-                .unwrap_err();
-            assert_eq!(error.code, "selector.not_found");
-            assert_eq!(error.details["scope"], "provider_scope");
-            assert_eq!(error.details["selector"], provider_scope);
-        }
-    }
-
-    #[test]
     fn injected_machine_service_is_the_router_boundary() {
         struct Fake;
 
         impl ResourceMachineService for Fake {
             fn dispatch(&self, request: &ResourceMachineRequest) -> Result<Value, ResourceError> {
                 Ok(json!({"operation":request.operation}))
-            }
-
-            fn open_provider_notice_stream(
-                &self,
-                _request: &ResourceMachineRequest,
-            ) -> Result<Box<dyn ResourceProviderNoticeStream>, ResourceError> {
-                Err(ResourceError::operation_failed("provider_notice.events", "unused", json!({})))
             }
         }
 

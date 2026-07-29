@@ -271,7 +271,7 @@ RESOURCE SCOPES
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
-  provider      Invoke provider scopes and actions
+  provider      Install private provider authority
   raw           Send an explicit low-level operation
 
 Run `cmux-tui <scope> --help` for scope-specific paths.
@@ -280,10 +280,7 @@ Run `cmux-tui <scope> --help` for scope-specific paths.
 const MACHINE_HELP: &str = "\
 USAGE
   cmux-tui machine list
-  cmux-tui machine create [--provider-scope <selector>]
-  cmux-tui machine connect external --specifier <opaque> [--provider-scope <selector>]
   cmux-tui machine <selector> show
-  cmux-tui machine <selector> rename|delete|restore|purge [OPTIONS]
   cmux-tui machine <selector> session list
   cmux-tui machine <selector> session <selector> open
 ";
@@ -327,7 +324,9 @@ USAGE
   cmux-tui screen list
   cmux-tui screen create [--correlation-key <value>]
   cmux-tui screen <selector> show|rename|focus|close
-  cmux-tui screen <selector> layout export|undo
+  cmux-tui screen <selector> layout export
+  cmux-tui screen <selector> layout undo [--confirm-close]
+    [--confirmation-token <value>]
   cmux-tui screen <selector> pane ...
 ";
 
@@ -420,11 +419,6 @@ USAGE
 
 const PROVIDER_HELP: &str = "\
 USAGE
-  cmux-tui provider scope list
-  cmux-tui provider scope <selector> action <selector> invoke --parameters <json>
-  cmux-tui provider scope <selector> notice watch [OPTIONS]
-  cmux-tui provider scope <selector> notice <selector> acknowledge --sequence <decimal>
-  cmux-tui provider scope <selector> workspace <selector> mark|rename|close [OPTIONS]
   cmux-tui --socket <path> provider authority install
     --generation <decimal> --authority-file <root-private-path>
 ";

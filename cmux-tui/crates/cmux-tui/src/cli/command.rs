@@ -249,61 +249,9 @@ fn parse_machine(
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
         ["list"] => request(ResourceOperation::MachineList, selectors, flags, Map::new()),
-        ["create"] => {
-            insert_selector_or_current(
-                selectors,
-                flags,
-                "provider-scope",
-                "provider_scope",
-                "provider_scope",
-            )?;
-            request(ResourceOperation::MachineCreate, selectors, flags, Map::new())
-        }
         [selector, "show"] => {
             selectors.insert("machine", "machine", selector)?;
             request(ResourceOperation::MachineGet, selectors, flags, Map::new())
-        }
-        [selector, "rename"] => {
-            selectors.insert("machine", "machine", selector)?;
-            let mut params = Map::new();
-            params.insert("name".into(), Value::String(flags.required("name")?));
-            if flags.boolean("confirm-close") {
-                params.insert("confirm_close".into(), Value::Bool(true));
-            }
-            request(ResourceOperation::MachineRename, selectors, flags, params)
-        }
-        [selector, "delete"] => {
-            selectors.insert("machine", "machine", selector)?;
-            request(ResourceOperation::MachineDelete, selectors, flags, Map::new())
-        }
-        [selector, "restore"] => {
-            selectors.insert("machine", "machine", selector)?;
-            request(ResourceOperation::MachineRestore, selectors, flags, Map::new())
-        }
-        [selector, "purge"] => {
-            selectors.insert("machine", "machine", selector)?;
-            request(ResourceOperation::MachinePurge, selectors, flags, Map::new())
-        }
-        ["connect", "external"] => {
-            insert_selector_or_current(
-                selectors,
-                flags,
-                "provider-scope",
-                "provider_scope",
-                "provider_scope",
-            )?;
-            let specifier = flags.required("specifier")?;
-            if specifier.is_empty()
-                || specifier.len() > 512
-                || specifier.chars().any(char::is_control)
-            {
-                return Err(UsageError::new(
-                    "--specifier must be 1 to 512 UTF-8 bytes with no control characters",
-                ));
-            }
-            let mut params = Map::new();
-            params.insert("specifier".into(), Value::String(specifier));
-            request(ResourceOperation::MachineConnectExternal, selectors, flags, params)
         }
         [machine, "session", "list"] => {
             selectors.insert("machine", "machine", machine)?;
@@ -590,6 +538,14 @@ fn parse_screen_strings(
             let mut params = Map::new();
             if flags.boolean("confirm-close") {
                 params.insert("confirm_close".into(), Value::Bool(true));
+            }
+            if let Some(token) = flags.take("confirmation-token") {
+                if token.is_empty() || token.len() > 128 {
+                    return Err(UsageError::new(
+                        "--confirmation-token must contain 1 to 128 UTF-8 bytes",
+                    ));
+                }
+                params.insert("confirmation_token".into(), Value::String(token));
             }
             request(ResourceOperation::ScreenLayoutUndo, selectors, flags, params)
         }
@@ -1378,60 +1334,10 @@ fn parse_projection(
 
 fn parse_provider(
     words: &[String],
-    selectors: &mut Selectors,
+    _selectors: &mut Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
-        ["scope", "list"] => {
-            request(ResourceOperation::ProviderScopeList, selectors, flags, Map::new())
-        }
-        ["scope", scope, "action", selector, "invoke"] => {
-            selectors.insert("provider_scope", "provider_scope", scope)?;
-            selectors.insert("provider_action", "provider_action", selector)?;
-            let mut params = Map::new();
-            params.insert("parameters".into(), parse_json_object_flag(flags, "parameters")?);
-            request(ResourceOperation::ProviderActionInvoke, selectors, flags, params)
-        }
-        ["scope", scope, "notice", "watch"] => {
-            selectors.insert("provider_scope", "provider_scope", scope)?;
-            let mut params = Map::new();
-            add_stream_id(&mut params, flags)?;
-            add_optional_cursor(&mut params, flags)?;
-            request(ResourceOperation::ProviderNoticeEvents, selectors, flags, params)
-        }
-        ["scope", scope, "notice", notice, "acknowledge"] => {
-            selectors.insert("provider_scope", "provider_scope", scope)?;
-            selectors.insert("provider_notice", "provider_notice", notice)?;
-            let sequence = flags.required("sequence")?;
-            validate_decimal("--sequence", &sequence)?;
-            request(
-                ResourceOperation::ProviderNoticeAcknowledge,
-                selectors,
-                flags,
-                map_with("sequence", Value::String(sequence)),
-            )
-        }
-        ["scope", scope, "workspace", selector, "mark"] => {
-            selectors.insert("provider_scope", "provider_scope", scope)?;
-            selectors.insert("workspace", "ws", selector)?;
-            let managed = flags.required("managed")?;
-            request(
-                ResourceOperation::ProviderWorkspaceMark,
-                selectors,
-                flags,
-                map_with("managed", Value::Bool(parse_bool("--managed", &managed)?)),
-            )
-        }
-        ["scope", scope, "workspace", selector, "rename"] => {
-            selectors.insert("provider_scope", "provider_scope", scope)?;
-            selectors.insert("workspace", "ws", selector)?;
-            request_with_required_name(ResourceOperation::ProviderWorkspaceRename, selectors, flags)
-        }
-        ["scope", scope, "workspace", selector, "close"] => {
-            selectors.insert("provider_scope", "provider_scope", scope)?;
-            selectors.insert("workspace", "ws", selector)?;
-            request(ResourceOperation::ProviderWorkspaceClose, selectors, flags, Map::new())
-        }
         ["authority", "install"] => {
             let generation = flags.required("generation")?;
             validate_decimal("--generation", &generation)?;
@@ -1585,12 +1491,7 @@ fn structural_ancestors(scope: &str) -> &'static [&'static str] {
 }
 
 fn add_routing_defaults(operation: ResourceOperation, params: &mut Map<String, Value>) {
-    if !matches!(
-        operation,
-        ResourceOperation::MachineList
-            | ResourceOperation::MachineCreate
-            | ResourceOperation::MachineConnectExternal
-    ) {
+    if operation != ResourceOperation::MachineList {
         params.entry("machine").or_insert_with(|| Value::String("current".into()));
     }
     if requires_session_route(operation) {
@@ -1603,28 +1504,12 @@ fn requires_session_route(operation: ResourceOperation) -> bool {
         operation,
         ResourceOperation::MachineList
             | ResourceOperation::MachineGet
-            | ResourceOperation::MachineCreate
-            | ResourceOperation::MachineRename
-            | ResourceOperation::MachineDelete
-            | ResourceOperation::MachineRestore
-            | ResourceOperation::MachinePurge
-            | ResourceOperation::MachineConnectExternal
             | ResourceOperation::SessionList
-            | ResourceOperation::ProviderScopeList
-            | ResourceOperation::ProviderActionInvoke
-            | ResourceOperation::ProviderNoticeEvents
-            | ResourceOperation::ProviderNoticeAcknowledge
     )
 }
 
 fn supports_expected_revision(operation: ResourceOperation) -> bool {
-    operation.class() == OperationClass::Mutation
-        && !matches!(
-            operation,
-            ResourceOperation::MachineCreate
-                | ResourceOperation::MachineConnectExternal
-                | ResourceOperation::WorkspaceCreate
-        )
+    operation.class() == OperationClass::Mutation && operation != ResourceOperation::WorkspaceCreate
 }
 
 fn validate_one_of(flag: &str, value: &str, allowed: &[&str]) -> Result<(), UsageError> {
@@ -1761,11 +1646,6 @@ fn parse_json_object(flag: &str, value: &str) -> Result<Value, UsageError> {
     } else {
         Err(UsageError::new(format!("{flag} must be a JSON object")))
     }
-}
-
-fn parse_json_object_flag(flags: &mut Flags, name: &str) -> Result<Value, UsageError> {
-    let value = flags.required(name)?;
-    parse_json_object(&format!("--{name}"), &value)
 }
 
 fn validate_base64(flag: &str, value: &str) -> Result<(), UsageError> {
@@ -2728,24 +2608,10 @@ mod tests {
         const PAIRING: &str = "pairing_0000000000000000000000000000000b";
         const PROJECTION: &str = "projection_0000000000000000000000000000000c";
         const VIEW: &str = "sidebar_view_0000000000000000000000000000000d";
-        const ACTION: &str = "provider_action_0000000000000000000000000000000e";
-        const NOTICE: &str = "provider_notice_00000000000000000000000000000010";
 
         let cases: Vec<(Vec<&str>, &str)> = vec![
             (vec!["machine", "list"], "machine.list"),
             (vec!["machine", MACHINE, "show"], "machine.get"),
-            (vec!["machine", "create"], "machine.create"),
-            (
-                vec!["machine", MACHINE, "rename", "--name", "remote", "--confirm-close"],
-                "machine.rename",
-            ),
-            (vec!["machine", MACHINE, "delete"], "machine.delete"),
-            (vec!["machine", MACHINE, "restore"], "machine.restore"),
-            (vec!["machine", MACHINE, "purge"], "machine.purge"),
-            (
-                vec!["machine", "connect", "external", "--specifier", "host=build-1"],
-                "machine.connect_external",
-            ),
             (vec!["machine", MACHINE, "session", "list"], "session.list"),
             (vec!["machine", MACHINE, "session", SESSION, "open"], "session.open"),
             (vec!["session", SESSION, "show"], "session.get"),
@@ -2893,7 +2759,18 @@ mod tests {
             (vec!["screen", SCREEN, "focus"], "screen.focus"),
             (vec!["screen", SCREEN, "close"], "screen.close"),
             (vec!["screen", SCREEN, "layout", "export"], "screen.layout.export"),
-            (vec!["screen", SCREEN, "layout", "undo", "--confirm-close"], "screen.layout.undo"),
+            (
+                vec![
+                    "screen",
+                    SCREEN,
+                    "layout",
+                    "undo",
+                    "--confirm-close",
+                    "--confirmation-token",
+                    "layout-preview-token",
+                ],
+                "screen.layout.undo",
+            ),
             (vec!["pane", "list"], "pane.list"),
             (vec!["pane", PANE, "show"], "pane.get"),
             (
@@ -3239,82 +3116,11 @@ mod tests {
                 "sidebar_view.resize",
             ),
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
-            (vec!["provider", "scope", "list"], "provider_scope.list"),
-            (
-                vec![
-                    "provider",
-                    "scope",
-                    "current",
-                    "action",
-                    ACTION,
-                    "invoke",
-                    "--parameters",
-                    "{}",
-                ],
-                "provider_action.invoke",
-            ),
-            (
-                vec![
-                    "provider",
-                    "scope",
-                    "current",
-                    "notice",
-                    "watch",
-                    "--generation",
-                    "g1",
-                    "--revision",
-                    "3",
-                ],
-                "provider_notice.events",
-            ),
-            (
-                vec![
-                    "provider",
-                    "scope",
-                    "current",
-                    "notice",
-                    NOTICE,
-                    "acknowledge",
-                    "--sequence",
-                    "9",
-                ],
-                "provider_notice.acknowledge",
-            ),
-            (
-                vec![
-                    "provider",
-                    "scope",
-                    "current",
-                    "workspace",
-                    WORKSPACE,
-                    "mark",
-                    "--managed",
-                    "true",
-                ],
-                "provider_workspace.mark",
-            ),
-            (
-                vec![
-                    "provider",
-                    "scope",
-                    "current",
-                    "workspace",
-                    WORKSPACE,
-                    "rename",
-                    "--name",
-                    "managed",
-                ],
-                "provider_workspace.rename",
-            ),
-            (
-                vec!["provider", "scope", "current", "workspace", WORKSPACE, "close"],
-                "provider_workspace.close",
-            ),
         ];
 
-        assert_eq!(cases.len(), 118);
+        assert_eq!(cases.len(), 105);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 124);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 111);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
