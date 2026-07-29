@@ -462,6 +462,73 @@ struct ClientReady {
     multiplexer: Arc<ServiceMultiplexer>,
 }
 
+#[cfg(unix)]
+struct ClientSocketLease {
+    listener: tokio::net::UnixListener,
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+    linked: bool,
+}
+
+#[cfg(unix)]
+impl ClientSocketLease {
+    fn bind(path: PathBuf) -> std::io::Result<Self> {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+        let listener = tokio::net::UnixListener::bind(&path)?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                let _ = fs::remove_file(&path);
+                return Err(error);
+            }
+        };
+        if !metadata.file_type().is_socket() {
+            let _ = fs::remove_file(&path);
+            return Err(std::io::Error::other("bound client path is not a Unix socket"));
+        }
+        Ok(Self { listener, path, device: metadata.dev(), inode: metadata.ino(), linked: true })
+    }
+
+    fn listener(&self) -> &tokio::net::UnixListener {
+        &self.listener
+    }
+
+    fn unlink(&mut self) -> std::io::Result<()> {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+        if !self.linked {
+            return Ok(());
+        }
+        let metadata = match fs::symlink_metadata(&self.path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.linked = false;
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        if !metadata.file_type().is_socket()
+            || metadata.dev() != self.device
+            || metadata.ino() != self.inode
+        {
+            self.linked = false;
+            return Ok(());
+        }
+        fs::remove_file(&self.path)?;
+        self.linked = false;
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ClientSocketLease {
+    fn drop(&mut self) {
+        let _ = self.unlink();
+    }
+}
+
 async fn run_client(
     options: ClientRuntimeOptions,
     mut shutdown: watch::Receiver<bool>,
@@ -480,15 +547,19 @@ async fn run_client(
         prepare_client_socket(&local_socket).await?;
         let daemon_public_key = connection.daemon_public_key();
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-        let listener = tokio::net::UnixListener::bind(&local_socket)?;
+        let socket = ClientSocketLease::bind(local_socket.clone())?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&local_socket, fs::Permissions::from_mode(0o600))?;
         }
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
-        let mut bridge =
-            tokio::spawn(serve_mux_bridge(multiplexer.clone(), listener, bridge_shutdown_rx));
+        let bridge_multiplexer = multiplexer.clone();
+        let mut bridge = tokio::spawn(async move {
+            let mut socket = socket;
+            serve_mux_bridge(bridge_multiplexer, socket.listener(), bridge_shutdown_rx).await;
+            let _ = socket.unlink();
+        });
         let mut fatal = multiplexer.subscribe_fatal();
         ready
             .send(Ok(ClientReady {
@@ -517,7 +588,6 @@ async fn run_client(
             let _ = bridge.await;
         }
         let _ = connection.close().await;
-        let _ = fs::remove_file(&local_socket);
         outcome
     }
     .await;

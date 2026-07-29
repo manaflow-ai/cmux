@@ -120,7 +120,7 @@ impl Drop for LocalPortForward {
 #[cfg(unix)]
 pub async fn serve_mux_bridge(
     multiplexer: Arc<ServiceMultiplexer>,
-    listener: tokio::net::UnixListener,
+    listener: &tokio::net::UnixListener,
     mut shutdown: oneshot::Receiver<()>,
 ) {
     let mut connections = tokio::task::JoinSet::new();
@@ -602,7 +602,9 @@ mod tests {
         let (client_endpoint, _daemon_endpoint) = endpoint_pair();
         let multiplexer = ServiceMultiplexer::new(client_endpoint.clone(), EndpointRole::Client);
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = tokio::spawn(serve_mux_bridge(multiplexer, listener, shutdown_rx));
+        let server = tokio::spawn(async move {
+            serve_mux_bridge(multiplexer, &listener, shutdown_rx).await;
+        });
         let mut socket = tokio::net::UnixStream::connect(path).await.unwrap();
 
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
