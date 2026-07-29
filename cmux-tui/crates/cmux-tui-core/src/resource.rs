@@ -350,16 +350,36 @@ pub enum ResourceOperation {
     StreamCancel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationClass {
+    Read,
+    Mutation,
+    StreamOpen,
+    ConnectionControl,
+    Local,
+}
+
 impl ResourceOperation {
-    pub fn is_mutation(self) -> bool {
-        !matches!(
+    pub const fn class(self) -> OperationClass {
+        if matches!(
+            self,
+            Self::SessionEvents
+                | Self::TerminalAttach
+                | Self::BrowserAttach
+                | Self::SidebarViewAttach
+                | Self::ProviderNoticeEvents
+        ) {
+            OperationClass::StreamOpen
+        } else if matches!(self, Self::StreamCancel) {
+            OperationClass::ConnectionControl
+        } else if matches!(
             self,
             Self::MachineList
                 | Self::MachineGet
                 | Self::SessionList
                 | Self::SessionGet
                 | Self::SessionSnapshot
-                | Self::SessionEvents
                 | Self::SessionPing
                 | Self::ClientList
                 | Self::ClientGet
@@ -388,8 +408,15 @@ impl ResourceOperation {
                 | Self::AgentList
                 | Self::SidebarViewGet
                 | Self::ProviderScopeList
-                | Self::ProviderNoticeEvents
-        )
+        ) {
+            OperationClass::Read
+        } else {
+            OperationClass::Mutation
+        }
+    }
+
+    pub const fn is_mutation(self) -> bool {
+        matches!(self.class(), OperationClass::Mutation)
     }
 }
 
@@ -424,25 +451,27 @@ impl RequestEnvelope {
                 false,
             ));
         }
-        match (&self.idempotency_key, self.operation.is_mutation()) {
-            (None, true) => Err(ResourceError::new(
+        match (&self.idempotency_key, self.operation.class()) {
+            (None, OperationClass::Mutation) => Err(ResourceError::new(
                 "idempotency.required",
                 "mutations require idempotency_key",
                 json!({}),
                 false,
             )),
-            (Some(_), false) => Err(ResourceError::new(
-                "idempotency.read_forbidden",
-                "reads must omit idempotency_key",
-                json!({}),
+            (Some(_), class) if class != OperationClass::Mutation => Err(ResourceError::new(
+                "idempotency.forbidden",
+                "only mutations accept idempotency_key",
+                json!({"operation_class":class}),
                 false,
             )),
-            (Some(key), true) if key.is_empty() || key.len() > 128 => Err(ResourceError::new(
-                "idempotency.invalid",
-                "idempotency_key must contain 1 to 128 UTF-8 bytes",
-                json!({"length":key.len()}),
-                false,
-            )),
+            (Some(key), OperationClass::Mutation) if key.is_empty() || key.len() > 128 => {
+                Err(ResourceError::new(
+                    "idempotency.invalid",
+                    "idempotency_key must contain 1 to 128 UTF-8 bytes",
+                    json!({"length":key.len()}),
+                    false,
+                ))
+            }
             _ => Ok(()),
         }
     }
@@ -894,6 +923,9 @@ fn is_registered_public_id(value: &str) -> bool {
             | "pairing"
             | "sidebar_view"
             | "sidebar_plugin"
+            | "provider_scope"
+            | "provider_action"
+            | "provider_notice"
     ) && payload.len() == 32
         && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
@@ -1077,6 +1109,10 @@ mod tests {
         assert!(ProviderScopePublicId::parse(format!("provider_scope_{payload}")).is_ok());
         assert!(ProviderActionPublicId::parse(format!("provider_action_{payload}")).is_ok());
         assert!(ProviderNoticePublicId::parse(format!("provider_notice_{payload}")).is_ok());
+        for prefix in ["provider_scope", "provider_action", "provider_notice"] {
+            let id = format!("{prefix}_{payload}");
+            assert_eq!(Selector::parse(&id).unwrap(), Selector::Id(id));
+        }
     }
 
     #[test]
@@ -1191,7 +1227,38 @@ mod tests {
 
         let mut read_with_key = read;
         read_with_key.idempotency_key = Some("unexpected".into());
-        assert_eq!(read_with_key.validate().unwrap_err().code, "idempotency.read_forbidden");
+        assert_eq!(read_with_key.validate().unwrap_err().code, "idempotency.forbidden");
+    }
+
+    #[test]
+    fn operation_classes_keep_stream_and_connection_control_out_of_durable_idempotency() {
+        for operation in [
+            ResourceOperation::SessionEvents,
+            ResourceOperation::TerminalAttach,
+            ResourceOperation::BrowserAttach,
+            ResourceOperation::SidebarViewAttach,
+            ResourceOperation::ProviderNoticeEvents,
+        ] {
+            assert_eq!(operation.class(), OperationClass::StreamOpen);
+        }
+        assert_eq!(ResourceOperation::StreamCancel.class(), OperationClass::ConnectionControl);
+        assert_eq!(ResourceOperation::WorkspaceList.class(), OperationClass::Read);
+        assert_eq!(ResourceOperation::WorkspaceCreate.class(), OperationClass::Mutation);
+
+        for operation in [ResourceOperation::SessionEvents, ResourceOperation::StreamCancel] {
+            let request = RequestEnvelope {
+                protocol: PROTOCOL.into(),
+                envelope_type: EnvelopeType::Request,
+                id: RequestId::parse("class").unwrap(),
+                operation,
+                params: json!({}),
+                idempotency_key: None,
+            };
+            request.validate().unwrap();
+            let mut keyed = request;
+            keyed.idempotency_key = Some("forbidden".into());
+            assert_eq!(keyed.validate().unwrap_err().code, "idempotency.forbidden");
+        }
     }
 
     #[test]
