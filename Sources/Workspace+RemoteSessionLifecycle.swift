@@ -86,6 +86,8 @@ extension Workspace {
             return
         }
         guard !blockingCleanupFailed else {
+            remoteControllerConnectionState = .error
+            remoteControllerConnectionDetail = remoteConnectionDetail
             remoteConnectionState = .error
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()

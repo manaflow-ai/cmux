@@ -3003,6 +3003,57 @@ final class SocketClient {
     }
 }
 
+private struct SSHPTYTerminalReadinessReport: Sendable {
+    let socketPath: String
+    let explicitPassword: String?
+    let params: [String: String]
+    let attemptTimeout: TimeInterval
+    let retryLimit: Int
+    let retryDelay: TimeInterval
+
+    func deliverUntilAcknowledged() {
+        for attempt in 0..<max(1, retryLimit) {
+            if deliverOnce() {
+                return
+            }
+            if attempt + 1 < retryLimit {
+                Thread.sleep(forTimeInterval: retryDelay)
+            }
+        }
+    }
+
+    private func deliverOnce() -> Bool {
+        let deadline = Date.now.addingTimeInterval(attemptTimeout)
+        let reportingClient = SocketClient(path: socketPath)
+        defer { reportingClient.close() }
+        do {
+            try reportingClient.connectWithoutRetry(responseTimeout: attemptTimeout)
+            let authenticationTimeout = deadline.timeIntervalSinceNow
+            guard authenticationTimeout > 0 else { return false }
+            try CMUXCLI.authenticateSocketClientIfNeeded(
+                reportingClient,
+                explicitPassword: explicitPassword,
+                socketPath: socketPath,
+                responseTimeout: authenticationTimeout,
+                deadline: deadline
+            )
+            let reportTimeout = deadline.timeIntervalSinceNow
+            guard reportTimeout > 0 else { return false }
+            let jsonParams = params.reduce(into: [String: Any]()) {
+                $0[$1.key] = $1.value
+            }
+            _ = try reportingClient.sendV2(
+                method: "workspace.remote.terminal_session_connected",
+                params: jsonParams,
+                responseTimeout: reportTimeout
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+}
+
 struct CMUXCLI {
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
@@ -3011,7 +3062,9 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
-    private static let sshPTYTerminalConnectedResponseTimeoutSeconds: TimeInterval = 0.25
+    private static let sshPTYTerminalConnectedResponseTimeoutSeconds: TimeInterval = 0.5
+    private static let sshPTYTerminalConnectedRetryLimit = 4
+    private static let sshPTYTerminalConnectedRetryDelaySeconds: TimeInterval = 0.1
     // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
     // both the backend create idempotency key and the local daemon slot so every open,
     // reconnect, session restore, and mobile attach targets the same provider VM once
@@ -12509,7 +12562,8 @@ struct CMUXCLI {
             "if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi",
             "cmux_ssh_attach_reconnect_initial_delay=\"$cmux_ssh_attach_reconnect_delay\"",
             "cmux_ssh_attach_retry=0",
-            "cmux_ssh_attach_begin_attempt() { CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; cmux_ssh_attach_launch_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"${CMUX_SURFACE_ID:-}\\\",\\\"terminal_lifecycle_id\\\":\\\"${CMUX_TERMINAL_LIFECYCLE_ID:-}\\\",\\\"attempt_id\\\":\\\"$CMUX_SSH_ATTEMPT_ID\\\"}\"; CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching \"$cmux_ssh_attach_launch_payload\" >/dev/null 2>&1 || true; }",
+            "cmux_ssh_attach_register_attempt() { cmux_ssh_attach_launch_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"${CMUX_SURFACE_ID:-}\\\",\\\"terminal_lifecycle_id\\\":\\\"${CMUX_TERMINAL_LIFECYCLE_ID:-}\\\",\\\"attempt_id\\\":\\\"$CMUX_SSH_ATTEMPT_ID\\\"}\"; CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching \"$cmux_ssh_attach_launch_payload\" >/dev/null 2>&1; }",
+            "cmux_ssh_attach_begin_attempt() { CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; cmux_ssh_attach_attempt_registration_retry=0; while ! cmux_ssh_attach_register_attempt; do cmux_ssh_attach_attempt_registration_retry=$((cmux_ssh_attach_attempt_registration_retry + 1)); if [ \"$cmux_ssh_attach_attempt_registration_retry\" -ge 3 ]; then return 1; fi; /bin/sleep 0.1; done; }",
             "cmux_ssh_attach_begin_attempt || exit 1",
             "while :; do",
             "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi\n  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" \(command)",
@@ -12730,7 +12784,7 @@ struct CMUXCLI {
                let terminalLifecycleID = Self.normalizedEnvValue(
                    ProcessInfo.processInfo.environment["CMUX_TERMINAL_LIFECYCLE_ID"]
                ) {
-                var readinessParams: [String: Any] = [
+                var readinessParams: [String: String] = [
                     "workspace_id": workspaceId,
                     "surface_id": surfaceID,
                     "session_id": sessionID,
@@ -12828,40 +12882,24 @@ struct CMUXCLI {
         }
     }
 
-    /// Reports bridge readiness on a disposable socket so a delayed response
-    /// cannot block terminal forwarding or poison the attach control socket.
+    /// Reports bridge readiness on disposable sockets independently of terminal
+    /// forwarding. A bounded retry window absorbs transient local socket and
+    /// main-actor latency without poisoning the attach control socket.
     private func reportSSHPTYTerminalConnected(
         socketPath: String,
         explicitPassword: String?,
-        params: [String: Any]
+        params: [String: String]
     ) {
-        let deadline = Date.now.addingTimeInterval(
-            Self.sshPTYTerminalConnectedResponseTimeoutSeconds
+        let report = SSHPTYTerminalReadinessReport(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            params: params,
+            attemptTimeout: Self.sshPTYTerminalConnectedResponseTimeoutSeconds,
+            retryLimit: Self.sshPTYTerminalConnectedRetryLimit,
+            retryDelay: Self.sshPTYTerminalConnectedRetryDelaySeconds
         )
-        let reportingClient = SocketClient(path: socketPath)
-        defer { reportingClient.close() }
-        do {
-            try reportingClient.connectWithoutRetry(
-                responseTimeout: Self.sshPTYTerminalConnectedResponseTimeoutSeconds
-            )
-            let authenticationTimeout = deadline.timeIntervalSinceNow
-            guard authenticationTimeout > 0 else { return }
-            try authenticateClientIfNeeded(
-                reportingClient,
-                explicitPassword: explicitPassword,
-                socketPath: socketPath,
-                responseTimeout: authenticationTimeout,
-                deadline: deadline
-            )
-            let reportTimeout = deadline.timeIntervalSinceNow
-            guard reportTimeout > 0 else { return }
-            _ = try reportingClient.sendV2(
-                method: "workspace.remote.terminal_session_connected",
-                params: params,
-                responseTimeout: reportTimeout
-            )
-        } catch {
-            // Readiness reporting is best-effort; the live PTY must keep flowing.
+        DispatchQueue.global(qos: .userInitiated).async {
+            report.deliverUntilAcknowledged()
         }
     }
 

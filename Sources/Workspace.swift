@@ -2366,6 +2366,10 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
+    // Unsuppressed controller truth retained while live terminal liveness
+    // temporarily owns the published presentation above.
+    var remoteControllerConnectionState: WorkspaceRemoteConnectionState = .disconnected
+    var remoteControllerConnectionDetail: String?
     @Published var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus()
     @Published var remoteDetectedPorts: [Int] = []
     @Published var remoteForwardedPorts: [Int] = []
@@ -5467,6 +5471,8 @@ final class Workspace: Identifiable, ObservableObject {
         remoteHeartbeatCount = 0
         remoteLastHeartbeatAt = nil
         remoteConnectionDetail = nil
+        remoteControllerConnectionState = .disconnected
+        remoteControllerConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
         statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
@@ -5495,6 +5501,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteForegroundAuthenticationPhase = nil
         if configuration.transport == .websocket,
            configuration.daemonWebSocketEndpoint == nil {
+            remoteControllerConnectionState = .connected
             remoteConnectionState = .connected
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()
@@ -5507,7 +5514,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard shouldAutoConnect else {
             remoteForegroundAuthenticationPhase = foregroundAuthToken.map { .authenticating(token: $0) }
-            remoteConnectionState = foregroundAuthToken == nil ? .disconnected : .connecting
+            let initialState: WorkspaceRemoteConnectionState =
+                foregroundAuthToken == nil ? .disconnected : .connecting
+            remoteControllerConnectionState = initialState
+            remoteConnectionState = initialState
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()
             enqueueRemoteSessionTransition(
@@ -5517,6 +5527,7 @@ final class Workspace: Identifiable, ObservableObject {
             )
             return
         }
+        remoteControllerConnectionState = .connecting
         remoteConnectionState = .connecting
         applyBrowserRemoteWorkspaceStatusToPanels()
         postRemoteConnectionPresentationDidChange()
@@ -5574,6 +5585,8 @@ final class Workspace: Identifiable, ObservableObject {
         remoteProxyEndpoint = nil
         remoteHeartbeatCount = 0
         remoteLastHeartbeatAt = nil
+        remoteControllerConnectionState = .disconnected
+        remoteControllerConnectionDetail = disconnectedDetail
         remoteConnectionState = .disconnected
         remoteConnectionDetail = disconnectedDetail
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
@@ -6261,7 +6274,8 @@ final class Workspace: Identifiable, ObservableObject {
         relayPort: Int?,
         allowUntracked: Bool = false,
         terminalLifecycleID: UUID? = nil,
-        terminalLifecycleAlreadyValidated: Bool = false
+        terminalLifecycleAlreadyValidated: Bool = false,
+        deferPresentationReconciliationUntilDockCommit: Bool = false
     ) -> Bool {
         if let terminalLifecycleID, !terminalLifecycleAlreadyValidated {
             guard let terminalPanel = panels[surfaceId] as? TerminalPanel,
@@ -6337,6 +6351,8 @@ final class Workspace: Identifiable, ObservableObject {
             if shouldCleanupControlMaster {
                 requestSSHControlMasterCleanupIfNeeded(configuration: configuration)
             }
+        } else if !deferPresentationReconciliationUntilDockCommit {
+            reconcileRemoteTerminalPresentationAfterSessionEnd()
         }
         return true
     }
@@ -6375,6 +6391,8 @@ final class Workspace: Identifiable, ObservableObject {
             effectiveState = state
         }
 
+        remoteControllerConnectionState = state
+        remoteControllerConnectionDetail = detail
         remoteConnectionState = effectiveState
         remoteConnectionDetail = detail
         if state == .connected { _ = reattachPersistentRemotePTYPanels() }

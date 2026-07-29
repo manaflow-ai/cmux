@@ -243,7 +243,7 @@ extension Workspace {
                     authority) else {
             return false
         }
-        return dock.markRemoteTerminalSessionEnded(
+        let didEnd = dock.markRemoteTerminalSessionEnded(
             panelId: surfaceId,
             authority: authority,
             terminalLifecycleID: terminalLifecycleID
@@ -253,9 +253,14 @@ extension Workspace {
                 relayPort: relayPort,
                 allowUntracked: true,
                 terminalLifecycleID: terminalLifecycleID,
-                terminalLifecycleAlreadyValidated: true
+                terminalLifecycleAlreadyValidated: true,
+                deferPresentationReconciliationUntilDockCommit: true
             )
         }
+        if didEnd {
+            reconcileRemoteTerminalPresentationAfterSessionEnd()
+        }
+        return didEnd
     }
 
     private func remoteTerminalConnectionTarget(
@@ -363,6 +368,44 @@ extension Workspace {
             ? .reconnecting
             : .connecting
         remoteConnectionDetail = nil
+        applyBrowserRemoteWorkspaceStatusToPanels()
+        postRemoteConnectionPresentationDidChange()
+    }
+
+    func reconcileRemoteTerminalPresentationAfterSessionEnd() {
+        guard remoteConfiguration != nil,
+              !hasAuthoritativelyConnectedRemoteTerminal(
+                  in: DockSplitStore.liveStores
+              ) else {
+            return
+        }
+        let wasPresentedConnected = remoteConnectionState == .connected
+        let hasLaunchingTerminal = activeRemoteTerminalSurfaceIds.contains {
+            remoteTerminalSessionStatesBySurfaceId[$0]?.phase == .launching
+        }
+        if remoteControllerConnectionState == .error ||
+            remoteControllerConnectionState == .suspended {
+            applyRemoteConnectionStateUpdate(
+                remoteControllerConnectionState,
+                detail: remoteControllerConnectionDetail,
+                target: remoteDisplayTarget ?? "remote host",
+                externalRemoteTerminalDocks: DockSplitStore.liveStores
+            )
+            return
+        }
+        switch remoteControllerConnectionState {
+        case .connected:
+            remoteConnectionState =
+                wasPresentedConnected || hasLaunchingTerminal
+                ? .reconnecting
+                : .connecting
+        case .disconnected where hasLaunchingTerminal:
+            remoteConnectionState =
+                wasPresentedConnected ? .reconnecting : .connecting
+        default:
+            remoteConnectionState = remoteControllerConnectionState
+        }
+        remoteConnectionDetail = remoteControllerConnectionDetail
         applyBrowserRemoteWorkspaceStatusToPanels()
         postRemoteConnectionPresentationDidChange()
     }

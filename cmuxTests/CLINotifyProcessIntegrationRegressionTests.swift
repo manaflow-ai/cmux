@@ -4054,7 +4054,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             result.stderr
         )
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.terminal_session_connected", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_detach"])
+        XCTAssertEqual(
+            methods.filter { $0 != "workspace.remote.terminal_session_connected" },
+            [
+                "workspace.remote.pty_bridge",
+                "workspace.remote.pty_resize",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_detach",
+            ]
+        )
+        XCTAssertEqual(
+            methods.filter {
+                $0 == "workspace.remote.terminal_session_connected"
+            }.count,
+            1
+        )
     }
 
     func testSSHPTYAttachBridgeEOFWhenSessionGoneClearsLocalState() throws {
@@ -4168,7 +4182,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.terminal_session_connected", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
+        XCTAssertEqual(
+            methods.filter { $0 != "workspace.remote.terminal_session_connected" },
+            [
+                "workspace.remote.pty_bridge",
+                "workspace.remote.pty_resize",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_attach_end",
+            ]
+        )
+        XCTAssertEqual(
+            methods.filter {
+                $0 == "workspace.remote.terminal_session_connected"
+            }.count,
+            1
+        )
     }
 
     func testSSHPTYAttachWithoutSurfaceDoesNotSendLocalAttachEnd() throws {
@@ -4375,7 +4403,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.terminal_session_connected", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
+        XCTAssertEqual(
+            methods.filter { $0 != "workspace.remote.terminal_session_connected" },
+            [
+                "workspace.remote.pty_bridge",
+                "workspace.remote.pty_resize",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_attach_end",
+            ]
+        )
+        XCTAssertEqual(
+            methods.filter {
+                $0 == "workspace.remote.terminal_session_connected"
+            }.count,
+            1
+        )
     }
 
     func testSSHPTYAttachWaitUsesCurrentTerminalSizeForBridgeHandshake() throws {
