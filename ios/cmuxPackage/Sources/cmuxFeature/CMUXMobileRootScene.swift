@@ -303,9 +303,7 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if UITestConfig.surfaceSwitcherPreviewEnabled {
-            SurfaceSwitcherAccessibilityPreviewView()
-        } else if UITestConfig.taskComposerPreviewEnabled {
+        if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()

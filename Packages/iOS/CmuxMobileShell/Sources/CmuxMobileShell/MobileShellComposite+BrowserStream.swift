@@ -7,16 +7,14 @@ import Foundation
 extension MobileShellComposite {
     /// Refreshes the streamable browser panels for a Mac-local workspace.
     /// - Parameter workspaceID: The Mac-local workspace identifier.
-    @discardableResult
-    public func refreshMobileBrowserPanels(workspaceID: String) async -> Bool {
+    public func refreshMobileBrowserPanels(workspaceID: String) async {
         guard supportsBrowserStream, let client = remoteClient else {
             browserStreamEvents?.replaceBrowserPanels(in: workspaceID, with: [])
-            return false
+            return
         }
         guard let panels = try? await client.listMobileBrowserPanels(workspaceID: workspaceID),
-              remoteClient === client else { return false }
+              remoteClient === client else { return }
         browserStreamEvents?.replaceBrowserPanels(in: workspaceID, with: panels)
-        return true
     }
 
     /// Starts streaming a discovered Mac browser panel.

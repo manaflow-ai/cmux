@@ -67,14 +67,8 @@ extension WorkspaceDetailView {
     }
 
     var hasTitleMenuActions: Bool {
-        #if os(iOS)
-        // View as Text, debug logs, and Send Feedback live in the title menu on
-        // iOS even when the Mac reports no workspace action capabilities.
-        true
-        #else
         workspace.actionCapabilities.supportsWorkspaceActions
             || workspace.actionCapabilities.supportsReadStateActions
             || closeWorkspace != nil
-        #endif
     }
 }
