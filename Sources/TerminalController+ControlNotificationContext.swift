@@ -126,20 +126,22 @@ extension TerminalController: ControlNotificationContext {
                    surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body,
                    presentation: presentation
                ) {
-                return .delivered(workspaceID: rehomed.workspaceID, surfaceID: explicitSurfaceID)
+                return .delivered(workspaceID: rehomed.workspaceID, surfaceID: rehomed.surfaceID)
             }
             return .workspaceNotFound
         }
-        if let explicitSurfaceID, ws.panels[explicitSurfaceID] == nil {
+        if let explicitSurfaceID, !notificationWorkspace(ws, contains: explicitSurfaceID) {
             if let rehomed = controlNotificationRehomedDelivery(
                 surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body,
                 presentation: presentation
             ) {
-                return .delivered(workspaceID: rehomed.workspaceID, surfaceID: explicitSurfaceID)
+                return .delivered(workspaceID: rehomed.workspaceID, surfaceID: rehomed.surfaceID)
             }
             return .surfaceNotFound(explicitSurfaceID)
         }
-        let surfaceId = explicitSurfaceID ?? ws.focusedPanelId
+        let surfaceId = (explicitSurfaceID ?? ws.focusedPanelId).flatMap {
+            ws.surfaceOwnershipTarget(for: $0)?.surfaceID
+        }
         deliverNotificationSynchronously(
             notificationID: presentation.notificationID,
             tabId: ws.id,
@@ -176,26 +178,31 @@ extension TerminalController: ControlNotificationContext {
                 presentation: presentation
             ) {
                 return .delivered(
-                    workspaceID: rehomed.workspaceID, surfaceID: surfaceID, windowID: rehomed.windowID
+                    workspaceID: rehomed.workspaceID,
+                    surfaceID: rehomed.surfaceID,
+                    windowID: rehomed.windowID
                 )
             }
             return .workspaceNotFound(workspaceID: nil)
         }
-        guard ws.panels[surfaceID] != nil else {
+        guard notificationWorkspace(ws, contains: surfaceID) else {
             if let rehomed = controlNotificationRehomedDelivery(
                 surfaceID: surfaceID, title: title, subtitle: subtitle, body: body,
                 presentation: presentation
             ) {
                 return .delivered(
-                    workspaceID: rehomed.workspaceID, surfaceID: surfaceID, windowID: rehomed.windowID
+                    workspaceID: rehomed.workspaceID,
+                    surfaceID: rehomed.surfaceID,
+                    windowID: rehomed.windowID
                 )
             }
             return .surfaceNotFound(surfaceID)
         }
+        let targetSurfaceID = ws.surfaceOwnershipTarget(for: surfaceID)?.surfaceID ?? surfaceID
         deliverNotificationSynchronously(
             notificationID: presentation.notificationID,
             tabId: ws.id,
-            surfaceId: surfaceID,
+            surfaceId: targetSurfaceID,
             title: title,
             subtitle: subtitle,
             body: body,
@@ -203,7 +210,7 @@ extension TerminalController: ControlNotificationContext {
         )
         return .delivered(
             workspaceID: ws.id,
-            surfaceID: surfaceID,
+            surfaceID: targetSurfaceID,
             windowID: AppDelegate.shared?.windowId(for: tabManager)
         )
     }
@@ -217,18 +224,24 @@ extension TerminalController: ControlNotificationContext {
         subtitle: String,
         body: String,
         presentation: ControlNotificationPresentation
-    ) -> (workspaceID: UUID, windowID: UUID?)? {
-        guard let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: surfaceID) else { return nil }
+    ) -> (workspaceID: UUID, surfaceID: UUID, windowID: UUID?)? {
+        guard let owner = AppDelegate.shared?.notificationSurfaceOwner(surfaceID: surfaceID) else {
+            return nil
+        }
         deliverNotificationSynchronously(
             notificationID: presentation.notificationID,
-            tabId: owner.workspace.id,
-            surfaceId: surfaceID,
+            tabId: owner.tabID,
+            surfaceId: owner.surfaceID,
             title: title,
             subtitle: subtitle,
             body: body,
             presentation: Self.terminalPresentation(presentation)
         )
-        return (owner.workspace.id, AppDelegate.shared?.windowId(for: owner.tabManager))
+        return (
+            owner.tabID,
+            owner.surfaceID,
+            AppDelegate.shared?.windowId(for: owner.tabManager)
+        )
     }
 
     func controlNotificationCreateForTarget(
@@ -256,13 +269,14 @@ extension TerminalController: ControlNotificationContext {
         guard let ws = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return .workspaceNotFound(workspaceID: workspaceID)
         }
-        guard ws.panels[surfaceID] != nil else {
+        guard notificationWorkspace(ws, contains: surfaceID) else {
             return .surfaceNotFound(surfaceID)
         }
+        let targetSurfaceID = ws.surfaceOwnershipTarget(for: surfaceID)?.surfaceID ?? surfaceID
         deliverNotificationSynchronously(
             notificationID: presentation.notificationID,
             tabId: ws.id,
-            surfaceId: surfaceID,
+            surfaceId: targetSurfaceID,
             title: title,
             subtitle: subtitle,
             body: body,
@@ -271,7 +285,7 @@ extension TerminalController: ControlNotificationContext {
         )
         return .delivered(
             workspaceID: ws.id,
-            surfaceID: surfaceID,
+            surfaceID: targetSurfaceID,
             windowID: AppDelegate.shared?.windowId(for: tabManager)
         )
     }
@@ -481,7 +495,7 @@ extension TerminalController: ControlNotificationContext {
             return tabManager.tabs.first(where: { $0.id == wsId })
         }
         if let surfaceId = routing.surfaceID {
-            return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
+            return tabManager.tabs.first(where: { notificationWorkspace($0, contains: surfaceId) })
         }
         if let paneId = routing.paneID, let located = v2LocatePane(paneId) {
             guard located.tabManager === tabManager else { return nil }
@@ -489,6 +503,10 @@ extension TerminalController: ControlNotificationContext {
         }
         guard let wsId = tabManager.selectedTabId else { return nil }
         return tabManager.tabs.first(where: { $0.id == wsId })
+    }
+
+    private func notificationWorkspace(_ workspace: Workspace, contains surfaceID: UUID) -> Bool {
+        workspace.surfaceOwnershipTarget(for: surfaceID) != nil
     }
 
     /// The marked-read delta the legacy bodies computed: notifications that were

@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxMobileTerminalKit
 import CoreGraphics
 
 struct TerminalViewportSnapshot {
@@ -9,6 +10,8 @@ struct TerminalViewportSnapshot {
     let toolbarFrame: CGRect
     let layoutViewportRect: CGRect
     let liveViewportRect: CGRect
+    /// See `TerminalViewportInputs.viewportNegotiationUnsettled`.
+    let viewportNegotiationUnsettled: Bool
 
     func renderViewportRect(forRenderSize renderSize: CGSize, clampsStaleLiveViewport: Bool) -> CGRect {
         let targetHeight = layoutViewportRect.height
@@ -27,9 +30,22 @@ struct TerminalViewportSnapshot {
             forRenderSize: renderSize,
             clampsStaleLiveViewport: clampsStaleLiveViewport
         )
+        // Bottom-pin against the live viewport, but never clip content that
+        // will be visible at settle: while the viewport grows (keyboard
+        // dismissal) a target-sized render keeps its top row in place and the
+        // keyboard reveals the lower rows, instead of the top rows being
+        // pushed off screen and sliding back (see
+        // `TerminalLetterboxGeometry.renderPinnedBottomEdge`).
+        let bottomEdge = TerminalLetterboxGeometry.renderPinnedBottomEdge(
+            liveViewportMaxY: viewport.maxY,
+            targetViewportMaxY: layoutViewportRect.maxY,
+            viewportMinY: viewport.minY,
+            renderHeight: renderSize.height,
+            holdsProvisionalPin: viewportNegotiationUnsettled
+        )
         return CGRect(
             x: viewport.minX,
-            y: viewport.maxY - renderSize.height,
+            y: bottomEdge - renderSize.height,
             width: renderSize.width,
             height: renderSize.height
         )

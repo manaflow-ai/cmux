@@ -27,6 +27,56 @@
     "backToMac": "cmux for Mac",
     "galleryItemAlt": "iPhone の cmux ターミナルで動作する {name}"
   },
+  "browserDownloads": {
+    "eyebrow": "cmux Browser",
+    "title": "{platform} 版 cmux",
+    "tagline": "Chromium ブラウザとエージェントワークスペースを、ひとつに。",
+    "logoAlt": "cmux アプリアイコン",
+    "portableCta": "ポータブル ZIP",
+    "featuresTitle": "エージェント作業のための設計",
+    "features": {
+      "chromium": {
+        "title": "本物の Chromium",
+        "description": "：Chrome 品質のタブ、レンダリング、拡張機能、アドレスバー"
+      },
+      "workspaces": {
+        "title": "タスク単位のワークスペース",
+        "description": "：延々と続くタブ列ではなく、タスクごとに Web タブとツールを整理"
+      },
+      "terminals": {
+        "title": "ターミナルサーフェス",
+        "description": "：シェルとブラウザタブを同じウィンドウとコンポジタに配置"
+      },
+      "openSource": {
+        "title": "無料・オープンソース",
+        "description": "：GitHub でコードの確認、Issue の報告、ソースからのビルドが可能"
+      }
+    },
+    "installTitle": "インストール",
+    "releaseTitle": "リリースとアップデート",
+    "releaseBody": "リンクは常に <github>GitHub Releases</github> の最新安定版を指します。cmux は署名済みアップデートマニフェストを検証してから更新をインストールします。",
+    "sourceLink": "GitHub でソースを見る",
+    "otherPlatform": "{platform} 版 cmux",
+    "macLink": "Mac 版 cmux ターミナル",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Windows 版 cmux をダウンロード",
+      "metaDescription": "Windows x64 版 cmux をダウンロード。タスク単位のタブとターミナルサーフェスを備えた、無料・オープンソースの Chromium ブラウザ兼エージェントワークスペースです。",
+      "subtitle": "Chromium タブ、cmux ワークスペース、Windows で慣れたキー操作を備えたネイティブ x64 ビルドです。",
+      "primaryCta": "インストーラー（.exe）をダウンロード",
+      "requirements": "Windows 10 以降 · x64",
+      "installBody": "インストーラーを実行し、Windows の案内に従ってください。システム全体にインストールせずフォルダ内で使いたい場合は、ポータブル ZIP を選べます。"
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Linux 版 cmux をダウンロード",
+      "metaDescription": "Linux x64 版 cmux をダウンロード。タスク単位のタブとターミナルサーフェスを備えた、無料・オープンソースの Chromium ブラウザ兼エージェントワークスペースです。",
+      "subtitle": "Chromium タブ、cmux ワークスペース、統合ターミナルサーフェスを備えたネイティブ x64 ビルドです。",
+      "primaryCta": ".deb をダウンロード",
+      "requirements": "Debian または Ubuntu · x64",
+      "installBody": "Debian パッケージをダウンロードし、パッケージマネージャーでインストールしてください。ユーザー単位のインストールとアプリ内更新にはポータブル ZIP を選べます。"
+    }
+  },
   "meta": {
     "title": "cmux — マルチタスク、整理、プログラマビリティのために作られたターミナル",
     "description": "無料・オープンソースのGhosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
@@ -662,7 +712,7 @@
     "faqGhosttyQ": "cmuxとGhosttyの関係は？",
     "faqGhosttyA": "cmuxはGhosttyのフォークではありません。アプリがWebKitをWebビューに使うのと同様に、ターミナルレンダリングのライブラリとして<link>libghostty</link>を使用しています。Ghosttyはスタンドアロンのターミナルで、cmuxはそのレンダリングエンジンの上に構築された別のアプリです。",
     "faqPlatformQ": "対応プラットフォームは？",
-    "faqPlatformA": "現在はmacOSのみです。cmuxはネイティブSwift + AppKitアプリです。Linux・Windows・Android 版が公開され次第お知らせします。<waitlist>順番待ちリストに登録</waitlist>してください。",
+    "faqPlatformA": "ダウンロードメニューで利用可能な cmux ビルドを確認できます。未公開のプラットフォームは<waitlist>順番待ちリストに登録</waitlist>してください。",
     "faqAgentsQ": "cmuxはどのコーディングエージェントに対応していますか？",
     "faqAgentsA": "すべてに対応しています。cmuxはターミナルなので、ターミナルで動作するすべてのエージェントがそのまま使えます：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent、その他コマンドラインから起動できるすべてのツール。",
     "faqNotificationsQ": "通知はどのように機能しますか？",
@@ -1645,6 +1695,7 @@
           "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。"
         },
         "terminal": {
+          "autoRetryAgentSessions": "アクティブな管理対象エージェントのコマンドが、シグナル以外の 0 でないエラーステータスで終了した場合に、セッションを自動的に再開します。再試行は回数制限付きの指数バックオフで行い、正常終了やユーザーによる明示的な終了は再試行しません。",
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
           "sessionContentMaxWidth": "ターミナルと組み込みエージェントチャットのコンテンツ幅の上限をポイント単位で指定します。ペインの全幅を使うには false を設定します。",
@@ -4567,8 +4618,8 @@
     "title": "{platform}版の順番待ちリストに登録",
     "titleAny": "順番待ちリストに登録",
     "description": "{platform}版は準備中です。メールアドレスをご記入いただくと、公開され次第すぐにお知らせします。",
-    "descriptionAny": "現在 cmux は macOS 専用です。メールアドレスをご記入いただくと、Linux・Windows・Android 版が公開され次第お知らせします。",
-    "calloutText": "Linux・Windows・Android 版も準備中です。",
+    "descriptionAny": "未公開のプラットフォームを選んでメールアドレスを入力してください。そのビルドが公開され次第お知らせします。",
+    "calloutText": "ほかの cmux ビルドも準備中です。",
     "platformsLabel": "対象プラットフォーム",
     "selectPlatform": "1つ以上選択してください。",
     "emailLabel": "メールアドレス",

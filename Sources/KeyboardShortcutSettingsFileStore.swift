@@ -1563,6 +1563,7 @@ final class CmuxSettingsFileStore {
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
+            var agentSessionAutoRetryDidChange = false
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
             var paneChromeDidChange = false
@@ -1582,6 +1583,9 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
                     agentSessionAutoResumeDidChange = true
+                }
+                if change.defaultsKey == AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey {
+                    agentSessionAutoRetryDidChange = true
                 }
                 if change.defaultsKey == AgentHibernationSettings.enabledKey ||
                     change.defaultsKey == AgentHibernationSettings.idleSecondsKey ||
@@ -1607,6 +1611,11 @@ final class CmuxSettingsFileStore {
 
             if agentSessionAutoResumeDidChange {
                 AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if agentSessionAutoRetryDidChange {
+                AgentSessionAutoRetrySettings(
+                    notificationCenter: notificationCenter
+                ).notifyDidChange()
             }
             if agentHibernationDidChange {
                 AgentHibernationSettings.notifyDidChange(notificationCenter: notificationCenter)

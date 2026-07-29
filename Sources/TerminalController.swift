@@ -4639,7 +4639,10 @@ class TerminalController {
         if let surfaceId = v2UUID(params, "surface_id")
             ?? v2UUID(params, "terminal_id")
             ?? v2UUID(params, "tab_id") {
-            return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
+            return tabManager.tabs.first(where: {
+                $0.panels[surfaceId] != nil
+                    || $0.remoteTmuxControlPane(surfaceID: surfaceId) != nil
+            })
         }
         if let paneId = v2UUID(params, "pane_id"),
            let located = v2LocatePane(paneId) {
@@ -10795,7 +10798,7 @@ class TerminalController {
             }
 
             guard let panelId,
-                  let terminalPanel = tab.terminalPanel(for: panelId) else {
+                  let terminalPanel = tab.terminalInputTarget(forPanelID: panelId)?.panel else {
                 result = "ERROR: Terminal surface not found"
                 return
             }
@@ -10874,7 +10877,7 @@ class TerminalController {
             }
 
             guard let panelId,
-                  let terminalPanel = tab.terminalPanel(for: panelId) else {
+                  let terminalPanel = tab.terminalInputTarget(forPanelID: panelId)?.panel else {
                 return .finished("ERROR: Terminal surface not found")
             }
             guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
@@ -11450,7 +11453,7 @@ class TerminalController {
                 return
             }
 
-            let terminalPanel = workspace.focusedTerminalPanel
+            let terminalPanel = workspace.focusedTerminalInputTarget()?.panel
                 ?? orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }.first
             guard let terminalPanel else {
                 result = "ERROR: No terminal panel available"
@@ -11703,7 +11706,7 @@ class TerminalController {
             }
 
             guard let panelId = resolveSurfaceId(from: panelArg, tab: tab),
-                  let terminalPanel = tab.terminalPanel(for: panelId) else {
+                  let terminalPanel = tab.terminalInputTarget(forPanelID: panelId)?.panel else {
                 result = "false"
                 return
             }
@@ -11755,14 +11758,14 @@ class TerminalController {
             }
 
             guard let panelId,
-                  let terminalPanel = tab.terminalPanel(for: panelId) else {
+                  let terminalPanel = tab.terminalInputTarget(forPanelID: panelId)?.panel else {
                 result = "ERROR: Terminal surface not found"
                 return
             }
 
             let stats = terminalPanel.hostedView.debugRenderStats()
             let payload = RenderStatsResponse(
-                panelId: panelId.uuidString,
+                panelId: terminalPanel.id.uuidString,
                 drawCount: stats.drawCount,
                 lastDrawTime: stats.lastDrawTime,
                 metalDrawableCount: stats.metalDrawableCount,
@@ -12242,21 +12245,14 @@ class TerminalController {
                 return
             }
 
-            if let uuid = UUID(uuidString: trimmed),
-               tab.panels[uuid] != nil {
-                guard tab.surfaceIdFromPanelId(uuid) != nil else { return }
-                tabManager.focusSurface(tabId: tab.id, surfaceId: uuid)
-                success = true
-                return
+            guard let surfaceId = resolveSurfaceId(from: trimmed, tab: tab) else { return }
+            if tab.remoteTmuxControlPane(surfaceID: surfaceId) != nil {
+                tab.focusPanel(surfaceId)
+            } else {
+                guard tab.surfaceIdFromPanelId(surfaceId) != nil else { return }
+                tabManager.focusSurface(tabId: tab.id, surfaceId: surfaceId)
             }
-
-            if let index = Int(trimmed), index >= 0 {
-                let panels = orderedPanels(in: tab)
-                guard index < panels.count else { return }
-                guard tab.surfaceIdFromPanelId(panels[index].id) != nil else { return }
-                tabManager.focusSurface(tabId: tab.id, surfaceId: panels[index].id)
-                success = true
-            }
+            success = true
         }
 
         return success ? "OK" : "ERROR: Panel not found"
@@ -12719,12 +12715,13 @@ class TerminalController {
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
             }
-            guard let panelId = resolveSurfaceId(from: panelArg, tab: tab) else {
+            guard let panelId = resolveSurfaceId(from: panelArg, tab: tab),
+                  let snapshotSurfaceID = tab.terminalInputTarget(forPanelID: panelId)?.surfaceID else {
                 result = "ERROR: Surface not found"
                 return
             }
             Self.panelSnapshotLock.lock()
-            Self.panelSnapshots.removeValue(forKey: panelId)
+            Self.panelSnapshots.removeValue(forKey: snapshotSurfaceID)
             Self.panelSnapshotLock.unlock()
             result = "OK"
         }
@@ -12828,7 +12825,7 @@ class TerminalController {
             }
 
             guard let panelId = resolveSurfaceId(from: panelArg, tab: tab),
-                  let terminalPanel = tab.terminalPanel(for: panelId) else {
+                  let terminalPanel = tab.terminalInputTarget(forPanelID: panelId)?.panel else {
                 result = "ERROR: Terminal surface not found"
                 return
             }
@@ -12853,10 +12850,10 @@ class TerminalController {
 
             var changedPixels = -1
             Self.panelSnapshotLock.lock()
-            if let previous = Self.panelSnapshots[panelId] {
+            if let previous = Self.panelSnapshots[terminalPanel.id] {
                 changedPixels = Self.countChangedPixels(previous: previous, current: current)
             }
-            Self.panelSnapshots[panelId] = current
+            Self.panelSnapshots[terminalPanel.id] = current
             Self.panelSnapshotLock.unlock()
 
             // Save PNG for postmortem debugging.
@@ -13286,20 +13283,21 @@ class TerminalController {
         }
 
         if let uuid = UUID(uuidString: arg) {
-            return tab.terminalPanel(for: uuid)
+            return tab.terminalInputTarget(forPanelID: uuid)?.panel
         }
 
         if let index = Int(arg), index >= 0 {
             let panels = orderedPanels(in: tab)
             guard index < panels.count else { return nil }
-            return panels[index] as? TerminalPanel
+            return tab.terminalInputTarget(forPanelID: panels[index].id)?.panel
         }
 
         return nil
     }
 
     private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
-        if let uuid = UUID(uuidString: arg), tab.panels[uuid] != nil {
+        if let uuid = UUID(uuidString: arg),
+           tab.panels[uuid] != nil || tab.remoteTmuxControlPane(surfaceID: uuid) != nil {
             return uuid
         }
 
@@ -13530,7 +13528,7 @@ class TerminalController {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let terminalPanel = tab.focusedTerminalPanel else {
+                  let terminalPanel = tab.focusedTerminalInputTarget()?.panel else {
                 return .noFocusedTerminal
             }
             return Self.v1TextSendOutcome(
@@ -13608,14 +13606,16 @@ class TerminalController {
         func selectedTerminalPanel(in paneId: PaneID) -> TerminalPanel? {
             guard let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId),
                   let panelId = workspace.panelIdFromSurfaceId(selectedTab.id),
-                  let terminalPanel = workspace.panels[panelId] as? TerminalPanel else {
+                  let terminalPanel = workspace.terminalInputTarget(forPanelID: panelId)?.panel else {
                 return nil
             }
             return terminalPanel
         }
 
         func isSelectedTerminalPanel(_ terminalPanel: TerminalPanel) -> Bool {
-            guard let surfaceId = workspace.surfaceIdFromPanelId(terminalPanel.id) else {
+            let containerPanelID = workspace.remoteTmuxControlPane(surfaceID: terminalPanel.id)?.containerPanelID
+                ?? terminalPanel.id
+            guard let surfaceId = workspace.surfaceIdFromPanelId(containerPanelID) else {
                 return false
             }
             return workspace.bonsplitController.allPaneIds.contains { paneId in
@@ -13629,8 +13629,9 @@ class TerminalController {
         }
 
         if let rememberedTerminal = workspace.lastRememberedTerminalPanelForConfigInheritance(),
-           isSelectedTerminalPanel(rememberedTerminal) {
-            return rememberedTerminal
+           let projected = workspace.terminalInputTarget(forPanelID: rememberedTerminal.id)?.panel,
+           isSelectedTerminalPanel(projected) {
+            return projected
         }
 
         for paneId in workspace.bonsplitController.allPaneIds {
@@ -13696,7 +13697,7 @@ class TerminalController {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let terminalPanel = tab.focusedTerminalPanel else {
+                  let terminalPanel = tab.focusedTerminalInputTarget()?.panel else {
                 return .noFocusedTerminal
             }
             return Self.v1KeySendOutcome(
@@ -14525,11 +14526,13 @@ class TerminalController {
     #endif
 
     private func terminalPanel(surfaceID: UUID) -> TerminalPanel? {
-        guard let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceID),
-              let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
+        guard let tabManager = controlTabManager(surfaceID: surfaceID),
+              let workspace = tabManager.tabs.first(where: {
+                  $0.terminalInputTarget(forPanelID: surfaceID) != nil
+              }) else {
             return nil
         }
-        return workspace.terminalPanel(for: surfaceID)
+        return workspace.terminalInputTarget(forPanelID: surfaceID)?.panel
     }
 
     // Restored: still used by the v1 close-workspace path (its v2
@@ -14581,7 +14584,7 @@ class TerminalController {
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             #if DEBUG
             cmuxDebugLog("mobile.terminal.replay NOT_FOUND surface=\(v2RawString(params, "surface_id") ?? "nil")")
             #endif
@@ -14748,7 +14751,7 @@ class TerminalController {
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
@@ -14810,7 +14813,7 @@ class TerminalController {
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
         let deltaLines = (params["delta_lines"] as? NSNumber)?.doubleValue ?? 0
@@ -14837,7 +14840,7 @@ class TerminalController {
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
         let col = (params["col"] as? NSNumber)?.intValue ?? 0
@@ -14862,7 +14865,7 @@ class TerminalController {
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
@@ -14920,7 +14923,7 @@ class TerminalController {
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
@@ -15001,7 +15004,7 @@ class TerminalController {
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
@@ -15274,12 +15277,12 @@ class TerminalController {
 
         let surfaceId: UUID?
         if let requestedSurfaceId {
-            guard workspace.panels[requestedSurfaceId] != nil else {
+            guard let target = workspace.terminalInputTarget(forPanelID: requestedSurfaceId) else {
                 return nil
             }
-            surfaceId = requestedSurfaceId
+            surfaceId = target.surfaceID
         } else if requireTerminal {
-            surfaceId = workspace.focusedTerminalPanel?.id
+            surfaceId = workspace.focusedTerminalInputTarget()?.surfaceID
                 ?? mobileTerminalPanels(in: workspace).first?.id
         } else {
             surfaceId = nil
@@ -15295,7 +15298,7 @@ class TerminalController {
         // the surface exists.
         if requireTerminal,
            let surfaceId,
-           let panel = workspace.terminalPanel(for: surfaceId) {
+           let panel = workspace.terminalInputTarget(forPanelID: surfaceId)?.panel {
             panel.surface.requestBackgroundSurfaceStartIfNeeded()
         }
 
@@ -15307,7 +15310,9 @@ class TerminalController {
         // so the phone's terminal dropdown matches the on-screen bonsplit layout,
         // rather than focused-first/UUID order. `is_focused` in the payload still
         // tells the phone which terminal is active.
-        orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }
+        orderedPanels(in: workspace).flatMap {
+            workspace.terminalPanels(projectedFromPanelID: $0.id)
+        }
     }
 
     deinit {

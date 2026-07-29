@@ -102,7 +102,7 @@
     "faqGhosttyQ": "Qual a relação do cmux com o Ghostty?",
     "faqGhosttyA": "O cmux não é um fork do Ghostty. Ele usa o <link>libghostty</link> como biblioteca para renderização de terminal, da mesma forma que apps usam o WebKit para visualizações web. O Ghostty é um terminal independente; o cmux é um app diferente construído sobre seu motor de renderização.",
     "faqPlatformQ": "Quais plataformas são suportadas?",
-    "faqPlatformA": "Apenas macOS, por enquanto. O cmux é um app nativo em Swift + AppKit.",
+    "faqPlatformA": "Confira as versões disponíveis do cmux no menu de download. <waitlist>Entre na lista de espera</waitlist> para qualquer plataforma que ainda não foi lançada.",
     "faqAgentsQ": "Com quais agentes de código o cmux funciona?",
     "faqAgentsA": "Todos eles. O cmux é um terminal, então qualquer agente que roda em um terminal funciona diretamente: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent e qualquer outro que você possa executar pela linha de comando.",
     "faqNotificationsQ": "Como funcionam as notificações?",
@@ -957,6 +957,7 @@
         "terminal": {
           "sessionContentMaxWidth": "Largura máxima opcional, em pontos, para o conteúdo do terminal e do chat integrado do agente. Defina como false para usar toda a largura do painel.",
           "sessionContentAlignment": "Posicionamento horizontal do conteúdo do terminal e do chat integrado do agente quando sessionContentMaxWidth está ativado.",
+          "autoRetryAgentSessions": "Retoma automaticamente uma sessão de agente gerenciada quando o comando ativo termina com um status de erro diferente de zero e não causado por um sinal. As tentativas são limitadas e usam recuo exponencial; conclusões normais e encerramentos explícitos do usuário nunca são repetidos.",
           "copyOnSelect": "Quando true, copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada. Quando false, o cmux não emite uma substituição copy-on-select do Ghostty; a configuração e os padrões do Ghostty controlam o comportamento da área de transferência de seleção.",
           "scrollSpeed": "Multiplicador aplicado aos deslocamentos da roda de rolagem e do trackpad no terminal. Valores mais altos rolam mais rápido e os mais baixos, mais devagar.",
           "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
@@ -3539,8 +3540,8 @@
     "title": "Entrar na lista de espera do {platform}",
     "titleAny": "Entrar na lista de espera",
     "description": "O suporte para {platform} está a caminho. Deixe seu e-mail e avisaremos assim que estiver pronto.",
-    "descriptionAny": "Por enquanto o cmux é focado no macOS. Deixe seu e-mail e avisaremos assim que Linux, Windows ou Android estiver pronto.",
-    "calloutText": "Em breve no Linux, Windows e Android.",
+    "descriptionAny": "Escolha uma plataforma ainda não lançada e deixe seu e-mail. Avisaremos quando essa versão estiver pronta.",
+    "calloutText": "Mais versões do cmux estão a caminho.",
     "platformsLabel": "Quais plataformas?",
     "selectPlatform": "Escolha pelo menos uma plataforma.",
     "emailLabel": "E-mail",
@@ -3554,5 +3555,55 @@
     "successBody": "Enviaremos um e-mail quando a versão para {platform} estiver pronta.",
     "successBodyAny": "Enviaremos um e-mail quando o cmux estiver pronto para sua plataforma.",
     "done": "Concluído"
+  },
+  "browserDownloads": {
+    "eyebrow": "Navegador cmux",
+    "title": "cmux para {platform}",
+    "tagline": "Um navegador Chromium e um espaço de trabalho para agentes, criados em conjunto.",
+    "logoAlt": "Ícone do aplicativo cmux",
+    "portableCta": "ZIP portátil",
+    "featuresTitle": "Feito para trabalho com agentes",
+    "features": {
+      "chromium": {
+        "title": "Chromium de verdade",
+        "description": ": abas, renderização, extensões e comportamento da omnibox com a qualidade do Chrome"
+      },
+      "workspaces": {
+        "title": "Espaços de trabalho por tarefa",
+        "description": ": organize abas da web e ferramentas em torno da tarefa, em vez de uma barra de abas sem fim"
+      },
+      "terminals": {
+        "title": "Superfícies de terminal",
+        "description": ": mantenha shells e abas do navegador na mesma janela e no mesmo compositor"
+      },
+      "openSource": {
+        "title": "Gratuito e de código aberto",
+        "description": ": examine o código, relate problemas e compile a partir do código-fonte no GitHub"
+      }
+    },
+    "installTitle": "Instalação",
+    "releaseTitle": "Versões e atualizações",
+    "releaseBody": "Estes links sempre apontam para a versão estável mais recente no <github>GitHub Releases</github>. O cmux verifica manifestos de atualização assinados antes de instalar uma atualização.",
+    "sourceLink": "Ver o código-fonte no GitHub",
+    "otherPlatform": "cmux para {platform}",
+    "macLink": "Terminal cmux para Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Baixar o cmux para Windows",
+      "metaDescription": "Baixe o cmux para Windows x64: um navegador Chromium e espaço de trabalho para agentes, gratuito e de código aberto, com abas por tarefa e superfícies de terminal.",
+      "subtitle": "Uma compilação x64 nativa com abas Chromium, espaços de trabalho cmux e convenções de teclado conhecidas do Windows.",
+      "primaryCta": "Baixar instalador (.exe)",
+      "requirements": "Windows 10 ou mais recente · x64",
+      "installBody": "Execute o instalador e siga as instruções do Windows. Escolha o ZIP portátil se preferir manter o cmux em uma pasta sem instalação em todo o sistema."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Baixar o cmux para Linux",
+      "metaDescription": "Baixe o cmux para Linux x64: um navegador Chromium e espaço de trabalho para agentes, gratuito e de código aberto, com abas por tarefa e superfícies de terminal.",
+      "subtitle": "Uma compilação x64 nativa com abas Chromium, espaços de trabalho cmux e superfícies de terminal integradas.",
+      "primaryCta": "Baixar .deb",
+      "requirements": "Debian ou Ubuntu · x64",
+      "installBody": "Baixe o pacote Debian e instale-o com seu gerenciador de pacotes. Escolha o ZIP portátil para uma instalação por usuário e atualizações dentro do aplicativo."
+    }
   }
 }
