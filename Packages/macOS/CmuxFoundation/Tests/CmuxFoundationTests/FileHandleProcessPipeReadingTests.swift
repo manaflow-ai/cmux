@@ -106,6 +106,33 @@ struct FileHandleProcessPipeReadingTests {
         #expect(result.readError == nil)
     }
 
+    @Test(
+        "A non-positive chunk size still drains the stopped snapshot",
+        arguments: [0, -1]
+    )
+    func nonPositiveChunkSizeDrainsStoppedSnapshot(
+        chunkSize: Int
+    ) throws {
+        let pipe = Pipe()
+        let stopSignal = try ProcessPipeStopSignal()
+        let payload = Data("buffered".utf8)
+        defer {
+            try? pipe.fileHandleForWriting.close()
+            try? pipe.fileHandleForReading.close()
+        }
+        try pipe.fileHandleForWriting.write(contentsOf: payload)
+        stopSignal.signal()
+
+        let result = ProcessPipeStopAwareReader(
+            fileDescriptor: pipe.fileHandleForReading.fileDescriptor,
+            chunkSize: chunkSize,
+            stopFileDescriptor: stopSignal.readFileDescriptor
+        ).readToEnd()
+
+        #expect(result.data == payload)
+        #expect(result.readError == nil)
+    }
+
     @Test("One stop signal wakes every blocked pipe reader")
     func stopSignalBroadcastsToBlockedReaders() throws {
         let firstPipe = Pipe()
