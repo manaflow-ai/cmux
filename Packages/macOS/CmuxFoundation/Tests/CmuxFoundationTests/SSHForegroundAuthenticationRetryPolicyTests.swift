@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -150,7 +151,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try """
         #!/bin/sh
         trap '' HUP INT
-        trap 'printf "%s\\n" term > "$CMUX_TEST_SIGNAL_LOG"; exit 0' TERM
+        trap 'printf "%s\\n" term > "$CMUX_TEST_SIGNAL_LOG"' TERM
         printf '%s\\n' "$$" > "$CMUX_TEST_LEAF_PID"
         while :; do /bin/sleep 30; done
         """.write(to: leafScript, atomically: true, encoding: .utf8)
@@ -185,8 +186,19 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try process.run()
         process.waitUntilExit()
 
+        let leafPID = try #require(Int32(
+            String(contentsOf: leafPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        defer { Darwin.kill(leafPID, SIGKILL) }
+        let exitDeadline = Date.now.addingTimeInterval(1)
+        while Darwin.kill(leafPID, 0) == 0, Date.now < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+
         #expect(process.terminationStatus == 0)
         #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
+        #expect(Darwin.kill(leafPID, 0) != 0)
     }
 
     @Test func keepsDiagnosticStateBoundedWhileCommandIsRunning() throws {

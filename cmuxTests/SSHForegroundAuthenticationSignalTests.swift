@@ -55,7 +55,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 130, result.stderr)
         XCTAssertTrue(
-            waitForSSHSignalLifecycleLog(childSignalLog) { $0.contains("term") },
+            waitForForegroundAuthenticationSignalLog(childSignalLog) { $0.contains("term") },
             "Direct startup signals must terminate the nested authentication process tree"
         )
     }
@@ -188,5 +188,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     private func writeForegroundAuthSignalShellFile(at url: URL, lines: [String]) throws {
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func waitForForegroundAuthenticationSignalLog(
+        _ url: URL,
+        predicate: (String) -> Bool
+    ) -> Bool {
+        let deadline = Date.now.addingTimeInterval(3)
+        while Date.now < deadline {
+            let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            if predicate(contents) {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return false
     }
 }
