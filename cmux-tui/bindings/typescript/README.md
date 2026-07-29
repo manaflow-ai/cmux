@@ -23,7 +23,7 @@ const workspace = session.workspace(
 const created = await workspace.run({
   command: exact(["printf", "%s\n", "$HOME"]),
 });
-console.log(created.value.terminal?.id);
+console.log(created.value.terminal.id);
 client.close();
 ```
 
@@ -32,6 +32,21 @@ platform shell. `shellExecutable()` sends `[executable, "-lc", script]`.
 Mutations do not retry implicitly. Supply `idempotencyKey` and
 `expectedRevision` through mutation options when the caller controls replay
 or optimistic concurrency.
+
+Creation results form a strict `CreatedPath` discriminated union.
+`workspace.run`, `pane.run`, pane and screen creation, terminal-tab creation,
+and browser-tab creation return their exact path variants. Branch-dependent
+workspace creation returns the union, and `kind` narrows every required handle:
+
+```ts
+const created = await session.createWorkspace({ initialContent: "empty" });
+if (created.value.kind === "workspace") {
+  console.log(created.value.workspace.id);
+}
+```
+
+`Session.creation.resolve()` remains union-valued because a correlation key can
+refer to any creation operation.
 
 Streams retain at most 256 unread messages and 16 MiB. Overflow ends only that
 stream with a recoverable gap and sends best-effort cancellation. Pass an

@@ -2067,21 +2067,41 @@ abstract class Handle<Id extends string, Value extends Snapshot<Id>> {
   }
 }
 
-export class CreatedPath {
-  constructor(
-    readonly kind: "workspace" | "terminal" | "browser",
-    readonly workspace: Workspace,
-    readonly screen?: Screen,
-    readonly pane?: Pane,
-    readonly tab?: Tab,
-    readonly terminal?: Terminal,
-    readonly browser?: Browser,
-  ) {}
-
-  get content(): Terminal | Browser | undefined {
-    return this.terminal ?? this.browser;
-  }
+export interface CreatedWorkspacePath {
+  readonly kind: "workspace";
+  readonly workspace: Workspace;
 }
+
+export interface CreatedTerminalPath {
+  readonly kind: "terminal";
+  readonly workspace: Workspace;
+  readonly screen: Screen;
+  readonly pane: Pane;
+  readonly tab: Tab;
+  readonly terminal: Terminal;
+  readonly content: Terminal;
+}
+
+export interface CreatedBrowserPath {
+  readonly kind: "browser";
+  readonly workspace: Workspace;
+  readonly screen: Screen;
+  readonly pane: Pane;
+  readonly tab: Tab;
+  readonly browser: Browser;
+  readonly content: Browser;
+}
+
+export type CreatedPath =
+  | CreatedWorkspacePath
+  | CreatedTerminalPath
+  | CreatedBrowserPath;
+
+type CreatedPathByKind = {
+  readonly workspace: CreatedWorkspacePath;
+  readonly terminal: CreatedTerminalPath;
+  readonly browser: CreatedBrowserPath;
+};
 
 interface CreationResolutionCommon {
   readonly correlationKey: string;
@@ -2238,10 +2258,22 @@ export class Client {
     );
   }
 
+  async [createdOperation]<Kind extends CreatedPath["kind"]>(
+    operation: Operation,
+    params: Readonly<Record<string, unknown>>,
+    options: MutationOptions,
+    expectedKind: Kind,
+  ): Promise<MutationResult<CreatedPathByKind[Kind]>>;
+  async [createdOperation](
+    operation: Operation,
+    params: Readonly<Record<string, unknown>>,
+    options?: MutationOptions,
+  ): Promise<MutationResult<CreatedPath>>;
   async [createdOperation](
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
     options: MutationOptions = {},
+    expectedKind?: CreatedPath["kind"],
   ): Promise<MutationResult<CreatedPath>> {
     if (
       options.correlationKey !== undefined
@@ -2263,7 +2295,16 @@ export class Client {
     return decodeMutation(
       response,
       operation.name,
-      (value) => this.createdPath(value, requestParams),
+      (value) => {
+        const path = this.createdPath(value, requestParams);
+        if (expectedKind !== undefined && path.kind !== expectedKind) {
+          throw new CmuxProtocolError(
+            `${operation.name} returned a ${path.kind} created path; `
+            + `expected ${expectedKind}`,
+          );
+        }
+        return path;
+      },
     );
   }
 
@@ -2335,7 +2376,10 @@ export class Client {
     };
     const workspaceHandle = new Workspace(this, workspace, sessionScope);
     if (kind === "workspace") {
-      return new CreatedPath(kind, workspaceHandle);
+      return Object.freeze({
+        kind,
+        workspace: workspaceHandle,
+      });
     }
     const screen = requiredId(payload, ["screen_id"], screenId);
     const pane = requiredId(payload, ["pane_id"], paneId);
@@ -2349,25 +2393,28 @@ export class Client {
     const tabScope = { ...paneScope, tab };
     if (kind === "terminal") {
       const terminal = requiredId(payload, ["terminal_id"], terminalId);
-      return new CreatedPath(
+      const terminalHandle = new Terminal(this, terminal, tabScope);
+      return Object.freeze({
         kind,
-        workspaceHandle,
-        screenHandle,
-        paneHandle,
-        tabHandle,
-        new Terminal(this, terminal, tabScope),
-      );
+        workspace: workspaceHandle,
+        screen: screenHandle,
+        pane: paneHandle,
+        tab: tabHandle,
+        terminal: terminalHandle,
+        content: terminalHandle,
+      });
     }
     const browser = requiredId(payload, ["browser_id"], browserId);
-    return new CreatedPath(
+    const browserHandle = new Browser(this, browser, tabScope);
+    return Object.freeze({
       kind,
-      workspaceHandle,
-      screenHandle,
-      paneHandle,
-      tabHandle,
-      undefined,
-      new Browser(this, browser, tabScope),
-    );
+      workspace: workspaceHandle,
+      screen: screenHandle,
+      pane: paneHandle,
+      tab: tabHandle,
+      browser: browserHandle,
+      content: browserHandle,
+    });
   }
 
   private creationResolution(
@@ -2850,12 +2897,13 @@ export class Workspace extends Handle<WorkspaceId, WorkspaceSnapshot> {
   createScreen(
     create: CreateScreenOptions = {},
     options: MutationOptions = {},
-  ): Promise<MutationResult<CreatedPath>> {
+  ): Promise<MutationResult<CreatedTerminalPath>> {
     const scope = this.nestedScope();
     return this.client[createdOperation](
       operations.screenCreate,
       { ...scope, ...optionFields(create) },
       options,
+      "terminal",
     );
   }
 
@@ -2899,11 +2947,15 @@ export class Workspace extends Handle<WorkspaceId, WorkspaceSnapshot> {
     return this.client[mutateEmptyOperation](operations.workspaceClose, this.params(), options);
   }
 
-  run(run: RunOptions, options: MutationOptions = {}): Promise<MutationResult<CreatedPath>> {
+  run(
+    run: RunOptions,
+    options: MutationOptions = {},
+  ): Promise<MutationResult<CreatedTerminalPath>> {
     return this.client[createdOperation](
       operations.workspaceRun,
       { ...this.params(), ...optionFields(run) },
       options,
+      "terminal",
     );
   }
 
@@ -2953,12 +3005,13 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
   createPane(
     create: CreatePaneOptions = {},
     options: MutationOptions = {},
-  ): Promise<MutationResult<CreatedPath>> {
+  ): Promise<MutationResult<CreatedTerminalPath>> {
     const scope = this.nestedScope();
     return this.client[createdOperation](
       operations.paneCreate,
       { ...scope, ...optionFields(create) },
       options,
+      "terminal",
     );
   }
 
@@ -3062,33 +3115,36 @@ export class Pane extends Handle<PaneId, PaneSnapshot> {
   createTerminalTab(
     create: CreateTerminalOptions,
     options: MutationOptions = {},
-  ): Promise<MutationResult<CreatedPath>> {
+  ): Promise<MutationResult<CreatedTerminalPath>> {
     return this.client[createdOperation](
       operations.tabCreateTerminal,
       { ...this.params(), ...optionFields(create) },
       options,
+      "terminal",
     );
   }
 
   createBrowserTab(
     create: CreateBrowserOptions,
     options: MutationOptions = {},
-  ): Promise<MutationResult<CreatedPath>> {
+  ): Promise<MutationResult<CreatedBrowserPath>> {
     return this.client[createdOperation](
       operations.tabCreateBrowser,
       { ...this.params(), ...optionFields(create) },
       options,
+      "browser",
     );
   }
 
   split(
     create: SplitPaneOptions,
     options: MutationOptions = {},
-  ): Promise<MutationResult<CreatedPath>> {
+  ): Promise<MutationResult<CreatedTerminalPath>> {
     return this.client[createdOperation](
       operations.paneSplit,
       { ...this.params(), ...optionFields(create) },
       options,
+      "terminal",
     );
   }
 
@@ -3172,11 +3228,15 @@ export class Pane extends Handle<PaneId, PaneSnapshot> {
     return this.paneMutation(operations.paneViewportWidthSet, { columns }, options);
   }
 
-  run(run: RunOptions, options: MutationOptions = {}): Promise<MutationResult<CreatedPath>> {
+  run(
+    run: RunOptions,
+    options: MutationOptions = {},
+  ): Promise<MutationResult<CreatedTerminalPath>> {
     return this.client[createdOperation](
       operations.paneRun,
       { ...this.params(), ...optionFields(run) },
       options,
+      "terminal",
     );
   }
 

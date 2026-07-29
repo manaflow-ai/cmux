@@ -9,6 +9,7 @@ import {
   ConfirmationRequiredError,
   MutationIndeterminateError,
   MutationTransportUncertainError,
+  browserId,
   paneId,
   RendererGrant,
   ResourceError,
@@ -36,6 +37,7 @@ const TERMINAL = terminalId(`term_${HEX_C}`);
 const SCREEN = screenId(`screen_${HEX_C}`);
 const PANE = paneId(`pane_${HEX_A}`);
 const TAB = tabId(`tab_${HEX_B}`);
+const BROWSER = browserId(`browser_${HEX_A}`);
 
 type Envelope = Record<string, unknown>;
 
@@ -124,7 +126,12 @@ test("resource root, raw boundary, exact commands, and idempotency keys", async 
 
   assert.equal(typeof Client, "function");
   assert.equal(typeof CmuxClient, "function");
-  assert.equal(created.value.terminal?.id, TERMINAL);
+  assert.equal(created.value.terminal.id, TERMINAL);
+  assert.equal(created.value.content, created.value.terminal);
+  assert.deepEqual(
+    Object.keys(created.value).sort(),
+    ["content", "kind", "pane", "screen", "tab", "terminal", "workspace"],
+  );
   assert.equal(created.revision, "18446744073709551615");
   assert.deepEqual(
     transport.requests.map((request) => request.idempotency_key),
@@ -144,6 +151,96 @@ test("resource root, raw boundary, exact commands, and idempotency keys", async 
     ...common,
     argv: ["/bin/zsh", "-lc", "echo $(uname)"],
   });
+  client.close();
+});
+
+test("created paths are strict runtime variants and fixed operations reject mismatches", async () => {
+  const transport = new FakeTransport((request, current) => {
+    const params = request.params as Envelope;
+    if (request.operation === "workspace.create") {
+      const value = params.initial_content === "empty"
+        ? {
+          kind: "workspace",
+          workspace_id: WORKSPACE,
+        }
+        : {
+          kind: "terminal",
+          workspace_id: WORKSPACE,
+          screen_id: SCREEN,
+          pane_id: PANE,
+          tab_id: TAB,
+          terminal_id: TERMINAL,
+        };
+      current.ok(request, {
+        value,
+        generation: "generation-a",
+        revision: "1",
+        replayed: false,
+      });
+      return;
+    }
+    if (request.operation === "workspace.run") {
+      current.ok(request, {
+        value: {
+          kind: "browser",
+          workspace_id: WORKSPACE,
+          screen_id: SCREEN,
+          pane_id: PANE,
+          tab_id: TAB,
+          browser_id: BROWSER,
+        },
+        generation: "generation-a",
+        revision: "2",
+        replayed: false,
+      });
+      return;
+    }
+    current.ok(request, {
+      value: {
+        kind: "terminal",
+        workspace_id: WORKSPACE,
+        screen_id: SCREEN,
+        pane_id: PANE,
+        tab_id: TAB,
+        terminal_id: TERMINAL,
+      },
+      generation: "generation-a",
+      revision: "3",
+      replayed: false,
+    });
+  });
+  const client = new Client({ transport });
+  const session = client.session(SESSION);
+
+  const empty = await session.createWorkspace({
+    initialContent: "empty",
+  });
+  assert.equal(empty.value.kind, "workspace");
+  assert.deepEqual(Object.keys(empty.value), ["kind", "workspace"]);
+  assert.ok(Object.isFrozen(empty.value));
+
+  const terminal = await session.createWorkspace();
+  assert.equal(terminal.value.kind, "terminal");
+  if (terminal.value.kind !== "terminal") {
+    assert.fail("expected terminal workspace path");
+  }
+  assert.equal(terminal.value.terminal.id, TERMINAL);
+  assert.equal(terminal.value.content, terminal.value.terminal);
+
+  await assert.rejects(
+    () => session.workspace(WORKSPACE).run({
+      command: exact(["true"]),
+    }),
+    /workspace\.run returned a browser created path; expected terminal/,
+  );
+  await assert.rejects(
+    () => session
+      .workspace(WORKSPACE)
+      .screen(SCREEN)
+      .pane(PANE)
+      .createBrowserTab({ url: "https://example.com" }),
+    /tab\.create_browser returned a terminal created path; expected browser/,
+  );
   client.close();
 });
 
@@ -624,7 +721,11 @@ test("creation resolution and terminal exit reads expose strict typed variants",
   const created = await session.creation.resolve("created");
   assert.equal(created.state, "created");
   if (created.state !== "created") assert.fail("expected created resolution");
-  assert.equal(created.createdPath.terminal?.id, TERMINAL);
+  assert.equal(created.createdPath.kind, "terminal");
+  if (created.createdPath.kind !== "terminal") {
+    assert.fail("expected terminal created path");
+  }
+  assert.equal(created.createdPath.terminal.id, TERMINAL);
   assert.equal(created.revision, "15");
 
   const exited = await session.terminal(TERMINAL).waitExit(decimalString("250"));

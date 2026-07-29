@@ -50,10 +50,17 @@ import {
   Client,
   decimalString,
   exact,
+  paneId,
+  screenId,
   selectCurrent,
   sessionId,
   terminalId,
+  workspaceId,
+  type CreatedBrowserPath,
+  type CreatedPath,
+  type CreatedTerminalPath,
   type CreationResolution,
+  type MutationResult,
   type MutationReceipt,
   type Terminal,
   type TerminalWaitExitResult,
@@ -73,6 +80,22 @@ const write: Promise<MutationReceipt> = terminal.write(
 );
 const creation: Promise<CreationResolution> =
   session.creation.resolve("create-key");
+const workspace = session.workspace(
+  workspaceId("ws_cccccccccccccccccccccccccccccccc"),
+);
+const launched: Promise<MutationResult<CreatedTerminalPath>> = workspace.run({
+  command: exact(["printf", "%s", "$HOME"]),
+});
+const pane = workspace
+  .screen(screenId("screen_dddddddddddddddddddddddddddddddd"))
+  .pane(paneId("pane_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"));
+const createdBrowser: Promise<MutationResult<CreatedBrowserPath>> =
+  pane.createBrowserTab({ url: "https://example.com" });
+function narrow(path: CreatedPath) {
+  if (path.kind === "terminal") return path.terminal.id;
+  if (path.kind === "browser") return path.browser.id;
+  return path.workspace.id;
+}
 const exit: Promise<TerminalWaitExitResult> =
   terminal.waitExit(decimalString("1000"));
 const current = selectCurrent();
@@ -85,8 +108,11 @@ void browser;
 void client;
 void command;
 void creation;
+void createdBrowser;
 void current;
 void exit;
+void launched;
+void narrow;
 void node;
 void raw;
 void session;
