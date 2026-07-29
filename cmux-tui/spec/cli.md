@@ -32,7 +32,7 @@ The public resource roots are:
 ```text
 machine  session  client  workspace  screen  pane  tab
 terminal browser  notification  agent  sidebar
-pairing  projection raw
+pairing  projection  provider  raw
 ```
 
 Structural resources may be addressed directly by opaque ID or through their
@@ -197,6 +197,8 @@ projection <selector> show|put
 sidebar view show|ensure|attach|input|resize|reload
 sidebar plugin list|install|use|update|remove
 
+provider authority install
+
 ```
 
 Workspace creation starts with one terminal unless `--empty` is present.
@@ -220,6 +222,10 @@ remains available for transport testing.
 `sidebar plugin` commands read and write local plugin installation state. They
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
+
+`provider authority install` is a local Linux host-administration action. It
+installs the credential for an already running provider-managed session and is
+not a transported resource operation or cross-machine discovery API.
 
 ## Raw access
 
