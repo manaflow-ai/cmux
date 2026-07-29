@@ -25,6 +25,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.temporaryFiles.isEmpty)
     }
 
+    @Test func distinguishesUnclassifiedFailureFromPermanentFailure() throws {
+        let result = try run("exit 255")
+
+        #expect(result.status == 252)
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
     @Test func permanentFailureTakesPrecedenceOverEarlierTransportDiagnostic() throws {
         let result = try run(
             """
