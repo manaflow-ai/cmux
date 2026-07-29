@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReadScrollbackResult, RenderRow } from "cmux/browser";
+import type { RenderGraphicsModel } from "../src/lib/renderModel";
 import {
   createScrollbackWindow,
   latestScrollbackRequest,
@@ -15,8 +16,50 @@ function row(relative: number, text = String(relative)): RenderRow {
   return { row: relative, runs: [{ text, fg: null, bg: null, attrs: 0 }] };
 }
 
-function page(start: number, total: number, count: number): ReadScrollbackResult {
-  return { start, total, rows: Array.from({ length: count }, (_, index) => row(index, `${start + index}`)) };
+function page(start: number, total: number, count: number, epoch = 1): ReadScrollbackResult {
+  return {
+    start,
+    total,
+    epoch,
+    rows: Array.from({ length: count }, (_, index) => row(index, `${start + index}`)),
+  } as ReadScrollbackResult;
+}
+
+function historyGraphics(anchorRow: number): RenderGraphicsModel {
+  return {
+    generation: 1,
+    images: [{
+      id: 9,
+      generation: 1,
+      width: 1,
+      height: 1,
+      format: "rgb",
+      data: "/wAA",
+    }],
+    placements: [{
+      image_id: 9,
+      placement_id: 3,
+      ordinal: 0,
+      x_offset: 0,
+      y_offset: 0,
+      source_x: 0,
+      source_y: 0,
+      source_width: 1,
+      source_height: 1,
+      columns: 1,
+      rows: 2,
+      grid_cols: 1,
+      grid_rows: 2,
+      pixel_width: 8,
+      pixel_height: 32,
+      viewport_col: 0,
+      viewport_row: 0,
+      viewport_visible: false,
+      anchor_col: 2,
+      anchor_row: anchorRow,
+      z: -1,
+    }],
+  };
 }
 
 describe("scrollback window", () => {
@@ -122,41 +165,16 @@ describe("scrollback window", () => {
     expect(previousScrollbackRequest(reset)).toBeNull();
   });
 
+  it("discards cached indexes when retained history changes at a fixed total", () => {
+    const initial = mergeScrollbackPage(createScrollbackWindow(20, 10, 20), page(10, 20, 10, 1));
+    const reset = mergeScrollbackPage(initial, page(0, 20, 4, 2));
+
+    expect(reset.rows.map((candidate) => candidate.row)).toEqual([0, 1, 2, 3]);
+    expect((reset as { epoch?: number }).epoch).toBe(2);
+  });
+
   it("projects absolute Kitty anchors onto cached history rows", () => {
-    const projected = projectRenderGraphicsToRows({
-      generation: 1,
-      images: [{
-        id: 9,
-        generation: 1,
-        width: 1,
-        height: 1,
-        format: "rgb",
-        data: "/wAA",
-      }],
-      placements: [{
-        image_id: 9,
-        placement_id: 3,
-        ordinal: 0,
-        x_offset: 0,
-        y_offset: 0,
-        source_x: 0,
-        source_y: 0,
-        source_width: 1,
-        source_height: 1,
-        columns: 1,
-        rows: 2,
-        grid_cols: 1,
-        grid_rows: 2,
-        pixel_width: 8,
-        pixel_height: 32,
-        viewport_col: 0,
-        viewport_row: 0,
-        viewport_visible: false,
-        anchor_col: 2,
-        anchor_row: 7,
-        z: -1,
-      }],
-    }, [row(8), row(9)]);
+    const projected = projectRenderGraphicsToRows(historyGraphics(7), [row(8), row(9)], 1, 1);
 
     expect(projected?.placements).toEqual([
       expect.objectContaining({
@@ -165,5 +183,9 @@ describe("scrollback window", () => {
         viewport_visible: true,
       }),
     ]);
+  });
+
+  it("suppresses current Kitty graphics over cached rows from an older history epoch", () => {
+    expect(projectRenderGraphicsToRows(historyGraphics(7), [row(7)], 2, 1)).toBeUndefined();
   });
 });

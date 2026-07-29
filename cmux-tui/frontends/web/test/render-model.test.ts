@@ -82,9 +82,10 @@ function snapshot(
     default_fg: "#eeeeee",
     default_bg: "#111111",
     scrollback_rows: 12,
+    history_epoch: 5,
     rows,
     graphics: renderGraphics,
-  };
+  } as RenderStateEvent;
 }
 
 function delta(overrides: Partial<RenderDeltaEvent> = {}): RenderDeltaEvent {
@@ -99,6 +100,14 @@ function delta(overrides: Partial<RenderDeltaEvent> = {}): RenderDeltaEvent {
 }
 
 describe("render model", () => {
+  it("tracks retained-history epochs across snapshots and deltas", () => {
+    const initial = applySnapshot(snapshot());
+    const updated = applyDelta(initial, delta({ history_epoch: 9 } as Partial<RenderDeltaEvent>));
+
+    expect((initial as { historyEpoch?: number }).historyEpoch).toBe(5);
+    expect((updated as { historyEpoch?: number }).historyEpoch).toBe(9);
+  });
+
   it("indexes snapshot and dirty rows by row number even when events list them out of order", () => {
     const initial = applySnapshot(snapshot([row(1, "two"), row(0, "one")]));
     const updated = applyDelta(initial, delta({ rows: [row(1, "TWO"), row(0, "ONE")] }));

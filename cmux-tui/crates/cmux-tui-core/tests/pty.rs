@@ -1353,6 +1353,8 @@ fn render_attach_headless_fans_one_frame_to_render_and_byte_consumers() {
     assert_eq!(initial["size"], serde_json::json!({"cols": 20, "rows": 4}));
     assert_eq!(initial["rows"].as_array().unwrap().len(), 4);
     assert!(initial["cursor"].get("visible").is_some());
+    let initial_history_epoch =
+        initial["history_epoch"].as_u64().expect("render state history epoch");
     let response = wait_for(|| read_json_line(&mut render_reader), Duration::from_secs(5))
         .expect("render attach response");
     assert_eq!(response["id"], 1);
@@ -1390,6 +1392,10 @@ fn render_attach_headless_fans_one_frame_to_render_and_byte_consumers() {
     assert_eq!(delta["full"], false);
     assert_eq!(delta["rows"].as_array().unwrap().len(), 1);
     assert!(delta.get("cursor").is_some());
+    assert!(
+        delta["history_epoch"].as_u64().expect("render delta history epoch")
+            > initial_history_epoch
+    );
 
     let output = wait_for(
         || {
@@ -1546,6 +1552,7 @@ fn read_scrollback_pages_oldest_rows_and_clamps_bounds() {
     assert_eq!(page["start"], 0);
     assert_eq!(page["rows"].as_array().unwrap().len(), 3);
     assert!(page["total"].as_u64().unwrap() >= 20);
+    assert!(page["epoch"].as_u64().is_some());
     assert!(rendered_rows_text(&page).contains("history-00"));
 
     let total = page["total"].as_u64().unwrap();
