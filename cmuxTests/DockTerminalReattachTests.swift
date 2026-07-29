@@ -48,6 +48,7 @@ extension DockSocketLifecycleTests {
         cachedTitle: String? = nil,
         customTitle: String? = nil,
         customTitleSource: Workspace.CustomTitleSource? = nil,
+        directoryIsTrustedRemoteReport: Bool = false,
         restorableAgent: SessionRestorableAgentSnapshot? = nil,
         restorableAgentResumeState: Workspace.RestoredAgentResumeState? = nil,
         restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration? = nil,
@@ -55,7 +56,8 @@ extension DockSocketLifecycleTests {
         restoredResumeSessionWorkingDirectory: String? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         agentSessionRetryCompletedAttempts: Int? = nil,
-        agentRuntime: Workspace.DetachedAgentRuntimeState? = nil
+        agentRuntime: Workspace.DetachedAgentRuntimeState? = nil,
+        isRemoteTerminal: Bool = false
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
@@ -69,7 +71,7 @@ extension DockSocketLifecycleTests {
             isLoading: false,
             isPinned: false,
             directory: directory,
-            directoryIsTrustedRemoteReport: false,
+            directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
             directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: cachedTitle,
@@ -85,7 +87,7 @@ extension DockSocketLifecycleTests {
             resumeBinding: resumeBinding,
             agentSessionRetryCompletedAttempts: agentSessionRetryCompletedAttempts,
             agentRuntime: agentRuntime,
-            isRemoteTerminal: false,
+            isRemoteTerminal: isRemoteTerminal,
             remoteRelayPort: nil,
             remotePTYSessionID: nil,
             remoteCleanupConfiguration: nil
@@ -381,6 +383,70 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
+    @Test("Snapshot-only Dock state cannot retarget a replacement hook binding")
+    @MainActor
+    func snapshotOnlyDockStateDoesNotRetargetReplacementHookBinding() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-dock-snapshot-only-\(UUID().uuidString)", isDirectory: true)
+        let staleDirectory = root.appendingPathComponent("stale", isDirectory: true)
+        let currentDirectory = root.appendingPathComponent("current", isDirectory: true)
+        try FileManager.default.createDirectory(at: staleDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
+
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            workingDirectory: currentDirectory.path,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver(
+                liveDirectoryProvider: { _ in currentDirectory.path }
+            )
+        )
+        defer {
+            store.closeAllPanels()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let staleSessionId = "omp-snapshot-only-stale-\(UUID().uuidString)"
+        let currentSessionId = "omp-snapshot-only-current-\(UUID().uuidString)"
+        let staleAgent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: staleSessionId,
+            workingDirectory: staleDirectory.path,
+            launchCommand: nil
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: staleAgent,
+            restorableAgentResumeState: .autoResumeCommandRunning,
+            restoredResumeSessionWorkingDirectory: staleDirectory.path
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        store.surfaceResumeBindingsByPanelId[panel.id] = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(currentSessionId)'",
+            cwd: currentDirectory.path,
+            checkpointId: currentSessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.resumeBinding?.checkpointId == currentSessionId)
+        #expect(roundTripped.resumeBinding?.cwd == currentDirectory.path)
+        #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restorableAgentResumeState == nil)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
+    }
+
     @Test("Registered lifecycle command reaches a panel in a global Dock")
     @MainActor
     func registeredLifecycleCommandReachesGlobalDockPanel() throws {
@@ -416,9 +482,20 @@ extension DockSocketLifecycleTests {
             scope: .global,
             baseDirectoryProvider: { root.path }
         )
+        let untrustedRemotePanel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            workingDirectory: root.path,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let untrustedRemoteStore = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
         defer {
             TerminalMutationBus.shared.drainForTesting()
             store.closeAllPanels()
+            untrustedRemoteStore.closeAllPanels()
             try? FileManager.default.removeItem(at: root)
         }
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
@@ -436,6 +513,30 @@ extension DockSocketLifecycleTests {
         #expect(response == "OK")
         TerminalMutationBus.shared.drainForTesting()
         #expect(store.agentRuntimeByPanelId[panel.id]?.agentLifecycleStates["local-agent"] == .idle)
+
+        let untrustedRemoteRootPane = try #require(
+            untrustedRemoteStore.bonsplitController.allPaneIds.first
+        )
+        let untrustedRemoteTransfer = detachedTerminalTransfer(
+            panel: untrustedRemotePanel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            directory: root.path,
+            directoryIsTrustedRemoteReport: false,
+            isRemoteTerminal: true
+        )
+        #expect(
+            untrustedRemoteStore.attachDetachedSurface(
+                untrustedRemoteTransfer,
+                inPane: untrustedRemoteRootPane,
+                focus: false
+            ) == untrustedRemotePanel.id
+        )
+        let untrustedRemoteResponse = TerminalController.shared.handleSocketLine(
+            "set_agent_lifecycle local-agent idle "
+                + "--tab=\(untrustedRemoteStore.workspaceId.uuidString) "
+                + "--panel=\(untrustedRemotePanel.id.uuidString)"
+        )
+        #expect(untrustedRemoteResponse.contains("Unsupported agent lifecycle key"))
     }
 
     @Test("Dock detach preserves binding-only resume state")
