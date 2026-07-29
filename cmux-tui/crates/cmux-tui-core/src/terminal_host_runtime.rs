@@ -689,6 +689,23 @@ mod unix {
             }
         }
 
+        #[cfg(test)]
+        pub(crate) fn new_for_test() -> Self {
+            Self::new()
+        }
+
+        #[cfg(test)]
+        pub(crate) fn invoke_deferred_cell_pixel_handler_for_test(
+            &self,
+            request_id: u64,
+            expected: (u16, u16),
+            resolution: DeferredCellPixelResolution,
+        ) {
+            if let Some(handler) = self.deferred_cell_pixel_handler.lock().unwrap().clone() {
+                handler(request_id, expected, resolution);
+            }
+        }
+
         pub(crate) fn resolve(&self, frame: &Frame) -> bool {
             let waiter = self.waiters.lock().unwrap().remove(&frame.request_id);
             match waiter {

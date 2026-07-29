@@ -944,6 +944,9 @@ impl PtyGeometry {
 #[cfg(test)]
 type PtyGeometryTestHook = Arc<dyn Fn(PtyGeometryTestStep) + Send + Sync>;
 
+#[cfg(test)]
+type DeferredCellPixelAckTestHook = Arc<dyn Fn() + Send + Sync>;
+
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     term: Mutex<Box<Terminal>>,
@@ -971,6 +974,8 @@ pub struct PtySurface {
     kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
     #[cfg(test)]
     geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
+    #[cfg(test)]
+    deferred_cell_pixel_ack_test_hook: Mutex<Option<DeferredCellPixelAckTestHook>>,
     #[cfg(test)]
     test_master_control: Option<Arc<TestMasterPtyControl>>,
     #[cfg(test)]
@@ -1562,6 +1567,8 @@ impl Surface {
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
+            deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+            #[cfg(test)]
             test_master_control: None,
             #[cfg(test)]
             vt_replay_builds: AtomicUsize::new(0),
@@ -1722,6 +1729,12 @@ impl Surface {
         expected: (u16, u16),
         resolution: crate::terminal_host_runtime::DeferredCellPixelResolution,
     ) {
+        #[cfg(test)]
+        if let Some(pty) = self.as_pty()
+            && let Some(hook) = pty.deferred_cell_pixel_ack_test_hook.lock().unwrap().clone()
+        {
+            hook();
+        }
         let crate::terminal_host_runtime::DeferredCellPixelResolution::Response(frame) = resolution
         else {
             // The replacement host snapshot is authoritative for an
@@ -1865,6 +1878,8 @@ impl Surface {
             kitty_graphics_limits: Box::new(Mutex::new(snapshot.kitty_state.limits)),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
+            #[cfg(test)]
+            deferred_cell_pixel_ack_test_hook: Mutex::new(None),
             #[cfg(test)]
             test_master_control: None,
             #[cfg(test)]
@@ -2557,6 +2572,8 @@ impl Surface {
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
+            deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+            #[cfg(test)]
             test_master_control: None,
             #[cfg(test)]
             vt_replay_builds: AtomicUsize::new(0),
@@ -2665,6 +2682,7 @@ impl Surface {
             geometry: Mutex::new(initial_geometry),
             kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
             geometry_test_hook: Mutex::new(None),
+            deferred_cell_pixel_ack_test_hook: Mutex::new(None),
             test_master_control: Some(test_master_control),
             vt_replay_builds: AtomicUsize::new(0),
             mux,
@@ -4445,6 +4463,64 @@ mod tests {
         // the child input after the authoritative host has already replied.
         let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
         term.vt_write(b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn deferred_cell_pixel_responses_run_on_the_bounded_mux_pool() {
+        let mux = Mux::new_for_test("bounded-deferred-cell-pixel", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let responses = Arc::new(crate::terminal_host_runtime::ControlResponses::new_for_test());
+        Surface::install_deferred_cell_pixel_handler(&surface, &responses);
+        let (thread_name_tx, thread_name_rx) = std::sync::mpsc::channel();
+        surface.as_pty().unwrap().deferred_cell_pixel_ack_test_hook.lock().unwrap().replace(
+            Arc::new(move || {
+                let name = std::thread::current().name().unwrap_or_default().to_owned();
+                let _ = thread_name_tx.send(name);
+            }),
+        );
+
+        let mut frame = Frame::new(MessageKind::CellPixelSizeAck, vec![8, 0, 16, 0]);
+        frame.request_id = 1;
+        responses.invoke_deferred_cell_pixel_handler_for_test(
+            1,
+            (8, 16),
+            crate::terminal_host_runtime::DeferredCellPixelResolution::Response(frame),
+        );
+
+        let thread_name = thread_name_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            thread_name.starts_with("mux-deadline-"),
+            "deferred acknowledgement ran on unbounded worker {thread_name:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn disconnected_deferred_cell_pixel_resolutions_do_not_schedule_work() {
+        let mux = Mux::new_for_test("disconnected-deferred-cell-pixel", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let responses = Arc::new(crate::terminal_host_runtime::ControlResponses::new_for_test());
+        Surface::install_deferred_cell_pixel_handler(&surface, &responses);
+        let (called_tx, called_rx) = std::sync::mpsc::channel();
+        surface.as_pty().unwrap().deferred_cell_pixel_ack_test_hook.lock().unwrap().replace(
+            Arc::new(move || {
+                let _ = called_tx.send(());
+            }),
+        );
+
+        responses.invoke_deferred_cell_pixel_handler_for_test(
+            1,
+            (8, 16),
+            crate::terminal_host_runtime::DeferredCellPixelResolution::Disconnected,
+        );
+
+        assert!(
+            called_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "a disconnect-only resolution spawned reconciliation work"
+        );
     }
 
     #[test]

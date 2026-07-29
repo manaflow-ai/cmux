@@ -1128,6 +1128,10 @@ struct RemoteSurfaceAttachExecutor {
     worker_count: usize,
 }
 
+fn remote_attach_background_limit(worker_count: usize) -> usize {
+    worker_count.saturating_sub(1).max(1)
+}
+
 enum RemoteSurfaceAttachAdmission {
     Enqueued { displaced: Option<RemoteSurfaceAttachJob> },
     Rejected(RemoteSurfaceAttachJob),
@@ -1185,7 +1189,7 @@ impl RemoteSurfaceAttachExecutor {
         {
             let (queue, ready) = &*shared;
             let mut queue = queue.lock().unwrap();
-            queue.background_limit = worker_count.saturating_sub(1).max(1);
+            queue.background_limit = remote_attach_background_limit(worker_count);
             ready.notify_all();
         }
         Ok(Self { shared, worker_count })
@@ -21925,6 +21929,15 @@ mod tests {
         assert!(
             maximum_concurrency <= ATTACH_WORKER_LIMIT,
             "remote attach fanout reached {maximum_concurrency} concurrent workers"
+        );
+    }
+
+    #[test]
+    fn single_remote_attach_worker_is_reserved_for_visible_work() {
+        assert_eq!(super::remote_attach_background_limit(1), 0);
+        assert_eq!(
+            super::remote_attach_background_limit(super::REMOTE_ATTACH_WORKER_LIMIT),
+            super::REMOTE_ATTACH_WORKER_LIMIT - 1
         );
     }
 
