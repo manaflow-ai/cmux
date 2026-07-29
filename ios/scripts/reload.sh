@@ -287,6 +287,17 @@ if [[ -n "$SIMULATOR_ID" ]]; then
   DESTINATION="platform=iOS Simulator,id=$SIMULATOR_ID"
 fi
 MOBILE_DEV_LAUNCH="$IOS_DIR/../scripts/mobile-dev-launch.sh"
+GHOSTTYKIT_ENSURE="$IOS_DIR/../scripts/ensure-ghosttykit.sh"
+
+# Keep the linked xcframework synchronized with the checked-out Ghostty
+# submodule before Xcode builds either target. Without this, a local cloud
+# fallback can reuse a stale GhosttyKit symlink and compile against an older C
+# header even though the Swift sources target the current submodule API.
+if [[ ! -x "$GHOSTTYKIT_ENSURE" ]]; then
+  echo "error: $GHOSTTYKIT_ENSURE not found or not executable" >&2
+  exit 1
+fi
+"$GHOSTTYKIT_ENSURE"
 
 # Auto-setup launch: relaunch the just-installed app signed in (dogfood creds
 # injected) and, unless --no-attach, auto-paired to the tagged Mac app. Delegates
