@@ -110,7 +110,7 @@ import Testing
 
         #expect(category == .routeCleanupBlocked)
         #expect(category.analyticsReason == "route_cleanup_blocked")
-        #expect(category.message.contains("paused connections"))
+        #expect(category.message.contains("paused new connections"))
         #expect(category.guidance?.contains("Force-quit") == true)
         #expect(!category.isAuthorizationFailure)
     }

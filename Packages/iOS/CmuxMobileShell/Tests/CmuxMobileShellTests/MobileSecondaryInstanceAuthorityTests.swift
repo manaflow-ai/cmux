@@ -194,6 +194,11 @@ enum PromotionFocusRepairFailure: Sendable {
             kind: .debugLoopback,
             endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
         )
+        let foregroundRoute = try CmxAttachRoute(
+            id: "fresh-dial-drain-foreground",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_583)
+        )
         let targetTicket = try CmxAttachTicket(
             workspaceID: "target-workspace",
             terminalID: "target-terminal",
@@ -219,12 +224,12 @@ enum PromotionFocusRepairFailure: Sendable {
             terminalID: "foreground-terminal",
             macDeviceID: "mac-a",
             macDisplayName: "Studio A",
-            routes: [route],
+            routes: [foregroundRoute],
             expiresAt: Date().addingTimeInterval(3_600)
         )
         let foregroundClient = MobileCoreRPCClient(
             runtime: runtime,
-            route: route,
+            route: foregroundRoute,
             ticket: foregroundTicket,
             allowsStackAuthFallback: true
         )
@@ -236,13 +241,13 @@ enum PromotionFocusRepairFailure: Sendable {
         )
         shell.foregroundMacDeviceID = "mac-a"
         shell.activeTicket = foregroundTicket
-        shell.activeRoute = route
+        shell.activeRoute = foregroundRoute
         shell.connectedHostName = "Studio A"
         shell.remoteClient = foregroundClient
         shell.connections["mac-a"] = MacConnection(
             macDeviceID: "mac-a",
             ticket: foregroundTicket,
-            route: route,
+            route: foregroundRoute,
             client: foregroundClient,
             generation: UUID(),
             displayName: "Studio A",
