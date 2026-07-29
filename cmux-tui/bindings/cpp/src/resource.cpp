@@ -30,16 +30,11 @@ struct OperationInfo {
 #define CMUX_OPERATION_TABLE(X)                                                       \
     X(machine_list, "machine.list", read)                                             \
     X(machine_get, "machine.get", read)                                               \
-    X(machine_create, "machine.create", mutation)                                     \
-    X(machine_rename, "machine.rename", mutation)                                     \
-    X(machine_delete, "machine.delete", mutation)                                     \
-    X(machine_restore, "machine.restore", mutation)                                   \
-    X(machine_purge, "machine.purge", mutation)                                       \
-    X(machine_connect_external, "machine.connect_external", mutation)                 \
     X(session_list, "session.list", read)                                             \
     X(session_open, "session.open", mutation)                                         \
     X(session_get, "session.get", read)                                               \
     X(session_snapshot, "session.snapshot", read)                                     \
+    X(session_creation_resolve, "session.creation.resolve", read)                     \
     X(session_events, "session.events", stream_open)                                  \
     X(session_ping, "session.ping", read)                                             \
     X(session_shutdown, "session.shutdown", mutation)                                 \
@@ -108,6 +103,7 @@ struct OperationInfo {
     X(terminal_history_read, "terminal.history.read", read)                           \
     X(terminal_history_clear, "terminal.history.clear", mutation)                     \
     X(terminal_wait, "terminal.wait", read)                                           \
+    X(terminal_wait_exit, "terminal.wait_exit", read)                                 \
     X(terminal_copy, "terminal.copy", read)                                           \
     X(terminal_process_get, "terminal.process.get", read)                             \
     X(terminal_renderer_grant_create, "terminal.renderer_grant.create",               \
@@ -143,14 +139,6 @@ struct OperationInfo {
     X(sidebar_view_input, "sidebar_view.input", mutation)                             \
     X(sidebar_view_resize, "sidebar_view.resize", mutation)                           \
     X(sidebar_view_reload, "sidebar_view.reload", mutation)                           \
-    X(provider_scope_list, "provider_scope.list", read)                               \
-    X(provider_action_invoke, "provider_action.invoke", mutation)                     \
-    X(provider_notice_acknowledge, "provider_notice.acknowledge",                     \
-      connection_control)                                                             \
-    X(provider_notice_events, "provider_notice.events", stream_open)                  \
-    X(provider_workspace_mark, "provider_workspace.mark", mutation)                   \
-    X(provider_workspace_rename, "provider_workspace.rename", mutation)               \
-    X(provider_workspace_close, "provider_workspace.close", mutation)                 \
     X(stream_cancel, "stream.cancel", connection_control)
 
 [[nodiscard]] OperationInfo info_for(Operation operation) noexcept {
@@ -167,8 +155,6 @@ struct OperationInfo {
 [[nodiscard]] bool requires_machine(Operation operation) noexcept {
     switch (operation) {
         case Operation::machine_list:
-        case Operation::machine_create:
-        case Operation::machine_connect_external:
             return false;
         default:
             return true;
@@ -179,17 +165,7 @@ struct OperationInfo {
     switch (operation) {
         case Operation::machine_list:
         case Operation::machine_get:
-        case Operation::machine_create:
-        case Operation::machine_rename:
-        case Operation::machine_delete:
-        case Operation::machine_restore:
-        case Operation::machine_purge:
-        case Operation::machine_connect_external:
         case Operation::session_list:
-        case Operation::provider_scope_list:
-        case Operation::provider_action_invoke:
-        case Operation::provider_notice_acknowledge:
-        case Operation::provider_notice_events:
             return false;
         default:
             return true;
@@ -201,8 +177,6 @@ struct OperationInfo {
         return false;
     }
     switch (operation) {
-        case Operation::machine_create:
-        case Operation::machine_connect_external:
         case Operation::workspace_create:
             return false;
         default:
@@ -249,14 +223,13 @@ void inject_routing(
 [[nodiscard]] Result<std::uint64_t> decimal_u64(
     const Json& value,
     std::string_view context) {
-    if (auto number = value.as_uint64()) {
-        return number.value();
-    }
     if (auto text = value.as_string()) {
-        if (text.value().empty()) {
+        if (text.value().empty() ||
+            (text.value().size() > 1U && text.value().front() == '0')) {
             return make_error(
                 ErrorCode::decode,
-                std::string(context) + " must be a decimal string");
+                std::string(context) +
+                    " must be a canonical decimal string");
         }
         std::uint64_t parsed = 0;
         for (const char byte : text.value()) {
@@ -281,14 +254,27 @@ void inject_routing(
         std::string(context) + " must be a decimal string");
 }
 
+[[nodiscard]] Result<void> require_exact_fields(
+    const Json& value,
+    std::initializer_list<std::string_view> allowed,
+    std::string_view context);
+
 [[nodiscard]] Result<Cursor> parse_cursor(const Json& value) {
     auto object = value.as_object();
     if (!object) {
         return make_error(ErrorCode::decode, "cursor must be an object");
     }
+    auto exact = require_exact_fields(
+        value, {"generation", "revision"}, "cursor");
+    if (!exact) {
+        return std::move(exact).error();
+    }
     auto generation = require_string(value, "generation");
-    if (!generation) {
-        return std::move(generation).error();
+    if (!generation || generation.value().empty() ||
+        generation.value().size() > 128U) {
+        return make_error(
+            ErrorCode::decode,
+            "cursor generation must contain 1 to 128 bytes");
     }
     const Json* revision = value.find("revision");
     if (!revision) {
@@ -322,122 +308,19 @@ void inject_routing(
     return {};
 }
 
-[[nodiscard]] bool cursor_matches(
-    const Cursor& left,
-    const Cursor& right) noexcept {
-    return left.generation == right.generation &&
-           left.revision == right.revision;
-}
-
-template <typename Id>
-[[nodiscard]] Result<std::optional<Id>> optional_id(
-    const Json& object,
-    std::string_view field) {
-    const Json* value = object.find(field);
-    if (!value || value->is_null()) {
-        return std::optional<Id>{};
-    }
-    auto text = value->as_string();
-    if (!text) {
-        return make_error(
-            ErrorCode::decode,
-            std::string(field) + " ID must be a string");
-    }
-    auto parsed = Id::parse(text.value());
-    if (!parsed) {
-        return std::move(parsed).error();
-    }
-    return std::optional<Id>(std::move(parsed).value());
-}
-
-template <typename Id>
-[[nodiscard]] Result<Id> required_id(
-    const Json& object,
-    std::string_view field) {
-    const Json* value = object.find(field);
-    if (!value) {
-        return make_error(
-            ErrorCode::decode,
-            std::string("created path is missing ") + std::string(field));
-    }
-    auto text = value->as_string();
-    if (!text) {
-        return make_error(
-            ErrorCode::decode,
-            std::string(field) + " ID must be a string");
-    }
-    auto parsed = Id::parse(text.value());
-    if (!parsed) {
-        return std::move(parsed).error();
-    }
-    return std::move(parsed).value();
-}
-
-[[nodiscard]] Result<CreatedPath> parse_created_path(const Json& value) {
-    auto object = value.as_object();
-    if (!object) {
-        return make_error(ErrorCode::decode, "created path must be an object");
-    }
-    auto kind = require_string(value, "kind");
-    if (!kind) {
-        return std::move(kind).error();
-    }
-    auto workspace = required_id<WorkspaceId>(value, "workspace_id");
-    if (!workspace) {
-        return std::move(workspace).error();
-    }
-    if (kind.value() == "workspace") {
-        return CreatedPath(CreatedWorkspaceOnly{
-            std::move(workspace).value(),
-        });
-    }
-    auto screen = required_id<ScreenId>(value, "screen_id");
-    if (!screen) {
-        return std::move(screen).error();
-    }
-    auto pane = required_id<PaneId>(value, "pane_id");
-    if (!pane) {
-        return std::move(pane).error();
-    }
-    auto tab = required_id<TabId>(value, "tab_id");
-    if (!tab) {
-        return std::move(tab).error();
-    }
-    if (kind.value() == "terminal") {
-        auto terminal = required_id<TerminalId>(value, "terminal_id");
-        if (!terminal) {
-            return std::move(terminal).error();
-        }
-        return CreatedPath(CreatedTerminalPath{
-            std::move(workspace).value(),
-            std::move(screen).value(),
-            std::move(pane).value(),
-            std::move(tab).value(),
-            std::move(terminal).value(),
-        });
-    }
-    if (kind.value() == "browser") {
-        auto browser = required_id<BrowserId>(value, "browser_id");
-        if (!browser) {
-            return std::move(browser).error();
-        }
-        return CreatedPath(CreatedBrowserPath{
-            std::move(workspace).value(),
-            std::move(screen).value(),
-            std::move(pane).value(),
-            std::move(tab).value(),
-            std::move(browser).value(),
-        });
-    }
-    return make_error(ErrorCode::decode, "unknown created path kind");
-}
-
-[[nodiscard]] Result<MutationResult> decode_mutation(Json result) {
+[[nodiscard]] Result<RawMutationResult> decode_mutation(Json result) {
     auto object = result.as_object();
     if (!object) {
         return make_error(ErrorCode::decode, "mutation result must be an object");
     }
-    MutationResult decoded;
+    auto exact = require_exact_fields(
+        result,
+        {"value", "generation", "revision", "replayed"},
+        "mutation result");
+    if (!exact) {
+        return std::move(exact).error();
+    }
+    RawMutationResult decoded;
     auto generation = require_string(result, "generation");
     if (!generation || generation.value().empty() ||
         generation.value().size() > 128U) {
@@ -622,75 +505,6 @@ template <typename Id>
     });
 }
 
-template <typename Id>
-[[nodiscard]] Result<ResourceSnapshot<Id>> decode_snapshot(
-    Json value,
-    std::optional<Id> fallback_id) {
-    auto object = value.as_object();
-    if (!object) {
-        return make_error(ErrorCode::decode, "resource snapshot must be an object");
-    }
-    std::optional<Id> resolved_id = std::move(fallback_id);
-    if (const Json* id = value.find("id")) {
-        auto text = id->as_string();
-        if (!text) {
-            return make_error(ErrorCode::decode, "resource ID must be a string");
-        }
-        auto parsed = Id::parse(text.value());
-        if (!parsed) {
-            return std::move(parsed).error();
-        }
-        resolved_id = std::move(parsed).value();
-    }
-    if (!resolved_id) {
-        return make_error(
-            ErrorCode::decode,
-            "resource selected by current or name omitted its opaque ID");
-    }
-    ResourceSnapshot<Id> snapshot;
-    snapshot.id = std::move(*resolved_id);
-    if (const Json* name = value.find("name"); name && !name->is_null()) {
-        auto text = name->as_string();
-        if (!text) {
-            return make_error(ErrorCode::decode, "resource name must be a string");
-        }
-        snapshot.name = std::string(text.value());
-    }
-    if (const Json* label = value.find("label"); label && !label->is_null()) {
-        auto text = label->as_string();
-        if (!text) {
-            return make_error(ErrorCode::decode, "resource label must be a string");
-        }
-        snapshot.label = std::string(text.value());
-    }
-    if (const Json* revision = value.find("revision")) {
-        auto parsed = decimal_u64(*revision, "resource revision");
-        if (!parsed) {
-            return std::move(parsed).error();
-        }
-        snapshot.revision = parsed.value();
-    }
-    const Json* parents = value.find("parents");
-    const Json& parent_source =
-        parents && parents->is_object() ? *parents : value;
-#define CMUX_PARSE_PARENT(field)                                            \
-    do {                                                                    \
-        auto parsed = optional_id<typename decltype(snapshot.parents.field)::value_type>( \
-            parent_source, #field);                                         \
-        if (!parsed) return std::move(parsed).error();                       \
-        snapshot.parents.field = std::move(parsed).value();                  \
-    } while (false)
-    CMUX_PARSE_PARENT(machine);
-    CMUX_PARSE_PARENT(session);
-    CMUX_PARSE_PARENT(workspace);
-    CMUX_PARSE_PARENT(screen);
-    CMUX_PARSE_PARENT(pane);
-    CMUX_PARSE_PARENT(tab);
-#undef CMUX_PARSE_PARENT
-    snapshot.raw = std::move(value);
-    return snapshot;
-}
-
 }  // namespace
 
 std::string_view operation_name(Operation operation) noexcept {
@@ -701,169 +515,6 @@ OperationClass operation_class(Operation operation) noexcept {
     return info_for(operation).operation_class;
 }
 
-Result<std::optional<CreatedPath>> MutationResult::created_path() const {
-    const Json* kind = value.find("kind");
-    if (!kind) {
-        return std::optional<CreatedPath>{};
-    }
-    auto text = kind->as_string();
-    if (!text ||
-        (text.value() != "workspace" &&
-         text.value() != "terminal" &&
-         text.value() != "browser")) {
-        return std::optional<CreatedPath>{};
-    }
-    auto parsed = parse_created_path(value);
-    if (!parsed) {
-        return std::move(parsed).error();
-    }
-    return std::optional<CreatedPath>(std::move(parsed).value());
-}
-
-namespace detail {
-
-Result<SessionEvent> decode_session_event(
-    const Json& value,
-    const std::optional<Cursor>& envelope_cursor) {
-    auto object = value.as_object();
-    if (!object) {
-        return make_error(
-            ErrorCode::decode, "session event must be an object");
-    }
-    auto kind = require_string(value, "kind");
-    if (!kind || kind.value().empty()) {
-        return make_error(
-            ErrorCode::decode,
-            "session event kind must be a nonempty string");
-    }
-    if (kind.value() == "snapshot") {
-        auto exact = require_exact_fields(
-            value,
-            {"kind", "cursor", "reset_reason", "snapshot"},
-            "session snapshot event");
-        if (!exact) {
-            return std::move(exact).error();
-        }
-        const Json* cursor_value = value.find("cursor");
-        if (!cursor_value) {
-            return make_error(
-                ErrorCode::decode,
-                "session snapshot event is missing cursor");
-        }
-        auto cursor = parse_cursor(*cursor_value);
-        if (!cursor) {
-            return std::move(cursor).error();
-        }
-        if (envelope_cursor &&
-            !cursor_matches(cursor.value(), *envelope_cursor)) {
-            return make_error(
-                ErrorCode::protocol,
-                "session snapshot cursor does not match its envelope");
-        }
-        std::optional<SessionResetReason> reset_reason;
-        if (const Json* reset = value.find("reset_reason")) {
-            auto text = reset->as_string();
-            if (!text) {
-                return make_error(
-                    ErrorCode::decode,
-                    "session snapshot reset_reason must be a string");
-            }
-            if (text.value() == "initial") {
-                reset_reason = SessionResetReason::initial;
-            } else if (text.value() == "generation_changed") {
-                reset_reason = SessionResetReason::generation_changed;
-            } else if (text.value() == "cursor_expired") {
-                reset_reason = SessionResetReason::cursor_expired;
-            } else {
-                return make_error(
-                    ErrorCode::decode,
-                    "session snapshot reset_reason is not recognized");
-            }
-        }
-        const Json* snapshot = value.find("snapshot");
-        if (!snapshot || !snapshot->is_object()) {
-            return make_error(
-                ErrorCode::decode,
-                "session snapshot event requires an object snapshot");
-        }
-        return SessionEvent(SessionSnapshotEvent{
-            std::move(cursor).value(),
-            reset_reason,
-            *snapshot,
-        });
-    }
-    if (kind.value() == "delta") {
-        auto exact = require_exact_fields(
-            value,
-            {"kind", "cursor", "previous_revision", "revision", "changes"},
-            "session delta event");
-        if (!exact) {
-            return std::move(exact).error();
-        }
-        const Json* cursor_value = value.find("cursor");
-        if (!cursor_value) {
-            return make_error(
-                ErrorCode::decode,
-                "session delta event is missing cursor");
-        }
-        auto cursor = parse_cursor(*cursor_value);
-        if (!cursor) {
-            return std::move(cursor).error();
-        }
-        if (envelope_cursor &&
-            !cursor_matches(cursor.value(), *envelope_cursor)) {
-            return make_error(
-                ErrorCode::protocol,
-                "session delta cursor does not match its envelope");
-        }
-        const Json* previous = value.find("previous_revision");
-        const Json* revision = value.find("revision");
-        if (!previous || !revision) {
-            return make_error(
-                ErrorCode::decode,
-                "session delta event is missing revision bounds");
-        }
-        auto parsed_previous =
-            decimal_u64(*previous, "session delta previous_revision");
-        if (!parsed_previous) {
-            return std::move(parsed_previous).error();
-        }
-        auto parsed_revision =
-            decimal_u64(*revision, "session delta revision");
-        if (!parsed_revision) {
-            return std::move(parsed_revision).error();
-        }
-        if (parsed_revision.value() != cursor.value().revision) {
-            return make_error(
-                ErrorCode::protocol,
-                "session delta revision does not match its cursor");
-        }
-        const Json* changes = value.find("changes");
-        if (!changes) {
-            return make_error(
-                ErrorCode::decode,
-                "session delta event is missing changes");
-        }
-        auto array = changes->as_array();
-        if (!array) {
-            return make_error(
-                ErrorCode::decode,
-                "session delta changes must be an array");
-        }
-        return SessionEvent(SessionDeltaEvent{
-            std::move(cursor).value(),
-            parsed_previous.value(),
-            parsed_revision.value(),
-            *array.value(),
-        });
-    }
-    return SessionEvent(Unknown{
-        std::move(kind).value(),
-        value,
-    });
-}
-
-}  // namespace detail
 
 Result<MutationOptions> MutationOptions::with_key(std::string key) {
     if (key.empty() || key.size() > 128) {
@@ -879,13 +530,10 @@ MutationOptions MutationOptions::unique() {
 }
 
 Result<RunCommand> RunCommand::exact(std::vector<std::string> argv) {
-    if (argv.empty() ||
-        std::ranges::any_of(argv, [](const auto& argument) {
-            return argument.empty();
-        })) {
+    if (argv.empty() || argv.front().empty()) {
         return make_error(
             ErrorCode::invalid_argument,
-            "argv must contain only non-empty strings");
+            "argv must contain a non-empty executable");
     }
     return RunCommand(std::move(argv));
 }
@@ -998,6 +646,28 @@ Result<Json::Object> CreateBrowserTabOptions::to_params() const {
     return params;
 }
 
+Result<Json::Object> UndoLayoutOptions::to_params() const {
+    if (confirmation_token &&
+        (confirmation_token->empty() || confirmation_token->size() > 128)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "confirmation_token must contain 1 to 128 UTF-8 bytes");
+    }
+    if (confirm_close && !confirmation_token) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "confirmation_token is required when confirm_close is true");
+    }
+    Json::Object params;
+    if (confirm_close) {
+        params.emplace("confirm_close", Json(true));
+    }
+    if (confirmation_token) {
+        params.emplace("confirmation_token", Json(*confirmation_token));
+    }
+    return params;
+}
+
 namespace detail {
 
 void complete_structural_route(
@@ -1039,11 +709,38 @@ public:
     [[nodiscard]] Result<Json> call(
         Operation operation,
         Json::Object params,
-        std::optional<std::string> idempotency_key) {
+        std::optional<std::string> idempotency_key,
+        CallOptions call) {
         std::lock_guard lock(request_mutex);
         if (is_closed.load(std::memory_order_acquire)) {
             return make_error(ErrorCode::closed, "client is closed");
         }
+        if (call.cancel.stop_requested()) {
+            return make_error(ErrorCode::canceled, "operation was canceled");
+        }
+        const auto deadline = call.deadline.value_or(
+            std::chrono::steady_clock::now() + options.timeout);
+        const auto remaining = [&]() -> Timeout {
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= deadline) {
+                return Timeout::zero();
+            }
+            return std::max(
+                Timeout(1),
+                std::chrono::duration_cast<Timeout>(deadline - now));
+        };
+        const auto mutation_key = idempotency_key;
+        const auto outcome_error = [&](Error error) {
+            if (mutation_key && error.code != ErrorCode::command &&
+                error.code != ErrorCode::invalid_argument) {
+                error.code = ErrorCode::outcome_uncertain;
+                error.retryable = false;
+                error.uncertain_mutation =
+                    std::make_shared<MutationOutcomeUncertain>(
+                        MutationOutcomeUncertain{operation, *mutation_key});
+            }
+            return error;
+        };
         const auto request_id =
             "cpp-request-" +
             std::to_string(
@@ -1054,18 +751,37 @@ public:
             request_id,
             operation,
             std::move(params),
-            std::move(idempotency_key));
+            std::move(idempotency_key),
+            remaining(),
+            options.json_limits);
         if (!sent) {
-            return std::move(sent).error();
+            return outcome_error(std::move(sent).error());
         }
         while (true) {
-            auto wire = control->receive(options.timeout);
+            if (call.cancel.stop_requested()) {
+                return outcome_error(
+                    make_error(ErrorCode::canceled, "operation was canceled"));
+            }
+            auto timeout = remaining();
+            if (timeout == Timeout::zero()) {
+                return outcome_error(
+                    make_error(ErrorCode::timeout, "operation timed out"));
+            }
+            if (call.cancel.stop_possible()) {
+                timeout = std::min(timeout, Timeout(25));
+            }
+            auto wire = control->receive(timeout);
             if (!wire) {
-                return std::move(wire).error();
+                if (wire.error().code == ErrorCode::timeout &&
+                    call.cancel.stop_possible() &&
+                    remaining() != Timeout::zero()) {
+                    continue;
+                }
+                return outcome_error(std::move(wire).error());
             }
             auto parsed = Json::parse(wire.value(), options.json_limits);
             if (!parsed) {
-                return std::move(parsed).error();
+                return outcome_error(std::move(parsed).error());
             }
             const Json* type = parsed.value().find("type");
             if (!type) {
@@ -1090,13 +806,18 @@ public:
             if (!response_id || response_id.value() != request_id) {
                 continue;
             }
-            return decode_response(parsed.value(), request_id);
+            auto decoded = decode_response(parsed.value(), request_id);
+            if (!decoded) {
+                return outcome_error(std::move(decoded).error());
+            }
+            return decoded;
         }
     }
 
     [[nodiscard]] Result<std::unique_ptr<ResourceStream::Impl>> open_stream(
         Operation operation,
-        Json::Object params);
+        Json::Object params,
+        CallOptions call);
 
     void close() noexcept {
         bool expected = false;
@@ -1141,34 +862,39 @@ public:
 Result<Json> resource_read(
     const std::shared_ptr<ResourceClientState>& state,
     Operation operation,
-    Json::Object params) {
+    Json::Object params,
+    CallOptions call) {
     if (!state) {
         return make_error(ErrorCode::closed, "client is not initialized");
     }
     if (operation_class(operation) != OperationClass::read) {
         return wrong_class(operation, OperationClass::read);
     }
-    return state->call(operation, std::move(params), std::nullopt);
+    return state->call(
+        operation, std::move(params), std::nullopt, std::move(call));
 }
 
 Result<Json> resource_control(
     const std::shared_ptr<ResourceClientState>& state,
     Operation operation,
-    Json::Object params) {
+    Json::Object params,
+    CallOptions call) {
     if (!state) {
         return make_error(ErrorCode::closed, "client is not initialized");
     }
     if (operation_class(operation) != OperationClass::connection_control) {
         return wrong_class(operation, OperationClass::connection_control);
     }
-    return state->call(operation, std::move(params), std::nullopt);
+    return state->call(
+        operation, std::move(params), std::nullopt, std::move(call));
 }
 
-Result<MutationResult> resource_mutate(
+Result<RawMutationResult> resource_mutate(
     const std::shared_ptr<ResourceClientState>& state,
     Operation operation,
     Json::Object params,
-    MutationOptions options) {
+    MutationOptions options,
+    CallOptions call) {
     if (!state) {
         return make_error(ErrorCode::closed, "client is not initialized");
     }
@@ -1188,9 +914,21 @@ Result<MutationResult> resource_mutate(
     auto result = state->call(
         operation,
         std::move(params),
-        expected_key);
+        expected_key,
+        std::move(call));
     if (!result) {
-        return std::move(result).error();
+        auto error = std::move(result).error();
+        if (error.protocol_code == "mutation.indeterminate") {
+            error.code = ErrorCode::outcome_uncertain;
+            error.retryable = false;
+            error.uncertain_mutation =
+                std::make_shared<MutationOutcomeUncertain>(
+                    MutationOutcomeUncertain{
+                        operation,
+                        expected_key,
+                    });
+        }
+        return error;
     }
     auto decoded = decode_mutation(std::move(result).value());
     if (!decoded) {
@@ -1254,33 +992,46 @@ bool Client::closed() const noexcept {
 
 Result<Json> Client::read(
     Operation operation,
-    Json::Object params) const {
-    return detail::resource_read(state_, operation, std::move(params));
+    Json::Object params,
+    CallOptions call) const {
+    return detail::resource_read(
+        state_, operation, std::move(params), std::move(call));
 }
 
-Result<MutationResult> Client::mutate(
+Result<RawMutationResult> Client::mutate(
     Operation operation,
     Json::Object params,
-    MutationOptions options) const {
+    MutationOptions options,
+    CallOptions call) const {
     return detail::resource_mutate(
-        state_, operation, std::move(params), std::move(options));
+        state_,
+        operation,
+        std::move(params),
+        std::move(options),
+        std::move(call));
 }
 
 Result<Json> Client::connection_control(
     Operation operation,
-    Json::Object params) const {
-    return detail::resource_control(state_, operation, std::move(params));
+    Json::Object params,
+    CallOptions call) const {
+    return detail::resource_control(
+        state_, operation, std::move(params), std::move(call));
 }
 
 Result<ResourceStream> Client::open_stream(
     Operation operation,
-    Json::Object params) const {
-    return detail::resource_open_stream(state_, operation, std::move(params));
+    Json::Object params,
+    CallOptions call) const {
+    return detail::resource_open_stream(
+        state_, operation, std::move(params), std::move(call));
 }
 
 Result<SessionEventStream> Client::open_session_events(
-    Json::Object params) const {
-    auto stream = open_stream(Operation::session_events, std::move(params));
+    Json::Object params,
+    CallOptions call) const {
+    auto stream = open_stream(
+        Operation::session_events, std::move(params), std::move(call));
     if (!stream) {
         return std::move(stream).error();
     }
@@ -1288,8 +1039,10 @@ Result<SessionEventStream> Client::open_session_events(
 }
 
 Result<TerminalAttachmentStream> Client::open_terminal_attachment(
-    Json::Object params) const {
-    auto stream = open_stream(Operation::terminal_attach, std::move(params));
+    Json::Object params,
+    CallOptions call) const {
+    auto stream = open_stream(
+        Operation::terminal_attach, std::move(params), std::move(call));
     if (!stream) {
         return std::move(stream).error();
     }
@@ -1297,8 +1050,10 @@ Result<TerminalAttachmentStream> Client::open_terminal_attachment(
 }
 
 Result<BrowserAttachmentStream> Client::open_browser_attachment(
-    Json::Object params) const {
-    auto stream = open_stream(Operation::browser_attach, std::move(params));
+    Json::Object params,
+    CallOptions call) const {
+    auto stream = open_stream(
+        Operation::browser_attach, std::move(params), std::move(call));
     if (!stream) {
         return std::move(stream).error();
     }
@@ -1306,22 +1061,14 @@ Result<BrowserAttachmentStream> Client::open_browser_attachment(
 }
 
 Result<SidebarViewStream> Client::open_sidebar_view(
-    Json::Object params) const {
-    auto stream = open_stream(Operation::sidebar_view_attach, std::move(params));
+    Json::Object params,
+    CallOptions call) const {
+    auto stream = open_stream(
+        Operation::sidebar_view_attach, std::move(params), std::move(call));
     if (!stream) {
         return std::move(stream).error();
     }
     return SidebarViewStream(std::move(stream).value());
-}
-
-Result<ProviderNoticeStream> Client::open_provider_notices(
-    Json::Object params) const {
-    auto stream =
-        open_stream(Operation::provider_notice_events, std::move(params));
-    if (!stream) {
-        return std::move(stream).error();
-    }
-    return ProviderNoticeStream(std::move(stream).value());
 }
 
 Machine Client::machine(Selector<MachineId> selector) const {
@@ -1445,135 +1192,63 @@ SidebarView Client::sidebar_view(SidebarViewId id) const {
     return sidebar_view(Selector<SidebarViewId>::by_id(std::move(id)));
 }
 
-ProviderScope Client::provider_scope(
-    Selector<ProviderScopeId> selector) const {
-    return ProviderScope(state_, std::move(selector), "provider_scope");
+Result<std::vector<MachineSnapshot>> Client::machines() const {
+    return detail::ResourceReadResult(read(Operation::machine_list));
 }
 
-ProviderScope Client::provider_scope(ProviderScopeId id) const {
-    return provider_scope(Selector<ProviderScopeId>::by_id(std::move(id)));
-}
-
-ProviderAction Client::provider_action(
-    Selector<ProviderActionId> selector) const {
-    return ProviderAction(state_, std::move(selector), "provider_action");
-}
-
-ProviderAction Client::provider_action(ProviderActionId id) const {
-    return provider_action(Selector<ProviderActionId>::by_id(std::move(id)));
-}
-
-ProviderNoticeHandle Client::provider_notice(
-    Selector<ProviderNoticeId> selector) const {
-    return ProviderNoticeHandle(
-        state_, std::move(selector), "provider_notice");
-}
-
-ProviderNoticeHandle Client::provider_notice(ProviderNoticeId id) const {
-    return provider_notice(
-        Selector<ProviderNoticeId>::by_id(std::move(id)));
-}
-
-Result<Json> Client::machines() const {
-    return read(Operation::machine_list);
-}
-
-Result<Json> Client::sessions(
+Result<std::vector<SessionSnapshot>> Client::sessions(
     std::optional<Selector<MachineId>> machine_selector) const {
     Json::Object params;
     if (machine_selector) {
         params.emplace("machine", Json(machine_selector->wire()));
     }
-    return read(Operation::session_list, std::move(params));
+    return detail::ResourceReadResult(
+        read(Operation::session_list, std::move(params)));
 }
 
-Result<MutationResult> Client::create_machine(
-    ProviderScopeId provider_scope,
-    MutationOptions options) const {
-    return mutate(
-        Operation::machine_create,
-        Json::Object{
-            {"provider_scope", Json(provider_scope.value())},
-        },
-        std::move(options));
-}
-
-Result<MutationResult> Client::connect_external_machine(
-    ProviderScopeId provider_scope,
-    const SensitiveString& specifier,
-    MutationOptions options) const {
-    return mutate(
-        Operation::machine_connect_external,
-        Json::Object{
-            {"provider_scope", Json(provider_scope.value())},
-            {"specifier", Json(specifier.reveal())},
-        },
-        std::move(options));
-}
-
-Result<MutationResult> Client::open_session(
+Result<MutationResult<SessionSnapshot>> Client::open_session(
     Json::Object params,
     MutationOptions options) const {
-    return mutate(
-        Operation::session_open, std::move(params), std::move(options));
+    return detail::ResourceMutationResult(mutate(
+        Operation::session_open, std::move(params), std::move(options)));
 }
 
-Result<Json> Client::notifications(Json::Object params) const {
-    return read(Operation::notification_list, std::move(params));
+Result<std::vector<NotificationSnapshot>> Client::notifications(Json::Object params) const {
+    return detail::ResourceReadResult(
+        read(Operation::notification_list, std::move(params)));
 }
 
-Result<MutationResult> Client::notify(
+Result<MutationResult<NotificationSnapshot>> Client::notify(
     Json::Object params,
     MutationOptions options) const {
-    return mutate(
+    return detail::ResourceMutationResult(mutate(
         Operation::notification_create,
         std::move(params),
-        std::move(options));
+        std::move(options)));
 }
 
-Result<Json> Client::agents(Json::Object params) const {
-    return read(Operation::agent_list, std::move(params));
+Result<std::vector<AgentSnapshot>> Client::agents(Json::Object params) const {
+    return detail::ResourceReadResult(
+        read(Operation::agent_list, std::move(params)));
 }
 
-Result<MutationResult> Client::report_agent(
+Result<MutationResult<AgentSnapshot>> Client::report_agent(
     Json::Object params,
     MutationOptions options) const {
-    return mutate(
-        Operation::agent_report, std::move(params), std::move(options));
+    return detail::ResourceMutationResult(mutate(
+        Operation::agent_report, std::move(params), std::move(options)));
 }
 
-Result<Json> Client::pairing_requests(Json::Object params) const {
-    return read(Operation::pairing_request_list, std::move(params));
+Result<std::vector<PairingRequestSnapshot>> Client::pairing_requests(Json::Object params) const {
+    return detail::ResourceReadResult(
+        read(Operation::pairing_request_list, std::move(params)));
 }
 
-Result<Json> Client::provider_scopes(Json::Object params) const {
-    return read(Operation::provider_scope_list, std::move(params));
+Result<MachineSnapshot> Machine::refresh() const {
+    return read(Operation::machine_get);
 }
 
-Result<MutationResult> Client::invoke_provider_action(
-    ProviderScopeId provider_scope,
-    ProviderActionId action,
-    Json::Object parameters,
-    MutationOptions options) const {
-    return mutate(
-        Operation::provider_action_invoke,
-        Json::Object{
-            {"provider_scope", Json(provider_scope.value())},
-            {"provider_action", Json(action.value())},
-            {"parameters", Json(std::move(parameters))},
-        },
-        std::move(options));
-}
-
-Result<ResourceSnapshot<MachineId>> Machine::refresh() const {
-    auto value = read(Operation::machine_get);
-    if (!value) {
-        return std::move(value).error();
-    }
-    return decode_snapshot(std::move(value).value(), selected_id_);
-}
-
-Result<Json> Machine::sessions() const {
+Result<std::vector<SessionSnapshot>> Machine::sessions() const {
     return read(Operation::session_list);
 }
 
@@ -1585,48 +1260,33 @@ Session Machine::session(SessionId id) const {
     return session(Selector<SessionId>::by_id(std::move(id)));
 }
 
-Result<MutationResult> Machine::rename(
-    std::string name,
-    MutationOptions options) const {
-    return mutate(
-        Operation::machine_rename,
-        Json::Object{{"name", Json(std::move(name))}},
-        std::move(options));
+Result<SessionSnapshot> Session::refresh() const {
+    return read(Operation::session_get);
 }
 
-Result<MutationResult> Machine::clear_name(MutationOptions options) const {
-    return rename("", std::move(options));
-}
-
-Result<MutationResult> Machine::remove(MutationOptions options) const {
-    return mutate(Operation::machine_delete, {}, std::move(options));
-}
-
-Result<MutationResult> Machine::restore(MutationOptions options) const {
-    return mutate(Operation::machine_restore, {}, std::move(options));
-}
-
-Result<MutationResult> Machine::purge(MutationOptions options) const {
-    return mutate(Operation::machine_purge, {}, std::move(options));
-}
-
-Result<ResourceSnapshot<SessionId>> Session::refresh() const {
-    auto value = read(Operation::session_get);
-    if (!value) {
-        return std::move(value).error();
-    }
-    return decode_snapshot(std::move(value).value(), selected_id_);
-}
-
-Result<Json> Session::snapshot() const {
+Result<ResourceSnapshot> Session::snapshot() const {
     return read(Operation::session_snapshot);
 }
 
-Result<Json> Session::ping() const {
+Result<PingResult> Session::ping() const {
     return read(Operation::session_ping);
 }
 
-Result<Json> Session::workspaces() const {
+Result<CreationResolution> Session::resolve_creation(
+    std::string correlation_key) const {
+    if (correlation_key.empty() || correlation_key.size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "correlation key must contain 1 to 128 UTF-8 bytes");
+    }
+    return read(
+        Operation::session_creation_resolve,
+        Json::Object{
+            {"correlation_key", Json(std::move(correlation_key))},
+        });
+}
+
+Result<std::vector<WorkspaceSnapshot>> Session::workspaces() const {
     return read(Operation::workspace_list);
 }
 
@@ -1638,7 +1298,7 @@ Workspace Session::workspace(WorkspaceId id) const {
     return workspace(Selector<WorkspaceId>::by_id(std::move(id)));
 }
 
-Result<MutationResult> Session::create_workspace(
+Result<MutationResult<CreatedPath>> Session::create_workspace(
     CreateWorkspaceOptions create,
     MutationOptions mutation) const {
     Json::Object params{
@@ -1656,28 +1316,32 @@ Result<MutationResult> Session::create_workspace(
 }
 
 Result<SessionEventStream> Session::events(
-    std::optional<Cursor> cursor) const {
+    std::optional<Cursor> cursor,
+    CallOptions call) const {
     Json::Object params = routed_params();
     if (cursor) {
         params.emplace("cursor", cursor_json(*cursor));
     }
     auto stream = detail::resource_open_stream(
-        state_, Operation::session_events, std::move(params));
+        state_,
+        Operation::session_events,
+        std::move(params),
+        std::move(call));
     if (!stream) {
         return std::move(stream).error();
     }
     return SessionEventStream(std::move(stream).value());
 }
 
-Result<MutationResult> Session::shutdown(MutationOptions options) const {
+Result<MutationResult<ShutdownResult>> Session::shutdown(MutationOptions options) const {
     return mutate(Operation::session_shutdown, {}, std::move(options));
 }
 
-Result<MutationResult> Session::reload_config(MutationOptions options) const {
+Result<MutationResult<ReloadConfigResult>> Session::reload_config(MutationOptions options) const {
     return mutate(Operation::session_reload_config, {}, std::move(options));
 }
 
-Result<MutationResult> Session::update_terminal_defaults(
+Result<MutationResult<TerminalDefaultsSnapshot>> Session::update_terminal_defaults(
     Json::Object params,
     MutationOptions options) const {
     return mutate(
@@ -1686,7 +1350,7 @@ Result<MutationResult> Session::update_terminal_defaults(
         std::move(options));
 }
 
-Result<MutationResult> Session::set_window_title(
+Result<MutationResult<EmptyResult>> Session::set_window_title(
     std::string title,
     MutationOptions options) const {
     return mutate(
@@ -1695,21 +1359,17 @@ Result<MutationResult> Session::set_window_title(
         std::move(options));
 }
 
-Result<MutationResult> Session::clear_window_title(
+Result<MutationResult<EmptyResult>> Session::clear_window_title(
     MutationOptions options) const {
     return mutate(
         Operation::session_window_title_clear, {}, std::move(options));
 }
 
-Result<ResourceSnapshot<WorkspaceId>> Workspace::refresh() const {
-    auto value = read(Operation::workspace_get);
-    if (!value) {
-        return std::move(value).error();
-    }
-    return decode_snapshot(std::move(value).value(), selected_id_);
+Result<WorkspaceSnapshot> Workspace::refresh() const {
+    return read(Operation::workspace_get);
 }
 
-Result<Json> Workspace::screens() const {
+Result<std::vector<ScreenSnapshot>> Workspace::screens() const {
     return read(Operation::screen_list);
 }
 
@@ -1721,14 +1381,14 @@ Screen Workspace::screen(ScreenId id) const {
     return screen(Selector<ScreenId>::by_id(std::move(id)));
 }
 
-Result<MutationResult> Workspace::create_screen(
+Result<MutationResult<CreatedTerminalPath>> Workspace::create_screen(
     Json::Object params,
     MutationOptions options) const {
     return mutate(
         Operation::screen_create, std::move(params), std::move(options));
 }
 
-Result<MutationResult> Workspace::rename(
+Result<MutationResult<WorkspaceSnapshot>> Workspace::rename(
     std::string name,
     MutationOptions options) const {
     return mutate(
@@ -1737,13 +1397,13 @@ Result<MutationResult> Workspace::rename(
         std::move(options));
 }
 
-Result<MutationResult> Workspace::clear_name(
+Result<MutationResult<WorkspaceSnapshot>> Workspace::clear_name(
     MutationOptions options) const {
     // Workspace names are required strings. Empty explicitly clears the label.
     return rename("", std::move(options));
 }
 
-Result<MutationResult> Workspace::move(
+Result<MutationResult<WorkspaceSnapshot>> Workspace::move(
     std::size_t index,
     MutationOptions options) const {
     return mutate(
@@ -1752,15 +1412,15 @@ Result<MutationResult> Workspace::move(
         std::move(options));
 }
 
-Result<MutationResult> Workspace::focus(MutationOptions options) const {
+Result<MutationResult<WorkspaceSnapshot>> Workspace::focus(MutationOptions options) const {
     return mutate(Operation::workspace_focus, {}, std::move(options));
 }
 
-Result<MutationResult> Workspace::close(MutationOptions options) const {
+Result<MutationResult<EmptyResult>> Workspace::close(MutationOptions options) const {
     return mutate(Operation::workspace_close, {}, std::move(options));
 }
 
-Result<MutationResult> Workspace::run(
+Result<MutationResult<CreatedTerminalPath>> Workspace::run(
     RunOptions run,
     MutationOptions options) const {
     auto params = run.to_params();
@@ -1773,7 +1433,7 @@ Result<MutationResult> Workspace::run(
         std::move(options));
 }
 
-Result<MutationResult> Workspace::apply_layout(
+Result<MutationResult<WorkspaceSnapshot>> Workspace::apply_layout(
     Json document,
     MutationOptions options) const {
     return mutate(
@@ -1782,15 +1442,11 @@ Result<MutationResult> Workspace::apply_layout(
         std::move(options));
 }
 
-Result<ResourceSnapshot<ScreenId>> Screen::refresh() const {
-    auto value = read(Operation::screen_get);
-    if (!value) {
-        return std::move(value).error();
-    }
-    return decode_snapshot(std::move(value).value(), selected_id_);
+Result<ScreenSnapshot> Screen::refresh() const {
+    return read(Operation::screen_get);
 }
 
-Result<Json> Screen::panes() const {
+Result<std::vector<PaneSnapshot>> Screen::panes() const {
     return read(Operation::pane_list);
 }
 
@@ -1802,14 +1458,14 @@ Pane Screen::pane(PaneId id) const {
     return pane(Selector<PaneId>::by_id(std::move(id)));
 }
 
-Result<MutationResult> Screen::create_pane(
+Result<MutationResult<CreatedTerminalPath>> Screen::create_pane(
     Json::Object params,
     MutationOptions options) const {
     return mutate(
         Operation::pane_create, std::move(params), std::move(options));
 }
 
-Result<MutationResult> Screen::rename(
+Result<MutationResult<ScreenSnapshot>> Screen::rename(
     std::string name,
     MutationOptions options) const {
     return mutate(
@@ -1818,38 +1474,43 @@ Result<MutationResult> Screen::rename(
         std::move(options));
 }
 
-Result<MutationResult> Screen::clear_name(MutationOptions options) const {
+Result<MutationResult<ScreenSnapshot>> Screen::clear_name(MutationOptions options) const {
     return mutate(
         Operation::screen_rename,
         Json::Object{{"name", Json(nullptr)}},
         std::move(options));
 }
 
-Result<MutationResult> Screen::focus(MutationOptions options) const {
+Result<MutationResult<ScreenSnapshot>> Screen::focus(MutationOptions options) const {
     return mutate(Operation::screen_focus, {}, std::move(options));
 }
 
-Result<MutationResult> Screen::close(MutationOptions options) const {
+Result<MutationResult<EmptyResult>> Screen::close(MutationOptions options) const {
     return mutate(Operation::screen_close, {}, std::move(options));
 }
 
-Result<Json> Screen::export_layout() const {
+Result<LayoutDocument> Screen::export_layout() const {
     return read(Operation::screen_layout_export);
 }
 
-Result<MutationResult> Screen::undo_layout(MutationOptions options) const {
-    return mutate(Operation::screen_layout_undo, {}, std::move(options));
-}
-
-Result<ResourceSnapshot<PaneId>> Pane::refresh() const {
-    auto value = read(Operation::pane_get);
-    if (!value) {
-        return std::move(value).error();
+Result<MutationResult<ScreenSnapshot>> Screen::undo_layout(
+    UndoLayoutOptions undo,
+    MutationOptions options) const {
+    auto params = undo.to_params();
+    if (!params) {
+        return std::move(params).error();
     }
-    return decode_snapshot(std::move(value).value(), selected_id_);
+    return mutate(
+        Operation::screen_layout_undo,
+        std::move(params).value(),
+        std::move(options));
 }
 
-Result<Json> Pane::tabs() const {
+Result<PaneSnapshot> Pane::refresh() const {
+    return read(Operation::pane_get);
+}
+
+Result<std::vector<TabSnapshot>> Pane::tabs() const {
     return read(Operation::tab_list);
 }
 
@@ -1861,13 +1522,13 @@ Tab Pane::tab(TabId id) const {
     return tab(Selector<TabId>::by_id(std::move(id)));
 }
 
-Result<MutationResult> Pane::split(
+Result<MutationResult<CreatedTerminalPath>> Pane::split(
     Json::Object params,
     MutationOptions options) const {
     return mutate(Operation::pane_split, std::move(params), std::move(options));
 }
 
-Result<MutationResult> Pane::rename(
+Result<MutationResult<PaneSnapshot>> Pane::rename(
     std::string name,
     MutationOptions options) const {
     return mutate(
@@ -1876,18 +1537,18 @@ Result<MutationResult> Pane::rename(
         std::move(options));
 }
 
-Result<MutationResult> Pane::clear_name(MutationOptions options) const {
+Result<MutationResult<PaneSnapshot>> Pane::clear_name(MutationOptions options) const {
     return mutate(
         Operation::pane_rename,
         Json::Object{{"name", Json(nullptr)}},
         std::move(options));
 }
 
-Result<MutationResult> Pane::focus(MutationOptions options) const {
+Result<MutationResult<PaneSnapshot>> Pane::focus(MutationOptions options) const {
     return mutate(Operation::pane_focus, {}, std::move(options));
 }
 
-Result<MutationResult> Pane::focus_direction(
+Result<MutationResult<PaneSnapshot>> Pane::focus_direction(
     std::string direction,
     MutationOptions options) const {
     return mutate(
@@ -1896,13 +1557,13 @@ Result<MutationResult> Pane::focus_direction(
         std::move(options));
 }
 
-Result<Json> Pane::neighbor(std::string direction) const {
+Result<PaneNeighborResult> Pane::neighbor(std::string direction) const {
     return read(
         Operation::pane_neighbor_get,
         Json::Object{{"direction", Json(std::move(direction))}});
 }
 
-Result<MutationResult> Pane::swap(
+Result<MutationResult<PaneSnapshot>> Pane::swap(
     PaneLocation other,
     MutationOptions options) const {
     return mutate(
@@ -1915,7 +1576,7 @@ Result<MutationResult> Pane::swap(
         std::move(options));
 }
 
-Result<MutationResult> Pane::zoom(
+Result<MutationResult<PaneSnapshot>> Pane::zoom(
     std::optional<bool> zoomed,
     MutationOptions options) const {
     Json::Object params;
@@ -1925,7 +1586,7 @@ Result<MutationResult> Pane::zoom(
     return mutate(Operation::pane_zoom, std::move(params), std::move(options));
 }
 
-Result<MutationResult> Pane::set_split_ratio(
+Result<MutationResult<PaneSnapshot>> Pane::set_split_ratio(
     SplitId split,
     double ratio,
     MutationOptions options) const {
@@ -1938,7 +1599,7 @@ Result<MutationResult> Pane::set_split_ratio(
         std::move(options));
 }
 
-Result<MutationResult> Pane::set_viewport_width(
+Result<MutationResult<PaneSnapshot>> Pane::set_viewport_width(
     std::uint16_t columns,
     MutationOptions options) const {
     return mutate(
@@ -1947,11 +1608,11 @@ Result<MutationResult> Pane::set_viewport_width(
         std::move(options));
 }
 
-Result<MutationResult> Pane::close(MutationOptions options) const {
+Result<MutationResult<EmptyResult>> Pane::close(MutationOptions options) const {
     return mutate(Operation::pane_close, {}, std::move(options));
 }
 
-Result<MutationResult> Pane::run(
+Result<MutationResult<CreatedTerminalPath>> Pane::run(
     RunOptions run,
     MutationOptions options) const {
     auto params = run.to_params();
@@ -1964,7 +1625,7 @@ Result<MutationResult> Pane::run(
         std::move(options));
 }
 
-Result<MutationResult> Pane::create_terminal_tab(
+Result<MutationResult<CreatedTerminalPath>> Pane::create_terminal_tab(
     CreateTerminalTabOptions create,
     MutationOptions options) const {
     auto params = create.to_params();
@@ -1977,7 +1638,7 @@ Result<MutationResult> Pane::create_terminal_tab(
         std::move(options));
 }
 
-Result<MutationResult> Pane::create_browser_tab(
+Result<MutationResult<CreatedBrowserPath>> Pane::create_browser_tab(
     CreateBrowserTabOptions create,
     MutationOptions options) const {
     auto params = create.to_params();
@@ -1990,12 +1651,8 @@ Result<MutationResult> Pane::create_browser_tab(
         std::move(options));
 }
 
-Result<ResourceSnapshot<TabId>> Tab::refresh() const {
-    auto value = read(Operation::tab_get);
-    if (!value) {
-        return std::move(value).error();
-    }
-    return decode_snapshot(std::move(value).value(), selected_id_);
+Result<TabSnapshot> Tab::refresh() const {
+    return read(Operation::tab_get);
 }
 
 Terminal Tab::terminal(Selector<TerminalId> selector) const {
@@ -2014,7 +1671,7 @@ Browser Tab::browser(BrowserId id) const {
     return browser(Selector<BrowserId>::by_id(std::move(id)));
 }
 
-Result<MutationResult> Tab::rename(
+Result<MutationResult<TabSnapshot>> Tab::rename(
     std::string name,
     MutationOptions options) const {
     return mutate(
@@ -2023,14 +1680,14 @@ Result<MutationResult> Tab::rename(
         std::move(options));
 }
 
-Result<MutationResult> Tab::clear_name(MutationOptions options) const {
+Result<MutationResult<TabSnapshot>> Tab::clear_name(MutationOptions options) const {
     return mutate(
         Operation::tab_rename,
         Json::Object{{"name", Json(nullptr)}},
         std::move(options));
 }
 
-Result<MutationResult> Tab::move(
+Result<MutationResult<TabSnapshot>> Tab::move(
     PaneDestination destination,
     MutationOptions options) const {
     return mutate(
@@ -2044,23 +1701,19 @@ Result<MutationResult> Tab::move(
         std::move(options));
 }
 
-Result<MutationResult> Tab::focus(MutationOptions options) const {
+Result<MutationResult<TabSnapshot>> Tab::focus(MutationOptions options) const {
     return mutate(Operation::tab_focus, {}, std::move(options));
 }
 
-Result<MutationResult> Tab::close(MutationOptions options) const {
+Result<MutationResult<EmptyResult>> Tab::close(MutationOptions options) const {
     return mutate(Operation::tab_close, {}, std::move(options));
 }
 
-Result<ResourceSnapshot<TerminalId>> Terminal::refresh() const {
-    auto value = read(Operation::terminal_get);
-    if (!value) {
-        return std::move(value).error();
-    }
-    return decode_snapshot(std::move(value).value(), selected_id_);
+Result<TerminalSnapshot> Terminal::refresh() const {
+    return read(Operation::terminal_get);
 }
 
-Result<MutationResult> Terminal::write(
+Result<MutationResult<EmptyResult>> Terminal::write(
     std::string text,
     MutationOptions options) const {
     return mutate(
@@ -2069,7 +1722,7 @@ Result<MutationResult> Terminal::write(
         std::move(options));
 }
 
-Result<MutationResult> Terminal::keys(
+Result<MutationResult<EmptyResult>> Terminal::keys(
     std::vector<std::string> keys,
     MutationOptions options) const {
     Json::Array encoded;
@@ -2083,7 +1736,7 @@ Result<MutationResult> Terminal::keys(
         std::move(options));
 }
 
-Result<MutationResult> Terminal::mouse(
+Result<MutationResult<EmptyResult>> Terminal::mouse(
     Json::Object params,
     MutationOptions options) const {
     return mutate(
@@ -2092,7 +1745,7 @@ Result<MutationResult> Terminal::mouse(
         std::move(options));
 }
 
-Result<MutationResult> Terminal::input_focus(
+Result<MutationResult<EmptyResult>> Terminal::input_focus(
     bool focused,
     MutationOptions options) const {
     return mutate(
@@ -2101,25 +1754,25 @@ Result<MutationResult> Terminal::input_focus(
         std::move(options));
 }
 
-Result<Json> Terminal::read_screen(Json::Object params) const {
+Result<TerminalScreenResult> Terminal::read_screen(Json::Object params) const {
     return read(Operation::terminal_screen_read, std::move(params));
 }
 
-Result<Json> Terminal::read_state() const {
+Result<TerminalStateResult> Terminal::read_state() const {
     return read(Operation::terminal_state_read);
 }
 
-Result<Json> Terminal::read_history(Json::Object params) const {
+Result<TerminalHistoryResult> Terminal::read_history(Json::Object params) const {
     return read(Operation::terminal_history_read, std::move(params));
 }
 
-Result<MutationResult> Terminal::clear_history(
+Result<MutationResult<EmptyResult>> Terminal::clear_history(
     MutationOptions options) const {
     return mutate(
         Operation::terminal_history_clear, {}, std::move(options));
 }
 
-Result<Json> Terminal::wait(
+Result<TerminalWaitResult> Terminal::wait(
     std::string pattern,
     std::optional<std::uint64_t> timeout_ms) const {
     if (pattern.empty()) {
@@ -2134,66 +1787,32 @@ Result<Json> Terminal::wait(
     return read(Operation::terminal_wait, std::move(params));
 }
 
-Result<Json> Terminal::copy(Json::Object params) const {
+Result<TerminalWaitExitResult> Terminal::wait_exit(
+    std::optional<std::uint64_t> timeout_ms) const {
+    Json::Object params;
+    if (timeout_ms) {
+        params.emplace("timeout_ms", Json(std::to_string(*timeout_ms)));
+    }
+    return read(Operation::terminal_wait_exit, std::move(params));
+}
+
+Result<TerminalCopyResult> Terminal::copy(Json::Object params) const {
     return read(Operation::terminal_copy, std::move(params));
 }
 
-Result<Json> Terminal::process() const {
+Result<ProcessInfoResult> Terminal::process() const {
     return read(Operation::terminal_process_get);
 }
 
 Result<RendererGrant> Terminal::renderer_grant(Json::Object params) const {
-    params = routed_params(std::move(params));
-    auto result = detail::resource_control(
+    return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::terminal_renderer_grant_create,
-        std::move(params));
-    if (!result) {
-        return std::move(result).error();
-    }
-    auto endpoint = require_string(result.value(), "endpoint");
-    auto terminal_id_text = require_string(result.value(), "terminal_id");
-    auto token = require_string(result.value(), "token");
-    if (!endpoint || !terminal_id_text || !token || token.value().empty()) {
-        return make_error(ErrorCode::decode, "renderer grant is incomplete");
-    }
-    auto terminal_id = TerminalId::parse(terminal_id_text.value());
-    if (!terminal_id) {
-        return std::move(terminal_id).error();
-    }
-    const Json* ttl_value = result.value().find("ttl_ms");
-    const Json* rights_value = result.value().find("rights");
-    if (!ttl_value || !rights_value) {
-        return make_error(ErrorCode::decode, "renderer grant is incomplete");
-    }
-    auto ttl = decimal_u64(*ttl_value, "renderer ttl_ms");
-    auto rights_array = rights_value->as_array();
-    if (!ttl || !rights_array || ttl.value() == 0 ||
-        ttl.value() > std::numeric_limits<std::uint32_t>::max() ||
-        rights_array.value()->empty()) {
-        return make_error(ErrorCode::decode, "renderer grant is invalid");
-    }
-    std::vector<std::string> rights;
-    rights.reserve(rights_array.value()->size());
-    for (const auto& right : *rights_array.value()) {
-        auto text = right.as_string();
-        if (!text) {
-            return make_error(
-                ErrorCode::decode,
-                "renderer grant rights must be strings");
-        }
-        rights.emplace_back(text.value());
-    }
-    return RendererGrant{
-        std::move(endpoint).value(),
-        std::move(terminal_id).value(),
-        SensitiveString(std::move(token).value()),
-        std::move(rights),
-        static_cast<std::uint32_t>(ttl.value()),
-    };
+        routed_params(std::move(params)),
+        {}));
 }
 
-Result<Json> Terminal::resize_viewer(
+Result<ViewerResizeResult> Terminal::resize_viewer(
     std::uint16_t columns,
     std::uint16_t rows) const {
     if (columns == 0 || rows == 0) {
@@ -2201,23 +1820,25 @@ Result<Json> Terminal::resize_viewer(
             ErrorCode::invalid_argument,
             "terminal cell dimensions must be positive");
     }
-    return detail::resource_control(
+    return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::terminal_viewer_resize,
         routed_params(Json::Object{
             {"cols", Json(static_cast<std::uint64_t>(columns))},
             {"rows", Json(static_cast<std::uint64_t>(rows))},
-        }));
+        }),
+        {}));
 }
 
-Result<Json> Terminal::release_viewer() const {
-    return detail::resource_control(
+Result<EmptyResult> Terminal::release_viewer() const {
+    return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::terminal_viewer_release,
-        routed_params());
+        routed_params(),
+        {}));
 }
 
-Result<MutationResult> Terminal::scroll(
+Result<MutationResult<EmptyResult>> Terminal::scroll(
     std::int32_t delta_rows,
     MutationOptions options) const {
     return mutate(
@@ -2226,7 +1847,7 @@ Result<MutationResult> Terminal::scroll(
         std::move(options));
 }
 
-Result<MutationResult> Terminal::move(
+Result<MutationResult<TerminalSnapshot>> Terminal::move(
     PaneDestination destination,
     MutationOptions options) const {
     return mutate(
@@ -2241,29 +1862,29 @@ Result<MutationResult> Terminal::move(
 }
 
 Result<TerminalAttachmentStream> Terminal::attach(
-    Json::Object params) const {
+    Json::Object params,
+    CallOptions call) const {
     params = routed_params(std::move(params));
     auto stream = detail::resource_open_stream(
-        state_, Operation::terminal_attach, std::move(params));
+        state_,
+        Operation::terminal_attach,
+        std::move(params),
+        std::move(call));
     if (!stream) {
         return std::move(stream).error();
     }
     return TerminalAttachmentStream(std::move(stream).value());
 }
 
-Result<MutationResult> Terminal::close(MutationOptions options) const {
+Result<MutationResult<EmptyResult>> Terminal::close(MutationOptions options) const {
     return mutate(Operation::terminal_close, {}, std::move(options));
 }
 
-Result<ResourceSnapshot<BrowserId>> Browser::refresh() const {
-    auto value = read(Operation::browser_get);
-    if (!value) {
-        return std::move(value).error();
-    }
-    return decode_snapshot(std::move(value).value(), selected_id_);
+Result<BrowserSnapshot> Browser::refresh() const {
+    return read(Operation::browser_get);
 }
 
-Result<MutationResult> Browser::navigate(
+Result<MutationResult<BrowserSnapshot>> Browser::navigate(
     std::string url,
     MutationOptions options) const {
     return mutate(
@@ -2272,30 +1893,30 @@ Result<MutationResult> Browser::navigate(
         std::move(options));
 }
 
-Result<MutationResult> Browser::back(MutationOptions options) const {
+Result<MutationResult<BrowserSnapshot>> Browser::back(MutationOptions options) const {
     return mutate(Operation::browser_back, {}, std::move(options));
 }
 
-Result<MutationResult> Browser::forward(MutationOptions options) const {
+Result<MutationResult<BrowserSnapshot>> Browser::forward(MutationOptions options) const {
     return mutate(Operation::browser_forward, {}, std::move(options));
 }
 
-Result<MutationResult> Browser::reload(MutationOptions options) const {
+Result<MutationResult<BrowserSnapshot>> Browser::reload(MutationOptions options) const {
     return mutate(Operation::browser_reload, {}, std::move(options));
 }
 
-Result<MutationResult> Browser::activate(MutationOptions options) const {
+Result<MutationResult<BrowserSnapshot>> Browser::activate(MutationOptions options) const {
     return mutate(Operation::browser_activate, {}, std::move(options));
 }
 
-Result<MutationResult> Browser::key(
+Result<MutationResult<EmptyResult>> Browser::key(
     Json::Object params,
     MutationOptions options) const {
     return mutate(
         Operation::browser_input_key, std::move(params), std::move(options));
 }
 
-Result<MutationResult> Browser::text(
+Result<MutationResult<EmptyResult>> Browser::text(
     std::string text,
     MutationOptions options) const {
     return mutate(
@@ -2304,7 +1925,7 @@ Result<MutationResult> Browser::text(
         std::move(options));
 }
 
-Result<MutationResult> Browser::mouse(
+Result<MutationResult<EmptyResult>> Browser::mouse(
     Json::Object params,
     MutationOptions options) const {
     return mutate(
@@ -2313,7 +1934,7 @@ Result<MutationResult> Browser::mouse(
         std::move(options));
 }
 
-Result<MutationResult> Browser::wheel(
+Result<MutationResult<EmptyResult>> Browser::wheel(
     double delta_x,
     double delta_y,
     MutationOptions options) const {
@@ -2326,7 +1947,7 @@ Result<MutationResult> Browser::wheel(
         std::move(options));
 }
 
-Result<Json> Browser::resize_viewer(
+Result<BrowserViewerResizeResult> Browser::resize_viewer(
     std::uint32_t width_px,
     std::uint32_t height_px) const {
     if (width_px == 0 || height_px == 0) {
@@ -2334,46 +1955,48 @@ Result<Json> Browser::resize_viewer(
             ErrorCode::invalid_argument,
             "browser pixel dimensions must be positive");
     }
-    return detail::resource_control(
+    return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::browser_viewer_resize,
         routed_params(Json::Object{
             {"width_px", Json(static_cast<std::uint64_t>(width_px))},
             {"height_px", Json(static_cast<std::uint64_t>(height_px))},
-        }));
+        }),
+        {}));
 }
 
-Result<Json> Browser::release_viewer() const {
-    return detail::resource_control(
+Result<EmptyResult> Browser::release_viewer() const {
+    return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::browser_viewer_release,
-        routed_params());
+        routed_params(),
+        {}));
 }
 
 Result<BrowserAttachmentStream> Browser::attach(
-    Json::Object params) const {
+    Json::Object params,
+    CallOptions call) const {
     params = routed_params(std::move(params));
     auto stream = detail::resource_open_stream(
-        state_, Operation::browser_attach, std::move(params));
+        state_,
+        Operation::browser_attach,
+        std::move(params),
+        std::move(call));
     if (!stream) {
         return std::move(stream).error();
     }
     return BrowserAttachmentStream(std::move(stream).value());
 }
 
-Result<MutationResult> Browser::close(MutationOptions options) const {
+Result<MutationResult<EmptyResult>> Browser::close(MutationOptions options) const {
     return mutate(Operation::browser_close, {}, std::move(options));
 }
 
-Result<ResourceSnapshot<ConnectedClientId>> ConnectedClient::refresh() const {
-    auto value = read(Operation::client_get);
-    if (!value) {
-        return std::move(value).error();
-    }
-    return decode_snapshot(std::move(value).value(), selected_id_);
+Result<ClientSnapshot> ConnectedClient::refresh() const {
+    return read(Operation::client_get);
 }
 
-Result<Json> ConnectedClient::update_metadata(
+Result<ClientSnapshot> ConnectedClient::update_metadata(
     ClientMetadataUpdate update) const {
     Json::Object params;
     const auto add = [&params](
@@ -2397,49 +2020,52 @@ Result<Json> ConnectedClient::update_metadata(
             ErrorCode::invalid_argument,
             "client metadata update must change name or kind");
     }
-    return detail::resource_control(
+    return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::client_metadata_update,
-        routed_params(std::move(params)));
+        routed_params(std::move(params)),
+        {}));
 }
 
-Result<Json> ConnectedClient::set_name(std::string name) const {
+Result<ClientSnapshot> ConnectedClient::set_name(std::string name) const {
     return update_metadata(
         ClientMetadataUpdate{.name = OptionalStringUpdate::set(
                                  std::move(name))});
 }
 
-Result<Json> ConnectedClient::clear_name() const {
+Result<ClientSnapshot> ConnectedClient::clear_name() const {
     return update_metadata(
         ClientMetadataUpdate{.name = OptionalStringUpdate::clear()});
 }
 
-Result<Json> ConnectedClient::set_kind(std::string kind) const {
+Result<ClientSnapshot> ConnectedClient::set_kind(std::string kind) const {
     return update_metadata(
         ClientMetadataUpdate{.kind = OptionalStringUpdate::set(
                                  std::move(kind))});
 }
 
-Result<Json> ConnectedClient::clear_kind() const {
+Result<ClientSnapshot> ConnectedClient::clear_kind() const {
     return update_metadata(
         ClientMetadataUpdate{.kind = OptionalStringUpdate::clear()});
 }
 
-Result<Json> ConnectedClient::set_sizing(Json::Object params) const {
-    return detail::resource_control(
+Result<ClientSnapshot> ConnectedClient::set_sizing(Json::Object params) const {
+    return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::client_sizing_set,
-        routed_params(std::move(params)));
+        routed_params(std::move(params)),
+        {}));
 }
 
-Result<Json> ConnectedClient::release_sizing(Json::Object params) const {
-    return detail::resource_control(
+Result<ClientSnapshot> ConnectedClient::release_sizing(Json::Object params) const {
+    return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::client_sizing_release,
-        routed_params(std::move(params)));
+        routed_params(std::move(params)),
+        {}));
 }
 
-Result<Json> ConnectedClient::set_cell_pixels(
+Result<CellPixelsResult> ConnectedClient::set_cell_pixels(
     std::uint32_t width_px,
     std::uint32_t height_px) const {
     if (width_px == 0 || height_px == 0) {
@@ -2447,143 +2073,41 @@ Result<Json> ConnectedClient::set_cell_pixels(
             ErrorCode::invalid_argument,
             "cell pixel dimensions must be positive");
     }
-    return detail::resource_control(
+    return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::client_cell_pixels_set,
         routed_params(Json::Object{
             {"width_px", Json(static_cast<std::uint64_t>(width_px))},
             {"height_px", Json(static_cast<std::uint64_t>(height_px))},
-        }));
+        }),
+        {}));
 }
 
-Result<Json> ConnectedClient::detach() const {
-    return detail::resource_control(
+Result<EmptyResult> ConnectedClient::detach() const {
+    return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::client_detach,
-        routed_params());
+        routed_params(),
+        {}));
 }
 
-Result<Json> SidebarView::refresh() const {
+Result<SidebarViewSnapshot> SidebarView::refresh() const {
     return read(Operation::sidebar_view_get);
 }
 
 Result<SidebarViewStream> SidebarView::attach(
-    Json::Object params) const {
+    Json::Object params,
+    CallOptions call) const {
     params = routed_params(std::move(params));
     auto stream = detail::resource_open_stream(
-        state_, Operation::sidebar_view_attach, std::move(params));
+        state_,
+        Operation::sidebar_view_attach,
+        std::move(params),
+        std::move(call));
     if (!stream) {
         return std::move(stream).error();
     }
     return SidebarViewStream(std::move(stream).value());
-}
-
-Result<MutationResult> ProviderScope::create_machine(
-    MutationOptions options) const {
-    return mutate(Operation::machine_create, {}, std::move(options));
-}
-
-Result<MutationResult> ProviderScope::connect_external(
-    const SensitiveString& specifier,
-    MutationOptions options) const {
-    return mutate(
-        Operation::machine_connect_external,
-        Json::Object{{"specifier", Json(specifier.reveal())}},
-        std::move(options));
-}
-
-Result<MutationResult> ProviderScope::invoke(
-    ProviderActionId action,
-    Json::Object parameters,
-    MutationOptions options) const {
-    return mutate(
-        Operation::provider_action_invoke,
-        Json::Object{
-            {"provider_action", Json(action.value())},
-            {"parameters", Json(std::move(parameters))},
-        },
-        std::move(options));
-}
-
-Result<ProviderNoticeStream> ProviderScope::notices(
-    std::optional<Cursor> cursor) const {
-    Json::Object params = routed_params();
-    if (cursor) {
-        params.emplace("cursor", cursor_json(*cursor));
-    }
-    auto stream = detail::resource_open_stream(
-        state_, Operation::provider_notice_events, std::move(params));
-    if (!stream) {
-        return std::move(stream).error();
-    }
-    return ProviderNoticeStream(std::move(stream).value());
-}
-
-ProviderNoticeHandle ProviderScope::notice(
-    Selector<ProviderNoticeId> selector) const {
-    return ProviderNoticeHandle(
-        state_,
-        std::move(selector),
-        "provider_notice",
-        route_);
-}
-
-ProviderNoticeHandle ProviderScope::notice(ProviderNoticeId id) const {
-    return notice(Selector<ProviderNoticeId>::by_id(std::move(id)));
-}
-
-Result<MutationResult> ProviderScope::mark_workspace(
-    SessionId session,
-    WorkspaceId workspace,
-    bool managed,
-    MutationOptions options) const {
-    return mutate(
-        Operation::provider_workspace_mark,
-        Json::Object{
-            {"session", Json(session.value())},
-            {"workspace", Json(workspace.value())},
-            {"managed", Json(managed)},
-        },
-        std::move(options));
-}
-
-Result<MutationResult> ProviderScope::rename_workspace(
-    SessionId session,
-    WorkspaceId workspace,
-    std::optional<std::string> name,
-    MutationOptions options) const {
-    return mutate(
-        Operation::provider_workspace_rename,
-        Json::Object{
-            {"session", Json(session.value())},
-            {"workspace", Json(workspace.value())},
-            {"name", name ? Json(*name) : Json(nullptr)},
-        },
-        std::move(options));
-}
-
-Result<MutationResult> ProviderScope::close_workspace(
-    SessionId session,
-    WorkspaceId workspace,
-    MutationOptions options) const {
-    return mutate(
-        Operation::provider_workspace_close,
-        Json::Object{
-            {"session", Json(session.value())},
-            {"workspace", Json(workspace.value())},
-        },
-        std::move(options));
-}
-
-Result<Json> ProviderNoticeHandle::acknowledge(
-    std::uint64_t sequence) const {
-    Json::Object params = routed_params(Json::Object{
-        {"sequence", Json(std::to_string(sequence))},
-    });
-    return detail::resource_control(
-        state_,
-        Operation::provider_notice_acknowledge,
-        std::move(params));
 }
 
 #undef CMUX_OPERATION_TABLE
@@ -2742,18 +2266,23 @@ struct ResourceStream::Impl {
     StreamId stream_id;
     std::string machine_selector;
     std::string session_selector;
+    Json::Object connection_route;
     std::deque<Json> buffered;
     std::optional<StreamEnd> stream_end;
     std::atomic<std::uint64_t> next_request_id{1};
     std::mutex mutex;
     bool transport_closed = false;
 
-    [[nodiscard]] Result<Json> receive() {
-        auto wire = transport->receive(options.timeout);
+    [[nodiscard]] Result<Json> receive(Timeout timeout) {
+        auto wire = transport->receive(timeout);
         if (!wire) {
             return std::move(wire).error();
         }
         return Json::parse(wire.value(), options.json_limits);
+    }
+
+    [[nodiscard]] Result<Json> receive() {
+        return receive(options.timeout);
     }
 
     [[nodiscard]] std::string request_id(std::string_view purpose) {
@@ -2773,7 +2302,8 @@ struct ResourceStream::Impl {
 Result<std::unique_ptr<ResourceStream::Impl>>
 detail::ResourceClientState::open_stream(
     Operation operation,
-    Json::Object params) {
+    Json::Object params,
+    CallOptions call) {
     if (!stream_factory) {
         return make_error(
             ErrorCode::unsupported,
@@ -2790,6 +2320,20 @@ detail::ResourceClientState::open_stream(
     }
     params.insert_or_assign("stream_id", Json(stream_value));
     inject_routing(options, operation, params);
+    if (call.cancel.stop_requested()) {
+        return make_error(ErrorCode::canceled, "stream open was canceled");
+    }
+    const auto deadline = call.deadline.value_or(
+        std::chrono::steady_clock::now() + options.timeout);
+    const auto remaining = [&]() -> Timeout {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return Timeout::zero();
+        }
+        return std::max(
+            Timeout(1),
+            std::chrono::duration_cast<Timeout>(deadline - now));
+    };
     const auto machine = params.find("machine");
     const auto session = params.find("session");
     if (machine == params.end() || session == params.end()) {
@@ -2810,6 +2354,23 @@ detail::ResourceClientState::open_stream(
     impl->stream_id = std::move(parsed_id).value();
     impl->machine_selector = std::string(machine_selector.value());
     impl->session_selector = std::string(session_selector.value());
+    constexpr std::array<std::string_view, 10> route_fields{
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane",
+        "tab",
+        "terminal",
+        "browser",
+        "client",
+        "sidebar_view",
+    };
+    for (const auto key : route_fields) {
+        if (const auto found = params.find(key); found != params.end()) {
+            impl->connection_route.emplace(found->first, found->second);
+        }
+    }
     const auto request_id = impl->request_id("open");
     auto sent = send_envelope(
         *impl->transport,
@@ -2817,14 +2378,29 @@ detail::ResourceClientState::open_stream(
         operation,
         std::move(params),
         std::nullopt,
-        options.timeout,
+        remaining(),
         options.json_limits);
     if (!sent) {
         return std::move(sent).error();
     }
     while (true) {
-        auto envelope = impl->receive();
+        if (call.cancel.stop_requested()) {
+            return make_error(ErrorCode::canceled, "stream open was canceled");
+        }
+        auto timeout = remaining();
+        if (timeout == Timeout::zero()) {
+            return make_error(ErrorCode::timeout, "stream open timed out");
+        }
+        if (call.cancel.stop_possible()) {
+            timeout = std::min(timeout, Timeout(25));
+        }
+        auto envelope = impl->receive(timeout);
         if (!envelope) {
+            if (envelope.error().code == ErrorCode::timeout &&
+                call.cancel.stop_possible() &&
+                remaining() != Timeout::zero()) {
+                continue;
+            }
             return std::move(envelope).error();
         }
         auto type = envelope_type(envelope.value());
@@ -2844,6 +2420,31 @@ detail::ResourceClientState::open_stream(
             if (!response) {
                 return std::move(response).error();
             }
+            auto exact = require_exact_fields(
+                response.value(),
+                {"stream_id", "cursor"},
+                "stream open result");
+            if (!exact) {
+                return std::move(exact).error();
+            }
+            auto opened_id = require_string(response.value(), "stream_id");
+            if (!opened_id ||
+                opened_id.value() != impl->stream_id.value()) {
+                return make_error(
+                    ErrorCode::protocol,
+                    "stream open result ID mismatch");
+            }
+            if (const Json* cursor = response.value().find("cursor")) {
+                if (cursor->is_null()) {
+                    return make_error(
+                        ErrorCode::decode,
+                        "stream open cursor must not be null");
+                }
+                auto parsed = parse_cursor(*cursor);
+                if (!parsed) {
+                    return std::move(parsed).error();
+                }
+            }
             return impl;
         }
         const Json* stream_id = envelope.value().find("stream_id");
@@ -2855,6 +2456,11 @@ detail::ResourceClientState::open_stream(
             continue;
         }
         if (type.value() == "stream_item" || type.value() == "stream_end") {
+            if (impl->buffered.size() >= 256U) {
+                return make_error(
+                    ErrorCode::stream_local_overflow,
+                    "stream buffer exceeded 256 envelopes");
+            }
             impl->buffered.push_back(std::move(envelope).value());
         }
     }
@@ -2948,6 +2554,9 @@ Result<Json> ResourceStream::connection_control(
         return make_error(ErrorCode::closed, "stream is closed");
     }
     const auto request_id = impl_->request_id("control");
+    for (const auto& [key, value] : impl_->connection_route) {
+        params.insert_or_assign(key, value);
+    }
     inject_routing(impl_->options, operation, params);
     auto sent = detail::ResourceClientState::send_envelope(
         *impl_->transport,
@@ -2980,9 +2589,56 @@ Result<Json> ResourceStream::connection_control(
             continue;
         }
         if (type.value() == "stream_item" || type.value() == "stream_end") {
+            if (impl_->buffered.size() >= 256U) {
+                return make_error(
+                    ErrorCode::stream_local_overflow,
+                    "stream buffer exceeded 256 envelopes");
+            }
             impl_->buffered.push_back(std::move(envelope).value());
         }
     }
+}
+
+Result<ViewerResizeResult> TerminalAttachmentStream::resize_viewer(
+    std::uint16_t columns,
+    std::uint16_t rows) {
+    if (columns == 0 || rows == 0) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "terminal cell dimensions must be positive");
+    }
+    return detail::ResourceReadResult(stream_.connection_control(
+        Operation::terminal_viewer_resize,
+        Json::Object{
+            {"cols", Json(static_cast<std::uint64_t>(columns))},
+            {"rows", Json(static_cast<std::uint64_t>(rows))},
+        }));
+}
+
+Result<EmptyResult> TerminalAttachmentStream::release_viewer() {
+    return detail::ResourceReadResult(stream_.connection_control(
+        Operation::terminal_viewer_release));
+}
+
+Result<BrowserViewerResizeResult> BrowserAttachmentStream::resize_viewer(
+    std::uint32_t width_px,
+    std::uint32_t height_px) {
+    if (width_px == 0 || height_px == 0) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "browser pixel dimensions must be positive");
+    }
+    return detail::ResourceReadResult(stream_.connection_control(
+        Operation::browser_viewer_resize,
+        Json::Object{
+            {"width_px", Json(static_cast<std::uint64_t>(width_px))},
+            {"height_px", Json(static_cast<std::uint64_t>(height_px))},
+        }));
+}
+
+Result<EmptyResult> BrowserAttachmentStream::release_viewer() {
+    return detail::ResourceReadResult(stream_.connection_control(
+        Operation::browser_viewer_release));
 }
 
 Result<StreamEnd> ResourceStream::cancel() {
@@ -3075,14 +2731,16 @@ namespace detail {
 Result<ResourceStream> resource_open_stream(
     const std::shared_ptr<ResourceClientState>& state,
     Operation operation,
-    Json::Object params) {
+    Json::Object params,
+    CallOptions call) {
     if (!state) {
         return make_error(ErrorCode::closed, "client is not initialized");
     }
     if (operation_class(operation) != OperationClass::stream_open) {
         return wrong_class(operation, OperationClass::stream_open);
     }
-    auto opened = state->open_stream(operation, std::move(params));
+    auto opened =
+        state->open_stream(operation, std::move(params), std::move(call));
     if (!opened) {
         return std::move(opened).error();
     }

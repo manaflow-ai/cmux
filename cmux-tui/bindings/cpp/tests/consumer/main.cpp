@@ -7,7 +7,10 @@
 
 static_assert(std::is_same_v<
               decltype(std::declval<cmux::Workspace&>().refresh()),
-              cmux::Result<cmux::ResourceSnapshot<cmux::WorkspaceId>>>);
+              cmux::Result<cmux::WorkspaceSnapshot>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::Terminal&>().wait_exit()),
+              cmux::Result<cmux::TerminalWaitExitResult>>);
 static_assert(std::is_same_v<
               decltype(std::declval<cmux::raw::Client&>().identify()),
               cmux::Result<cmux::raw::IdentifyResult>>);

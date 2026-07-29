@@ -579,6 +579,12 @@ std::string Error::code_name() const {
             return "decode";
         case ErrorCode::closed:
             return "closed";
+        case ErrorCode::canceled:
+            return "canceled";
+        case ErrorCode::outcome_uncertain:
+            return "outcome_uncertain";
+        case ErrorCode::stream_local_overflow:
+            return "stream.local_overflow";
         case ErrorCode::unsupported:
             return "unsupported";
     }

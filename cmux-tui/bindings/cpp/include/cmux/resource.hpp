@@ -8,9 +8,11 @@
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <map>
 #include <optional>
 #include <ostream>
 #include <span>
+#include <stop_token>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -25,7 +27,8 @@
 namespace cmux {
 
 struct MutationOptions;
-struct MutationResult;
+struct RawMutationResult;
+struct CallOptions;
 
 enum class OperationClass {
     read,
@@ -40,16 +43,11 @@ enum class OperationClass {
 enum class Operation {
     machine_list,
     machine_get,
-    machine_create,
-    machine_rename,
-    machine_delete,
-    machine_restore,
-    machine_purge,
-    machine_connect_external,
     session_list,
     session_open,
     session_get,
     session_snapshot,
+    session_creation_resolve,
     session_events,
     session_ping,
     session_shutdown,
@@ -118,6 +116,7 @@ enum class Operation {
     terminal_history_read,
     terminal_history_clear,
     terminal_wait,
+    terminal_wait_exit,
     terminal_copy,
     terminal_process_get,
     terminal_renderer_grant_create,
@@ -152,13 +151,6 @@ enum class Operation {
     sidebar_view_input,
     sidebar_view_resize,
     sidebar_view_reload,
-    provider_scope_list,
-    provider_action_invoke,
-    provider_notice_acknowledge,
-    provider_notice_events,
-    provider_workspace_mark,
-    provider_workspace_rename,
-    provider_workspace_close,
     stream_cancel,
 };
 
@@ -187,16 +179,19 @@ class ResourceClientState;
 [[nodiscard]] Result<Json> resource_read(
     const std::shared_ptr<ResourceClientState>& state,
     Operation operation,
-    Json::Object params);
+    Json::Object params,
+    CallOptions call);
 [[nodiscard]] Result<Json> resource_control(
     const std::shared_ptr<ResourceClientState>& state,
     Operation operation,
-    Json::Object params);
-[[nodiscard]] Result<MutationResult> resource_mutate(
+    Json::Object params,
+    CallOptions call);
+[[nodiscard]] Result<RawMutationResult> resource_mutate(
     const std::shared_ptr<ResourceClientState>& state,
     Operation operation,
     Json::Object params,
-    MutationOptions options);
+    MutationOptions options,
+    CallOptions call);
 void complete_structural_route(
     Json::Object& route,
     std::string_view target_scope);
@@ -255,9 +250,6 @@ using StreamId = OpaqueId<"stream_">;
 using FrontendProjectionId = OpaqueId<"projection_">;
 using PairingRequestId = OpaqueId<"pairing_">;
 using SidebarViewId = OpaqueId<"sidebar_view_">;
-using ProviderScopeId = OpaqueId<"provider_scope_">;
-using ProviderActionId = OpaqueId<"provider_action_">;
-using ProviderNoticeId = OpaqueId<"provider_notice_">;
 
 template <typename Id>
 class Selector {
@@ -394,29 +386,26 @@ struct CreateBrowserTabOptions {
     [[nodiscard]] Result<Json::Object> to_params() const;
 };
 
+struct UndoLayoutOptions {
+    bool confirm_close = false;
+    std::optional<std::string> confirmation_token;
+
+    [[nodiscard]] Result<Json::Object> to_params() const;
+};
+
 struct Cursor {
     std::string generation;
     std::uint64_t revision = 0;
 };
 
-struct ParentIds {
-    std::optional<MachineId> machine;
-    std::optional<SessionId> session;
-    std::optional<WorkspaceId> workspace;
-    std::optional<ScreenId> screen;
-    std::optional<PaneId> pane;
-    std::optional<TabId> tab;
+struct ConfirmationRequiredDetails {
+    std::string confirmation_token;
+    std::uint64_t revision = 0;
+    std::vector<PaneId> closes_panes;
 };
 
-template <typename Id>
-struct ResourceSnapshot {
-    Id id;
-    std::optional<std::string> name;
-    std::optional<std::string> label;
-    ParentIds parents;
-    std::optional<std::uint64_t> revision;
-    Json raw;
-};
+[[nodiscard]] Result<ConfirmationRequiredDetails>
+decode_confirmation_required_details(const Error& error);
 
 struct CreatedWorkspaceOnly {
     WorkspaceId workspace_id;
@@ -443,13 +432,19 @@ using CreatedPath = std::variant<
     CreatedTerminalPath,
     CreatedBrowserPath>;
 
-struct MutationResult {
+struct RawMutationResult {
     Json value;
     std::string generation;
     std::uint64_t revision = 0;
     bool replayed = false;
+};
 
-    [[nodiscard]] Result<std::optional<CreatedPath>> created_path() const;
+template <typename T>
+struct MutationResult {
+    T value;
+    std::string generation;
+    std::uint64_t revision = 0;
+    bool replayed = false;
 };
 
 class SensitiveString {
@@ -470,8 +465,6 @@ private:
     std::string value_;
 };
 
-using ProviderCredential = SensitiveString;
-
 struct RendererGrant {
     std::string endpoint;
     TerminalId terminal_id;
@@ -485,6 +478,762 @@ struct RendererGrant {
         return stream << "RendererGrant{token=[REDACTED]}";
     }
 };
+
+// JsonValue appears only where the catalog explicitly accepts arbitrary JSON.
+using JsonValue = Json;
+
+enum class LayoutDirection {
+    horizontal,
+    vertical,
+};
+
+struct LayoutNode;
+
+struct LayoutLeaf {
+    PaneId pane_id;
+    std::vector<TabId> tab_ids;
+    std::optional<TabId> active_tab_id;
+};
+
+struct LayoutSplit {
+    SplitId split_id;
+    LayoutDirection direction = LayoutDirection::horizontal;
+    double ratio = 0.5;
+    std::shared_ptr<const LayoutNode> first;
+    std::shared_ptr<const LayoutNode> second;
+};
+
+struct LayoutStack {
+    std::vector<PaneId> pane_ids;
+    PaneId expanded_pane_id;
+};
+
+struct LayoutColumn {
+    SplitId column_id;
+    double width = 1.0;
+    std::shared_ptr<const LayoutNode> root;
+};
+
+struct LayoutViewport {
+    double base_width = 1.0;
+    std::vector<LayoutColumn> columns;
+};
+
+struct LayoutNode {
+    std::variant<LayoutLeaf, LayoutSplit, LayoutStack, LayoutViewport> value;
+};
+
+struct LayoutDocument {
+    std::uint32_t version = 0;
+    ScreenId screen_id;
+    PaneId active_pane_id;
+    std::optional<PaneId> zoomed_pane_id;
+    LayoutNode root;
+    Json::Object extra;
+};
+
+struct Size {
+    std::uint16_t cols = 0;
+    std::uint16_t rows = 0;
+};
+
+struct PixelSize {
+    std::uint32_t width_px = 0;
+    std::uint32_t height_px = 0;
+};
+
+enum class MachineOrigin {
+    local,
+};
+
+enum class MachineStatus {
+    running,
+    connecting,
+    sleeping,
+    stopped,
+    unavailable,
+};
+
+struct MachineSnapshot {
+    MachineId id;
+    std::string name;
+    MachineOrigin origin = MachineOrigin::local;
+    MachineStatus status = MachineStatus::running;
+    bool connectable = false;
+    bool deleted = false;
+    bool recoverable = false;
+    Json::Object extra;
+};
+
+struct SessionSnapshot {
+    SessionId id;
+    MachineId machine_id;
+    std::optional<std::string> name;
+    std::string generation;
+    std::uint64_t revision = 0;
+    bool connected = false;
+    Json::Object extra;
+};
+
+struct WorkspaceSnapshot {
+    WorkspaceId id;
+    SessionId session_id;
+    std::string name;
+    std::uint32_t index = 0;
+    bool focused = false;
+    Json::Object extra;
+};
+
+struct ScreenSnapshot {
+    ScreenId id;
+    WorkspaceId workspace_id;
+    std::optional<std::string> name;
+    std::uint32_t index = 0;
+    bool focused = false;
+    LayoutDocument layout;
+    Json::Object extra;
+};
+
+struct PaneSnapshot {
+    PaneId id;
+    ScreenId screen_id;
+    std::optional<std::string> name;
+    bool focused = false;
+    bool zoomed = false;
+    Json::Object extra;
+};
+
+using TabContentId = std::variant<TerminalId, BrowserId>;
+
+struct TabSnapshot {
+    TabId id;
+    PaneId pane_id;
+    std::optional<std::string> name;
+    std::uint32_t index = 0;
+    bool focused = false;
+    TabContentId content_id;
+    Json::Object extra;
+};
+
+enum class TerminalLifecycle {
+    launching,
+    running,
+    exited,
+};
+
+struct TerminalExitCode {
+    std::int32_t code = 0;
+};
+
+struct TerminalExitSignal {
+    std::int32_t signal = 0;
+    bool core_dumped = false;
+};
+
+struct TerminalExitUnknown {
+    std::string reason;
+};
+
+using TerminalExitOutcome = std::variant<
+    TerminalExitCode,
+    TerminalExitSignal,
+    TerminalExitUnknown>;
+
+struct TerminalExit {
+    TerminalExitOutcome outcome;
+    std::uint64_t exited_at = 0;
+    std::uint64_t revision = 0;
+};
+
+struct TerminalSnapshot {
+    TerminalId id;
+    TabId tab_id;
+    std::string title;
+    std::optional<std::string> cwd;
+    std::uint16_t cols = 0;
+    std::uint16_t rows = 0;
+    bool running = false;
+    TerminalLifecycle lifecycle = TerminalLifecycle::launching;
+    std::optional<TerminalExit> exit;
+    Json::Object extra;
+};
+
+enum class BrowserSource {
+    external,
+    launched,
+};
+
+enum class BrowserStatus {
+    starting,
+    live,
+    failed,
+};
+
+struct BrowserSnapshot {
+    BrowserId id;
+    TabId tab_id;
+    std::string url;
+    std::string title;
+    bool loading = false;
+    BrowserSource source = BrowserSource::external;
+    BrowserStatus status = BrowserStatus::starting;
+    std::optional<std::string> error;
+    bool frames_stalled = false;
+    Size size;
+    Json::Object extra;
+};
+
+struct ClientTerminalSize {
+    TerminalId terminal_id;
+    std::optional<std::uint16_t> cols;
+    std::optional<std::uint16_t> rows;
+    bool participating = false;
+};
+
+enum class ClientTransport {
+    unix,
+    websocket,
+};
+
+struct ClientSnapshot {
+    ConnectedClientId id;
+    SessionId session_id;
+    std::optional<std::string> name;
+    std::optional<std::string> client_kind;
+    ClientTransport transport = ClientTransport::unix;
+    std::uint64_t connected_seconds = 0;
+    std::vector<TerminalId> attached_terminal_ids;
+    std::vector<ClientTerminalSize> sizes;
+    bool self = false;
+    Json::Object extra;
+};
+
+enum class NotificationLevel {
+    info,
+    warning,
+    error,
+};
+
+struct NotificationSnapshot {
+    NotificationId id;
+    SessionId session_id;
+    std::string title;
+    std::string body;
+    NotificationLevel level = NotificationLevel::info;
+    std::optional<TerminalId> terminal_id;
+    std::uint64_t created_at_ms = 0;
+    bool unread = false;
+    Json::Object extra;
+};
+
+enum class AgentState {
+    working,
+    blocked,
+    idle,
+    done,
+    unknown,
+};
+
+enum class AgentSource {
+    hook,
+    socket,
+    detected,
+};
+
+struct AgentSnapshot {
+    AgentId id;
+    SessionId session_id;
+    TerminalId terminal_id;
+    AgentState state = AgentState::unknown;
+    AgentSource source = AgentSource::detected;
+    std::uint64_t updated_at_ms = 0;
+    std::optional<std::string> source_session;
+    Json::Object extra;
+};
+
+enum class PairingStatus {
+    pending,
+    accepted,
+    rejected,
+};
+
+struct PairingRequestSnapshot {
+    PairingRequestId id;
+    SessionId session_id;
+    std::string peer;
+    SensitiveString code{""};
+    std::uint64_t expires_in_seconds = 0;
+    PairingStatus status = PairingStatus::pending;
+    Json::Object extra;
+};
+
+struct FrontendProjectionSnapshot {
+    FrontendProjectionId id;
+    SessionId session_id;
+    JsonValue projection;
+    Json::Object extra;
+};
+
+struct SidebarViewSnapshot {
+    SidebarViewId id;
+    SessionId session_id;
+    std::uint16_t cols = 0;
+    std::uint16_t rows = 0;
+    bool running = false;
+    Json::Object extra;
+};
+
+struct ResourceSnapshot {
+    MachineSnapshot machine;
+    SessionSnapshot session;
+    std::vector<WorkspaceSnapshot> workspaces;
+    std::vector<ScreenSnapshot> screens;
+    std::vector<PaneSnapshot> panes;
+    std::vector<TabSnapshot> tabs;
+    std::vector<TerminalSnapshot> terminals;
+    std::vector<BrowserSnapshot> browsers;
+    std::vector<ClientSnapshot> clients;
+    std::vector<NotificationSnapshot> notifications;
+    std::vector<AgentSnapshot> agents;
+    std::vector<FrontendProjectionSnapshot> frontend_projections;
+    std::vector<SidebarViewSnapshot> sidebar_views;
+    Cursor cursor;
+    Json::Object extra;
+};
+
+using ResourceChangeId = std::variant<
+    MachineId,
+    SessionId,
+    WorkspaceId,
+    ScreenId,
+    PaneId,
+    TabId,
+    TerminalId,
+    BrowserId,
+    ConnectedClientId,
+    NotificationId,
+    AgentId,
+    PairingRequestId,
+    FrontendProjectionId,
+    SidebarViewId>;
+
+using ResourceEntitySnapshot = std::variant<
+    MachineSnapshot,
+    SessionSnapshot,
+    WorkspaceSnapshot,
+    ScreenSnapshot,
+    PaneSnapshot,
+    TabSnapshot,
+    TerminalSnapshot,
+    BrowserSnapshot,
+    ClientSnapshot,
+    NotificationSnapshot,
+    AgentSnapshot,
+    PairingRequestSnapshot,
+    FrontendProjectionSnapshot,
+    SidebarViewSnapshot>;
+
+enum class ResourceKind {
+    machine,
+    session,
+    workspace,
+    screen,
+    pane,
+    tab,
+    terminal,
+    browser,
+    client,
+    notification,
+    agent,
+    pairing_request,
+    frontend_projection,
+    sidebar_view,
+};
+
+struct ResourceUpsert {
+    std::uint32_t sequence = 0;
+    ResourceKind resource = ResourceKind::machine;
+    ResourceChangeId id;
+    ResourceEntitySnapshot value;
+};
+
+struct ResourceDelete {
+    std::uint32_t sequence = 0;
+    ResourceKind resource = ResourceKind::machine;
+    ResourceChangeId id;
+};
+
+struct Unknown {
+    std::string kind;
+    Json raw;
+};
+
+using ResourceChange = std::variant<ResourceUpsert, ResourceDelete, Unknown>;
+
+enum class RenderCursorStyle {
+    block,
+    underline,
+    bar,
+};
+
+enum class RenderUnderline {
+    single,
+    double_line,
+    curly,
+    dotted,
+    dashed,
+};
+
+struct RenderCursor {
+    std::uint16_t x = 0;
+    std::uint16_t y = 0;
+    RenderCursorStyle style = RenderCursorStyle::block;
+    bool blink = false;
+    bool visible = false;
+    std::optional<std::string> color;
+};
+
+struct RenderRun {
+    std::string text;
+    std::optional<std::string> foreground;
+    std::optional<std::string> background;
+    std::uint32_t attributes = 0;
+    std::optional<RenderUnderline> underline;
+    std::optional<std::uint16_t> width_hint;
+};
+
+struct RenderRow {
+    std::uint16_t row = 0;
+    std::vector<RenderRun> runs;
+};
+
+struct RenderSnapshot {
+    Size size;
+    RenderCursor cursor;
+    std::string default_fg;
+    std::string default_bg;
+    std::uint32_t scrollback_rows = 0;
+    std::vector<RenderRow> rows;
+};
+
+struct RenderPatch {
+    RenderCursor cursor;
+    bool full_reset = false;
+    std::optional<Size> size;
+    std::optional<std::string> default_fg;
+    std::optional<std::string> default_bg;
+    std::optional<std::uint32_t> scrollback_rows;
+    std::vector<RenderRow> rows;
+};
+
+struct RenderScroll {
+    std::uint64_t offset = 0;
+    bool at_bottom = false;
+};
+
+struct EmptyResult {};
+
+struct PingResult {
+    bool alive = false;
+    Cursor cursor;
+};
+
+struct ShutdownResult {
+    bool accepted = false;
+};
+
+struct ReloadConfigResult {
+    bool reloaded = false;
+    std::vector<std::string> warnings;
+};
+
+template <typename T>
+struct NullableField {
+    bool present = false;
+    std::optional<T> value;
+};
+
+struct TerminalDefaultsSnapshot {
+    NullableField<std::string> foreground;
+    NullableField<std::string> background;
+    NullableField<std::string> cursor;
+    NullableField<std::string> selection_background;
+    NullableField<std::string> selection_foreground;
+    NullableField<std::string> cursor_style;
+    NullableField<bool> cursor_blink;
+    std::optional<std::map<std::string, std::string, std::less<>>> palette;
+};
+
+struct PairingResolutionResult {
+    PairingRequestSnapshot pairing_request;
+};
+
+struct PaneNeighborResult {
+    std::optional<PaneSnapshot> pane;
+};
+
+struct TerminalScreenResult {
+    std::string text;
+    std::uint16_t cols = 0;
+    std::uint16_t rows = 0;
+    std::uint16_t cursor_row = 0;
+    std::uint16_t cursor_col = 0;
+    bool cursor_visible = false;
+    Json::Object extra;
+};
+
+struct TerminalStateResult {
+    std::vector<std::byte> state;
+    std::uint16_t cols = 0;
+    std::uint16_t rows = 0;
+};
+
+struct TerminalHistoryResult {
+    std::uint64_t start = 0;
+    std::optional<std::uint64_t> next;
+    std::vector<RenderRow> rows;
+};
+
+struct TerminalWaitResult {
+    bool matched = false;
+    std::string text;
+};
+
+enum class TerminalCopyMode {
+    screen,
+    selection,
+    scrollback,
+};
+
+struct TerminalCopyResult {
+    TerminalCopyMode mode = TerminalCopyMode::screen;
+    std::string text;
+};
+
+struct ProcessInfoResult {
+    std::uint32_t pid = 0;
+    std::optional<std::string> executable;
+    std::vector<std::string> argv;
+    std::optional<std::string> cwd;
+    std::vector<std::uint32_t> children;
+};
+
+struct CellPixelsResult {
+    std::uint32_t width_px = 0;
+    std::uint32_t height_px = 0;
+    std::vector<TerminalId> resized_terminals;
+    std::map<std::string, std::string, std::less<>> failures;
+};
+
+struct ViewerResizeResult {
+    bool accepted = false;
+    Size size;
+};
+
+struct BrowserViewerResizeResult {
+    bool accepted = false;
+    PixelSize size;
+};
+
+enum class CreationState {
+    pending,
+    created,
+    not_applied,
+    indeterminate,
+};
+
+enum class CreationRecovery {
+    retry_same_idempotency_key,
+    retry_new_idempotency_key,
+    wait,
+    none,
+    do_not_retry,
+};
+
+struct CreationResolution {
+    std::string correlation_key;
+    CreationState state = CreationState::pending;
+    CreationRecovery recovery = CreationRecovery::wait;
+    std::optional<std::string> operation;
+    std::optional<std::string> idempotency_key;
+    std::optional<CreatedPath> created_path;
+    std::optional<std::string> generation;
+    std::optional<std::uint64_t> revision;
+};
+
+struct TerminalWaitExitPending {
+    TerminalId terminal_id;
+    std::string lifecycle;
+    std::uint64_t revision = 0;
+};
+
+struct TerminalWaitExitExited {
+    TerminalId terminal_id;
+    TerminalExitOutcome outcome;
+    std::uint64_t exited_at = 0;
+    std::uint64_t revision = 0;
+};
+
+using TerminalWaitExitResult = std::variant<
+    TerminalWaitExitPending,
+    TerminalWaitExitExited>;
+
+struct MutationOutcomeUncertain {
+    Operation operation = Operation::machine_list;
+    std::string idempotency_key;
+};
+
+struct CallOptions {
+    std::optional<std::chrono::steady_clock::time_point> deadline;
+    std::stop_token cancel;
+
+    [[nodiscard]] static CallOptions with_timeout(Timeout timeout) {
+        return {
+            std::chrono::steady_clock::now() + timeout,
+            {},
+        };
+    }
+};
+
+namespace detail {
+
+template <typename T>
+[[nodiscard]] Result<T> decode_value(const Json& value);
+
+#define CMUX_DECLARE_TYPED_DECODER(type)            \
+    template <>                                     \
+    [[nodiscard]] Result<type> decode_value<type>(  \
+        const Json& value)
+
+CMUX_DECLARE_TYPED_DECODER(CreatedPath);
+CMUX_DECLARE_TYPED_DECODER(CreatedTerminalPath);
+CMUX_DECLARE_TYPED_DECODER(CreatedBrowserPath);
+CMUX_DECLARE_TYPED_DECODER(EmptyResult);
+CMUX_DECLARE_TYPED_DECODER(ConfirmationRequiredDetails);
+CMUX_DECLARE_TYPED_DECODER(MachineSnapshot);
+CMUX_DECLARE_TYPED_DECODER(SessionSnapshot);
+CMUX_DECLARE_TYPED_DECODER(WorkspaceSnapshot);
+CMUX_DECLARE_TYPED_DECODER(ScreenSnapshot);
+CMUX_DECLARE_TYPED_DECODER(PaneSnapshot);
+CMUX_DECLARE_TYPED_DECODER(TabSnapshot);
+CMUX_DECLARE_TYPED_DECODER(TerminalSnapshot);
+CMUX_DECLARE_TYPED_DECODER(BrowserSnapshot);
+CMUX_DECLARE_TYPED_DECODER(ClientSnapshot);
+CMUX_DECLARE_TYPED_DECODER(NotificationSnapshot);
+CMUX_DECLARE_TYPED_DECODER(AgentSnapshot);
+CMUX_DECLARE_TYPED_DECODER(PairingRequestSnapshot);
+CMUX_DECLARE_TYPED_DECODER(FrontendProjectionSnapshot);
+CMUX_DECLARE_TYPED_DECODER(SidebarViewSnapshot);
+CMUX_DECLARE_TYPED_DECODER(ResourceSnapshot);
+CMUX_DECLARE_TYPED_DECODER(LayoutDocument);
+CMUX_DECLARE_TYPED_DECODER(ResourceChange);
+CMUX_DECLARE_TYPED_DECODER(PingResult);
+CMUX_DECLARE_TYPED_DECODER(ShutdownResult);
+CMUX_DECLARE_TYPED_DECODER(ReloadConfigResult);
+CMUX_DECLARE_TYPED_DECODER(TerminalDefaultsSnapshot);
+CMUX_DECLARE_TYPED_DECODER(PairingResolutionResult);
+CMUX_DECLARE_TYPED_DECODER(PaneNeighborResult);
+CMUX_DECLARE_TYPED_DECODER(TerminalScreenResult);
+CMUX_DECLARE_TYPED_DECODER(TerminalStateResult);
+CMUX_DECLARE_TYPED_DECODER(TerminalHistoryResult);
+CMUX_DECLARE_TYPED_DECODER(TerminalWaitResult);
+CMUX_DECLARE_TYPED_DECODER(TerminalWaitExitResult);
+CMUX_DECLARE_TYPED_DECODER(TerminalCopyResult);
+CMUX_DECLARE_TYPED_DECODER(ProcessInfoResult);
+CMUX_DECLARE_TYPED_DECODER(RendererGrant);
+CMUX_DECLARE_TYPED_DECODER(CellPixelsResult);
+CMUX_DECLARE_TYPED_DECODER(ViewerResizeResult);
+CMUX_DECLARE_TYPED_DECODER(BrowserViewerResizeResult);
+CMUX_DECLARE_TYPED_DECODER(CreationResolution);
+CMUX_DECLARE_TYPED_DECODER(JsonValue);
+
+#undef CMUX_DECLARE_TYPED_DECODER
+
+template <typename T>
+[[nodiscard]] Result<std::vector<T>> decode_list(const Json& value) {
+    auto values = value.as_array();
+    if (!values) {
+        return make_error(ErrorCode::decode, "result must be an array");
+    }
+    std::vector<T> decoded;
+    decoded.reserve(values.value()->size());
+    for (const auto& item : *values.value()) {
+        auto parsed = decode_value<T>(item);
+        if (!parsed) {
+            return std::move(parsed).error();
+        }
+        decoded.push_back(std::move(parsed).value());
+    }
+    return decoded;
+}
+
+template <typename T>
+[[nodiscard]] Result<MutationResult<T>> typed_mutation(
+    Result<RawMutationResult> raw) {
+    if (!raw) {
+        return std::move(raw).error();
+    }
+    auto value = decode_value<T>(raw.value().value);
+    if (!value) {
+        return std::move(value).error();
+    }
+    return MutationResult<T>{
+        std::move(value).value(),
+        std::move(raw.value().generation),
+        raw.value().revision,
+        raw.value().replayed,
+    };
+}
+
+template <typename T>
+struct IsVector : std::false_type {};
+
+template <typename T, typename Allocator>
+struct IsVector<std::vector<T, Allocator>> : std::true_type {
+    using value_type = T;
+};
+
+class ResourceReadResult {
+public:
+    explicit ResourceReadResult(Result<Json> result)
+        : result_(std::move(result)) {}
+
+    template <typename T>
+    operator Result<T>() && {
+        if (!result_) {
+            return std::move(result_).error();
+        }
+        if constexpr (IsVector<T>::value) {
+            return decode_list<typename IsVector<T>::value_type>(
+                result_.value());
+        } else {
+            return decode_value<T>(result_.value());
+        }
+    }
+
+private:
+    Result<Json> result_;
+};
+
+class ResourceMutationResult {
+public:
+    explicit ResourceMutationResult(Result<RawMutationResult> result)
+        : result_(std::move(result)) {}
+
+    operator Result<RawMutationResult>() && {
+        return std::move(result_);
+    }
+
+    template <typename T>
+    operator Result<MutationResult<T>>() && {
+        return typed_mutation<T>(std::move(result_));
+    }
+
+private:
+    Result<RawMutationResult> result_;
+};
+
+}  // namespace detail
 
 struct ClientOptions {
     std::string session{"main"};
@@ -530,6 +1279,9 @@ public:
     [[nodiscard]] const StreamId& id() const noexcept;
     [[nodiscard]] Result<std::optional<RawStreamItem>> next();
     [[nodiscard]] Result<std::optional<RawStreamItem>> next(Timeout timeout);
+    [[nodiscard]] Result<std::optional<RawStreamItem>> poll(Timeout timeout) {
+        return next(timeout);
+    }
     [[nodiscard]] Result<Json> connection_control(
         Operation operation,
         Json::Object params = {});
@@ -552,7 +1304,8 @@ namespace detail {
 [[nodiscard]] Result<ResourceStream> resource_open_stream(
     const std::shared_ptr<ResourceClientState>& state,
     Operation operation,
-    Json::Object params);
+    Json::Object params,
+    CallOptions call);
 
 }  // namespace detail
 
@@ -565,51 +1318,88 @@ enum class SessionResetReason {
 struct SessionSnapshotEvent {
     Cursor cursor;
     std::optional<SessionResetReason> reset_reason;
-    Json snapshot;
+    ResourceSnapshot snapshot;
 };
 
 struct SessionDeltaEvent {
     Cursor cursor;
     std::uint64_t previous_revision = 0;
     std::uint64_t revision = 0;
-    Json::Array changes;
+    std::vector<ResourceChange> changes;
 };
 
 // Open unions retain the discriminator and complete object so newer servers
 // remain observable without turning malformed known variants into Unknown.
-struct Unknown {
-    std::string kind;
-    Json raw;
-};
-
 using SessionEvent = std::variant<
     SessionSnapshotEvent,
     SessionDeltaEvent,
     Unknown>;
 
-struct TerminalAttachmentItem {
-    std::string kind;
-    Json data;
-    Json extra;
+struct TerminalAttachSnapshot {
+    TerminalId terminal_id;
+    RenderSnapshot render;
 };
 
-struct BrowserAttachmentItem {
-    std::string kind;
-    Json data;
-    Json extra;
+struct TerminalAttachPatch {
+    TerminalId terminal_id;
+    RenderPatch render;
 };
 
-struct SidebarViewItem {
-    std::string kind;
-    Json data;
-    Json extra;
+struct TerminalAttachScroll {
+    TerminalId terminal_id;
+    RenderScroll scroll;
 };
 
-struct ProviderNotice {
-    std::string kind;
-    Json data;
-    Json extra;
+using TerminalAttachmentItem = std::variant<
+    TerminalAttachSnapshot,
+    TerminalAttachPatch,
+    TerminalAttachScroll,
+    Unknown>;
+
+struct BrowserAttachSnapshot {
+    BrowserSnapshot browser;
+    PixelSize size;
 };
+
+struct BrowserAttachFrame {
+    std::string mime_type;
+    std::vector<std::byte> data;
+    std::uint32_t width_px = 0;
+    std::uint32_t height_px = 0;
+};
+
+struct BrowserAttachState {
+    std::string url;
+    std::string title;
+    bool loading = false;
+};
+
+using BrowserAttachmentItem = std::variant<
+    BrowserAttachSnapshot,
+    BrowserAttachFrame,
+    BrowserAttachState,
+    Unknown>;
+
+struct SidebarAttachSnapshot {
+    SidebarViewSnapshot sidebar_view;
+    RenderSnapshot render;
+};
+
+struct SidebarAttachPatch {
+    SidebarViewId sidebar_view_id;
+    RenderPatch render;
+};
+
+struct SidebarAttachScroll {
+    SidebarViewId sidebar_view_id;
+    RenderScroll scroll;
+};
+
+using SidebarViewItem = std::variant<
+    SidebarAttachSnapshot,
+    SidebarAttachPatch,
+    SidebarAttachScroll,
+    Unknown>;
 
 template <typename T>
 struct TypedStreamItem {
@@ -623,6 +1413,20 @@ namespace detail {
 [[nodiscard]] Result<SessionEvent> decode_session_event(
     const Json& value,
     const std::optional<Cursor>& envelope_cursor);
+[[nodiscard]] Result<TerminalAttachmentItem> decode_terminal_attachment(
+    const Json& value,
+    const std::optional<Cursor>& envelope_cursor);
+[[nodiscard]] Result<BrowserAttachmentItem> decode_browser_attachment(
+    const Json& value,
+    const std::optional<Cursor>& envelope_cursor);
+[[nodiscard]] Result<SidebarViewItem> decode_sidebar_view_item(
+    const Json& value,
+    const std::optional<Cursor>& envelope_cursor);
+[[nodiscard]] Result<ViewerResizeResult> decode_viewer_resize(
+    const Json& value);
+[[nodiscard]] Result<BrowserViewerResizeResult> decode_browser_viewer_resize(
+    const Json& value);
+[[nodiscard]] Result<EmptyResult> decode_empty_result(const Json& value);
 
 template <typename T>
 [[nodiscard]] Result<T> decode_stream_domain(
@@ -630,33 +1434,12 @@ template <typename T>
     const std::optional<Cursor>& envelope_cursor) {
     if constexpr (std::same_as<T, SessionEvent>) {
         return decode_session_event(value, envelope_cursor);
-    } else {
-        auto object = value.as_object();
-        if (!object) {
-            return make_error(ErrorCode::decode, "stream item must be an object");
-        }
-        std::string kind = "unknown";
-        if (const Json* event = value.find("event")) {
-            auto text = event->as_string();
-            if (!text) {
-                return make_error(ErrorCode::decode, "stream event must be a string");
-            }
-            kind = std::string(text.value());
-        } else if (const Json* type = value.find("type")) {
-            auto text = type->as_string();
-            if (!text) {
-                return make_error(ErrorCode::decode, "stream item type must be a string");
-            }
-            kind = std::string(text.value());
-        } else if (const Json* named_kind = value.find("kind")) {
-            auto text = named_kind->as_string();
-            if (!text) {
-                return make_error(ErrorCode::decode, "stream item kind must be a string");
-            }
-            kind = std::string(text.value());
-        }
-        Json data = value.find("data") ? *value.find("data") : value;
-        return T{std::move(kind), std::move(data), value};
+    } else if constexpr (std::same_as<T, TerminalAttachmentItem>) {
+        return decode_terminal_attachment(value, envelope_cursor);
+    } else if constexpr (std::same_as<T, BrowserAttachmentItem>) {
+        return decode_browser_attachment(value, envelope_cursor);
+    } else if constexpr (std::same_as<T, SidebarViewItem>) {
+        return decode_sidebar_view_item(value, envelope_cursor);
     }
 }
 
@@ -695,6 +1478,32 @@ public:
         });
     }
 
+    [[nodiscard]] Result<std::optional<TypedStreamItem<T>>> next(
+        Timeout timeout) {
+        auto raw = stream_.next(timeout);
+        if (!raw) {
+            return std::move(raw).error();
+        }
+        if (!raw.value()) {
+            return std::optional<TypedStreamItem<T>>{};
+        }
+        auto decoded = detail::decode_stream_domain<T>(
+            raw.value()->value, raw.value()->cursor);
+        if (!decoded) {
+            return std::move(decoded).error();
+        }
+        return std::optional<TypedStreamItem<T>>(TypedStreamItem<T>{
+            raw.value()->sequence,
+            raw.value()->cursor,
+            std::move(decoded).value(),
+        });
+    }
+
+    [[nodiscard]] Result<std::optional<TypedStreamItem<T>>> poll(
+        Timeout timeout) {
+        return next(timeout);
+    }
+
     [[nodiscard]] Result<Json> connection_control(
         Operation operation,
         Json::Object params = {}) {
@@ -706,16 +1515,35 @@ public:
         return stream_.end();
     }
 
-private:
+protected:
     ResourceStream stream_;
 };
 
 using SessionEventStream = TypedResourceStream<SessionEvent>;
-using TerminalAttachmentStream = TypedResourceStream<TerminalAttachmentItem>;
-using BrowserAttachmentStream = TypedResourceStream<BrowserAttachmentItem>;
-using SidebarViewStream = TypedResourceStream<SidebarViewItem>;
-using ProviderNoticeStream = TypedResourceStream<ProviderNotice>;
 
+class TerminalAttachmentStream final
+    : public TypedResourceStream<TerminalAttachmentItem> {
+public:
+    using TypedResourceStream::TypedResourceStream;
+
+    [[nodiscard]] Result<ViewerResizeResult> resize_viewer(
+        std::uint16_t columns,
+        std::uint16_t rows);
+    [[nodiscard]] Result<EmptyResult> release_viewer();
+};
+
+class BrowserAttachmentStream final
+    : public TypedResourceStream<BrowserAttachmentItem> {
+public:
+    using TypedResourceStream::TypedResourceStream;
+
+    [[nodiscard]] Result<BrowserViewerResizeResult> resize_viewer(
+        std::uint32_t width_px,
+        std::uint32_t height_px);
+    [[nodiscard]] Result<EmptyResult> release_viewer();
+};
+
+using SidebarViewStream = TypedResourceStream<SidebarViewItem>;
 struct PaneLocation {
     Selector<WorkspaceId> workspace;
     Selector<ScreenId> screen;
@@ -790,20 +1618,26 @@ public:
         return *selected_id_;
     }
 
-    [[nodiscard]] Result<Json> read(
-        Operation operation,
-        Json::Object params = {}) const {
-        if (!state_) {
-            return make_error(ErrorCode::closed, "resource handle has no client");
-        }
-        return detail::resource_read(
-            state_, operation, routed_params(std::move(params)));
-    }
-
-    [[nodiscard]] Result<MutationResult> mutate(
+    [[nodiscard]] detail::ResourceReadResult read(
         Operation operation,
         Json::Object params = {},
-        MutationOptions options = MutationOptions::unique()) const;
+        CallOptions call = {}) const {
+        if (!state_) {
+            return detail::ResourceReadResult(make_error(
+                ErrorCode::closed, "resource handle has no client"));
+        }
+        return detail::ResourceReadResult(detail::resource_read(
+            state_,
+            operation,
+            routed_params(std::move(params)),
+            std::move(call)));
+    }
+
+    [[nodiscard]] detail::ResourceMutationResult mutate(
+        Operation operation,
+        Json::Object params = {},
+        MutationOptions options = MutationOptions::unique(),
+        CallOptions call = {}) const;
 
 public:
     ResourceHandle(
@@ -847,78 +1681,71 @@ protected:
 class Machine final : public ResourceHandle<MachineId> {
 public:
     using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<ResourceSnapshot<MachineId>> refresh() const;
-    [[nodiscard]] Result<Json> sessions() const;
+    [[nodiscard]] Result<MachineSnapshot> refresh() const;
+    [[nodiscard]] Result<std::vector<SessionSnapshot>> sessions() const;
     [[nodiscard]] Session session(Selector<SessionId> selector) const;
     [[nodiscard]] Session session(SessionId id) const;
-    [[nodiscard]] Result<MutationResult> rename(
-        std::string name,
-        MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> clear_name(
-        MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> remove(
-        MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> restore(
-        MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> purge(
-        MutationOptions options = MutationOptions::unique()) const;
 };
 
 class Session final : public ResourceHandle<SessionId> {
 public:
     using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<ResourceSnapshot<SessionId>> refresh() const;
-    [[nodiscard]] Result<Json> snapshot() const;
-    [[nodiscard]] Result<Json> ping() const;
-    [[nodiscard]] Result<Json> workspaces() const;
+    [[nodiscard]] Result<SessionSnapshot> refresh() const;
+    [[nodiscard]] Result<ResourceSnapshot> snapshot() const;
+    [[nodiscard]] Result<PingResult> ping() const;
+    [[nodiscard]] Result<CreationResolution> resolve_creation(
+        std::string correlation_key) const;
+    [[nodiscard]] Result<std::vector<WorkspaceSnapshot>> workspaces() const;
     [[nodiscard]] Workspace workspace(
         Selector<WorkspaceId> selector) const;
     [[nodiscard]] Workspace workspace(WorkspaceId id) const;
-    [[nodiscard]] Result<MutationResult> create_workspace(
+    [[nodiscard]] Result<MutationResult<CreatedPath>> create_workspace(
         CreateWorkspaceOptions create = {},
         MutationOptions mutation = MutationOptions::unique()) const;
     [[nodiscard]] Result<SessionEventStream> events(
-        std::optional<Cursor> cursor = std::nullopt) const;
-    [[nodiscard]] Result<MutationResult> shutdown(
+        std::optional<Cursor> cursor = std::nullopt,
+        CallOptions call = {}) const;
+    [[nodiscard]] Result<MutationResult<ShutdownResult>> shutdown(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> reload_config(
+    [[nodiscard]] Result<MutationResult<ReloadConfigResult>> reload_config(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> update_terminal_defaults(
+    [[nodiscard]] Result<MutationResult<TerminalDefaultsSnapshot>>
+    update_terminal_defaults(
         Json::Object params,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> set_window_title(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> set_window_title(
         std::string title,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> clear_window_title(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> clear_window_title(
         MutationOptions options = MutationOptions::unique()) const;
 };
 
 class Workspace final : public ResourceHandle<WorkspaceId> {
 public:
     using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<ResourceSnapshot<WorkspaceId>> refresh() const;
-    [[nodiscard]] Result<Json> screens() const;
+    [[nodiscard]] Result<WorkspaceSnapshot> refresh() const;
+    [[nodiscard]] Result<std::vector<ScreenSnapshot>> screens() const;
     [[nodiscard]] Screen screen(Selector<ScreenId> selector) const;
     [[nodiscard]] Screen screen(ScreenId id) const;
-    [[nodiscard]] Result<MutationResult> create_screen(
+    [[nodiscard]] Result<MutationResult<CreatedTerminalPath>> create_screen(
         Json::Object params = {},
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> rename(
+    [[nodiscard]] Result<MutationResult<WorkspaceSnapshot>> rename(
         std::string name,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> clear_name(
+    [[nodiscard]] Result<MutationResult<WorkspaceSnapshot>> clear_name(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> move(
+    [[nodiscard]] Result<MutationResult<WorkspaceSnapshot>> move(
         std::size_t index,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> focus(
+    [[nodiscard]] Result<MutationResult<WorkspaceSnapshot>> focus(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> close(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> close(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> run(
+    [[nodiscard]] Result<MutationResult<CreatedTerminalPath>> run(
         RunOptions run,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> apply_layout(
+    [[nodiscard]] Result<MutationResult<WorkspaceSnapshot>> apply_layout(
         Json document,
         MutationOptions options = MutationOptions::unique()) const;
 };
@@ -926,70 +1753,74 @@ public:
 class Screen final : public ResourceHandle<ScreenId> {
 public:
     using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<ResourceSnapshot<ScreenId>> refresh() const;
-    [[nodiscard]] Result<Json> panes() const;
+    [[nodiscard]] Result<ScreenSnapshot> refresh() const;
+    [[nodiscard]] Result<std::vector<PaneSnapshot>> panes() const;
     [[nodiscard]] Pane pane(Selector<PaneId> selector) const;
     [[nodiscard]] Pane pane(PaneId id) const;
-    [[nodiscard]] Result<MutationResult> create_pane(
+    [[nodiscard]] Result<MutationResult<CreatedTerminalPath>> create_pane(
         Json::Object params = {},
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> rename(
+    [[nodiscard]] Result<MutationResult<ScreenSnapshot>> rename(
         std::string name,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> clear_name(
+    [[nodiscard]] Result<MutationResult<ScreenSnapshot>> clear_name(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> focus(
+    [[nodiscard]] Result<MutationResult<ScreenSnapshot>> focus(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> close(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> close(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<Json> export_layout() const;
-    [[nodiscard]] Result<MutationResult> undo_layout(
+    [[nodiscard]] Result<LayoutDocument> export_layout() const;
+    [[nodiscard]] Result<MutationResult<ScreenSnapshot>> undo_layout(
+        UndoLayoutOptions undo = {},
         MutationOptions options = MutationOptions::unique()) const;
 };
 
 class Pane final : public ResourceHandle<PaneId> {
 public:
     using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<ResourceSnapshot<PaneId>> refresh() const;
-    [[nodiscard]] Result<Json> tabs() const;
+    [[nodiscard]] Result<PaneSnapshot> refresh() const;
+    [[nodiscard]] Result<std::vector<TabSnapshot>> tabs() const;
     [[nodiscard]] Tab tab(Selector<TabId> selector) const;
     [[nodiscard]] Tab tab(TabId id) const;
-    [[nodiscard]] Result<MutationResult> split(
+    [[nodiscard]] Result<MutationResult<CreatedTerminalPath>> split(
         Json::Object params,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> rename(
+    [[nodiscard]] Result<MutationResult<PaneSnapshot>> rename(
         std::string name,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> clear_name(
+    [[nodiscard]] Result<MutationResult<PaneSnapshot>> clear_name(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> focus(
+    [[nodiscard]] Result<MutationResult<PaneSnapshot>> focus(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> focus_direction(
+    [[nodiscard]] Result<MutationResult<PaneSnapshot>> focus_direction(
         std::string direction,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<Json> neighbor(std::string direction) const;
-    [[nodiscard]] Result<MutationResult> swap(
+    [[nodiscard]] Result<PaneNeighborResult> neighbor(
+        std::string direction) const;
+    [[nodiscard]] Result<MutationResult<PaneSnapshot>> swap(
         PaneLocation other,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> zoom(
+    [[nodiscard]] Result<MutationResult<PaneSnapshot>> zoom(
         std::optional<bool> zoomed = std::nullopt,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> set_split_ratio(
+    [[nodiscard]] Result<MutationResult<PaneSnapshot>> set_split_ratio(
         SplitId split,
         double ratio,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> set_viewport_width(
+    [[nodiscard]] Result<MutationResult<PaneSnapshot>> set_viewport_width(
         std::uint16_t columns,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> close(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> close(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> run(
+    [[nodiscard]] Result<MutationResult<CreatedTerminalPath>> run(
         RunOptions run,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> create_terminal_tab(
+    [[nodiscard]] Result<MutationResult<CreatedTerminalPath>>
+    create_terminal_tab(
         CreateTerminalTabOptions create = {},
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> create_browser_tab(
+    [[nodiscard]] Result<MutationResult<CreatedBrowserPath>>
+    create_browser_tab(
         CreateBrowserTabOptions create,
         MutationOptions options = MutationOptions::unique()) const;
 };
@@ -997,124 +1828,132 @@ public:
 class Tab final : public ResourceHandle<TabId> {
 public:
     using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<ResourceSnapshot<TabId>> refresh() const;
+    [[nodiscard]] Result<TabSnapshot> refresh() const;
     [[nodiscard]] Terminal terminal(
         Selector<TerminalId> selector) const;
     [[nodiscard]] Terminal terminal(TerminalId id) const;
     [[nodiscard]] Browser browser(Selector<BrowserId> selector) const;
     [[nodiscard]] Browser browser(BrowserId id) const;
-    [[nodiscard]] Result<MutationResult> rename(
+    [[nodiscard]] Result<MutationResult<TabSnapshot>> rename(
         std::string name,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> clear_name(
+    [[nodiscard]] Result<MutationResult<TabSnapshot>> clear_name(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> move(
+    [[nodiscard]] Result<MutationResult<TabSnapshot>> move(
         PaneDestination destination,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> focus(
+    [[nodiscard]] Result<MutationResult<TabSnapshot>> focus(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> close(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> close(
         MutationOptions options = MutationOptions::unique()) const;
 };
 
 class Terminal final : public ResourceHandle<TerminalId> {
 public:
     using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<ResourceSnapshot<TerminalId>> refresh() const;
-    [[nodiscard]] Result<MutationResult> write(
+    [[nodiscard]] Result<TerminalSnapshot> refresh() const;
+    [[nodiscard]] Result<MutationResult<EmptyResult>> write(
         std::string text,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> keys(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> keys(
         std::vector<std::string> keys,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> mouse(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> mouse(
         Json::Object params,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> input_focus(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> input_focus(
         bool focused,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<Json> read_screen(Json::Object params = {}) const;
-    [[nodiscard]] Result<Json> read_state() const;
-    [[nodiscard]] Result<Json> read_history(Json::Object params = {}) const;
-    [[nodiscard]] Result<MutationResult> clear_history(
+    [[nodiscard]] Result<TerminalScreenResult> read_screen(
+        Json::Object params = {}) const;
+    [[nodiscard]] Result<TerminalStateResult> read_state() const;
+    [[nodiscard]] Result<TerminalHistoryResult> read_history(
+        Json::Object params = {}) const;
+    [[nodiscard]] Result<MutationResult<EmptyResult>> clear_history(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<Json> wait(
+    [[nodiscard]] Result<TerminalWaitResult> wait(
         std::string pattern,
         std::optional<std::uint64_t> timeout_ms = std::nullopt) const;
-    [[nodiscard]] Result<Json> copy(Json::Object params = {}) const;
-    [[nodiscard]] Result<Json> process() const;
+    [[nodiscard]] Result<TerminalWaitExitResult> wait_exit(
+        std::optional<std::uint64_t> timeout_ms = std::nullopt) const;
+    [[nodiscard]] Result<TerminalCopyResult> copy(
+        Json::Object params = {}) const;
+    [[nodiscard]] Result<ProcessInfoResult> process() const;
     [[nodiscard]] Result<RendererGrant> renderer_grant(
         Json::Object params = {}) const;
-    [[nodiscard]] Result<Json> resize_viewer(
+    [[nodiscard]] Result<ViewerResizeResult> resize_viewer(
         std::uint16_t columns,
         std::uint16_t rows) const;
-    [[nodiscard]] Result<Json> release_viewer() const;
-    [[nodiscard]] Result<MutationResult> scroll(
+    [[nodiscard]] Result<EmptyResult> release_viewer() const;
+    [[nodiscard]] Result<MutationResult<EmptyResult>> scroll(
         std::int32_t delta_rows,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> move(
+    [[nodiscard]] Result<MutationResult<TerminalSnapshot>> move(
         PaneDestination destination,
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<TerminalAttachmentStream> attach(
-        Json::Object params = {}) const;
-    [[nodiscard]] Result<MutationResult> close(
+        Json::Object params = {},
+        CallOptions call = {}) const;
+    [[nodiscard]] Result<MutationResult<EmptyResult>> close(
         MutationOptions options = MutationOptions::unique()) const;
 };
 
 class Browser final : public ResourceHandle<BrowserId> {
 public:
     using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<ResourceSnapshot<BrowserId>> refresh() const;
-    [[nodiscard]] Result<MutationResult> navigate(
+    [[nodiscard]] Result<BrowserSnapshot> refresh() const;
+    [[nodiscard]] Result<MutationResult<BrowserSnapshot>> navigate(
         std::string url,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> back(
+    [[nodiscard]] Result<MutationResult<BrowserSnapshot>> back(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> forward(
+    [[nodiscard]] Result<MutationResult<BrowserSnapshot>> forward(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> reload(
+    [[nodiscard]] Result<MutationResult<BrowserSnapshot>> reload(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> activate(
+    [[nodiscard]] Result<MutationResult<BrowserSnapshot>> activate(
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> key(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> key(
         Json::Object params,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> text(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> text(
         std::string text,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> mouse(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> mouse(
         Json::Object params,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> wheel(
+    [[nodiscard]] Result<MutationResult<EmptyResult>> wheel(
         double delta_x,
         double delta_y,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<Json> resize_viewer(
+    [[nodiscard]] Result<BrowserViewerResizeResult> resize_viewer(
         std::uint32_t width_px,
         std::uint32_t height_px) const;
-    [[nodiscard]] Result<Json> release_viewer() const;
+    [[nodiscard]] Result<EmptyResult> release_viewer() const;
     [[nodiscard]] Result<BrowserAttachmentStream> attach(
-        Json::Object params = {}) const;
-    [[nodiscard]] Result<MutationResult> close(
+        Json::Object params = {},
+        CallOptions call = {}) const;
+    [[nodiscard]] Result<MutationResult<EmptyResult>> close(
         MutationOptions options = MutationOptions::unique()) const;
 };
 
 class ConnectedClient final : public ResourceHandle<ConnectedClientId> {
 public:
     using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<ResourceSnapshot<ConnectedClientId>> refresh() const;
-    [[nodiscard]] Result<Json> update_metadata(
+    [[nodiscard]] Result<ClientSnapshot> refresh() const;
+    [[nodiscard]] Result<ClientSnapshot> update_metadata(
         ClientMetadataUpdate update) const;
-    [[nodiscard]] Result<Json> set_name(std::string name) const;
-    [[nodiscard]] Result<Json> clear_name() const;
-    [[nodiscard]] Result<Json> set_kind(std::string kind) const;
-    [[nodiscard]] Result<Json> clear_kind() const;
-    [[nodiscard]] Result<Json> set_sizing(Json::Object params) const;
-    [[nodiscard]] Result<Json> release_sizing(Json::Object params = {}) const;
-    [[nodiscard]] Result<Json> set_cell_pixels(
+    [[nodiscard]] Result<ClientSnapshot> set_name(std::string name) const;
+    [[nodiscard]] Result<ClientSnapshot> clear_name() const;
+    [[nodiscard]] Result<ClientSnapshot> set_kind(std::string kind) const;
+    [[nodiscard]] Result<ClientSnapshot> clear_kind() const;
+    [[nodiscard]] Result<ClientSnapshot> set_sizing(Json::Object params) const;
+    [[nodiscard]] Result<ClientSnapshot> release_sizing(
+        Json::Object params = {}) const;
+    [[nodiscard]] Result<CellPixelsResult> set_cell_pixels(
         std::uint32_t width_px,
         std::uint32_t height_px) const;
-    [[nodiscard]] Result<Json> detach() const;
+    [[nodiscard]] Result<EmptyResult> detach() const;
 };
 
 template <typename Id>
@@ -1130,50 +1969,11 @@ using FrontendProjection = AuxiliaryHandle<FrontendProjectionId>;
 class SidebarView final : public ResourceHandle<SidebarViewId> {
 public:
     using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<Json> refresh() const;
+    [[nodiscard]] Result<SidebarViewSnapshot> refresh() const;
     [[nodiscard]] Result<SidebarViewStream> attach(
-        Json::Object params = {}) const;
+        Json::Object params = {},
+        CallOptions call = {}) const;
 };
-class ProviderNoticeHandle;
-class ProviderScope final : public ResourceHandle<ProviderScopeId> {
-public:
-    using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<MutationResult> create_machine(
-        MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> connect_external(
-        const SensitiveString& specifier,
-        MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> invoke(
-        ProviderActionId action,
-        Json::Object parameters,
-        MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<ProviderNoticeStream> notices(
-        std::optional<Cursor> cursor = std::nullopt) const;
-    [[nodiscard]] ProviderNoticeHandle notice(
-        Selector<ProviderNoticeId> selector) const;
-    [[nodiscard]] ProviderNoticeHandle notice(ProviderNoticeId id) const;
-    [[nodiscard]] Result<MutationResult> mark_workspace(
-        SessionId session,
-        WorkspaceId workspace,
-        bool managed,
-        MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> rename_workspace(
-        SessionId session,
-        WorkspaceId workspace,
-        std::optional<std::string> name,
-        MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> close_workspace(
-        SessionId session,
-        WorkspaceId workspace,
-        MutationOptions options = MutationOptions::unique()) const;
-};
-using ProviderAction = AuxiliaryHandle<ProviderActionId>;
-class ProviderNoticeHandle final : public ResourceHandle<ProviderNoticeId> {
-public:
-    using ResourceHandle::ResourceHandle;
-    [[nodiscard]] Result<Json> acknowledge(std::uint64_t sequence) const;
-};
-
 class Client {
 public:
     Client(const Client&) = delete;
@@ -1189,27 +1989,33 @@ public:
 
     [[nodiscard]] Result<Json> read(
         Operation operation,
-        Json::Object params = {}) const;
-    [[nodiscard]] Result<MutationResult> mutate(
+        Json::Object params = {},
+        CallOptions call = {}) const;
+    [[nodiscard]] Result<RawMutationResult> mutate(
         Operation operation,
         Json::Object params = {},
-        MutationOptions options = MutationOptions::unique()) const;
+        MutationOptions options = MutationOptions::unique(),
+        CallOptions call = {}) const;
     [[nodiscard]] Result<Json> connection_control(
         Operation operation,
-        Json::Object params = {}) const;
+        Json::Object params = {},
+        CallOptions call = {}) const;
     [[nodiscard]] Result<ResourceStream> open_stream(
         Operation operation,
-        Json::Object params = {}) const;
+        Json::Object params = {},
+        CallOptions call = {}) const;
     [[nodiscard]] Result<SessionEventStream> open_session_events(
-        Json::Object params = {}) const;
+        Json::Object params = {},
+        CallOptions call = {}) const;
     [[nodiscard]] Result<TerminalAttachmentStream> open_terminal_attachment(
-        Json::Object params) const;
+        Json::Object params,
+        CallOptions call = {}) const;
     [[nodiscard]] Result<BrowserAttachmentStream> open_browser_attachment(
-        Json::Object params) const;
+        Json::Object params,
+        CallOptions call = {}) const;
     [[nodiscard]] Result<SidebarViewStream> open_sidebar_view(
-        Json::Object params) const;
-    [[nodiscard]] Result<ProviderNoticeStream> open_provider_notices(
-        Json::Object params) const;
+        Json::Object params,
+        CallOptions call = {}) const;
 
     [[nodiscard]] Machine machine(Selector<MachineId> selector) const;
     [[nodiscard]] Machine machine(MachineId id) const;
@@ -1244,45 +2050,24 @@ public:
     [[nodiscard]] SidebarView sidebar_view(
         Selector<SidebarViewId> selector) const;
     [[nodiscard]] SidebarView sidebar_view(SidebarViewId id) const;
-    [[nodiscard]] ProviderScope provider_scope(
-        Selector<ProviderScopeId> selector) const;
-    [[nodiscard]] ProviderScope provider_scope(ProviderScopeId id) const;
-    [[nodiscard]] ProviderAction provider_action(
-        Selector<ProviderActionId> selector) const;
-    [[nodiscard]] ProviderAction provider_action(ProviderActionId id) const;
-    [[nodiscard]] ProviderNoticeHandle provider_notice(
-        Selector<ProviderNoticeId> selector) const;
-    [[nodiscard]] ProviderNoticeHandle provider_notice(
-        ProviderNoticeId id) const;
-
-    [[nodiscard]] Result<Json> machines() const;
-    [[nodiscard]] Result<Json> sessions(
+    [[nodiscard]] Result<std::vector<MachineSnapshot>> machines() const;
+    [[nodiscard]] Result<std::vector<SessionSnapshot>> sessions(
         std::optional<Selector<MachineId>> machine = std::nullopt) const;
-    [[nodiscard]] Result<MutationResult> create_machine(
-        ProviderScopeId provider_scope,
-        MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> connect_external_machine(
-        ProviderScopeId provider_scope,
-        const SensitiveString& specifier,
-        MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<MutationResult> open_session(
+    [[nodiscard]] Result<MutationResult<SessionSnapshot>> open_session(
         Json::Object params,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<Json> notifications(Json::Object params = {}) const;
-    [[nodiscard]] Result<MutationResult> notify(
+    [[nodiscard]] Result<std::vector<NotificationSnapshot>> notifications(
+        Json::Object params = {}) const;
+    [[nodiscard]] Result<MutationResult<NotificationSnapshot>> notify(
         Json::Object params,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<Json> agents(Json::Object params = {}) const;
-    [[nodiscard]] Result<MutationResult> report_agent(
+    [[nodiscard]] Result<std::vector<AgentSnapshot>> agents(
+        Json::Object params = {}) const;
+    [[nodiscard]] Result<MutationResult<AgentSnapshot>> report_agent(
         Json::Object params,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<Json> pairing_requests(Json::Object params = {}) const;
-    [[nodiscard]] Result<Json> provider_scopes(Json::Object params = {}) const;
-    [[nodiscard]] Result<MutationResult> invoke_provider_action(
-        ProviderScopeId provider_scope,
-        ProviderActionId action,
-        Json::Object parameters,
-        MutationOptions options = MutationOptions::unique()) const;
+    [[nodiscard]] Result<std::vector<PairingRequestSnapshot>> pairing_requests(
+        Json::Object params = {}) const;
 
 private:
     explicit Client(std::shared_ptr<detail::ResourceClientState> state);
@@ -1290,18 +2075,21 @@ private:
 };
 
 template <typename Id>
-Result<MutationResult> ResourceHandle<Id>::mutate(
+detail::ResourceMutationResult ResourceHandle<Id>::mutate(
     Operation operation,
     Json::Object params,
-    MutationOptions options) const {
+    MutationOptions options,
+    CallOptions call) const {
     if (!state_) {
-        return make_error(ErrorCode::closed, "resource handle has no client");
+        return detail::ResourceMutationResult(make_error(
+            ErrorCode::closed, "resource handle has no client"));
     }
-    return detail::resource_mutate(
+    return detail::ResourceMutationResult(detail::resource_mutate(
         state_,
         operation,
         routed_params(std::move(params)),
-        std::move(options));
+        std::move(options),
+        std::move(call)));
 }
 
 // Lowercase alias for projects that standardize on result<T>.

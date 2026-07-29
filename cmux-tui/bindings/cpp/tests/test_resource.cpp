@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -111,6 +112,30 @@ std::string response(
            id + "\",\"ok\":true,\"result\":" + result + "}";
 }
 
+std::string stream_open_response(
+    const std::string& request_id,
+    const std::string& stream_id) {
+    return response(
+        request_id,
+        "{\"stream_id\":\"" + stream_id + "\"}");
+}
+
+std::string resource_snapshot(std::uint64_t revision) {
+    const auto decimal = std::to_string(revision);
+    return
+        "{\"machine\":{\"id\":\"machine_00000000000000000000000000000000\","
+        "\"name\":\"local\",\"origin\":\"local\",\"status\":\"running\","
+        "\"connectable\":true,\"deleted\":false,\"recoverable\":false},"
+        "\"session\":{\"id\":\"session_00000000000000000000000000000000\","
+        "\"machine_id\":\"machine_00000000000000000000000000000000\","
+        "\"generation\":\"g\",\"revision\":\"" + decimal +
+        "\",\"connected\":true},\"workspaces\":[],\"screens\":[],"
+        "\"panes\":[],\"tabs\":[],\"terminals\":[],\"browsers\":[],"
+        "\"clients\":[],\"notifications\":[],\"agents\":[],"
+        "\"frontend_projections\":[],\"sidebar_views\":[],"
+        "\"cursor\":{\"generation\":\"g\",\"revision\":\"" + decimal + "\"}}";
+}
+
 std::string error_response(
     std::string id,
     std::string code,
@@ -143,7 +168,7 @@ template <typename T>
 concept HasMutationReceipt = requires(T value) {
     value.receipt;
 };
-static_assert(!HasMutationReceipt<cmux::MutationResult>);
+static_assert(!HasMutationReceipt<cmux::RawMutationResult>);
 
 TEST("resource IDs and selectors never expose mux numbers") {
     auto id = cmux::WorkspaceId::parse(
@@ -214,13 +239,6 @@ TEST("operation classes contain capability corrections") {
     CHECK_EQ(
         cmux::operation_name(cmux::Operation::tab_create_browser),
         std::string_view("tab.create_browser"));
-    CHECK_EQ(
-        cmux::operation_class(cmux::Operation::provider_notice_events),
-        cmux::OperationClass::stream_open);
-    CHECK_EQ(
-        cmux::operation_class(
-            cmux::Operation::provider_notice_acknowledge),
-        cmux::OperationClass::connection_control);
 }
 
 TEST("mutation sends one stable injected idempotency key without retry") {
@@ -245,9 +263,7 @@ TEST("mutation sends one stable injected idempotency key without retry") {
     CHECK_EQ(result.value().generation, std::string("g"));
     CHECK_EQ(result.value().revision, 7U);
     CHECK(!result.value().replayed);
-    auto created_path = result.value().created_path();
-    CHECK(created_path);
-    CHECK(!created_path.value().has_value());
+    CHECK(result.value().value.find("name") != nullptr);
 
     std::lock_guard lock(state->mutex);
     CHECK_EQ(state->outgoing.size(), 1U);
@@ -303,6 +319,67 @@ TEST("structured protocol errors retain code details and retryability") {
     CHECK(!result.error().retryable);
 }
 
+TEST("layout undo requires and carries typed confirmation details") {
+    cmux::UndoLayoutOptions missing_token{
+        .confirm_close = true,
+    };
+    auto missing_params = missing_token.to_params();
+    CHECK(!missing_params);
+    CHECK_EQ(
+        missing_params.error().code,
+        cmux::ErrorCode::invalid_argument);
+
+    cmux::UndoLayoutOptions oversized{
+        .confirmation_token = std::string(129, 'x'),
+    };
+    CHECK(!oversized.to_params());
+
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    enqueue(
+        state,
+        error_response(
+            "cpp-request-1",
+            "confirmation.required",
+            R"({"confirmation_token":"confirm-9","revision":"9","closes_panes":["pane_0123456789abcdef0123456789abcdef"]})"));
+    auto key = cmux::MutationOptions::with_key("confirm-key");
+    CHECK(key);
+    auto result =
+        client.screen(cmux::Selector<cmux::ScreenId>::current())
+            .undo_layout(
+                {
+                    .confirm_close = true,
+                    .confirmation_token = "confirm-8",
+                },
+                std::move(key).value().expecting(8));
+    CHECK(!result);
+    auto details =
+        cmux::decode_confirmation_required_details(result.error());
+    CHECK(details);
+    CHECK_EQ(
+        details.value().confirmation_token,
+        std::string("confirm-9"));
+    CHECK_EQ(details.value().revision, 9U);
+    CHECK_EQ(details.value().closes_panes.size(), 1U);
+    CHECK_EQ(
+        details.value().closes_panes.front().value(),
+        std::string("pane_0123456789abcdef0123456789abcdef"));
+
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 1U);
+    auto envelope = cmux::Json::parse(state->outgoing.front());
+    CHECK(envelope);
+    const auto* params =
+        envelope.value().find("params")->as_object().value();
+    CHECK(params->at("confirm_close").as_bool().value());
+    CHECK_EQ(
+        params->at("confirmation_token").as_string().value(),
+        std::string_view("confirm-8"));
+    CHECK_EQ(
+        params->at("expected_revision").as_string().value(),
+        std::string_view("8"));
+}
+
 TEST("indeterminate mutations retain outcome details and never retry") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);
@@ -321,12 +398,22 @@ TEST("indeterminate mutations retain outcome details and never retry") {
         std::move(key).value());
     CHECK(!result);
     CHECK_EQ(
+        result.error().code,
+        cmux::ErrorCode::outcome_uncertain);
+    CHECK_EQ(
         result.error().protocol_code,
         std::string("mutation.indeterminate"));
     CHECK_EQ(
         result.error().message,
         std::string("external effect may have committed"));
     CHECK(!result.error().retryable);
+    CHECK(result.error().uncertain_mutation != nullptr);
+    CHECK_EQ(
+        result.error().uncertain_mutation->operation,
+        cmux::Operation::workspace_rename);
+    CHECK_EQ(
+        result.error().uncertain_mutation->idempotency_key,
+        std::string("indeterminate-test-key"));
     CHECK(result.error().details != nullptr);
     auto details = result.error().details->as_object();
     CHECK(details);
@@ -348,10 +435,98 @@ TEST("indeterminate mutations retain outcome details and never retry") {
         std::string::npos);
 }
 
+TEST("cancellation before send and uncertain mutation outcomes are typed") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    std::stop_source stopped;
+    stopped.request_stop();
+    cmux::CallOptions canceled;
+    canceled.cancel = stopped.get_token();
+    auto read = client.read(
+        cmux::Operation::machine_list, {}, std::move(canceled));
+    CHECK(!read);
+    CHECK_EQ(read.error().code, cmux::ErrorCode::canceled);
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK(state->outgoing.empty());
+    }
+
+    auto key = cmux::MutationOptions::with_key("uncertain-exact-key");
+    CHECK(key);
+    auto mutation = client.mutate(
+        cmux::Operation::workspace_rename,
+        {
+            {
+                "workspace",
+                cmux::Json(
+                    "ws_0123456789abcdef0123456789abcdef"),
+            },
+            {"name", cmux::Json("new name")},
+        },
+        std::move(key).value(),
+        cmux::CallOptions::with_timeout(std::chrono::milliseconds(20)));
+    CHECK(!mutation);
+    CHECK_EQ(
+        mutation.error().code,
+        cmux::ErrorCode::outcome_uncertain);
+    CHECK(!mutation.error().retryable);
+    CHECK(mutation.error().uncertain_mutation != nullptr);
+    CHECK_EQ(
+        mutation.error().uncertain_mutation->operation,
+        cmux::Operation::workspace_rename);
+    CHECK_EQ(
+        mutation.error().uncertain_mutation->idempotency_key,
+        std::string("uncertain-exact-key"));
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 1U);
+}
+
+TEST("terminal lifecycle and wait-exit unions decode strictly") {
+    auto running = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(running);
+    CHECK_EQ(
+        running.value().lifecycle,
+        cmux::TerminalLifecycle::running);
+    CHECK(!running.value().exit.has_value());
+
+    auto exited = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","title":"done","cols":80,"rows":24,"running":false,"lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":0},"exited_at":"123","revision":"9"}})")
+            .value());
+    CHECK(exited);
+    CHECK(exited.value().exit.has_value());
+    CHECK(std::holds_alternative<cmux::TerminalExitCode>(
+        exited.value().exit->outcome));
+
+    auto inconsistent =
+        cmux::detail::decode_value<cmux::TerminalSnapshot>(
+            cmux::Json::parse(
+                R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"launching"})")
+                .value());
+    CHECK(!inconsistent);
+    CHECK_EQ(inconsistent.error().code, cmux::ErrorCode::decode);
+
+    auto pending =
+        cmux::detail::decode_value<cmux::TerminalWaitExitResult>(
+            cmux::Json::parse(
+                R"({"state":"pending","terminal_id":"term_0123456789abcdef0123456789abcdef","lifecycle":"launching","revision":"4"})")
+                .value());
+    CHECK(pending);
+    CHECK(std::holds_alternative<cmux::TerminalWaitExitPending>(
+        pending.value()));
+}
+
 TEST("client metadata preserves omitted set-empty and clear states") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);
-    enqueue(state, response("cpp-request-1", R"({"name":""})"));
+    enqueue(
+        state,
+        response(
+            "cpp-request-1",
+            R"({"id":"client_0123456789abcdef0123456789abcdef","session_id":"session_00000000000000000000000000000000","name":"","client_kind":null,"transport":"unix","connected_seconds":"0","attached_terminal_ids":[],"sizes":[],"self":true})"));
     auto id = cmux::ConnectedClientId::parse(
         "client_0123456789abcdef0123456789abcdef");
     CHECK(id);
@@ -373,54 +548,7 @@ TEST("client metadata preserves omitted set-empty and clear states") {
     CHECK(params->at("kind").is_null());
 }
 
-TEST("provider notices acknowledge only after an explicit consumer call") {
-    auto state = std::make_shared<FakeState>();
-    auto client = client_for(state);
-    enqueue(state, response("cpp-request-1"));
-    auto scope = cmux::ProviderScopeId::parse(
-        "provider_scope_0123456789abcdef0123456789abcdef");
-    auto notice = cmux::ProviderNoticeId::parse(
-        "provider_notice_0123456789abcdef0123456789abcdef");
-    CHECK(scope);
-    CHECK(notice);
-    auto result = client.provider_scope(std::move(scope).value())
-                      .notice(std::move(notice).value())
-                      .acknowledge(42);
-    CHECK(result);
-
-    std::lock_guard lock(state->mutex);
-    CHECK_EQ(state->outgoing.size(), 1U);
-    auto envelope = cmux::Json::parse(state->outgoing.front());
-    CHECK(envelope);
-    CHECK_EQ(
-        envelope.value().find("operation")->as_string().value(),
-        std::string_view("provider_notice.acknowledge"));
-    CHECK(envelope.value().find("idempotency_key") == nullptr);
-    const auto* params =
-        envelope.value().find("params")->as_object().value();
-    CHECK_EQ(
-        params->at("machine").as_string().value(),
-        std::string_view("current"));
-    CHECK(!params->contains("session"));
-    CHECK_EQ(
-        params->at("provider_scope").as_string().value(),
-        std::string_view(
-            "provider_scope_0123456789abcdef0123456789abcdef"));
-    CHECK_EQ(
-        params->at("provider_notice").as_string().value(),
-        std::string_view(
-            "provider_notice_0123456789abcdef0123456789abcdef"));
-    CHECK_EQ(
-        params->at("sequence").as_string().value(),
-        std::string_view("42"));
-}
-
-TEST("renderer grants and provider secrets never format capabilities") {
-    cmux::ProviderCredential credential("provider-secret");
-    std::ostringstream provider_output;
-    provider_output << credential;
-    CHECK_EQ(provider_output.str(), std::string("[REDACTED]"));
-
+TEST("renderer grants never format capabilities") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);
     enqueue(
@@ -590,7 +718,7 @@ TEST("direct opaque nested IDs remain globally addressable") {
         state,
         response(
             "cpp-request-1",
-            R"({"id":"pane_0123456789abcdef0123456789abcdef","name":"detached","revision":"3"})"));
+            R"({"id":"pane_0123456789abcdef0123456789abcdef","screen_id":"screen_00000000000000000000000000000000","name":"detached","focused":false,"zoomed":false})"));
     auto pane_id = cmux::PaneId::parse(pane_value);
     CHECK(pane_id);
     auto refreshed = client.pane(std::move(pane_id).value()).refresh();
@@ -612,7 +740,11 @@ TEST("direct opaque nested IDs remain globally addressable") {
 TEST("direct current selectors synthesize missing contiguous ancestors") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);
-    enqueue(state, response("cpp-request-1"));
+    enqueue(
+        state,
+        response(
+            "cpp-request-1",
+            R"({"text":"","cols":80,"rows":24,"cursor_row":0,"cursor_col":0,"cursor_visible":true})"));
     auto result =
         client.terminal(cmux::Selector<cmux::TerminalId>::current())
             .read_screen();
@@ -673,7 +805,9 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
                 "\",\"sequence\":\"1\",\"cursor\":{\"generation\":\"g\","
                 "\"revision\":\"9\"},\"item\":{\"kind\":\"future.event\","
                 "\"payload\":{\"x\":1},\"future\":true}}");
-        enqueue(stream_state, response(request_id));
+        enqueue(
+            stream_state,
+            stream_open_response(request_id, stream_id));
 
         wait_for_writes(stream_state, 2);
         cmux::Json cancel;
@@ -728,6 +862,129 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
     CHECK(cancel_route_ok.load(std::memory_order_acquire));
 }
 
+TEST("attachment resize and release stay on the dedicated stream connection") {
+    auto control = std::make_shared<FakeState>();
+    auto stream_state = std::make_shared<FakeState>();
+    auto client = client_for(control, stream_state);
+    std::atomic<bool> route_ok{false};
+
+    std::thread server([stream_state, &route_ok] {
+        wait_for_writes(stream_state, 1);
+        cmux::Json open;
+        {
+            std::lock_guard lock(stream_state->mutex);
+            open = cmux::Json::parse(stream_state->outgoing.at(0)).value();
+        }
+        const auto request_id =
+            std::string(open.find("id")->as_string().value());
+        const auto* open_params = open.find("params")->as_object().value();
+        const auto stream_id =
+            std::string(open_params->at("stream_id").as_string().value());
+        enqueue(
+            stream_state,
+            stream_open_response(request_id, stream_id));
+
+        wait_for_writes(stream_state, 2);
+        cmux::Json resize;
+        {
+            std::lock_guard lock(stream_state->mutex);
+            resize = cmux::Json::parse(stream_state->outgoing.at(1)).value();
+        }
+        const auto resize_id =
+            std::string(resize.find("id")->as_string().value());
+        const auto* resize_params =
+            resize.find("params")->as_object().value();
+        route_ok.store(
+            resize.find("operation")->as_string().value() ==
+                    "terminal.viewer.resize" &&
+                resize_params->at("terminal").as_string().value() ==
+                    "term_0123456789abcdef0123456789abcdef" &&
+                resize_params->at("cols").as_uint64().value() == 100U &&
+                resize_params->at("rows").as_uint64().value() == 40U,
+            std::memory_order_release);
+        enqueue(
+            stream_state,
+            response(
+                resize_id,
+                R"({"accepted":true,"size":{"cols":100,"rows":40}})"));
+
+        wait_for_writes(stream_state, 3);
+        cmux::Json release;
+        {
+            std::lock_guard lock(stream_state->mutex);
+            release =
+                cmux::Json::parse(stream_state->outgoing.at(2)).value();
+        }
+        const auto release_id =
+            std::string(release.find("id")->as_string().value());
+        enqueue(stream_state, response(release_id));
+    });
+
+    auto stream = client.open_terminal_attachment({
+        {
+            "terminal",
+            cmux::Json(
+                "term_0123456789abcdef0123456789abcdef"),
+        },
+    });
+    CHECK(stream);
+    auto resized = stream.value().resize_viewer(100, 40);
+    CHECK(resized);
+    CHECK(resized.value().accepted);
+    CHECK_EQ(resized.value().size.cols, 100U);
+    auto released = stream.value().release_viewer();
+    CHECK(released);
+    server.join();
+    CHECK(route_ok.load(std::memory_order_acquire));
+    std::lock_guard lock(control->mutex);
+    CHECK(control->outgoing.empty());
+}
+
+TEST("stream open rejects a locally overflowing pre-ack queue") {
+    auto control = std::make_shared<FakeState>();
+    auto stream_state = std::make_shared<FakeState>();
+    auto client = client_for(control, stream_state);
+
+    std::thread server([stream_state] {
+        wait_for_writes(stream_state, 1);
+        cmux::Json open;
+        {
+            std::lock_guard lock(stream_state->mutex);
+            open = cmux::Json::parse(stream_state->outgoing.at(0)).value();
+        }
+        const auto request_id =
+            std::string(open.find("id")->as_string().value());
+        const auto* params = open.find("params")->as_object().value();
+        const auto stream_id =
+            std::string(params->at("stream_id").as_string().value());
+        for (std::uint64_t sequence = 1; sequence <= 257; ++sequence) {
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "\"stream_id\":\"" +
+                    stream_id + "\",\"sequence\":\"" +
+                    std::to_string(sequence) +
+                    "\",\"item\":{\"kind\":\"future\"}}");
+        }
+        enqueue(
+            stream_state,
+            stream_open_response(request_id, stream_id));
+    });
+
+    auto stream = client.open_terminal_attachment({
+        {
+            "terminal",
+            cmux::Json(
+                "term_0123456789abcdef0123456789abcdef"),
+        },
+    });
+    CHECK(!stream);
+    CHECK_EQ(
+        stream.error().code,
+        cmux::ErrorCode::stream_local_overflow);
+    server.join();
+}
+
 TEST("session stream events discriminate snapshot and delta at compile time") {
     auto control = std::make_shared<FakeState>();
     auto stream_state = std::make_shared<FakeState>();
@@ -754,7 +1011,8 @@ TEST("session stream events discriminate snapshot and delta at compile time") {
                 "\",\"sequence\":\"1\",\"cursor\":{\"generation\":\"g\","
                 "\"revision\":\"1\"},\"item\":{\"kind\":\"snapshot\","
                 "\"cursor\":{\"generation\":\"g\",\"revision\":\"1\"},"
-                "\"reset_reason\":\"initial\",\"snapshot\":{\"workspaces\":[]}}}");
+                "\"reset_reason\":\"initial\",\"snapshot\":" +
+                resource_snapshot(1) + "}}");
         enqueue(
             stream_state,
             "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
@@ -770,7 +1028,9 @@ TEST("session stream events discriminate snapshot and delta at compile time") {
             "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
             "\"stream_id\":\"" +
                 stream_id + "\",\"reason\":\"completed\"}");
-        enqueue(stream_state, response(request_id));
+        enqueue(
+            stream_state,
+            stream_open_response(request_id, stream_id));
     });
 
     auto stream = client.open_session_events();
@@ -787,7 +1047,7 @@ TEST("session stream events discriminate snapshot and delta at compile time") {
     CHECK_EQ(
         *snapshot->reset_reason,
         cmux::SessionResetReason::initial);
-    CHECK(snapshot->snapshot.find("workspaces") != nullptr);
+    CHECK(snapshot->snapshot.workspaces.empty());
 
     auto delta_item = stream.value().next();
     CHECK(delta_item);
@@ -836,7 +1096,9 @@ TEST("malformed known session events never downgrade to Unknown") {
                 "\"revision\":\"1\"},\"item\":{\"kind\":\"snapshot\","
                 "\"cursor\":{\"generation\":\"g\",\"revision\":\"1\"},"
                 "\"future\":true}}");
-        enqueue(stream_state, response(request_id));
+        enqueue(
+            stream_state,
+            stream_open_response(request_id, stream_id));
     });
 
     auto stream = client.open_session_events();

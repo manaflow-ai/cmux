@@ -35,10 +35,15 @@ uses `RunCommand::shell_with_executable`, which encodes exact
 `[executable, "-lc", script]` arguments.
 
 Each mutation sends one caller-visible idempotency key and never retries
-implicitly. `MutationResult` contains the flat canonical value, generation,
-revision, and replayed fields. Results never echo the request’s idempotency
-key. `created_path()` parses a typed workspace, terminal, or browser path from
-a creation result’s value.
+implicitly. `MutationResult<T>` contains the exact typed catalog value,
+generation, revision, and replayed fields. A transport failure after a
+mutation write returns `ErrorCode::outcome_uncertain` with the exact operation
+and idempotency key. `Client::mutate` remains the explicit raw JSON escape
+hatch.
+
+`CallOptions` supplies a steady-clock deadline and `std::stop_token` for an
+individual raw call or stream open. `ResourceStream::poll(timeout)` bounds a
+stream wait.
 
 The socket binds a client to its current machine and session. The client adds
 those routing selectors when callers supply only an opaque target ID.
@@ -72,24 +77,32 @@ copying, and destroying handles performs no I/O. `selected_id()` is populated
 for ID selectors. `refresh()` resolves the opaque ID for current and name
 selectors from the server snapshot.
 
-Names preserve exact bytes. Workspace and machine `clear_name()` set the
-empty string. Screen, pane, and tab `clear_name()` send JSON null.
+Names preserve exact bytes. Workspace `clear_name()` sets the empty string.
+Screen, pane, and tab `clear_name()` send JSON null.
 `ClientMetadataUpdate` distinguishes unchanged, set (including empty), and
 clear states.
 
 Typed stream classes cover session events, terminal attachment items, browser
-attachment items, sidebar view items, and provider notices. Unknown payload
-fields remain available through each item’s `extra` JSON value. Stream
+attachment items, and sidebar view items. Recognized
+variants reject unknown sibling fields. Unrecognized variants preserve the
+complete object in `Unknown::raw`. Stream
 cancellation waits for both the response and terminal stream end, even when
 the end arrives first. Structured end errors retain code, message, redacted
-details, and retryability.
-Provider notices are acknowledged explicitly with
-`provider_scope.notice(id).acknowledge(sequence)` after the consumer paints
-the notice; iteration never acknowledges delivery.
+details, and retryability. Attachment `resize_viewer()` and
+`release_viewer()` calls use the dedicated
+stream connection. Handle methods use the control connection.
 
 Renderer grants expose endpoint, terminal ID, rights, TTL, and a
-`SensitiveString` token. Formatting a grant or provider credential prints
-`[REDACTED]`.
+`SensitiveString` token. Formatting a grant prints `[REDACTED]`.
+
+`TerminalSnapshot` exposes `lifecycle` plus a typed exit outcome.
+`Session::resolve_creation()` and `Terminal::wait_exit()` remain separate from
+terminal text matching.
+
+`Screen::undo_layout()` requires the preview's confirmation token when
+`confirm_close` is true. Decode a `confirmation.required` error with
+`decode_confirmation_required_details()` to obtain its token, revision, and
+closing pane IDs.
 
 Generated protocol-v10 compatibility APIs remain available only through the
 explicit raw namespace:

@@ -13,6 +13,7 @@ add_library(cmux_tui_sdk
     src/base64.cpp
     src/json.cpp
     src/resource.cpp
+    src/resource_models.cpp
     src/raw/attachment.cpp
     src/raw/client_core.cpp
     src/raw/generated/protocol.cpp
