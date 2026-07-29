@@ -15,6 +15,22 @@ public struct VerifiedReplayViewportAnchor: Equatable, Sendable {
         self.totalRows = totalRows
     }
 
+    /// Creates an anchor when a scrollbar snapshot is above the content bottom.
+    ///
+    /// - Parameters:
+    ///   - scrollbarTotal: Total row-space size at capture time.
+    ///   - offset: Top visible row at capture time.
+    ///   - len: Number of visible rows at capture time.
+    public init?(scrollbarTotal: UInt64, offset: UInt64, len: UInt64) {
+        guard offset < scrollbarTotal else { return nil }
+        let rowsAfterOffset = scrollbarTotal - offset
+        guard len < rowsAfterOffset else { return nil }
+        self.init(
+            rowsFromBottom: rowsAfterOffset - len,
+            totalRows: scrollbarTotal
+        )
+    }
+
     /// Computes the post-replay top row that preserves the captured content.
     ///
     /// Growth in the row space is treated as replay drift and canceled out so

@@ -4,6 +4,63 @@ import Testing
 
 @Suite("Verified replay viewport anchor")
 struct VerifiedReplayViewportAnchorTests {
+    @Test("visible-row flicker does not accumulate across replay cycles")
+    func lenFlickerDoesNotAccumulateAcrossReplayCycles() throws {
+        let totalRows: UInt64 = 4_053
+        let initialOffset: UInt64 = 3_990
+        var offset = initialOffset
+
+        for _ in 0..<10 {
+            let anchor = try #require(
+                VerifiedReplayViewportAnchor(
+                    scrollbarTotal: totalRows,
+                    offset: offset,
+                    len: 54
+                )
+            )
+            offset = try #require(
+                anchor.targetTopRow(
+                    postReplayTotalRows: totalRows,
+                    postReplayVisibleRows: 53
+                )
+            )
+
+            #expect(offset == initialOffset)
+        }
+    }
+
+    @Test("scrollbar derivation distinguishes bottom from above-bottom")
+    func scrollbarDerivation() throws {
+        #expect(
+            VerifiedReplayViewportAnchor(
+                scrollbarTotal: 100,
+                offset: 80,
+                len: 20
+            ) == nil
+        )
+        #expect(
+            VerifiedReplayViewportAnchor(
+                scrollbarTotal: 100,
+                offset: 80,
+                len: 21
+            ) == nil
+        )
+
+        let anchor = try #require(
+            VerifiedReplayViewportAnchor(
+                scrollbarTotal: 100,
+                offset: 79,
+                len: 20
+            )
+        )
+        #expect(
+            anchor.targetTopRow(
+                postReplayTotalRows: 100,
+                postReplayVisibleRows: 20
+            ) == 79
+        )
+    }
+
     @Test("an at-bottom viewport follows replay output naturally")
     func atBottomDoesNotRestore() {
         let anchor = VerifiedReplayViewportAnchor(rowsFromBottom: 0, totalRows: 100)
