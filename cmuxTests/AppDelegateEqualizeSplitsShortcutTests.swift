@@ -5231,6 +5231,87 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    func testReloadConfigBoundsConcurrentWaiters() {
+        let requestCount = 8
+        let maximumConcurrentWaiters = 4
+        let expectedBusyResponses =
+            requestCount - maximumConcurrentWaiters
+        let workersReady = DispatchGroup()
+        let startWorkers = DispatchSemaphore(value: 0)
+        let allResponses = expectation(
+            description: "all reload_config responses"
+        )
+        allResponses.expectedFulfillmentCount =
+            requestCount
+        let responseCondition = NSCondition()
+        nonisolated(unsafe) var responses: [String] = []
+
+        for _ in 0..<requestCount {
+            workersReady.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                workersReady.leave()
+                startWorkers.wait()
+                let response =
+                    TerminalController.shared.handleSocketLine(
+                        "reload_config"
+                    )
+                responseCondition.lock()
+                responses.append(response)
+                responseCondition.broadcast()
+                responseCondition.unlock()
+                allResponses.fulfill()
+            }
+        }
+
+        XCTAssertEqual(
+            workersReady.wait(
+                timeout: .now() + 2
+            ),
+            .success
+        )
+        for _ in 0..<requestCount {
+            startWorkers.signal()
+        }
+
+        responseCondition.lock()
+        let admissionDeadline =
+            Date().addingTimeInterval(1)
+        while responses.count < expectedBusyResponses,
+              responseCondition.wait(
+                until: admissionDeadline
+              ) {}
+        let admissionResponses = responses
+        responseCondition.unlock()
+
+        XCTAssertEqual(
+            admissionResponses.count,
+            expectedBusyResponses,
+            "Excess reload callers must receive backpressure without waiting for the main-actor reload"
+        )
+        XCTAssertTrue(
+            admissionResponses.allSatisfy {
+                $0 == "ERROR: reload_config busy"
+            }
+        )
+
+        wait(for: [allResponses], timeout: 5)
+        responseCondition.lock()
+        let finalResponses = responses
+        responseCondition.unlock()
+        XCTAssertEqual(
+            finalResponses.filter {
+                $0 == "OK Reloaded config"
+            }.count,
+            maximumConcurrentWaiters
+        )
+        XCTAssertEqual(
+            finalResponses.filter {
+                $0 == "ERROR: reload_config busy"
+            }.count,
+            expectedBusyResponses
+        )
+    }
+
     func testConfigurationFontReconcilerLateWorkCannotExtendCapture() {
         let scheduler =
             ManualTerminalFontConfigurationReloadScheduler()
