@@ -215,41 +215,10 @@ extension MobileShellComposite {
             marker: marker
         )
         mobileIrohReleaseGateProbeLog.info("probe stage=artifact_prepare state=begin")
-        var terminalIterator = terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
         await submitTerminalRawInput(
             Data(artifactPreparation.command.utf8),
             surfaceID: surfaceID
         )
-        let artifactCompletionMarker = Data(artifactPreparation.completionMarker.utf8)
-        var terminalBytes = Data()
-        var sawArtifactCompletion = false
-        while let chunk = await terminalIterator.next() {
-            terminalOutputDidProcess(
-                surfaceID: surfaceID,
-                streamToken: chunk.streamToken
-            )
-            terminalBytes.append(chunk.data)
-            if terminalBytes.range(of: artifactCompletionMarker) != nil {
-                sawArtifactCompletion = true
-                break
-            }
-            if terminalBytes.count > 65_536 {
-                terminalBytes.removeFirst(terminalBytes.count - 65_536)
-            }
-        }
-        guard sawArtifactCompletion else {
-            await cleanUpRelayRolloverPreparation(
-                client: client,
-                streamID: streamID,
-                artifactPath: artifactPath,
-                surfaceID: surfaceID
-            )
-            mobileIrohReleaseGateProbeLog.error(
-                "probe stage=artifact_prepare state=failed reason=command_not_completed"
-            )
-            throw MobileIrohReleaseGateProbeFailure.artifactCommandNotCompleted
-        }
-        mobileIrohReleaseGateProbeLog.info("probe stage=artifact_prepare state=completed")
 
         mobileIrohReleaseGateProbeLog.info("probe stage=artifact_readiness state=begin")
         let readiness: ArtifactReadiness
@@ -301,6 +270,7 @@ extension MobileShellComposite {
             )
             throw MobileIrohReleaseGateProbeFailure.artifactStatSizeMismatch
         }
+        mobileIrohReleaseGateProbeLog.info("probe stage=artifact_prepare state=completed")
         let descriptorData: Data
         do {
             let descriptorRequest = try MobileCoreRPCClient.requestData(
@@ -410,25 +380,25 @@ extension MobileShellComposite {
             }
 
             let postMarker = "\(marker)_POST_ROLLOVER"
+            let postMarkerProbe = MobileIrohReleaseGateRenderGridProbe(
+                surfaceID: surfaceID,
+                marker: postMarker
+            )
+            var postMarkerIterator = await client.subscribe(
+                to: ["terminal.render_grid"]
+            ).makeAsyncIterator()
+            let postTerminalProbe = MobileIrohReleaseGateTerminalProbe(
+                marker: postMarker
+            )
             await submitTerminalRawInput(
-                Data("printf '\\n%s\\n' '\(postMarker)'\n".utf8),
+                postTerminalProbe.command,
                 surfaceID: surfaceID
             )
-            let postMarkerData = Data(postMarker.utf8)
-            terminalBytes.removeAll(keepingCapacity: true)
             var sawPostMarker = false
-            while let chunk = await terminalIterator.next() {
-                terminalOutputDidProcess(
-                    surfaceID: surfaceID,
-                    streamToken: chunk.streamToken
-                )
-                terminalBytes.append(chunk.data)
-                if terminalBytes.range(of: postMarkerData) != nil {
+            while let event = await postMarkerIterator.next() {
+                if postMarkerProbe.consume(event) {
                     sawPostMarker = true
                     break
-                }
-                if terminalBytes.count > 65_536 {
-                    terminalBytes.removeFirst(terminalBytes.count - 65_536)
                 }
             }
             guard sawPostMarker else {

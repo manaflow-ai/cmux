@@ -66,7 +66,7 @@ struct MobileIrohReleaseGateTerminalProbeTests {
             payloadJSON: try JSONEncoder().encode(frame),
             streamID: nil
         )
-        var probe = MobileIrohReleaseGateRenderGridProbe(
+        let probe = MobileIrohReleaseGateRenderGridProbe(
             surfaceID: surfaceID,
             marker: marker
         )
