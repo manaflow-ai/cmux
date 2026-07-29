@@ -160,6 +160,46 @@ struct AgentHibernationTrackingLifecycleTests {
         expectTrackingWasDiscarded(for: key, controller: controller)
     }
 
+    @Test
+    func permanentPanelCloseCancelsCommittedTerminationObservation() async {
+        let controller = AgentHibernationController.shared
+        let panel = TerminalPanel(workspaceId: UUID())
+        let identity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 1
+        )
+        let exitEvents = AsyncStream<Void>.makeStream()
+        var didCompleteHibernation = false
+        controller.observeCommittedTermination(
+            panelID: panel.id,
+            terminations: [
+                .init(
+                    processID: 101,
+                    processIdentity: identity,
+                    processGroupID: 1
+                ),
+            ],
+            waitForExit: { _ in
+                for await _ in exitEvents.stream {}
+                return true
+            },
+            onExit: {
+                didCompleteHibernation = true
+            }
+        )
+        let observationTask = controller
+            .committedTerminationObservationsByPanelID[panel.id]?
+            .task
+
+        panel.close()
+        exitEvents.continuation.finish()
+        await observationTask?.value
+
+        #expect(controller.committedTerminationObservationsByPanelID[panel.id] == nil)
+        #expect(!didCompleteHibernation)
+    }
+
     private func expectTrackingWasDiscarded(
         for key: AgentHibernationPanelKey,
         controller: AgentHibernationController

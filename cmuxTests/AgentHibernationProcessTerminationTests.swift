@@ -127,7 +127,7 @@ struct AgentHibernationProcessTerminationTests {
 
     @MainActor
     @Test
-    func terminationDoesNotCompleteUntilTheExactProcessGenerationExits() async {
+    func committedObservationDoesNotCompleteUntilTheExactProcessGenerationExits() async {
         let identity = AgentPIDProcessIdentity(
             pid: 101,
             startSeconds: 10,
@@ -140,41 +140,39 @@ struct AgentHibernationProcessTerminationTests {
         )
         let waitStarted = AsyncStream<Void>.makeStream()
         let allowExit = AsyncStream<Void>.makeStream()
-        let completion = CompletionRecorder()
-        let task = Task { @MainActor in
-            let result = await AgentHibernationController.shared
-                .terminateScopedProcessesForHibernation(
-                    [termination],
-                    currentProcessID: 999,
-                    currentProcessGroupID: 999,
-                    processIdentityProvider: { _ in identity },
-                    processGroupProvider: { _ in 1 },
-                    signalErrorProvider: { _, _ in nil },
-                    waitForExit: { _ in
-                        waitStarted.continuation.yield()
-                        for await _ in allowExit.stream {
-                            break
-                        }
-                        return true
-                    }
-                )
-            await completion.record(result)
-        }
+        let controller = AgentHibernationController.shared
+        let panelID = UUID()
+        var didComplete = false
+        controller.observeCommittedTermination(
+            panelID: panelID,
+            terminations: [termination],
+            waitForExit: { _ in
+                waitStarted.continuation.yield()
+                for await _ in allowExit.stream {
+                    break
+                }
+                return true
+            },
+            onExit: {
+                didComplete = true
+            }
+        )
+        let task = controller.committedTerminationObservationsByPanelID[panelID]?.task
         var waitStartedIterator = waitStarted.stream.makeAsyncIterator()
         _ = await waitStartedIterator.next()
 
-        #expect(await completion.value == nil)
+        #expect(!didComplete)
 
         allowExit.continuation.yield()
         allowExit.continuation.finish()
-        await task.value
-        #expect(await completion.value == true)
+        await task?.value
+        #expect(didComplete)
         waitStarted.continuation.finish()
     }
 
     @MainActor
     @Test
-    func signalFailureOtherThanMissingProcessAbortsBeforeExitWait() async {
+    func signalFailureOtherThanMissingProcessAbortsBeforeCommit() {
         let identity = AgentPIDProcessIdentity(
             pid: 101,
             startSeconds: 10,
@@ -186,21 +184,17 @@ struct AgentHibernationProcessTerminationTests {
             processGroupID: 1
         )
 
-        let result = await AgentHibernationController.shared
+        let result = AgentHibernationController.shared
             .terminateScopedProcessesForHibernation(
                 [termination],
                 currentProcessID: 999,
                 currentProcessGroupID: 999,
                 processIdentityProvider: { _ in identity },
                 processGroupProvider: { _ in 1 },
-                signalErrorProvider: { _, _ in EPERM },
-                waitForExit: { _ in
-                    Issue.record("Exit wait must not begin after a failed SIGTERM")
-                    return true
-                }
+                signalErrorProvider: { _, _ in EPERM }
             )
 
-        #expect(result == false)
+        #expect(result == .rejected)
     }
 
     @MainActor
@@ -230,7 +224,8 @@ struct AgentHibernationProcessTerminationTests {
         ]
         let waitRecorder = CompletionRecorder()
 
-        let result = await AgentHibernationController.shared
+        let controller = AgentHibernationController.shared
+        let result = controller
             .terminateScopedProcessesForHibernation(
                 terminations,
                 currentProcessID: 999,
@@ -241,15 +236,123 @@ struct AgentHibernationProcessTerminationTests {
                 processGroupProvider: { _ in 1 },
                 signalErrorProvider: { target, _ in
                     target == 101 ? nil : EPERM
-                },
-                waitForExit: { observedTerminations in
-                    await waitRecorder.record(observedTerminations == terminations)
-                    return observedTerminations == terminations
                 }
             )
-
+        let panelID = UUID()
+        controller.observeCommittedTermination(
+            panelID: panelID,
+            terminations: terminations,
+            waitForExit: { observedTerminations in
+                await waitRecorder.record(observedTerminations == terminations)
+                return observedTerminations == terminations
+            },
+            onExit: {}
+        )
+        let observationTask = controller
+            .committedTerminationObservationsByPanelID[panelID]?
+            .task
+        await observationTask?.value
         #expect(await waitRecorder.value == true)
-        #expect(result)
+        #expect(result == .committedAwaitingExit)
+    }
+
+    @MainActor
+    @Test
+    func resumeStaysUnavailableUntilCommittedTerminationCompletes() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .custom("test-agent"),
+            sessionId: "committed-hibernation",
+            workingDirectory: "/tmp",
+            launchCommand: nil
+        )
+
+        panel.beginAgentHibernationTermination(
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 1)
+        )
+
+        #expect(panel.isAgentHibernated)
+        #expect(panel.isAgentHibernationTerminating)
+        #expect(panel.prepareAgentHibernationResume() == .unavailable)
+
+        panel.completeAgentHibernationTermination()
+
+        #expect(!panel.isAgentHibernationTerminating)
+        #expect(panel.prepareAgentHibernationResume() == .resumed(queuedStartupInput: false))
+        #expect(!panel.isAgentHibernated)
+    }
+
+    @MainActor
+    @Test
+    func exitDeadlineDoesNotBlockLaterWorkWhileCommittedPanelAwaitsExit() async {
+        let identity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 1
+        )
+        let termination = AgentHibernationController.ScopedProcessTermination(
+            processID: 101,
+            processIdentity: identity,
+            processGroupID: 1
+        )
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .custom("test-agent"),
+            sessionId: "eventual-exit-hibernation",
+            workingDirectory: "/tmp",
+            launchCommand: nil
+        )
+        let eventualWaitStarted = AsyncStream<Void>.makeStream()
+        let allowEventualExit = AsyncStream<Void>.makeStream()
+        let controller = AgentHibernationController.shared
+        let result = controller.terminateScopedProcessesForHibernation(
+            [termination],
+            onTeardownCommit: {
+                panel.beginAgentHibernationTermination(
+                    agent: agent,
+                    lastActivityAt: Date(timeIntervalSince1970: 1)
+                )
+            },
+            currentProcessID: 999,
+            currentProcessGroupID: 999,
+            processIdentityProvider: { _ in identity },
+            processGroupProvider: { _ in 1 },
+            signalErrorProvider: { _, _ in nil }
+        )
+        #expect(result == .committedAwaitingExit)
+        controller.observeCommittedTermination(
+            panelID: panel.id,
+            terminations: [termination],
+            waitForExit: { _ in
+                eventualWaitStarted.continuation.yield()
+                for await _ in allowEventualExit.stream {
+                    break
+                }
+                return true
+            },
+            onExit: {
+                panel.completeAgentHibernationTermination()
+            }
+        )
+        let observationTask = controller
+            .committedTerminationObservationsByPanelID[panel.id]?
+            .task
+        var eventualWaitStartedIterator = eventualWaitStarted.stream.makeAsyncIterator()
+        _ = await eventualWaitStartedIterator.next()
+
+        #expect(panel.isAgentHibernationTerminating)
+        #expect(panel.prepareAgentHibernationResume() == .unavailable)
+
+        allowEventualExit.continuation.yield()
+        allowEventualExit.continuation.finish()
+        await observationTask?.value
+
+        #expect(!panel.isAgentHibernationTerminating)
+        #expect(panel.isAgentHibernated)
+        eventualWaitStarted.continuation.finish()
     }
 
     @Test
@@ -265,7 +368,8 @@ struct AgentHibernationProcessTerminationTests {
             startMicroseconds: 0
         )
 
-        let didExit = await AgentHibernationController.waitForExactProcessGenerationsToExit(
+        let didExit = await AgentHibernationController
+            .waitForExactProcessGenerationsToExitWithoutTimeout(
             [
                 .init(
                     processID: 101,
@@ -273,7 +377,6 @@ struct AgentHibernationProcessTerminationTests {
                     processGroupID: 1
                 ),
             ],
-            timeout: .zero,
             processIdentityProvider: { _ in reusedIdentity }
         )
 

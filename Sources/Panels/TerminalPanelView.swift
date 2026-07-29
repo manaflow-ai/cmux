@@ -35,10 +35,15 @@ struct TerminalPanelView: View {
     let onTriggerFlash: () -> Void
 
     var body: some View {
-        if let hibernationState = panel.agentHibernationState {
-            hibernationBody(hibernationState)
-        } else {
+        switch panel.agentHibernationPhase {
+        case .live:
             terminalBody
+        case .terminating:
+            Color(nsColor: appearance.contentBackgroundColor)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .id("hibernation-terminating-\(panel.id.uuidString)")
+        case .hibernated(let hibernationState):
+            hibernationBody(hibernationState)
         }
     }
 

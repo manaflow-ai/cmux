@@ -2,6 +2,7 @@ import Foundation
 
 extension AgentHibernationController {
     func discardTrackingStateForClosedPanel(workspaceId: UUID, panelId: UUID) {
+        committedTerminationObservationsByPanelID.removeValue(forKey: panelId)?.task.cancel()
         let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
         activityByPanel.removeValue(forKey: key)
         terminalInputByPanel.removeValue(forKey: key)

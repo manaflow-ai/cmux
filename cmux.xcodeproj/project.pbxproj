@@ -61,11 +61,13 @@
 		F65760030000000000000001 /* AgentHibernationController+Records.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760030000000000000002 /* AgentHibernationController+Records.swift */; };
 		F65760140000000000000001 /* AgentHibernationController+TailFingerprintSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760140000000000000002 /* AgentHibernationController+TailFingerprintSample.swift */; };
 		F65760060000000000000001 /* AgentHibernationController+Teardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760060000000000000002 /* AgentHibernationController+Teardown.swift */; };
+		8997E0018997E0018997E001 /* AgentHibernationController+TeardownValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0018997F0018997F001 /* AgentHibernationController+TeardownValidation.swift */; };
 		F65760150000000000000001 /* AgentHibernationController+UnableToProtectMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */; };
 		D36A00010000000000000001 /* AgentHibernationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00010000000000000002 /* AgentHibernationController.swift */; };
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		8997C0028997C0028997C002 /* AgentHibernationMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */; };
+		8997E0028997E0028997E002 /* AgentHibernationPanelPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0028997F0028997F002 /* AgentHibernationPanelPhase.swift */; };
 		F65760160000000000000001 /* AgentHibernationPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760160000000000000002 /* AgentHibernationPlanner.swift */; };
 		F65760170000000000000001 /* AgentHibernationPlannerInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760170000000000000002 /* AgentHibernationPlannerInput.swift */; };
 		F65760010000000000000001 /* AgentHibernationPlannerSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */; };
@@ -878,6 +880,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */; };
 		DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000A004 /* DockSplitStore+Config.swift */; };
 		DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */; };
+		8997E0038997E0038997E003 /* DockSplitStore+PanelDestruction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0038997F0038997F003 /* DockSplitStore+PanelDestruction.swift */; };
 		DCDC1000000000000000C040 /* DockSplitStore+PortalDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C041 /* DockSplitStore+PortalDrop.swift */; };
 		D77800020000000000000001 /* DockSplitStore+PortalReconcile.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77800020000000000000002 /* DockSplitStore+PortalReconcile.swift */; };
 		D86840000000000000000011 /* DockSplitStore+Reset.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000012 /* DockSplitStore+Reset.swift */; };
@@ -2137,6 +2140,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		0A110711000000000000001E /* TerminalOutputTeeContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A110711000000000000001F /* TerminalOutputTeeContext.swift */; };
 		C71500060000000000000001 /* TerminalPaneBackgroundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71500050000000000000001 /* TerminalPaneBackgroundView.swift */; };
 		D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */; };
+		8997E0048997E0048997E004 /* TerminalPanel+AgentHibernation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */; };
 		A5F100000000000000000007 /* TerminalPanel+NotificationScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */; };
 		791101010000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */; };
 		A5001401 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001411 /* TerminalPanel.swift */; };
@@ -2554,10 +2558,12 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F65760030000000000000002 /* AgentHibernationController+Records.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Records.swift"; sourceTree = "<group>"; };
 		F65760140000000000000002 /* AgentHibernationController+TailFingerprintSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+TailFingerprintSample.swift"; sourceTree = "<group>"; };
 		F65760060000000000000002 /* AgentHibernationController+Teardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Teardown.swift"; sourceTree = "<group>"; };
+		8997F0018997F0018997F001 /* AgentHibernationController+TeardownValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+TeardownValidation.swift"; sourceTree = "<group>"; };
 		F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+UnableToProtectMarker.swift"; sourceTree = "<group>"; };
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
 		8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationMemoryPressureResponder.swift; sourceTree = "<group>"; };
+		8997F0028997F0028997F002 /* AgentHibernationPanelPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationPanelPhase.swift; sourceTree = "<group>"; };
 		F65760160000000000000002 /* AgentHibernationPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationPlanner.swift"; sourceTree = "<group>"; };
 		F65760170000000000000002 /* AgentHibernationPlannerInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationPlannerInput.swift"; sourceTree = "<group>"; };
 		F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationPlannerSwiftTests.swift; sourceTree = "<group>"; };
@@ -3299,6 +3305,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+CloseConfirmation.swift"; sourceTree = "<group>"; };
 		DCDC0000000000000000A004 /* DockSplitStore+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Config.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PaneFocus.swift"; sourceTree = "<group>"; };
+		8997F0038997F0038997F003 /* DockSplitStore+PanelDestruction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PanelDestruction.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C041 /* DockSplitStore+PortalDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PortalDrop.swift"; sourceTree = "<group>"; };
 		D77800020000000000000002 /* DockSplitStore+PortalReconcile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PortalReconcile.swift"; sourceTree = "<group>"; };
 		D86840000000000000000012 /* DockSplitStore+Reset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Reset.swift"; sourceTree = "<group>"; };
@@ -4538,6 +4545,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		0A110711000000000000001F /* TerminalOutputTeeContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOutputTeeContext.swift; sourceTree = "<group>"; };
 		C71500050000000000000001 /* TerminalPaneBackgroundView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneBackgroundView.swift; sourceTree = "<group>"; };
 		D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneDropTargetView.swift; sourceTree = "<group>"; };
+		8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+AgentHibernation.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+NotificationScroll.swift"; sourceTree = "<group>"; };
 		791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+SessionScrollbackReplay.swift"; sourceTree = "<group>"; };
 		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanel.swift; sourceTree = "<group>"; };
@@ -5311,6 +5319,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F65760260000000000000002 /* AgentHibernationController+PostTeardownRestoreCancellationState.swift */,
 				8997D0038997D0038997D003 /* AgentHibernationController+ProcessTermination.swift */,
 				8997D0068997D0068997D006 /* AgentHibernationController+PanelLifecycle.swift */,
+				8997F0018997F0018997F001 /* AgentHibernationController+TeardownValidation.swift */,
 				F65760030000000000000002 /* AgentHibernationController+Records.swift */,
 				F65760140000000000000002 /* AgentHibernationController+TailFingerprintSample.swift */,
 				F65760060000000000000002 /* AgentHibernationController+Teardown.swift */,
@@ -5728,6 +5737,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				0A1107110000000000000021 /* VaultAgentProcessScanner+Ollama.swift */,
 				0A1107110000000000000023 /* SessionRestorableAgentSnapshot+Commands.swift */,
 				D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */,
+				8997F0028997F0028997F002 /* AgentHibernationPanelPhase.swift */,
 				F0ACC0E0000000000000002 /* CachedAgentProcessIdentityValidator.swift */,
 				B3575000000000000000000B /* SessionIndexModels.swift */,
 				F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */,
@@ -6071,6 +6081,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C54860060000000000000002 /* PanelStableSurfaceIdentity.swift */,
 				A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */,
 				A5001411 /* TerminalPanel.swift */,
+				8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */,
 				791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */,
 				A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */,
 				C0DE5A410000000000000002 /* TerminalPanelShellActivityModel.swift */,
@@ -6573,6 +6584,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D8684000000000000000000E /* DockSplitStore+SurfaceResume.swift */,
 				D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */,
 				D86840000000000000000012 /* DockSplitStore+Reset.swift */,
+				8997F0038997F0038997F003 /* DockSplitStore+PanelDestruction.swift */,
 				DCDC1000000000000000B00E /* DockSurfaceKind.swift */,
 				DCDC1000000000000000B010 /* DockTrustRequest.swift */,
 				D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */,
@@ -7896,10 +7908,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F65760030000000000000001 /* AgentHibernationController+Records.swift in Sources */,
 				F65760140000000000000001 /* AgentHibernationController+TailFingerprintSample.swift in Sources */,
 				F65760060000000000000001 /* AgentHibernationController+Teardown.swift in Sources */,
+				8997E0018997E0018997E001 /* AgentHibernationController+TeardownValidation.swift in Sources */,
 				F65760150000000000000001 /* AgentHibernationController+UnableToProtectMarker.swift in Sources */,
 				D36A00010000000000000001 /* AgentHibernationController.swift in Sources */,
 				D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */,
 				8997C0028997C0028997C002 /* AgentHibernationMemoryPressureResponder.swift in Sources */,
+				8997E0028997E0028997E002 /* AgentHibernationPanelPhase.swift in Sources */,
 				F65760160000000000000001 /* AgentHibernationPlanner.swift in Sources */,
 				F65760170000000000000001 /* AgentHibernationPlannerInput.swift in Sources */,
 				F65760090000000000000001 /* AgentHibernationTranscriptGuard+ClaudeWorkflow.swift in Sources */,
@@ -8314,6 +8328,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */,
 				DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */,
 				DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */,
+				8997E0038997E0038997E003 /* DockSplitStore+PanelDestruction.swift in Sources */,
 				DCDC1000000000000000C040 /* DockSplitStore+PortalDrop.swift in Sources */,
 				D77800020000000000000001 /* DockSplitStore+PortalReconcile.swift in Sources */,
 				D86840000000000000000011 /* DockSplitStore+Reset.swift in Sources */,
@@ -9179,6 +9194,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				0A110711000000000000001E /* TerminalOutputTeeContext.swift in Sources */,
 				C71500060000000000000001 /* TerminalPaneBackgroundView.swift in Sources */,
 				D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */,
+				8997E0048997E0048997E004 /* TerminalPanel+AgentHibernation.swift in Sources */,
 				A5F100000000000000000007 /* TerminalPanel+NotificationScroll.swift in Sources */,
 				791101010000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift in Sources */,
 				A5001401 /* TerminalPanel.swift in Sources */,

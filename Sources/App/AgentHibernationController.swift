@@ -40,6 +40,7 @@ final class AgentHibernationController {
     var postSnapshotValidationIndexSequence: UInt64 = 0
     var postSnapshotValidationIndexTask: PostSnapshotValidationIndexTask?
     var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
+    var committedTerminationObservationsByPanelID: [UUID: CommittedTerminationObservation] = [:]
     var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
     var memoryPressureEvaluation: (id: UUID, task: Task<Void, Never>)?

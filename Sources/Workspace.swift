@@ -4756,7 +4756,7 @@ final class Workspace: Identifiable, ObservableObject {
         lastActivityAt: Date
     ) {
         guard let terminalPanel = panels[panelId] as? TerminalPanel,
-              !terminalPanel.isAgentHibernated else {
+              !terminalPanel.isAgentHibernated || terminalPanel.isAgentHibernationTerminating else {
             return
         }
         guard agent.resumeCommand != nil else { return }

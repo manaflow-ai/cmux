@@ -101,53 +101,15 @@ extension AgentHibernationController {
                       let scopedProcessTerminations = scopedProcessTerminationsByPanel[record.key] else {
                     continue
                 }
-                let currentAgent = record.workspace.restorableAgentForHibernation(
-                    panelId: record.key.panelId,
-                    index: postSnapshotIndex
-                )
-                let currentLifecycle = postSnapshotLifecycle(for: record, index: postSnapshotIndex)
-                let currentEffectiveLastActivityAt = postSnapshotEffectiveLastActivityAt(
-                    for: record,
-                    index: postSnapshotIndex
-                )
                 // Re-validate: the pane must still be exactly as confirmed. Any activity,
                 // process-set or scrollback change, visibility/protection change,
                 // hibernation, or surface loss during the hop aborts; a later evaluation
                 // can re-arm it if it is still idle.
-                guard (shouldProceed?() ?? true),
-                      AgentHibernationTrackingGate.isEnabled(),
-                      record.isStillOwnedByOriginalWorkspace,
-                      (
-                          request.trigger == .systemMemoryPressure ||
-                              !postSnapshotIndex.hasLiveProcess(
-                                  workspaceId: record.key.workspaceId,
-                                  panelId: record.key.panelId
-                              )
-                      ),
-                      postSnapshotIndex.processIDs(
-                          workspaceId: record.key.workspaceId,
-                          panelId: record.key.panelId
-                      ) == record.processIDs,
-                      postSnapshotIndex.processIdentities(
-                          workspaceId: record.key.workspaceId,
-                          panelId: record.key.panelId
-                      ) == record.processIdentities,
-                      TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
-                          TabManager.restorableAgentSnapshotFingerprint(record.agent),
-                      !record.terminalPanel.isAgentHibernated,
-                      record.terminalPanel.surface.hasLiveSurface,
-                      AppDelegate.shared?.agentHibernationPanelIsProtected(
-                          workspace: record.workspace,
-                          panelId: record.key.panelId
-                      ) == false,
-                      currentLifecycle.allowsHibernation,
-                      (self.terminalInputByPanel[record.key] ?? 0) <=
-                          (self.lifecycleChangeByPanel[record.key] ?? 0),
-                      self.teardownValidationGeneration == request.generation,
-                      (self.teardownValidationEpochByPanel[record.key] ?? 0) == request.epoch,
-                      let currentFingerprint = self.hibernationFingerprint(for: record),
-                      currentFingerprint == request.confirmationFingerprint,
-                      currentEffectiveLastActivityAt <= request.effectiveLastActivityAt else {
+                guard teardownIsStillSafe(
+                    request,
+                    index: postSnapshotIndex,
+                    shouldProceed: shouldProceed
+                ) else {
                     continue
                 }
 

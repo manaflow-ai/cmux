@@ -1,0 +1,26 @@
+import Bonsplit
+import Foundation
+
+extension DockSplitStore {
+    @discardableResult
+    func discardPanelOwnershipAndClose(panelId: UUID) -> (any Panel)? {
+        let tabIDs = surfaceIdToPanelId.compactMap { tabID, ownedPanelID in
+            ownedPanelID == panelId ? tabID : nil
+        }
+        for tabID in tabIDs {
+            surfaceIdToPanelId.removeValue(forKey: tabID)
+        }
+        panelCancellables[panelId]?.cancel()
+        panelCancellables.removeValue(forKey: panelId)
+        AppDelegate.shared?.notificationStore?.clearNotifications(
+            forTabId: workspaceId,
+            surfaceId: panelId
+        )
+        detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
+        clearSessionRestoreState(panelId: panelId)
+
+        guard let panel = panels.removeValue(forKey: panelId) else { return nil }
+        panel.close()
+        return panel
+    }
+}
