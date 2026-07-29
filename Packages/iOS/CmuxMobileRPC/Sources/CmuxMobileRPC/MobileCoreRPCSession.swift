@@ -11,7 +11,14 @@ actor MobileCoreRPCSession {
         case cancelled
     }
     typealias PendingContinuation = CheckedContinuation<PendingRequestSettlement, Never>
-    typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
+    typealias ConnectingTask = (
+        id: UUID,
+        lease: MobileRPCConnectAttemptLease?,
+        task: Task<any CmxByteTransport, any Error>,
+        cancellationClose: MobileRPCConnectCancellationClose,
+        waiters: Set<UUID>,
+        completed: Bool
+    )
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
     static let defaultCancelledWriteCompletionGraceNanoseconds: UInt64 = 250_000_000
@@ -146,8 +153,16 @@ actor MobileCoreRPCSession {
                 ) {
                     do {
                         let candidate = try await connecting.task.value
+                        if let cancellationCloseTask =
+                            connecting.cancellationClose.task {
+                            await cancellationCloseTask.value
+                        }
                         await candidate.close()
                     } catch {
+                        if let cancellationCloseTask =
+                            connecting.cancellationClose.task {
+                            await cancellationCloseTask.value
+                        }
                     }
                 }
             }
@@ -355,10 +370,12 @@ actor MobileCoreRPCSession {
         let connectionID: UUID
         let connectLease: MobileRPCConnectAttemptLease?
         let task: Task<any CmxByteTransport, any Error>
+        let cancellationClose: MobileRPCConnectCancellationClose
         if let existing = connectionTask {
             connectionID = existing.id
             connectLease = existing.lease
             task = existing.task
+            cancellationClose = existing.cancellationClose
             connectionTask?.waiters.insert(waiterID)
         } else {
             switch await connectAttemptRegistry.beginConnect(
@@ -431,6 +448,8 @@ actor MobileCoreRPCSession {
                 throw error
             }
             connectionID = UUID()
+            cancellationClose =
+                MobileRPCConnectCancellationClose()
             task = Task.detached {
                 do {
                     if let initialSessionPurpose,
@@ -443,9 +462,7 @@ actor MobileCoreRPCSession {
                     try await withTaskCancellationHandler {
                         try await candidate.connect()
                     } onCancel: {
-                        Task {
-                            await candidate.close()
-                        }
+                        cancellationClose.start(candidate)
                     }
                     // A cancellation-ignoring transport must still return its
                     // late candidate to the existing abandoned-connect cleanup
@@ -491,7 +508,14 @@ actor MobileCoreRPCSession {
                     throw error
                 }
             }
-            connectionTask = (id: connectionID, lease: connectLease, task: task, waiters: [waiterID], completed: false)
+            connectionTask = (
+                id: connectionID,
+                lease: connectLease,
+                task: task,
+                cancellationClose: cancellationClose,
+                waiters: [waiterID],
+                completed: false
+            )
             Task.detached { [weak self] in
                 _ = await task.result
                 await self?.markConnectingCompleted(id: connectionID)
@@ -644,11 +668,14 @@ actor MobileCoreRPCSession {
         connectionTask?.waiters.remove(waiterID)
         guard connectionTask?.waiters.isEmpty == true else { return }
         let lease = connectionTask?.lease
+        let cancellationClose = connectionTask?.cancellationClose
         if connectionTask?.completed == true {
             connectionTask = nil
             startAbandonedConnectionCleanup(
                 task: task,
                 lease: lease,
+                cancellationClose: cancellationClose
+                    ?? MobileRPCConnectCancellationClose(),
                 cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
                 lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
             )
@@ -659,6 +686,8 @@ actor MobileCoreRPCSession {
         startAbandonedConnectionCleanup(
             task: task,
             lease: lease,
+            cancellationClose: cancellationClose
+                ?? MobileRPCConnectCancellationClose(),
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )
@@ -670,11 +699,14 @@ actor MobileCoreRPCSession {
         connectionTask?.waiters.remove(waiterID)
         guard connectionTask?.waiters.isEmpty == true else { return }
         let lease = connectionTask?.lease
+        let cancellationClose = connectionTask?.cancellationClose
         if connectionTask?.completed == true {
             connectionTask = nil
             startAbandonedConnectionCleanup(
                 task: task,
                 lease: lease,
+                cancellationClose: cancellationClose
+                    ?? MobileRPCConnectCancellationClose(),
                 cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
                 lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
             )
@@ -685,6 +717,8 @@ actor MobileCoreRPCSession {
         startAbandonedConnectionCleanup(
             task: task,
             lease: lease,
+            cancellationClose: cancellationClose
+                ?? MobileRPCConnectCancellationClose(),
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )
@@ -697,6 +731,7 @@ actor MobileCoreRPCSession {
                 id: current.id,
                 lease: current.lease,
                 task: current.task,
+                cancellationClose: current.cancellationClose,
                 waiters: current.waiters,
                 completed: true
             )
