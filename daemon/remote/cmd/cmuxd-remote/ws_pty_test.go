@@ -100,6 +100,92 @@ func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 	}
 }
 
+func TestAttachRPCStalledSessionStartDoesNotBlockHealthyReattach(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	const healthySessionID = "healthy-session"
+	if _, _, _, err := hub.attachRPC(
+		context.Background(),
+		healthySessionID,
+		"initial-attachment",
+		80,
+		24,
+		"sleep 30",
+		"",
+		false,
+		false,
+	); err != nil {
+		t.Fatalf("start healthy session: %v", err)
+	}
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	stalledResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			context.Background(),
+			"stalled-session",
+			"stalled-attachment",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		stalledResult <- err
+	}()
+
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stalled session never attempted PTY allocation")
+	}
+
+	healthyResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			context.Background(),
+			healthySessionID,
+			"reattachment",
+			80,
+			24,
+			"",
+			"",
+			true,
+			false,
+		)
+		healthyResult <- err
+	}()
+
+	select {
+	case err := <-healthyResult:
+		if err != nil {
+			close(releaseStart)
+			<-stalledResult
+			t.Fatalf("reattach healthy session: %v", err)
+		}
+	case <-time.After(time.Second):
+		close(releaseStart)
+		<-stalledResult
+		<-healthyResult
+		t.Fatal("healthy reattach blocked behind another session's stalled PTY allocation")
+	}
+
+	close(releaseStart)
+	if err := <-stalledResult; err != nil {
+		t.Fatalf("finish formerly stalled session start: %v", err)
+	}
+}
+
 func TestServeWSRequiresExplicitLeaseFile(t *testing.T) {
 	var stderr bytes.Buffer
 	code := run([]string{"serve", "--ws", "--listen", "127.0.0.1:0"}, strings.NewReader(""), &bytes.Buffer{}, &stderr)
