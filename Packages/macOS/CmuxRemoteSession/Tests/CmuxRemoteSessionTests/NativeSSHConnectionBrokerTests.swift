@@ -264,6 +264,36 @@ struct NativeSSHConnectionBrokerTests {
         #expect(FileManager.default.fileExists(atPath: markerPath))
     }
 
+    @Test("Ownership-blocked cleanup exhausts its bounded retry budget")
+    func ownershipBlockedCleanupIsBounded() async {
+        let clock = ManualBrokerClock()
+        let ownershipRegistry =
+            CleanupBlockingNativeSSHControlMasterOwnershipRegistry()
+        let broker = NativeSSHConnectionBroker(
+            sharingOptions: sharingOptions,
+            clock: clock,
+            jitterMilliseconds: { 200 },
+            cleanupLauncher: nil,
+            controlMasterOwnershipRegistry: ownershipRegistry
+        )
+        let configuration = broker.retainWorkspace(configuration(
+            owner: UUID()
+        ))
+        var attempts = ownershipRegistry.cleanupAttempts.makeAsyncIterator()
+
+        broker.releaseWorkspace(configuration)
+        #expect(await attempts.next() == 1)
+
+        for expectedAttempt in 2...4 {
+            #expect(await clock.nextRequestedDelay() == 31_000)
+            await clock.resumeNextSleep()
+            #expect(await attempts.next() == expectedAttempt)
+        }
+
+        #expect(broker.pendingCleanupsByControlMaster.isEmpty)
+        #expect(broker.cleanupRetryTasks.isEmpty)
+    }
+
     @Test("Same-host attempts are FIFO and separated by bounded jitter")
     func sameHostAttemptsAreSerialized() async throws {
         let clock = ManualBrokerClock()

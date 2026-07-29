@@ -7,6 +7,7 @@ extension NativeSSHConnectionBroker {
     private static let cleanupProcessTimeoutMilliseconds = 5_000
     private static let cleanupForcedTerminationDelayMilliseconds = 1_000
     private static let cleanupRetryDelayMilliseconds = 31_000
+    private static let cleanupMaximumRetryCount = 3
 
     func removeLease(
         ownerWorkspaceID: UUID,
@@ -49,15 +50,19 @@ extension NativeSSHConnectionBroker {
     ) {
         if let cleanupLauncherOverride {
             cleanupLauncherOverride(request)
-            cleanupRequestsByControlMaster.removeValue(forKey: key)
+            pendingCleanupsByControlMaster.removeValue(forKey: key)
         } else {
-            cleanupRequestsByControlMaster[key] = request
+            pendingCleanupsByControlMaster[key] =
+                NativeSSHControlMasterPendingCleanup(
+                    request: request,
+                    retriesRemaining: Self.cleanupMaximumRetryCount
+                )
             launchCleanup(request, for: key)
         }
     }
 
     func cancelCleanup(for key: NativeSSHControlMasterKey) {
-        cleanupRequestsByControlMaster.removeValue(forKey: key)
+        pendingCleanupsByControlMaster.removeValue(forKey: key)
         cleanupRetryTasks.removeValue(forKey: key)?.cancel()
         guard let cleanupID = cleanupProcessIDByControlMaster[key],
               let process = cleanupProcesses[cleanupID],
@@ -72,7 +77,7 @@ extension NativeSSHConnectionBroker {
         _ request: NativeSSHControlMasterCleanupRequest,
         for key: NativeSSHControlMasterKey
     ) {
-        guard cleanupRequestsByControlMaster[key] != nil,
+        guard pendingCleanupsByControlMaster[key] != nil,
               ownersByControlMaster[key]?.isEmpty != false,
               cleanupProcessIDByControlMaster[key] == nil else {
             return
@@ -119,11 +124,16 @@ extension NativeSSHConnectionBroker {
     }
 
     private func scheduleCleanupRetry(for key: NativeSSHControlMasterKey) {
-        guard cleanupRequestsByControlMaster[key] != nil,
+        guard var pendingCleanup = pendingCleanupsByControlMaster[key],
               ownersByControlMaster[key]?.isEmpty != false,
               cleanupRetryTasks[key] == nil else {
             return
         }
+        guard pendingCleanup.consumeRetry() else {
+            pendingCleanupsByControlMaster.removeValue(forKey: key)
+            return
+        }
+        pendingCleanupsByControlMaster[key] = pendingCleanup
         let clock = self.clock
         cleanupRetryTasks[key] = Task { @MainActor [weak self] in
             guard (try? await clock.sleep(
@@ -138,12 +148,12 @@ extension NativeSSHConnectionBroker {
 
     private func retryCleanup(for key: NativeSSHControlMasterKey) {
         cleanupRetryTasks.removeValue(forKey: key)
-        guard let request = cleanupRequestsByControlMaster[key],
+        guard let pendingCleanup = pendingCleanupsByControlMaster[key],
               ownersByControlMaster[key]?.isEmpty != false else {
-            cleanupRequestsByControlMaster.removeValue(forKey: key)
+            pendingCleanupsByControlMaster.removeValue(forKey: key)
             return
         }
-        launchCleanup(request, for: key)
+        launchCleanup(pendingCleanup.request, for: key)
     }
 
     private func scheduleCleanupTimeout(
@@ -190,7 +200,7 @@ extension NativeSSHConnectionBroker {
         if cleanupProcessIDByControlMaster[key] == cleanupID {
             cleanupProcessIDByControlMaster.removeValue(forKey: key)
         }
-        guard cleanupRequestsByControlMaster[key] != nil,
+        guard pendingCleanupsByControlMaster[key] != nil,
               ownersByControlMaster[key]?.isEmpty != false else {
             return
         }
@@ -199,7 +209,7 @@ extension NativeSSHConnectionBroker {
             NativeSSHControlMasterCleanupRequest.retryExitStatus {
             scheduleCleanupRetry(for: key)
         } else {
-            cleanupRequestsByControlMaster.removeValue(forKey: key)
+            pendingCleanupsByControlMaster.removeValue(forKey: key)
         }
     }
 }

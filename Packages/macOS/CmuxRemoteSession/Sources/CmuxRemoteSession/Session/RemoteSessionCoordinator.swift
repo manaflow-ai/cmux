@@ -80,6 +80,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var daemonReady = false
     var daemonBootstrapVersion: String?
     var daemonRemotePath: String?
+    var readyDaemonStatus: WorkspaceRemoteDaemonStatus?
     var reverseRelayProcess: (any RemoteReverseRelayProcess)?
     var reverseRelayControlMasterForwardSpec: String?
     var resolvedControlMasterSSHOptions: [String]?
@@ -471,7 +472,16 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             capabilities: capabilities,
             remotePath: remotePath
         )
+        if state == .ready {
+            readyDaemonStatus = status
+        }
         host.publishDaemonStatus(status)
+    }
+
+    /// Re-publishes the daemon hello snapshot after relay recovery succeeds.
+    func restoreReadyDaemonStatusLocked() {
+        guard daemonReady, let readyDaemonStatus else { return }
+        host.publishDaemonStatus(readyDaemonStatus)
     }
 
     func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {

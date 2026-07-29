@@ -83,6 +83,7 @@ extension RemoteSessionCoordinator {
                     scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
                     return
                 }
+                restoreReadyDaemonStatusLocked()
                 recordHeartbeatActivityLocked()
                 debugLog(
                     "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
@@ -179,6 +180,7 @@ extension RemoteSessionCoordinator {
             scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
             return
         }
+        restoreReadyDaemonStatusLocked()
         recordHeartbeatActivityLocked()
         debugLog(
             "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +

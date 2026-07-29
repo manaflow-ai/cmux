@@ -22,8 +22,8 @@ public final class NativeSSHConnectionBroker {
     var ownerLeases: [UUID: [NativeSSHControlMasterKey: WorkspaceRemoteConfiguration]] = [:]
     var ownersByControlMaster: [NativeSSHControlMasterKey: Set<UUID>] = [:]
     var attemptStates: [NativeSSHConnectionKey: NativeSSHConnectionAttemptState] = [:]
-    var cleanupRequestsByControlMaster: [
-        NativeSSHControlMasterKey: NativeSSHControlMasterCleanupRequest
+    var pendingCleanupsByControlMaster: [
+        NativeSSHControlMasterKey: NativeSSHControlMasterPendingCleanup
     ] = [:]
     var cleanupRetryTasks: [NativeSSHControlMasterKey: Task<Void, Never>] = [:]
     var cleanupProcesses: [UUID: Process] = [:]
@@ -77,7 +77,8 @@ public final class NativeSSHConnectionBroker {
         sharingOptions: SSHConnectionSharingOptions,
         clock: any RemoteProxyRetryClock,
         jitterMilliseconds: @escaping @MainActor @Sendable () -> Int,
-        cleanupLauncher: @escaping @MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void,
+        cleanupLauncher:
+            (@MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void)?,
         controlMasterOwnershipRegistry:
             any NativeSSHControlMasterOwnershipTracking
     ) {

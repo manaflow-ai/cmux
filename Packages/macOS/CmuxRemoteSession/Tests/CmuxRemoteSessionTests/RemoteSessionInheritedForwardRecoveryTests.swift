@@ -208,37 +208,49 @@ struct RemoteSessionInheritedForwardRecoveryTests {
         let runner = InheritedForwardRecoveryProcessRunner(
             mode: .transientMetadataFailure
         )
+        let host = ReverseRelayRecoveryHost()
         let fixture = try await RemoteSessionReverseRelayStartupTests
-            .makeCoordinator(runner: runner)
+            .makeCoordinator(host: host, runner: runner)
         let coordinator = fixture.coordinator
         defer {
             try? FileManager.default.removeItem(
                 at: fixture.scratchDirectory
             )
         }
-        let forwardSpec = "127.0.0.1:64044:127.0.0.1:55001"
+        let readyStatus = WorkspaceRemoteDaemonStatus(
+            state: .ready,
+            detail: "Remote daemon ready",
+            version: "0.64.20",
+            name: "cmuxd-remote",
+            capabilities: ["reverse-relay"],
+            remotePath: "/tmp/cmuxd-remote"
+        )
 
-        let firstOutcome = coordinator.queue.sync {
-            coordinator.startReverseRelayViaControlMasterLocked(
-                forwardSpec: forwardSpec,
-                relayPort: 64_044
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.publishDaemonStatus(
+                readyStatus.state,
+                detail: readyStatus.detail,
+                version: readyStatus.version,
+                name: readyStatus.name,
+                capabilities: readyStatus.capabilities,
+                remotePath: readyStatus.remotePath
+            )
+            coordinator.startReverseRelayLocked(
+                remotePath: "/tmp/cmuxd-remote"
             )
         }
-        guard case .bindingConflict = firstOutcome else {
-            Issue.record("Expected the transient probe failure to fail closed")
-            return
-        }
-
-        let secondOutcome = coordinator.queue.sync {
-            coordinator.startReverseRelayViaControlMasterLocked(
-                forwardSpec: forwardSpec,
-                relayPort: 64_044
+        coordinator.queue.sync {
+            coordinator.startReverseRelayLocked(
+                remotePath: "/tmp/cmuxd-remote"
             )
         }
-        guard case .started = secondOutcome else {
-            Issue.record("Expected the next relay attempt to recover")
-            return
-        }
+
+        var statuses = host.daemonStatuses.makeAsyncIterator()
+        #expect(await statuses.next() == readyStatus)
+        #expect(await statuses.next()?.state == .error)
+        #expect(await statuses.next() == readyStatus)
 
         let requests = runner.requests
         #expect(
@@ -334,6 +346,7 @@ struct RemoteSessionInheritedForwardRecoveryTests {
         _ request: RemoteProcessRequest
     ) -> Bool {
         request.arguments.last?.contains("tr -d") == true &&
+            request.arguments.last?.contains("auth_file=") == true &&
             request.arguments.last?.contains(
                 "relay-startup-cancellation"
             ) == true
@@ -441,6 +454,7 @@ private final class InheritedForwardRecoveryProcessRunner:
         _ request: RemoteProcessRequest
     ) -> Bool {
         request.arguments.last?.contains("tr -d") == true &&
+            request.arguments.last?.contains("auth_file=") == true &&
             request.arguments.last?.contains(
                 "relay-startup-cancellation"
             ) == true
