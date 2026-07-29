@@ -30408,10 +30408,10 @@ export default CMUXSessionRestore;
             return
         }
 
-        // Explicit flags retain priority. Ambient env identities are claims:
-        // verify or correct them with the live process binding before persisting.
+        // Explicit flags retain priority; ambient env identities are claims to verify.
         // Grok strips CMUX_* from hooks, so live PID attribution is required.
         let inferredPID = agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID()
+        let processBindingPolicy: AgentProcessBindingResolution = def.name == "omp" ? .controllingTTY : .corroborated
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
@@ -30453,7 +30453,7 @@ export default CMUXSessionRestore;
         var processBindingCache: AgentHookProcessBindingResult?
         func processBindingResolution() -> AgentHookProcessBindingResult {
             if let processBindingCache { return processBindingCache }
-            let resolved = resolveAgentHookProcessBinding(pid: inferredPID, client: client)
+            let resolved = resolveAgentHookProcessBinding(pid: inferredPID, resolution: processBindingPolicy, client: client)
             processBindingCache = resolved
             return resolved
         }

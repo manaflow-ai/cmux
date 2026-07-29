@@ -187,34 +187,53 @@ struct CLIOmpHookBindingTests {
     func numericPIDWithoutGenerationDoesNotSupersedePriorSession() throws {
         let context = try Harness.makeContext(name: "omp-pid-generation")
         defer { context.cleanup() }
+        let priorSessionId = "generation-unknown"
+        let currentSessionId = "generation-known"
+        let storeURL = context.root.appendingPathComponent("omp-hook-sessions.json")
         try Self.writePriorSession(
-            to: context.storeURL,
-            sessionId: "generation-unknown",
+            to: storeURL,
+            sessionId: priorSessionId,
             workspaceId: Self.leakedWorkspaceId,
             surfaceId: Self.leakedSurfaceId,
             cwd: context.root.path,
             includeProcessGeneration: false
         )
-        let store = ClaudeHookSessionStore(
-            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path]
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.leakedWorkspaceId: [Self.leakedSurfaceId],
+                Self.liveWorkspaceId: [Self.liveSurfaceId],
+            ],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
         )
 
-        let superseded = try store.upsert(
-            sessionId: "generation-known",
-            workspaceId: Self.liveWorkspaceId,
-            surfaceId: Self.liveSurfaceId,
-            cwd: context.root.path,
-            pid: Self.ompPID,
-            supersedesSameProcessSession: true
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_WORKSPACE_ID"] = Self.leakedWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.leakedSurfaceId
+        environment["CMUX_OMP_PID"] = String(Self.ompPID)
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "omp"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/omp"
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/omp"])
+        environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "omp", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(currentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
 
-        #expect(superseded.isEmpty)
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
         let saved = try #require(
-            JSONSerialization.jsonObject(with: Data(contentsOf: context.storeURL)) as? [String: Any]
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
         )
         let sessions = try #require(saved["sessions"] as? [String: Any])
-        #expect(sessions["generation-unknown"] != nil)
-        #expect(sessions["generation-known"] != nil)
+        #expect(sessions[priorSessionId] != nil)
+        #expect(sessions[currentSessionId] != nil)
     }
 
     private static func writePriorSession(

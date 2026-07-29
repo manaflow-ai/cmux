@@ -402,7 +402,7 @@ mod.default({
     handlers.set(name, handler);
   }
 });
-for (const name of ["session_start", "before_agent_start", "agent_end"]) {
+for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown"]) {
   if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
 }
 process.argv.splice(
@@ -432,6 +432,7 @@ await handlers.get("agent_end")({
 }, ctx);
 const elapsed = Date.now() - start;
 if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
+await handlers.get("session_shutdown")({}, ctx);
 """
         check = subprocess.run(
             [bun, "--eval", check_source],

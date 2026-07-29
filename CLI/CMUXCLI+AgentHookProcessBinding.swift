@@ -51,8 +51,17 @@ extension CMUXCLI {
 
     func resolveAgentHookProcessBinding(
         pid: Int?,
+        resolution: AgentProcessBindingResolution,
         client: SocketClient
     ) -> AgentHookProcessBindingResult {
+        guard resolution == .controllingTTY else {
+            return AgentHookProcessBindingResult(
+                binding: uniqueCallerTerminalBindingByTTY(client: client)
+                    ?? resolveAgentProcessTerminalBinding(pid: pid, client: client),
+                rejectsAmbientClaim: false
+            )
+        }
+
         switch liveAgentControllingTTYBinding(pid: pid, client: client) {
         case .resolved(let binding):
             return AgentHookProcessBindingResult(binding: binding, rejectsAmbientClaim: false)

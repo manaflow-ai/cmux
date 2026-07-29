@@ -193,19 +193,25 @@ interface QueuedHook {
 
 const maxQueuedHooks = 16;
 const hookQueue: QueuedHook[] = [];
-let hookWorkerRunning = false;
+let hookWorker: Promise<void> | null = null;
 
 async function drainHookQueue(): Promise<void> {
-  if (hookWorkerRunning) return;
-  hookWorkerRunning = true;
-  try {
-    while (hookQueue.length > 0) {
-      const next = hookQueue.shift();
-      if (next) await runHook(next.invocation, next.subcommand);
-    }
-  } finally {
-    hookWorkerRunning = false;
+  while (hookQueue.length > 0) {
+    const next = hookQueue.shift();
+    if (next) await runHook(next.invocation, next.subcommand);
   }
+}
+
+function startHookWorker(): void {
+  if (hookWorker) return;
+  hookWorker = drainHookQueue().finally(() => {
+    hookWorker = null;
+    if (hookQueue.length > 0) startHookWorker();
+  });
+}
+
+async function awaitHookQueueDrain(): Promise<void> {
+  while (hookWorker) await hookWorker;
 }
 
 function enqueueHook(invocation: HookInvocation, subcommand: string): void {
@@ -224,7 +230,7 @@ function enqueueHook(invocation: HookInvocation, subcommand: string): void {
     }
     hookQueue.push({ invocation, subcommand });
   }
-  void drainHookQueue();
+  startHookWorker();
 }
 
 function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
@@ -245,6 +251,10 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
 
   api.on("agent_end", async (event, ctx) => {
     await sendHook("stop", ctx, { last_assistant_message: boundedHookText(lastAssistantMessage(event)) });
+  });
+
+  api.on("session_shutdown", async () => {
+    await awaitHookQueueDrain();
   });
 }
 """#
