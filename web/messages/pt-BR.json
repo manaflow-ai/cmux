@@ -957,7 +957,6 @@
         "terminal": {
           "sessionContentMaxWidth": "Largura máxima opcional, em pontos, para o conteúdo do terminal e do chat integrado do agente. Defina como false para usar toda a largura do painel.",
           "sessionContentAlignment": "Posicionamento horizontal do conteúdo do terminal e do chat integrado do agente quando sessionContentMaxWidth está ativado.",
-          "autoRetryAgentSessions": "Retoma automaticamente uma sessão de agente gerenciada quando o comando ativo termina com um status de erro diferente de zero e não causado por um sinal. As tentativas são limitadas e usam recuo exponencial; conclusões normais e encerramentos explícitos do usuário nunca são repetidos.",
           "copyOnSelect": "Quando true, copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada. Quando false, o cmux não emite uma substituição copy-on-select do Ghostty; a configuração e os padrões do Ghostty controlam o comportamento da área de transferência de seleção.",
           "scrollSpeed": "Multiplicador aplicado aos deslocamentos da roda de rolagem e do trackpad no terminal. Valores mais altos rolam mais rápido e os mais baixos, mais devagar.",
           "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
