@@ -2117,6 +2117,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F87910160000000000000001 /* TerminalFontSizeLineageSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910160000000000000002 /* TerminalFontSizeLineageSelection.swift */; };
 		851500000000000000000001 /* TerminalFontZoomSessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851500000000000000000002 /* TerminalFontZoomSessionPersistenceTests.swift */; };
 		A5FB1303 /* TerminalForegroundCommandCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1304 /* TerminalForegroundCommandCapture.swift */; };
+		C86270000000000000000001 /* TerminalHTMLFileBrowserAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C86270000000000000000002 /* TerminalHTMLFileBrowserAction.swift */; };
 		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
 		859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000006 /* TerminalLinkOpenContainer.swift */; };
 		859110000000000000000007 /* TerminalLinkOpenCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */; };
@@ -4568,6 +4569,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F87910160000000000000002 /* TerminalFontSizeLineageSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFontSizeLineageSelection.swift; sourceTree = "<group>"; };
 		851500000000000000000002 /* TerminalFontZoomSessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFontZoomSessionPersistenceTests.swift; sourceTree = "<group>"; };
 		A5FB1304 /* TerminalForegroundCommandCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalForegroundCommandCapture.swift; sourceTree = "<group>"; };
+		C86270000000000000000002 /* TerminalHTMLFileBrowserAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHTMLFileBrowserAction.swift; sourceTree = "<group>"; };
 		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
 		859110000000000000000006 /* TerminalLinkOpenContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenContainer.swift; sourceTree = "<group>"; };
 		859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenCoordinator.swift; sourceTree = "<group>"; };
@@ -5835,6 +5837,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				859110000000000000000004 /* DockSplitStore+TerminalLinkOpening.swift */,
 				859110000000000000000006 /* TerminalLinkOpenContainer.swift */,
 				859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */,
+				C86270000000000000000002 /* TerminalHTMLFileBrowserAction.swift */,
 				85911000000000000000000A /* TerminalLinkOpenRequest.swift */,
 				D86862000000000000000002 /* TerminalWorkingDirectoryResolver.swift */,
 				85911000000000000000000C /* Workspace+TerminalLinkOpening.swift */,
@@ -9319,6 +9322,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F87910150000000000000001 /* TerminalFontSizeChangeInheritanceContext.swift in Sources */,
 				F87910160000000000000001 /* TerminalFontSizeLineageSelection.swift in Sources */,
 				A5FB1303 /* TerminalForegroundCommandCapture.swift in Sources */,
+				C86270000000000000000001 /* TerminalHTMLFileBrowserAction.swift in Sources */,
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
 				859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */,
 				859110000000000000000007 /* TerminalLinkOpenCoordinator.swift in Sources */,
