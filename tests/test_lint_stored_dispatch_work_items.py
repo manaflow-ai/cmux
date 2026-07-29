@@ -29,6 +29,8 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                 var annotated: DispatchWorkItem?
                 var multiline:
                     [String: DispatchWorkItem] = [:]
+                var generic:
+                    Wrapper<DispatchWorkItem>
                 var inferred = DispatchWorkItem {}
                 var inferredArray = [DispatchWorkItem]()
             }
@@ -40,6 +42,7 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
             [
                 ("annotated", "DispatchWorkItem?"),
                 ("multiline", "[String:DispatchWorkItem]"),
+                ("generic", "Wrapper<DispatchWorkItem>"),
                 ("inferred", "<inferred:DispatchWorkItem>"),
                 ("inferredArray", "<inferred:[DispatchWorkItem]>"),
             ],
@@ -80,6 +83,67 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                 ("member", "member:Owner"),
                 ("local", "local:Owner.schedule"),
             ],
+        )
+
+    def test_comparison_initializer_does_not_consume_following_declaration(self) -> None:
+        declarations = self.scan(
+            """
+            final class Owner {
+                var isLarge = count < limit
+                var timeout: DispatchWorkItem?
+            }
+            """
+        )
+
+        self.assertEqual(
+            [(item.name, item.type_text) for item in declarations],
+            [("timeout", "DispatchWorkItem?")],
+        )
+
+    def test_inferred_dictionary_colon_is_not_a_type_annotation(self) -> None:
+        declarations = self.scan(
+            """
+            final class Owner {
+                var workByName = ["refresh": DispatchWorkItem {}]
+            }
+            """
+        )
+
+        self.assertEqual(
+            [(item.name, item.type_text) for item in declarations],
+            [("workByName", "<inferred:[DispatchWorkItem]>")],
+        )
+
+    def test_allowance_comparison_rejects_changed_ownership_and_stale_entries(self) -> None:
+        allowance = LINT.Allowance(
+            "Sources/Fixture.swift",
+            "timeout",
+            "DispatchWorkItem?",
+            "local:Owner.schedule",
+            1,
+            "fixture",
+        )
+        moved_to_member = LINT.Declaration(
+            "Sources/Fixture.swift",
+            "timeout",
+            "DispatchWorkItem?",
+            "member:Owner",
+            1,
+        )
+
+        unexpected, stale = LINT.compare_allowances([moved_to_member], (allowance,))
+
+        self.assertEqual(unexpected, {moved_to_member.key: 1})
+        self.assertEqual(
+            stale,
+            {
+                (
+                    allowance.path,
+                    allowance.name,
+                    allowance.type_text,
+                    allowance.context,
+                ): 1
+            },
         )
 
 

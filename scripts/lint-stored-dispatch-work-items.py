@@ -13,6 +13,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCES_ROOT = REPO_ROOT / "Sources"
 TYPE_DECLARATIONS = {"actor", "class", "enum", "extension", "protocol", "struct"}
 CALLABLE_DECLARATIONS = {"deinit", "func", "init", "subscript"}
+STATEMENT_STARTERS = {
+    "actor",
+    "class",
+    "enum",
+    "extension",
+    "func",
+    "let",
+    "protocol",
+    "struct",
+    "var",
+}
 
 
 @dataclass(frozen=True)
@@ -252,7 +263,9 @@ def _declaration_end(tokens: list[Token], start: int) -> int:
     bracket_depth = 0
     angle_depth = 0
     saw_annotation_or_initializer = False
+    is_type_annotation = False
     previous_value = ""
+    previous_was_newline = False
     index = start
     while index < len(tokens):
         token = tokens[index]
@@ -271,14 +284,61 @@ def _declaration_end(tokens: list[Token], start: int) -> int:
                 return index
             if not saw_annotation_or_initializer:
                 return index
+            previous_was_newline = True
             index += 1
             continue
+        if (
+            previous_was_newline
+            and value in STATEMENT_STARTERS
+            and paren_depth == bracket_depth == 0
+        ):
+            return index
         if value == ";" and paren_depth == bracket_depth == angle_depth == 0:
             return index
         if value == "{" and paren_depth == bracket_depth == angle_depth == 0:
             return index
-        if value in {":", "="} and paren_depth == bracket_depth == angle_depth == 0:
+        if value == "}" and paren_depth == bracket_depth == 0:
+            return index
+        if value == ":" and paren_depth == bracket_depth == angle_depth == 0:
             saw_annotation_or_initializer = True
+            is_type_annotation = True
+        elif value == "=" and paren_depth == bracket_depth == angle_depth == 0:
+            saw_annotation_or_initializer = True
+            is_type_annotation = False
+        if value == "(":
+            paren_depth += 1
+        elif value == ")":
+            paren_depth = max(0, paren_depth - 1)
+        elif value == "[":
+            bracket_depth += 1
+        elif value == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif value == "<" and is_type_annotation:
+            angle_depth += 1
+        elif value == ">" and angle_depth:
+            angle_depth -= 1
+        previous_value = value
+        previous_was_newline = False
+        index += 1
+    return index
+
+
+def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
+    values = [token.value for token in declaration_tokens if token.kind != "newline"]
+    if "DispatchWorkItem" not in values:
+        return None
+    paren_depth = 0
+    bracket_depth = 0
+    angle_depth = 0
+    annotation_colon: int | None = None
+    equals: int | None = None
+    for index, value in enumerate(values):
+        if value == ":" and paren_depth == bracket_depth == angle_depth == 0:
+            annotation_colon = index
+            continue
+        if value == "=" and paren_depth == bracket_depth == angle_depth == 0:
+            equals = index
+            break
         if value == "(":
             paren_depth += 1
         elif value == ")":
@@ -291,29 +351,11 @@ def _declaration_end(tokens: list[Token], start: int) -> int:
             angle_depth += 1
         elif value == ">" and angle_depth:
             angle_depth -= 1
-        previous_value = value
-        index += 1
-    return index
 
-
-def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
-    values = [token.value for token in declaration_tokens if token.kind != "newline"]
-    if "DispatchWorkItem" not in values:
-        return None
-    try:
-        colon = values.index(":")
-    except ValueError:
-        colon = -1
-    if colon >= 0:
-        end = len(values)
-        for boundary in ("=", "{"):
-            if boundary in values[colon + 1 :]:
-                end = min(end, values.index(boundary, colon + 1))
-        return "".join(values[colon + 1 : end])
-
-    try:
-        equals = values.index("=")
-    except ValueError:
+    if annotation_colon is not None:
+        end = equals if equals is not None else len(values)
+        return "".join(values[annotation_colon + 1 : end])
+    if equals is None:
         return None
     initializer = values[equals + 1 :]
     if not initializer:
@@ -321,10 +363,24 @@ def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
     if initializer[0] == "DispatchWorkItem":
         return "<inferred:DispatchWorkItem>"
     if initializer[0] == "[" and "DispatchWorkItem" in initializer:
-        closing = initializer.index("]") if "]" in initializer else -1
-        if closing > 0:
-            return f"<inferred:{''.join(initializer[: closing + 1])}>"
+        return "<inferred:[DispatchWorkItem]>"
     return None
+
+
+def compare_allowances(
+    found: list[Declaration],
+    allowances: tuple[Allowance, ...] = ALLOWANCES,
+) -> tuple[
+    collections.Counter[tuple[str, str, str, str]],
+    collections.Counter[tuple[str, str, str, str]],
+]:
+    actual = collections.Counter(item.key for item in found)
+    allowed = collections.Counter(
+        (item.path, item.name, item.type_text, item.context)
+        for item in allowances
+        for _ in range(item.count)
+    )
+    return (actual - allowed, allowed - actual)
 
 
 def scan_declarations(source: str, path: str) -> list[Declaration]:
@@ -372,19 +428,11 @@ def declarations() -> list[Declaration]:
 
 def main() -> int:
     found = declarations()
-    actual = collections.Counter(item.key for item in found)
-    allowed = collections.Counter(
-        (item.path, item.name, item.type_text, item.context)
-        for item in ALLOWANCES
-        for _ in range(item.count)
-    )
-
-    unexpected = actual - allowed
-    stale = allowed - actual
+    unexpected, stale = compare_allowances(found)
     if not unexpected and not stale:
         print(
             "lint-stored-dispatch-work-items: ok "
-            f"({sum(actual.values())} audited non-replacement declarations)"
+            f"({len(found)} audited non-replacement declarations)"
         )
         return 0
 

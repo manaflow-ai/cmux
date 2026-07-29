@@ -62,7 +62,7 @@ struct DeferredActionReplacementStackTests {
         }
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     @MainActor
     func schedulerTracksCancellationAndReschedulingFromAction() async {
         let clock = SidebarTestManualClock()
