@@ -1041,9 +1041,16 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         await savePendingRecords(records, scope: planned.outboxScope)
     }
 
-    /// Drop any pending tombstone for a pairing that was just re-added
+    /// Drop the pending tombstone for THE EXACT ROW that was just re-added
     /// (revive): the intent could sit under its mapped destination scope, its
     /// own team's scope, or the parked nil-team scope, in either encoding.
+    /// Only records whose LOCAL team matches the re-added row are cleared —
+    /// the destination-keyed outbox can hold same-pairing records for OTHER
+    /// local teams (the same pairing forgotten in several teams shares one
+    /// destination), and cancelling those would let their forgotten backup
+    /// records survive and restore later. A legacy unscoped record decodes its
+    /// local team from the scope it sits in, so it matches only in the
+    /// re-added row's own scope.
     @discardableResult
     func clearPendingDelete(
         macDeviceID: String,
@@ -1065,11 +1072,9 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             let scope = await nonoptionalScopeKey(account: account, teamID: team)
             var records = await pendingRecords(scope: scope)
             let before = records.count
-            records = records.filter {
-                PendingDeleteRecord(
-                    decoding: $0,
-                    scopeTeamID: team
-                ).pairingID != pairingID
+            records = records.filter { raw in
+                let record = PendingDeleteRecord(decoding: raw, scopeTeamID: team)
+                return !(record.pairingID == pairingID && record.localTeamID == teamID)
             }
             if records.count != before {
                 await savePendingRecords(records, scope: scope)

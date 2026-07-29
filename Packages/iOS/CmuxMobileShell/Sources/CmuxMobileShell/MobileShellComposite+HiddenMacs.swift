@@ -257,29 +257,34 @@ extension MobileShellComposite {
             teamID: computer.teamID
         )
         var scopes = [primary]
-        if computer.instanceTag == nil {
-            let rows: [MobilePairedMac]
-            do {
-                rows = try await pairedMacStore.loadAllInstances(
-                    macDeviceID: computer.macDeviceID,
-                    stackUserID: pinnedAccountID
-                )
-            } catch {
-                hiddenMacsLog.error(
-                    "forget hidden computer sibling enumeration failed: \(String(describing: error), privacy: .private)"
-                )
-                return false
-            }
-            for row in rows
-            where row.stackUserID == pinnedAccountID
-                && !(row.instanceTag == primary.instanceTag && row.teamID == primary.teamID) {
-                scopes.append(MobilePairedMacExactScope(
-                    macDeviceID: row.macDeviceID,
-                    instanceTag: row.instanceTag,
-                    stackUserID: pinnedAccountID,
-                    teamID: row.teamID
-                ))
-            }
+        // Cross-team sibling cleanup runs for EVERY forget: the broker binding
+        // is account-wide, so revoking it kills the binding every team's copy
+        // of the pairing uses. A tagged forget revoked exactly the (device,
+        // tag) binding — other teams' SAME-TAG rows are dead, different-tag
+        // rows keep their own live bindings and survive. A tag-less forget's
+        // wildcard revoke covered every tag, so its cleanup does too.
+        let rows: [MobilePairedMac]
+        do {
+            rows = try await pairedMacStore.loadAllInstances(
+                macDeviceID: computer.macDeviceID,
+                stackUserID: pinnedAccountID
+            )
+        } catch {
+            hiddenMacsLog.error(
+                "forget hidden computer sibling enumeration failed: \(String(describing: error), privacy: .private)"
+            )
+            return false
+        }
+        for row in rows
+        where row.stackUserID == pinnedAccountID
+            && (computer.instanceTag == nil || row.instanceTag == computer.instanceTag)
+            && !(row.instanceTag == primary.instanceTag && row.teamID == primary.teamID) {
+            scopes.append(MobilePairedMacExactScope(
+                macDeviceID: row.macDeviceID,
+                instanceTag: row.instanceTag,
+                stackUserID: pinnedAccountID,
+                teamID: row.teamID
+            ))
         }
         do {
             try await pairedMacStore.removeExactScopes(scopes)
