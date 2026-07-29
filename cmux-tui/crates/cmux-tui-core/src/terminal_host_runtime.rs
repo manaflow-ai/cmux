@@ -22,11 +22,12 @@ use crate::terminal_host::{
     HostHello, HostIncarnation, HostReady, TerminalId,
 };
 use crate::terminal_host_protocol::{
-    CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
-    CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
-    CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
-    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    BRACKETED_PASTE_BEGIN, BRACKETED_PASTE_END, CLEAR_HISTORY_ACK_AMBIGUOUS,
+    CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE, CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT,
+    CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED, CLEAR_HISTORY_ACK_OK,
+    CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT, FLAG_COLORS_FOLLOW,
+    FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION,
+    RESIZE_ACK_CANONICAL_CHANGED, read_frame, strip_bracketed_paste_markers, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -2609,14 +2610,15 @@ mod unix {
                         if !granted_rights.contains(CapabilityRights::INPUT) {
                             break;
                         }
+                        let payload = strip_bracketed_paste_markers(&frame.payload);
                         let bracketed = command_host.term.lock().unwrap().mode(2004, false);
                         let mut writer = command_host.writer.lock().unwrap();
                         if bracketed {
-                            let _ = writer.write_all(b"\x1b[200~");
+                            let _ = writer.write_all(BRACKETED_PASTE_BEGIN);
                         }
-                        let _ = writer.write_all(&frame.payload);
+                        let _ = writer.write_all(payload.as_ref());
                         if bracketed {
-                            let _ = writer.write_all(b"\x1b[201~");
+                            let _ = writer.write_all(BRACKETED_PASTE_END);
                         }
                         let _ = writer.flush();
                     }

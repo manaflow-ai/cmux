@@ -425,6 +425,49 @@ impl FrameDecoder {
     }
 }
 
+/// Bracketed-paste begin marker emitted around paste payloads.
+pub const BRACKETED_PASTE_BEGIN: &[u8] = b"\x1b[200~";
+/// Bracketed-paste end marker emitted around paste payloads.
+pub const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
+
+/// Remove embedded bracketed-paste markers from a paste payload.
+///
+/// Paste sites wrap the payload in `\x1b[200~` / `\x1b[201~`. A payload that
+/// itself contains those markers would terminate the bracket early, letting
+/// the remainder reach the application as ordinary keyboard input. Stripping
+/// them keeps the whole payload inside one bracketed region.
+///
+/// Payloads without markers are returned borrowed, so the common path does not
+/// allocate.
+pub fn strip_bracketed_paste_markers(payload: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    fn marker_len_at(payload: &[u8], i: usize) -> Option<usize> {
+        let rest = &payload[i..];
+        if rest.starts_with(BRACKETED_PASTE_BEGIN) || rest.starts_with(BRACKETED_PASTE_END) {
+            Some(BRACKETED_PASTE_BEGIN.len())
+        } else {
+            None
+        }
+    }
+
+    let Some(first) = (0..payload.len()).find(|&i| marker_len_at(payload, i).is_some()) else {
+        return std::borrow::Cow::Borrowed(payload);
+    };
+
+    let mut out = Vec::with_capacity(payload.len() - BRACKETED_PASTE_BEGIN.len());
+    out.extend_from_slice(&payload[..first]);
+    let mut i = first;
+    while i < payload.len() {
+        match marker_len_at(payload, i) {
+            Some(len) => i += len,
+            None => {
+                out.push(payload[i]);
+                i += 1;
+            }
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -567,5 +610,31 @@ mod tests {
             Err(ProtocolError::PayloadTooLarge { len, max })
                 if len == MAX_FRAME_PAYLOAD + 1 && max == MAX_FRAME_PAYLOAD
         ));
+    }
+
+    #[test]
+    fn paste_without_markers_is_borrowed_unchanged() {
+        let payload = b"plain text\nline two";
+        let out = strip_bracketed_paste_markers(payload);
+        assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(out.as_ref(), payload);
+    }
+
+    #[test]
+    fn embedded_end_marker_is_stripped() {
+        let out = strip_bracketed_paste_markers(b"before\x1b[201~after");
+        assert_eq!(out.as_ref(), b"beforeafter");
+    }
+
+    #[test]
+    fn embedded_begin_and_end_markers_are_stripped() {
+        let out = strip_bracketed_paste_markers(b"a\x1b[200~b\x1b[201~c");
+        assert_eq!(out.as_ref(), b"abc");
+    }
+
+    #[test]
+    fn adjacent_markers_and_surrounding_content_are_preserved() {
+        let out = strip_bracketed_paste_markers(b"\x1b[201~\x1b[200~keep\x1b[2Dme\x1b[201~");
+        assert_eq!(out.as_ref(), b"keep\x1b[2Dme");
     }
 }
