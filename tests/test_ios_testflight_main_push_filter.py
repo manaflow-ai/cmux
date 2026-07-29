@@ -1,5 +1,6 @@
 import json
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -8,6 +9,7 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ios-testflight.yml"
 NOTES_GENERATOR = ROOT / "ios" / "scripts" / "generate-testflight-notes.sh"
+BUN = shutil.which("bun")
 IOS_PATHS = (
     "ios/**",
     "Packages/iOS/**",
@@ -83,7 +85,7 @@ def literal_block(text: str, key: str, indent: int) -> str:
     for line in lines:
         if line.strip() and len(line) - len(line.lstrip()) <= indent:
             break
-        if not line:
+        if not line.strip():
             block.append("")
             continue
         assert line.startswith(content_prefix), f"invalid {key} line: {line}"
@@ -155,6 +157,7 @@ def run_decision_scenario(
     prior_artifact: str = "ios-testflight-build-metadata",
     head_sha: str = "head-sha",
     changed_files: tuple[str, ...] = (),
+    blocking_prior_run: bool = False,
 ) -> dict[str, object]:
     decision_job = mapping_block(workflow_text(), "decide", indent=2)
     decision_script = literal_block(decision_job, "script", indent=10)
@@ -166,20 +169,29 @@ def run_decision_scenario(
         "priorArtifact": prior_artifact,
         "headSha": head_sha,
         "changedFiles": changed_files,
+        "blockingPriorRun": blocking_prior_run,
     }
     harness = f"""
 const scenario = {json.dumps(scenario)};
 const outputs = {{}};
 const compareCalls = [];
 const warnings = [];
-const priorRuns = scenario.priorSha
+const waitCalls = [];
+let workflowRunCalls = 0;
+let blockingReleased = !scenario.blockingPriorRun;
+const priorRuns = () => scenario.priorSha
   ? [{{
       id: 50,
-      status: 'completed',
+      status: blockingReleased ? 'completed' : 'in_progress',
       event: 'schedule',
       head_sha: scenario.priorSha,
     }}]
   : [];
+const setTimeout = (resolve, milliseconds) => {{
+  waitCalls.push(milliseconds);
+  blockingReleased = true;
+  resolve();
+}};
 const context = {{
   repo: {{ owner: 'manaflow-ai', repo: 'cmux' }},
   eventName: scenario.eventName,
@@ -194,15 +206,18 @@ const context = {{
 const github = {{
   rest: {{
     actions: {{
-      listWorkflowRuns: async () => ({{
-        data: {{ workflow_runs: priorRuns }},
-      }}),
+      listWorkflowRuns: async () => {{
+        workflowRunCalls += 1;
+        return {{
+          data: {{ workflow_runs: priorRuns() }},
+        }};
+      }},
       listJobsForWorkflowRun: async () => ({{
         data: {{
           jobs: [{{
             name: 'Upload to TestFlight',
-            status: 'completed',
-            conclusion: 'success',
+            status: blockingReleased ? 'completed' : 'in_progress',
+            conclusion: blockingReleased ? 'success' : null,
           }}],
         }},
       }}),
@@ -251,10 +266,17 @@ async function runDecision() {{
 {decision_script}
 }}
 await runDecision();
-process.stdout.write(JSON.stringify({{ outputs, compareCalls, warnings }}));
+process.stdout.write(JSON.stringify({{
+  outputs,
+  compareCalls,
+  warnings,
+  waitCalls,
+  workflowRunCalls,
+}}));
 """
+    assert BUN is not None, "bun is required to execute the decide job harness"
     result = subprocess.run(
-        ["bun", "-e", harness],
+        [BUN, "-e", harness],
         check=False,
         capture_output=True,
         text=True,
@@ -353,6 +375,25 @@ def test_manual_demo_dispatch_builds_even_when_head_already_uploaded() -> None:
     assert result["compareCalls"] == []
 
 
+def test_scheduled_run_waits_for_an_earlier_upload() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        blocking_prior_run=True,
+    )
+
+    assert result["waitCalls"] == [60_000]
+    assert result["workflowRunCalls"] == 3
+    assert result["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
+    }
+
+
 def test_mapping_keys_normalizes_quoted_yaml_keys() -> None:
     triggers = "  push:\n  'schedule':\n  \"workflow_dispatch\":\n"
 
@@ -380,17 +421,13 @@ def test_testflight_notes_use_the_same_ios_path_contract() -> None:
     assert notes_paths == expected_notes_paths
 
 
-def test_scheduled_and_manual_runs_are_preserved_and_uploaded_in_order() -> None:
+def test_scheduled_and_manual_runs_use_independent_concurrency_groups() -> None:
     text = workflow_text()
 
     assert "group: ios-testflight-${{ github.run_id }}" in text
     assert "github.event_name == 'push' && github.sha" not in text
     assert "group: ios-testflight-${{ github.ref_name }}" not in text
     assert "cancel-in-progress: false" in text
-    assert "Number(run.id) < currentRunId" in text
-    assert "['push', 'schedule', 'workflow_dispatch'].includes(run.event)" in text
-    assert "uploadJob.status !== 'completed'" in text
-    assert "could not inspect earlier TestFlight runs; retrying" in text
     assert "ios-testflight-assignment-state-complete" not in text
     assert "CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE" not in text
 
@@ -464,8 +501,9 @@ if __name__ == "__main__":
     test_schedule_decision_executes_ios_path_filter()
     test_schedule_decision_routes_demo_cron_to_demo_history()
     test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
+    test_scheduled_run_waits_for_an_earlier_upload()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
-    test_scheduled_and_manual_runs_are_preserved_and_uploaded_in_order()
+    test_scheduled_and_manual_runs_use_independent_concurrency_groups()
     test_automatic_lane_stays_on_cmux_internal_identity()
     print("all iOS TestFlight scheduling tests passed")
