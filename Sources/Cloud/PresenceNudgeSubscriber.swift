@@ -53,7 +53,26 @@ final class PresenceNudgeSubscriber {
                 }
             }
         }
+        armAuthScopeObservation()
         evaluate()
+    }
+
+    /// Re-evaluates on every auth identity change (sign-in, sign-out, user or
+    /// team switch) via an `@Observable` tracking re-arm loop, so an old
+    /// account's socket is torn down the moment the scope changes instead of
+    /// riding out the service's 15-minute stream deadline.
+    private func armAuthScopeObservation() {
+        guard let auth else { return }
+        withObservationTracking {
+            _ = auth.isAuthenticated
+            _ = auth.currentUser?.id
+            _ = auth.resolvedTeamID
+        } onChange: {
+            Task { @MainActor in
+                PresenceNudgeSubscriber.shared.evaluate()
+                PresenceNudgeSubscriber.shared.armAuthScopeObservation()
+            }
+        }
     }
 
     func appWillTerminate() {
@@ -61,14 +80,20 @@ final class PresenceNudgeSubscriber {
         loopTask = nil
     }
 
-    /// The subscription is scoped by team and service URL (the connect
-    /// headers). Token VALUES are refreshed per reconnect, so they are not
-    /// part of the key; a team or URL change must restart the stream.
+    /// The subscription is scoped by the authenticated user, the team, and
+    /// the service URL (the connect identity and headers). The user id
+    /// matters independently of the team: `resolvedTeamID` is nil for solo
+    /// accounts, and the worker scopes a headerless request to the verified
+    /// user, so two solo accounts must not share a scope. Token VALUES are
+    /// refreshed per reconnect, so they are not part of the key. Signed-out
+    /// state yields nil, which tears the loop down.
     private func currentScopeKey() -> String? {
         guard let auth,
+              auth.isAuthenticated,
+              let userID = auth.currentUser?.id,
               PresenceSettings.isEnabled(),
               let url = PresenceHeartbeatClient.resolvedServiceURL() else { return nil }
-        return "\(auth.resolvedTeamID ?? "")|\(url.absoluteString)"
+        return "\(userID)|\(auth.resolvedTeamID ?? "")|\(url.absoluteString)"
     }
 
     private func evaluate() {
@@ -159,9 +184,16 @@ final class PresenceNudgeSubscriber {
                 do {
                     message = try await task.receive()
                 } catch {
-                    // Normal service-side close at token expiry surfaces here
-                    // too; `delivered` decides whether the stream was healthy.
-                    return delivered
+                    // A directed stream is silent between nudges, so a healthy
+                    // subscription routinely reaches the service's 15-minute
+                    // deadline having delivered nothing. That close arrives as
+                    // a normal/going-away close code and must reset backoff,
+                    // otherwise every quiet renewal doubles the reconnect gap
+                    // and one-shot nudges get lost in it. Only a connection
+                    // that neither delivered nor closed cleanly is a failure.
+                    let closedCleanly = task.closeCode == .normalClosure
+                        || task.closeCode == .goingAway
+                    return delivered || closedCleanly
                 }
                 delivered = true
                 guard !Task.isCancelled else { return delivered }

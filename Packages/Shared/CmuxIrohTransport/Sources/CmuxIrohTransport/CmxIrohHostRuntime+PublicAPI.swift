@@ -55,7 +55,18 @@ extension CmxIrohHostRuntime {
         guard lifecyclePhase == .active,
               registrationRefreshEnabled else { return }
         scheduleRegistrationRefresh(revision: lifecycleRevision)
-        await registrationRefreshTask?.value
+        // Await across the coalesced replay, not just the round that was
+        // running when this call arrived: a signal landing mid-round only
+        // sets the pending bit, and the running round's completion schedules
+        // one replay task. The caller's decision (rebuild on `.failed`) must
+        // observe the state AFTER that replay. The loop is bounded: each
+        // awaited task nils itself on completion unless a replay was pending,
+        // and replays do not self-perpetuate. A retry scheduled after a
+        // transient failure is deliberately NOT awaited (it can be minutes
+        // out); the runtime is not terminally failed in that state.
+        while let task = registrationRefreshTask {
+            await task.value
+        }
     }
 
     /// Returns current verified private alias material without broker path hints.

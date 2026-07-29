@@ -117,6 +117,10 @@ final class MobileHostIrohRuntime {
     var signOutPreparationRevision: UInt64 = 0
     var lifecycleRevision: UInt64 = 0
     var nextDiagnosticSessionID = 0
+    /// Single-flight owner for nudge-triggered refreshes: one task in flight,
+    /// later signals coalesce into one replay through the pending bit.
+    var serverSignalRefreshTask: Task<Void, Never>?
+    var serverSignalRefreshPending = false
 
     private init() {
         let installState = CmxIrohUserDefaultsInstallStateStore()
@@ -300,33 +304,47 @@ final class MobileHostIrohRuntime {
     }
 
     /// A server-directed presence nudge said broker-side state for this
-    /// device changed (its binding was revoked or replaced). Refresh the
-    /// active runtime's registration now; when that refresh discovers the
-    /// binding is gone (a replacement returns a different binding id, which
-    /// the runtime rejects and fails closed on), rebuild through the shared
-    /// reconcile path so a fresh activation re-registers under the new server
-    /// state. An absent runtime goes through the standard retry evaluation.
+    /// device changed (its binding was revoked or replaced). One owned task
+    /// runs the refresh; a burst of nudge frames while it is in flight
+    /// coalesces into a single follow-up round instead of fanning out one
+    /// main-actor waiter per frame. When the refresh discovers the binding is
+    /// gone (a replacement returns a different binding id, which the runtime
+    /// rejects and fails closed on), rebuild through the shared reconcile
+    /// path so a fresh activation re-registers under the new server state.
+    /// An absent runtime goes through the standard retry evaluation.
     func refreshRegistrationFromServerSignal() {
+        if serverSignalRefreshTask != nil {
+            serverSignalRefreshPending = true
+            return
+        }
         guard let signalRuntime = runtime else {
             retryIfNeeded()
             return
         }
-        Task { @MainActor [weak self] in
+        serverSignalRefreshTask = Task { @MainActor [weak self] in
             await signalRuntime.requestRegistrationRefresh()
-            guard let self,
-                  self.runtime === signalRuntime,
-                  self.desiredActive,
-                  !self.signOutIntentActive,
-                  self.transitionTask == nil else { return }
-            guard await signalRuntime.snapshot().state == .failed else { return }
+            guard let self else { return }
+            self.serverSignalRefreshTask = nil
+            let replayPending = self.serverSignalRefreshPending
+            self.serverSignalRefreshPending = false
             guard self.runtime === signalRuntime,
                   self.desiredActive,
                   !self.signOutIntentActive,
                   self.transitionTask == nil else { return }
-            self.scheduleReconcile(
-                eraseAccountState: false,
-                restartActiveRuntime: true
-            )
+            if await signalRuntime.snapshot().state == .failed {
+                guard self.runtime === signalRuntime,
+                      self.desiredActive,
+                      !self.signOutIntentActive,
+                      self.transitionTask == nil else { return }
+                self.scheduleReconcile(
+                    eraseAccountState: false,
+                    restartActiveRuntime: true
+                )
+                return
+            }
+            if replayPending {
+                self.refreshRegistrationFromServerSignal()
+            }
         }
     }
 
