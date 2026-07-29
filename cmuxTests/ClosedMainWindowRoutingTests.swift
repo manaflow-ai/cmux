@@ -170,6 +170,89 @@ struct ClosedMainWindowRoutingTests {
         #expect(!window.isKeyWindow)
     }
 
+    @Test("project.open with focus false preserves the active window and workspace")
+    func projectOpenWithoutFocusPreservesActiveContext() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let managerA = TabManager()
+        let managerB = TabManager()
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+
+        AppDelegate.shared = app
+        app.tabManager = managerA
+        TerminalController.shared.setActiveTabManager(managerA)
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        windowA.makeKeyAndOrderFront(nil)
+        app.setActiveMainWindow(windowA)
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowAId)
+            app.unregisterMainWindowContextForTesting(windowId: windowBId)
+            managerA.tabs.forEach { $0.teardownAllPanels() }
+            managerB.tabs.forEach { $0.teardownAllPanels() }
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let initiallySelectedWorkspace = try #require(managerB.selectedWorkspace)
+        let backgroundWorkspace = managerB.addWorkspace(
+            title: "Background project",
+            select: false
+        )
+        let panelCountBeforeOpen = backgroundWorkspace.panels.count
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: true,
+            windowID: windowBId,
+            groupID: nil,
+            workspaceID: backgroundWorkspace.id,
+            surfaceID: nil,
+            paneID: nil
+        )
+
+        let result = TerminalController.shared.withSocketCommandPolicy(
+            commandKey: "project.open",
+            isV2: true,
+            params: ["focus": false]
+        ) {
+            TerminalController.shared.controlProjectOpen(
+                routing: routing,
+                path: FileManager.default.temporaryDirectory.path,
+                requestedFocus: false
+            )
+        }
+
+        guard case .opened = result else {
+            Issue.record("Expected background project surface creation")
+            return
+        }
+        #expect(backgroundWorkspace.panels.count == panelCountBeforeOpen + 1)
+        #expect(managerB.selectedTabId == initiallySelectedWorkspace.id)
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+    }
+
     @Test("Noninteractive close commits before inspector teardown")
     func noninteractiveCloseCommitsBeforeInspectorTeardown() {
         _ = NSApplication.shared

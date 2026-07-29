@@ -29,7 +29,11 @@ extension TerminalController: ControlProjectContext {
         guard let ws = controlProjectResolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        guard v2PrepareWorkspaceMutation(tabManager, workspace: ws) else {
+        guard v2PrepareWorkspaceMutation(
+            tabManager,
+            workspace: ws,
+            requestedFocus: requestedFocus
+        ) else {
             return .tabManagerUnavailable
         }
 
