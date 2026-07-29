@@ -76,15 +76,16 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
 
     /// Applies a model selection to the command.
     ///
-    /// When the command already carries one of this provider's model flags
-    /// (before any standalone `--` end-of-options token), every such flag's
-    /// value is replaced in place so the template's own spelling never
-    /// overrides the explicit selection. Otherwise the flag is inserted
-    /// immediately after the first token. Everything else remains
-    /// byte-for-byte identical. Tokenization is quote-aware (single quotes,
-    /// double quotes, and backslash escapes outside single quotes), so flag
-    /// text embedded in a quoted argument is never rewritten; shell comments
-    /// and heredocs are not parsed.
+    /// When the first simple command already carries one of this provider's
+    /// model flags, every such flag's value is replaced in place so the
+    /// template's own spelling never overrides the explicit selection.
+    /// Otherwise the flag is inserted immediately after the first token.
+    /// Everything else remains byte-for-byte identical. Tokenization is
+    /// quote-aware (single quotes, double quotes, and backslash escapes
+    /// outside single quotes), so flag text embedded in a quoted argument is
+    /// never rewritten, and scanning stops at the first simple command's end:
+    /// a standalone `--` end-of-options token, an unquoted `;`, `|`, or `&`,
+    /// or a newline. Shell comments, subshells, and heredocs are not parsed.
     /// - Parameters:
     ///   - modelID: CLI model identifier to single-quote for the flag value.
     ///   - command: User-authored task-template command.
@@ -100,16 +101,21 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
         var edits: [(range: Range<String.Index>, replacement: String)] = []
         var searchStart = firstToken.upperBound
         while let token = Self.tokenRange(in: command, from: searchStart) {
+            // A newline between tokens ends the first simple command.
+            if command[searchStart..<token.lowerBound].contains(where: \.isNewline) { break }
             searchStart = token.upperBound
             let text = command[token]
             if text == "--" { break }
+            if Self.containsUnquotedCommandBoundary(text) { break }
             if modelFlagSpellings.contains(where: { text == $0 }) {
                 if let value = Self.tokenRange(in: command, from: token.upperBound),
-                   command[value] != "--" {
+                   !command[token.upperBound..<value.lowerBound].contains(where: \.isNewline),
+                   command[value] != "--",
+                   !Self.containsUnquotedCommandBoundary(command[value]) {
                     edits.append((value, quotedID))
                     searchStart = value.upperBound
                 } else {
-                    // Dangling flag (at the end or directly before `--`):
+                    // Dangling flag (at the end of the simple command):
                     // supply the value right after the flag token.
                     edits.append((token.upperBound..<token.upperBound, " \(quotedID)"))
                 }
@@ -142,6 +148,34 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
         case .openCode:
             ["--model", "-m"]
         }
+    }
+
+    /// Whether the token carries an unquoted `;`, `|`, or `&`, i.e. ends the
+    /// first simple command mid-token (`"$PROMPT";`, `&&`, `|`).
+    private static func containsUnquotedCommandBoundary(_ token: Substring) -> Bool {
+        var inSingleQuotes = false
+        var inDoubleQuotes = false
+        var current = token.startIndex
+        while current < token.endIndex {
+            let character = token[current]
+            if character == "\\", !inSingleQuotes {
+                current = token.index(after: current)
+                if current < token.endIndex {
+                    current = token.index(after: current)
+                }
+                continue
+            }
+            if character == "'", !inDoubleQuotes {
+                inSingleQuotes.toggle()
+            } else if character == "\"", !inSingleQuotes {
+                inDoubleQuotes.toggle()
+            } else if !inSingleQuotes, !inDoubleQuotes,
+                      character == ";" || character == "|" || character == "&" {
+                return true
+            }
+            current = token.index(after: current)
+        }
+        return false
     }
 
     /// The next shell word starting at or after `index`. Quote-aware: single-

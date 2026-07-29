@@ -19,6 +19,35 @@ extension TaskComposerSheet {
             .model(id: selectedModelID)
     }
 
+    /// Applies the Off-variant gate to a resolved submission snapshot.
+    ///
+    /// The restored initial request (and an adopted recovery request) is
+    /// cached as already-resolved, so submitting an untouched draft skips
+    /// `makeSubmissionSnapshot` and would bypass the `selectedModel` gate.
+    /// This is the single submission-boundary chokepoint: while the picker is
+    /// Off, a hidden model captured by any cached request is stripped and the
+    /// command recomposed, keeping the same operation identifier.
+    func effectiveSubmissionSnapshot(
+        _ snapshot: MobileTaskSubmissionSnapshot
+    ) -> MobileTaskSubmissionSnapshot {
+        guard displaySettings.taskComposerModelPickerVariant.renderedVariant == .off,
+              snapshot.modelID != nil,
+              let selectedTemplate,
+              selectedTemplate.id == snapshot.templateID else {
+            return snapshot
+        }
+        return MobileTaskSubmissionSnapshot(
+            template: selectedTemplate,
+            prompt: snapshot.prompt,
+            modelID: nil,
+            macDeviceID: snapshot.macDeviceID,
+            directory: snapshot.directory,
+            workspaceName: snapshot.workspaceName,
+            didEditDirectory: snapshot.didEditDirectory,
+            operationID: snapshot.operationID
+        )
+    }
+
     func selectModel(_ id: String?) {
         guard !submissionPhase.disablesRequestEditing else { return }
         let validatedID: String?

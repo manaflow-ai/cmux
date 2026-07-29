@@ -592,7 +592,8 @@ struct TaskComposerSheet: View {
 
     private func submit() async {
         guard submissionPhase.allowsSubmission,
-              let snapshot = submissionSnapshot() else { return }
+              let resolvedSnapshot = submissionSnapshot() else { return }
+        let snapshot = effectiveSubmissionSnapshot(resolvedSnapshot)
         guard store.persistTaskComposerDraft(
             snapshot.draft,
             ifSessionGeneration: sessionGeneration

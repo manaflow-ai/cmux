@@ -174,4 +174,39 @@ import Testing
                 == "claude --model 'claude-opus-4-8' -- \"$CMUX_TASK_PROMPT\""
         )
     }
+
+    @Test(
+        arguments: [
+            (
+                "claude \"$CMUX_TASK_PROMPT\"; formatter --model compact",
+                "claude --model 'claude-opus-4-8' \"$CMUX_TASK_PROMPT\"; formatter --model compact"
+            ),
+            (
+                "claude && claude-lint --model strict",
+                "claude --model 'claude-opus-4-8' && claude-lint --model strict"
+            ),
+            (
+                "claude | tee log --model x",
+                "claude --model 'claude-opus-4-8' | tee log --model x"
+            ),
+            (
+                "claude\nrun-report --model compact",
+                "claude --model 'claude-opus-4-8'\nrun-report --model compact"
+            ),
+        ]
+    )
+    func doesNotRewriteFlagsPastACommandBoundary(command: String, expected: String) {
+        #expect(
+            MobileTaskAgentProvider.claude.command(applying: "claude-opus-4-8", to: command)
+                == expected
+        )
+    }
+
+    @Test func suppliesValueWhenFlagDanglesAtCommandBoundary() {
+        let command = "claude --model\nrun-report compact"
+        #expect(
+            MobileTaskAgentProvider.claude.command(applying: "claude-opus-4-8", to: command)
+                == "claude --model 'claude-opus-4-8'\nrun-report compact"
+        )
+    }
 }
