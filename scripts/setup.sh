@@ -15,10 +15,12 @@ if ! command -v zig &> /dev/null; then
     echo "Install via: brew install zig"
     exit 1
 fi
-ZIG_REQUIRED="$(bash "$SCRIPT_DIR/ghostty-zig-version.sh" "$PROJECT_DIR")"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/ghostty-zig-version.sh"
+ZIG_REQUIRED="$(ghostty_minimum_zig_version "$PROJECT_DIR")"
 ZIG_ACTUAL="$(zig version)"
-if [[ "$ZIG_ACTUAL" != "$ZIG_REQUIRED" ]]; then
-    echo "Error: Ghostty requires zig ${ZIG_REQUIRED}, but $(command -v zig) reports ${ZIG_ACTUAL}."
+if ! ghostty_zig_version_is_compatible "$ZIG_ACTUAL" "$ZIG_REQUIRED"; then
+    echo "Error: Ghostty requires zig ${ZIG_REQUIRED} or a newer patch release in the same major/minor series, but $(command -v zig) reports ${ZIG_ACTUAL}."
     echo "Install or upgrade via: brew install zig"
     exit 1
 fi
