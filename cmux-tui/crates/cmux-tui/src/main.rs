@@ -1231,35 +1231,60 @@ fn run_server(
     // Ghostty's config before any protocol client can create a surface.
     mux.set_default_colors(config.terminal_defaults);
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    let server_process = ServerProcessShutdownGuard::start(&mux, socket_path.clone())?;
     #[cfg(target_os = "linux")]
-    let _provider_management = provider_management_listener
+    let _provider_management = match provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
-        .transpose()?;
+        .transpose()
+    {
+        Ok(server) => server,
+        Err(error) => {
+            server_process.shutdown();
+            server_process.complete();
+            return Err(error.into());
+        }
+    };
     let websocket_server = match ws_addr {
         Some(addr) => {
-            let addr = addr
-                .parse()
-                .map_err(|error| anyhow::anyhow!("invalid WebSocket address {addr:?}: {error}"))?;
-            Some(cmux_tui_core::server::serve_websocket(
+            let addr = match addr.parse() {
+                Ok(addr) => addr,
+                Err(error) => {
+                    #[cfg(target_os = "linux")]
+                    drop(_provider_management);
+                    server_process.shutdown();
+                    server_process.complete();
+                    return Err(anyhow::anyhow!("invalid WebSocket address {addr:?}: {error}"));
+                }
+            };
+            match cmux_tui_core::server::serve_websocket(
                 mux.clone(),
                 addr,
                 ws_token,
                 args.ws_insecure_bind,
-            )?)
+            ) {
+                Ok(server) => Some(server),
+                Err(error) => {
+                    #[cfg(target_os = "linux")]
+                    drop(_provider_management);
+                    server_process.shutdown();
+                    server_process.complete();
+                    return Err(error);
+                }
+            }
         }
         None => None,
     };
     if let Some(server) = &websocket_server {
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
-    cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
-    let server_process = match ServerProcessShutdownGuard::start(&mux, socket_path.clone()) {
-        Ok(server_process) => server_process,
-        Err(error) => {
-            cmux_tui_core::server::cleanup(&socket_path);
-            return Err(error.into());
-        }
-    };
+    if let Err(error) = cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone())) {
+        drop(websocket_server);
+        #[cfg(target_os = "linux")]
+        drop(_provider_management);
+        server_process.shutdown();
+        server_process.complete();
+        return Err(error);
+    }
 
     #[cfg(debug_assertions)]
     if !args.headless && std::env::var_os("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER").is_some() {
@@ -1278,6 +1303,8 @@ fn run_server(
         run_tui(Session::Local(mux), args.session, None)
     };
     drop(websocket_server);
+    #[cfg(target_os = "linux")]
+    drop(_provider_management);
     server_process.shutdown();
     server_process.complete();
     result

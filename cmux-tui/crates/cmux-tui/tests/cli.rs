@@ -191,7 +191,7 @@ fn server_establishes_shutdown_ownership_before_publishing_its_listener() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(marker.exists(), "watchdog failure hook was not reached");
-    let listener_was_published = transport::connect(&socket).is_ok();
+    let listener_was_published = socket.exists();
 
     let exit_deadline = Instant::now() + Duration::from_secs(5);
     let status = loop {
