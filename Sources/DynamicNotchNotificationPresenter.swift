@@ -683,6 +683,10 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
     }
 
     private func configureWindow(_ window: NSWindow) {
+        // The notch shell is black in both system appearances. Keep semantic
+        // label, button, and input colors in their dark variants unless the
+        // user supplied an explicit appearance token.
+        window.appearance = NSAppearance(named: .darkAqua)
         window.identifier = NSUserInterfaceItemIdentifier(
             Self.windowIdentifier
         )
