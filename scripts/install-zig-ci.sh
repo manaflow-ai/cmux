@@ -129,8 +129,12 @@ cleanup_work_root() {
     rm -rf -- "$ZIG_INSTALL_STAGING"
   fi
   if [ -n "$ZIG_INSTALL_LOCK" ]; then
-    rm -f -- "$ZIG_INSTALL_LOCK/pid"
-    rmdir "$ZIG_INSTALL_LOCK" 2>/dev/null || true
+    if [ -d "$ZIG_INSTALL_LOCK" ]; then
+      rm -f -- "$ZIG_INSTALL_LOCK/pid"
+      rmdir "$ZIG_INSTALL_LOCK" 2>/dev/null || true
+    else
+      rm -f -- "$ZIG_INSTALL_LOCK"
+    fi
   fi
   rm -rf "$ZIG_WORK_ROOT"
 }
@@ -220,6 +224,7 @@ install_zig_without_sudo() {
   local install_lock
   local holder_pid
   local wait_attempts=0
+  local ownerless_lock_attempts=0
   local invalid_root
   if [ "$(basename "$install_root")" != "$ZIG_NAME" ]; then
     install_root="${install_root%/}/${ZIG_NAME}"
@@ -240,7 +245,7 @@ install_zig_without_sudo() {
   fi
   if [ "$source_root" != "$target_root" ]; then
     install_lock="${target_root}.install-lock"
-    while ! mkdir "$install_lock" 2>/dev/null; do
+    while ! (set -o noclobber; printf '%s\n' "$$" > "$install_lock") 2>/dev/null; do
       if zig_has_required_version "${target_root}/zig"; then
         echo "zig ${ZIG_REQUIRED} cache became available at ${target_root}/zig"
         publish_zig_for_later_steps "${target_root}/zig"
@@ -248,11 +253,34 @@ install_zig_without_sudo() {
         return
       fi
 
-      holder_pid="$(cat "$install_lock/pid" 2>/dev/null || true)"
-      if [[ "$holder_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$holder_pid" 2>/dev/null; then
-        rm -f -- "$install_lock/pid"
-        rmdir "$install_lock" 2>/dev/null || true
-        continue
+      if [ -d "$install_lock" ]; then
+        holder_pid="$(cat "$install_lock/pid" 2>/dev/null || true)"
+      else
+        holder_pid="$(cat "$install_lock" 2>/dev/null || true)"
+      fi
+      if [[ "$holder_pid" =~ ^[0-9]+$ ]]; then
+        ownerless_lock_attempts=0
+        if ! kill -0 "$holder_pid" 2>/dev/null; then
+          if [ -d "$install_lock" ]; then
+            rm -f -- "$install_lock/pid"
+            rmdir "$install_lock" 2>/dev/null || true
+          else
+            rm -f -- "$install_lock"
+          fi
+          continue
+        fi
+      else
+        ownerless_lock_attempts=$((ownerless_lock_attempts + 1))
+        if [ "$ownerless_lock_attempts" -ge 10 ]; then
+          if [ -d "$install_lock" ]; then
+            rm -f -- "$install_lock/pid"
+            rmdir "$install_lock" 2>/dev/null || true
+          else
+            rm -f -- "$install_lock"
+          fi
+          ownerless_lock_attempts=0
+          continue
+        fi
       fi
 
       wait_attempts=$((wait_attempts + 1))
@@ -263,7 +291,6 @@ install_zig_without_sudo() {
       sleep 0.1
     done
     ZIG_INSTALL_LOCK="$install_lock"
-    printf '%s\n' "$$" > "$install_lock/pid"
 
     if zig_has_required_version "${target_root}/zig"; then
       echo "zig ${ZIG_REQUIRED} cache became available at ${target_root}/zig"
@@ -284,8 +311,7 @@ install_zig_without_sudo() {
       ZIG_INSTALL_STAGING=""
     fi
 
-    rm -f -- "$install_lock/pid"
-    rmdir "$install_lock"
+    rm -f -- "$install_lock"
     ZIG_INSTALL_LOCK=""
   fi
   publish_zig_for_later_steps "${target_root}/zig"
