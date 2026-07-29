@@ -49,9 +49,17 @@ def test_external_override_assigns_founders_and_pro_groups() -> None:
         "      - name: Install beta provisioning profile\n", 1
     )[1].split("\n      - name:", 1)[0]
     assert (
-        "github.event.inputs.marketing_version_override != '' "
-        "&& 'dev.cmux.app.beta'"
-    ) not in job_env
+        "IOS_BETA_BUNDLE_ID: "
+        "${{ github.event_name == 'workflow_dispatch' "
+        "&& github.event.inputs.variant == 'demo' "
+        "&& 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}"
+    ) in job_env
+    assert (
+        "IOS_BETA_DISPLAY_NAME: "
+        "${{ github.event_name == 'workflow_dispatch' "
+        "&& github.event.inputs.variant == 'demo' "
+        "&& 'cmux DEMO' || 'cmux INTERNAL' }}"
+    ) in job_env
     assert (
         "INPUT_MARKETING_VERSION_OVERRIDE: "
         "${{ github.event.inputs.marketing_version_override }}"

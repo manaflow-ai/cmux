@@ -55,10 +55,23 @@ struct BrowserAppSessionHandoffTests {
         #expect(request.url?.absoluteString == "https://cmux.test/handler/app-session-handoff")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "X-Cmux-App-Session-Handoff") == "1")
+        #expect(request.value(forHTTPHeaderField: "Referrer-Policy") == nil)
         #expect(body.contains("access_token=native%2Baccess"))
         #expect(body.contains("refresh_token=native%26refresh"))
         #expect(body.contains("after=%2Fdashboard%2Ftestflight%3Fplan%3Dpro%23join"))
         #expect(request.url?.query == nil)
+    }
+
+    @Test("handoff rejects an empty refresh token")
+    func rejectsEmptyRefreshToken() throws {
+        let origin = try #require(URL(string: "https://cmux.test"))
+        let destination = try #require(URL(string: "https://cmux.test/dashboard/testflight"))
+        let handoff = BrowserAppSessionHandoff(webOrigin: origin)
+
+        #expect(handoff.request(
+            destinationURL: destination,
+            tokens: BrowserAppSessionTokens(accessToken: "native-access", refreshToken: "")
+        ) == nil)
     }
 
     @Test("handoff rejects off-origin and recursive destinations")
