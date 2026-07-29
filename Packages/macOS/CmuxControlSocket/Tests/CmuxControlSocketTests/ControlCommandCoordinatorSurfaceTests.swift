@@ -363,6 +363,7 @@ struct ControlCommandCoordinatorSurfaceTests {
                     inWindow: true,
                     applicationCaptureState: "failed",
                     applicationCaptureError: "capture_failed",
+                    applicationCaptureErrorDetail: "Localized capture failure",
                     applicationWindowID: 42,
                     applicationProcessID: 43
                 ),
@@ -381,6 +382,10 @@ struct ControlCommandCoordinatorSurfaceTests {
             return
         }
         #expect(surface["capture_error"] == JSONValue.string("capture_failed"))
+        #expect(
+            surface["capture_error_detail"]
+                == JSONValue.string("Localized capture failure")
+        )
         #expect(surface["capture_state"] == JSONValue.string("failed"))
     }
 

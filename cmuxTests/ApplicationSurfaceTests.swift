@@ -261,6 +261,37 @@ struct ApplicationSurfaceTests {
         #expect(delivered.last == key)
     }
 
+    @Test func inputPumpCoalescesScrollBurstsBeforeApplyingBackpressure() async {
+        var delivered: [ApplicationSurfaceInputEvent] = []
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { event in
+            delivered.append(event)
+            return true
+        }
+
+        for _ in 0..<100 {
+            #expect(pump.enqueue(ApplicationSurfaceInputEvent(
+                kind: .scroll,
+                x: 0.25,
+                y: 0.75,
+                modifiers: NSEvent.ModifierFlags.shift.rawValue,
+                deltaX: 1,
+                deltaY: -2
+            )) == .accepted)
+        }
+        await pump.waitUntilIdle()
+
+        #expect(delivered == [
+            ApplicationSurfaceInputEvent(
+                kind: .scroll,
+                x: 0.25,
+                y: 0.75,
+                modifiers: NSEvent.ModifierFlags.shift.rawValue,
+                deltaX: 100,
+                deltaY: -200
+            ),
+        ])
+    }
+
     @Test func inputPumpSynthesizesReleasesForDeliveredPresses() async {
         var delivered: [ApplicationSurfaceInputEvent] = []
         let pump = ApplicationSurfaceInputPump { event in
@@ -427,6 +458,33 @@ struct ApplicationSurfaceTests {
         panel.setCaptureVisibleInUI(true, view: view)
 
         #expect(panel.captureStateDescription == "suspended")
+        panel.close()
+    }
+
+    @Test func dormantApplicationCaptureStartsWithSuspendedHealth() {
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+
+        #expect(panel.captureStateDescription == "suspended")
+        panel.close()
+    }
+
+    @Test func pickerFailureSeparatesStableCodeFromLocalizedDetail() {
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+        panel.pickerModel.phase = .failed("Localized helper failure")
+
+        #expect(panel.captureFailureCode == "window_list_failed")
+        #expect(panel.captureFailureDetail == "Localized helper failure")
         panel.close()
     }
 

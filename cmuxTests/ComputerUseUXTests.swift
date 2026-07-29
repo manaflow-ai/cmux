@@ -1693,6 +1693,18 @@ struct ComputerUseUXTests {
             failedAttemptCount: 3,
             helperRestartAttempted: true
         ) == .retainUntilHelperExit)
+        #expect(ComputerUseRuntimeService.shouldScheduleFinalHelperCleanup(
+            desiredEnabled: false,
+            helperStopped: false
+        ))
+        #expect(!ComputerUseRuntimeService.shouldScheduleFinalHelperCleanup(
+            desiredEnabled: false,
+            helperStopped: true
+        ))
+        #expect(!ComputerUseRuntimeService.shouldScheduleFinalHelperCleanup(
+            desiredEnabled: true,
+            helperStopped: false
+        ))
     }
 
     @Test
