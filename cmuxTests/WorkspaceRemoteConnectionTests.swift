@@ -2222,8 +2222,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testPersistentReverseRelayCancelsStaleControlMasterForwardBeforeReusingRelayPort() throws {
-        let forwardInvoked = DispatchSemaphore(value: 0)
+    func testPersistentReverseRelayDoesNotAttachToSharedControlMaster() {
+        let daemonTransportStarted = DispatchSemaphore(value: 0)
+        let controlMasterTouched = expectation(
+            description: "workspace-scoped reverse relay must not mutate the host-shared ControlMaster"
+        )
+        controlMasterTouched.isInverted = true
         let lock = NSLock()
         var controlOperations: [(command: String, spec: String)] = []
 
@@ -2239,9 +2243,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 lock.lock()
                 controlOperations.append((command: operation, spec: spec))
                 lock.unlock()
-                if operation == "forward" {
-                    forwardInvoked.signal()
-                }
+                controlMasterTouched.fulfill()
                 return (status: 0, stdout: "", stderr: "")
             }
 
@@ -2259,6 +2261,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 )
             }
             if remoteDaemonServeCommand(command) {
+                daemonTransportStarted.signal()
                 return (
                     status: 0,
                     stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.resize.notification","pty.session.persistent_daemon"]}}"# + "\n",
@@ -2272,13 +2275,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.remoteSessionProcessRunnerOverrideForTesting =
             ScriptedRemoteProcessRunner(script: remoteProcessScript)
         let config = WorkspaceRemoteConfiguration(
-            destination: "test@hpc.example",
-            port: 2222,
+            destination: "127.0.0.1",
+            port: 1,
             identityFile: nil,
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-64044-%C",
+                "ControlPath=/tmp/cmux-ssh-\(getuid())-issue-8894-%C",
                 "StrictHostKeyChecking=accept-new",
             ],
             localProxyPort: nil,
@@ -2294,18 +2297,15 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(forwardInvoked.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(daemonTransportStarted.wait(timeout: .now() + 2), .success)
+        wait(for: [controlMasterTouched], timeout: 1)
         lock.lock()
         let operations = controlOperations
         lock.unlock()
 
-        XCTAssertGreaterThanOrEqual(operations.count, 2)
-        XCTAssertEqual(operations[0].command, "cancel")
-        XCTAssertEqual(operations[0].spec, "127.0.0.1:64044")
-        XCTAssertEqual(operations[1].command, "forward")
         XCTAssertTrue(
-            operations[1].spec.hasPrefix("127.0.0.1:64044:127.0.0.1:"),
-            "expected forward to reuse relay port after stale cancel, got \(operations[1].spec)"
+            operations.isEmpty,
+            "the relay must use its own app-owned ssh process, got ControlMaster operations: \(operations)"
         )
     }
 
