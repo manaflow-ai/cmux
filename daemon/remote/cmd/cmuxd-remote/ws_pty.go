@@ -1139,10 +1139,19 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 		if ownsInitialClaim {
 			h.releaseInitialClaimLocked(session)
 		}
-		if len(session.attachments) == 0 {
+		terminateAnonymous := false
+		if !persistent && h.sessions[sessionKey] == session {
+			delete(h.sessions, sessionKey)
+			h.cancelIdleReapLocked(session)
+			terminateAnonymous = true
+		} else if persistent && len(session.attachments) == 0 {
 			h.scheduleIdleReapLocked(session)
 		}
 		h.mu.Unlock()
+		if terminateAnonymous {
+			session.terminateProcesses()
+			session.closePTYFiles()
+		}
 		return nil, nil, nil, err
 	}
 	if attachmentID == "" {
