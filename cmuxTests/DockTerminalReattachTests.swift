@@ -83,6 +83,7 @@ extension DockSocketLifecycleTests {
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
             agentRuntime: agentRuntime,
+            agentLifecycleRecords: [:],
             isRemoteTerminal: false,
             remoteRelayPort: nil,
             remotePTYSessionID: nil,

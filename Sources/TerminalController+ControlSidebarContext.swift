@@ -95,6 +95,20 @@ extension TerminalController: ControlSidebarContext {
         AgentHibernationLifecycleState.parseCLIValue(raw)?.rawValue
     }
 
+    nonisolated func controlSidebarSetAgentLifecycleUsage() -> String {
+        String(
+            localized: "socket.sidebar.agentLifecycle.usage",
+            defaultValue: "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--session-id=<id>] [--new-occupant]"
+        )
+    }
+
+    nonisolated func controlSidebarClearAgentPIDUsage() -> String {
+        String(
+            localized: "socket.sidebar.clearAgentPID.usage",
+            defaultValue: "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>]"
+        )
+    }
+
     /// `nonisolated` so the vault-registry disk IO runs on the calling
     /// (socket-worker) thread; only the tab resolution + panel-directory
     /// candidate snapshot crosses to the main actor, as `set_agent_lifecycle`'s
@@ -154,7 +168,8 @@ extension TerminalController: ControlSidebarContext {
         key: String,
         lifecycleRawValue: String,
         panelID: UUID?,
-        sessionID: String?
+        sessionID: String?,
+        startsNewOccupant: Bool
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
@@ -165,7 +180,8 @@ extension TerminalController: ControlSidebarContext {
                 key: key,
                 panelId: panelID,
                 lifecycle: lifecycle,
-                sessionID: sessionID
+                sessionID: sessionID,
+                startsNewOccupant: startsNewOccupant
             )
         }
     }

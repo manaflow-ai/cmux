@@ -211,22 +211,53 @@ extension Workspace {
             resumeState: detached.restorableAgentResumeState,
             completedGeneration: detached.restoredAgentCompletedGeneration
         )
+        adoptDetachedAgentLifecycleRecords(
+            detached.agentLifecycleRecords,
+            panelID: detached.panelId
+        )
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
+    }
+
+    func takeAgentLifecycleRecordsForTransfer(
+        panelID: UUID
+    ) -> [String: AgentLifecycleRecord] {
+        guard let records = agentLifecycleRecordsByPanelId.removeValue(forKey: panelID) else {
+            return [:]
+        }
+        recordAgentLifecycleChange(panelId: panelID)
+        return records
+    }
+
+    private func adoptDetachedAgentLifecycleRecords(
+        _ records: [String: AgentLifecycleRecord],
+        panelID: UUID
+    ) {
+        guard !records.isEmpty else { return }
+        agentLifecycleRecordsByPanelId[panelID] = records
+        if let maximumRevision = records.values.map(\.revision).max() {
+            sidebarAgentRuntimeObservation.reserveAgentLifecycleRevisions(
+                after: maximumRevision
+            )
+        }
+        recordAgentLifecycleChange(panelId: panelID)
     }
 
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
         lifecycle: AgentHibernationLifecycleState,
-        sessionID: String? = nil
+        sessionID: String? = nil,
+        startsNewOccupant: Bool = false
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         let normalizedSessionID = normalizedAgentLifecycleSessionID(sessionID)
         let previous = agentLifecycleRecordsByPanelId[targetPanelId]?[key]
-        let isReplacement = previous?.sessionID != nil
+        let hasDifferentAuthoritativeSession = previous?.sessionID != nil
             && normalizedSessionID != nil
             && previous?.sessionID != normalizedSessionID
+        let isReplacement = previous != nil
+            && (startsNewOccupant || hasDifferentAuthoritativeSession)
 
         if let previous, isReplacement {
             publishAgentLifecycleTransition(

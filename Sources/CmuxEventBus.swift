@@ -11,6 +11,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
     let id: UUID
     let names: Set<String>
     let categories: Set<String>
+    let surfaceIDs: Set<String>
     let maxPendingEvents: Int
 
     private let lock = NSLock()
@@ -19,10 +20,17 @@ final class CmuxEventSubscription: @unchecked Sendable {
     private var closed = false
     private var closedReason: String?
 
-    init(id: UUID = UUID(), names: Set<String>, categories: Set<String>, maxPendingEvents: Int) {
+    init(
+        id: UUID = UUID(),
+        names: Set<String>,
+        categories: Set<String>,
+        surfaceIDs: Set<String>,
+        maxPendingEvents: Int
+    ) {
         self.id = id
         self.names = names
         self.categories = categories
+        self.surfaceIDs = surfaceIDs
         self.maxPendingEvents = max(1, maxPendingEvents)
     }
 
@@ -32,6 +40,9 @@ final class CmuxEventSubscription: @unchecked Sendable {
         }
         if !categories.isEmpty {
             guard let category = event["category"] as? String, categories.contains(category) else { return false }
+        }
+        if !surfaceIDs.isEmpty {
+            guard let surfaceID = event["surface_id"] as? String, surfaceIDs.contains(surfaceID) else { return false }
         }
         return true
     }
@@ -217,11 +228,13 @@ final class CmuxEventBus: @unchecked Sendable {
     func subscribe(
         afterSequence: Int64?,
         names: Set<String>,
-        categories: Set<String>
+        categories: Set<String>,
+        surfaceIDs: Set<String> = []
     ) -> CmuxEventSubscriptionSnapshot {
         let subscription = CmuxEventSubscription(
             names: names,
             categories: categories,
+            surfaceIDs: surfaceIDs,
             maxPendingEvents: maxPendingEventsPerSubscription
         )
 

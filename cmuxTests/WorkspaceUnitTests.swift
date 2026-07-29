@@ -3254,6 +3254,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             shellActivityState: nil, restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: resumeBinding,
             agentRuntime: nil,
+            agentLifecycleRecords: [:],
             isRemoteTerminal: false,
             remoteRelayPort: nil,
             remotePTYSessionID: nil,

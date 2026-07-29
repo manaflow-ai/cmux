@@ -71,6 +71,11 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         return revision
     }
 
+    func reserveAgentLifecycleRevisions(after revision: UInt64) {
+        guard nextAgentLifecycleRevision <= revision else { return }
+        nextAgentLifecycleRevision = revision &+ 1
+    }
+
     private func notifyChanged() {
         changeGeneration &+= 1
         // Termination cleanup arrives through a separate MainActor task. If

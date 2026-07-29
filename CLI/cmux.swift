@@ -30370,19 +30370,19 @@ export default CMUXSessionRestore;
 
     // MARK: Generic hook handler
 
-    private func resolvedAgentHookSessionId(
+    private func resolvedAgentHookLifecycleSessionId(
         def: AgentHookDef,
         input: ClaudeHookParsedInput,
         env: [String: String],
         cwd: String?
-    ) -> String {
+    ) -> String? {
         if let sessionId = normalizedHookValue(input.sessionId) {
             return sessionId
         }
-        if def.name == "rovodev" {
-            return RovoDevSessionResolver.inferredRovoDevSessionId(cwd: cwd, env: env) ?? ""
-        }
-        return normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? ""
+        guard def.name == "rovodev" else { return nil }
+        return normalizedHookValue(
+            RovoDevSessionResolver.inferredRovoDevSessionId(cwd: cwd, env: env)
+        )
     }
 
     private func runGenericAgentHook(
@@ -30520,7 +30520,15 @@ export default CMUXSessionRestore;
         let hookCwd = input.cwd
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
-        let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
+        let lifecycleSessionId = resolvedAgentHookLifecycleSessionId(
+            def: def,
+            input: input,
+            env: env,
+            cwd: hookCwd
+        )
+        let sessionId = lifecycleSessionId
+            ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
+            ?? ""
         let action = Self.subcommandActions[subcommand] ?? .noop
 #if DEBUG
         agentHookDebugLog(
@@ -30536,6 +30544,13 @@ export default CMUXSessionRestore;
         // restore record, clear the surface resume binding, and clear PID routing.
         func performAgentSessionTeardown() {
             guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) else { return }
+            if lifecycleSessionId == nil,
+               let mappedPID = mapped.pid,
+               let inferredPID,
+               mappedPID != inferredPID {
+                telemetry.breadcrumb("\(def.name)-hook.session-end.stale-fallback-suppressed")
+                return
+            }
             sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
             if suppressVisibleMutations {
@@ -30547,10 +30562,11 @@ export default CMUXSessionRestore;
                     surfaceId: consumed.surfaceId,
                     sessionId: consumed.sessionId
                 )
-                _ = try? sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status --session-id=\(socketQuote(consumed.sessionId))",
-                    client: client
-                )
+                var clearCommand = "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status"
+                if let lifecycleSessionId {
+                    clearCommand += " --session-id=\(socketQuote(lifecycleSessionId))"
+                }
+                _ = try? sendV1Command(clearCommand, client: client)
             }
         }
         func runtimeStatus(for notificationStatus: AgentHookNotificationStatus?) -> AgentHookRuntimeStatus? {
@@ -30921,7 +30937,8 @@ export default CMUXSessionRestore;
                 lifecycle: .unknown,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                sessionId: sessionId
+                sessionId: lifecycleSessionId,
+                startsNewOccupant: lifecycleSessionId == nil
             )
 
         case .promptSubmit:
@@ -30975,7 +30992,7 @@ export default CMUXSessionRestore;
                         lifecycle: lifecycle,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: sessionId
+                        sessionId: lifecycleSessionId
                     )
                 }
                 switch latest.runtimeStatus {
@@ -30986,7 +31003,7 @@ export default CMUXSessionRestore;
                         lifecycle: .running,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: sessionId
+                        sessionId: lifecycleSessionId
                     )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
@@ -31001,7 +31018,7 @@ export default CMUXSessionRestore;
                             lifecycle: .idle,
                             workspaceId: workspaceId,
                             surfaceId: surfaceId,
-                            sessionId: sessionId
+                            sessionId: lifecycleSessionId
                         )
                     }
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -31012,7 +31029,7 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: sessionId
+                        sessionId: lifecycleSessionId
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
@@ -31029,7 +31046,7 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: sessionId
+                        sessionId: lifecycleSessionId
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -31203,7 +31220,7 @@ export default CMUXSessionRestore;
                     lifecycle: .running,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: sessionId
+                    sessionId: lifecycleSessionId
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -31538,7 +31555,7 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: sessionId
+                        sessionId: lifecycleSessionId
                     )
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31551,7 +31568,7 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: sessionId
+                        sessionId: lifecycleSessionId
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -31568,7 +31585,7 @@ export default CMUXSessionRestore;
                         lifecycle: .running,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: sessionId
+                        sessionId: lifecycleSessionId
                     )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
@@ -31582,7 +31599,7 @@ export default CMUXSessionRestore;
                         lifecycle: .idle,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: sessionId
+                        sessionId: lifecycleSessionId
                     )
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
@@ -31670,7 +31687,7 @@ export default CMUXSessionRestore;
                     lifecycle: .running,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: sessionId
+                    sessionId: lifecycleSessionId
                 )
                 _ = try? sendV1Command(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31943,7 +31960,7 @@ export default CMUXSessionRestore;
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: sessionId
+                    sessionId: lifecycleSessionId
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
@@ -31960,7 +31977,7 @@ export default CMUXSessionRestore;
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: sessionId
+                    sessionId: lifecycleSessionId
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -31978,7 +31995,7 @@ export default CMUXSessionRestore;
                         lifecycle: .idle,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: sessionId
+                        sessionId: lifecycleSessionId
                     )
                 }
                 setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)

@@ -14,6 +14,7 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .idle)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
             snapshot: { fixture.snapshot(occupant: fixture.original) }
@@ -30,6 +31,7 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
             snapshot: {
@@ -63,6 +65,7 @@ struct AgentWaitCoordinatorTests {
         )
 
         let result = coordinator.wait(
+            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 1_000,
             snapshot: { fixture.snapshot(occupant: fixture.original) }
@@ -84,6 +87,7 @@ struct AgentWaitCoordinatorTests {
         )
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
             snapshot: {
@@ -104,6 +108,7 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
             snapshot: { fixture.snapshot(occupant: fixture.original) }
@@ -128,6 +133,7 @@ struct AgentWaitCoordinatorTests {
         )
 
         let result = coordinator.wait(
+            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 250,
             snapshot: { fixture.snapshot(occupant: fixture.original) }
@@ -143,6 +149,7 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
             snapshot: {
@@ -162,10 +169,42 @@ struct AgentWaitCoordinatorTests {
     }
 
     @Test
+    func unrelatedSurfaceBurstCannotOverflowTargetWait() throws {
+        let fixture = Fixture(state: .running, maxPendingEvents: 2)
+
+        let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
+            until: .idle,
+            timeoutMilliseconds: 0,
+            snapshot: {
+                for _ in 0..<16 {
+                    fixture.bus.publish(
+                        name: "agent.state.changed",
+                        category: "agent",
+                        source: "test",
+                        surfaceId: UUID().uuidString
+                    )
+                }
+                fixture.publish(
+                    record: fixture.original,
+                    state: .idle,
+                    previous: .running
+                )
+                return fixture.snapshot(occupant: fixture.original)
+            }
+        )
+
+        let value = try result.get()
+        #expect(value.status == .satisfied)
+        #expect(value.state == .idle)
+    }
+
+    @Test
     func needsInputTransitionSatisfiesWait() throws {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
             until: .needsInput,
             timeoutMilliseconds: 0,
             snapshot: {
@@ -188,6 +227,7 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
             until: .exit,
             timeoutMilliseconds: 0,
             snapshot: {
@@ -218,6 +258,7 @@ struct AgentWaitCoordinatorTests {
         )
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
             snapshot: {
@@ -233,10 +274,48 @@ struct AgentWaitCoordinatorTests {
     }
 
     @Test
+    func partiallyKnownSessionIdentityDoesNotMatch() {
+        let known = AgentLifecycleRecord(
+            agent: "codex",
+            state: .running,
+            sessionID: "session-known",
+            revision: 41
+        )
+        let unknown = AgentLifecycleRecord(
+            agent: "codex",
+            state: .running,
+            sessionID: nil,
+            revision: 41
+        )
+
+        #expect(!known.identifiesSameOccupant(as: unknown))
+        #expect(!unknown.identifiesSameOccupant(as: known))
+    }
+
+    @Test
+    func subscriptionCloseReasonIsNotPartOfWaitError() {
+        let fixture = Fixture(state: .running)
+        let coordinator = AgentWaitCoordinator(
+            eventBus: fixture.bus,
+            onSubscribe: { $0.close(reason: "internal buffer details") }
+        )
+
+        let result = coordinator.wait(
+            surfaceID: fixture.surfaceID,
+            until: .idle,
+            timeoutMilliseconds: nil,
+            snapshot: { fixture.snapshot(occupant: fixture.original) }
+        )
+
+        #expect(result == .failure(.subscriptionClosed))
+    }
+
+    @Test
     func surfaceClosureHasDistinctTerminalStatus() throws {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
             snapshot: {
@@ -258,13 +337,20 @@ struct AgentWaitCoordinatorTests {
     }
 
     private struct Fixture {
-        let bus = CmuxEventBus(retainedEventLimit: 16)
+        let bus: CmuxEventBus
         let workspaceID = UUID()
         let surfaceID = UUID()
         let paneID = UUID()
         let original: AgentLifecycleRecord
 
-        init(state: AgentHibernationLifecycleState) {
+        init(
+            state: AgentHibernationLifecycleState,
+            maxPendingEvents: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription
+        ) {
+            bus = CmuxEventBus(
+                retainedEventLimit: 16,
+                maxPendingEventsPerSubscription: maxPendingEvents
+            )
             original = AgentLifecycleRecord(
                 agent: "codex",
                 state: state,

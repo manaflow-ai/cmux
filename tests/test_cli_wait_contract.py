@@ -76,7 +76,13 @@ class ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamSer
     state: FakeCmuxState
 
 
-def run_cli(cli: str, socket_path: str, args: list[str]) -> RunResult:
+def run_cli(
+    cli: str,
+    socket_path: str,
+    args: list[str],
+    *,
+    cwd: str | None = None,
+) -> RunResult:
     env = dict(os.environ)
     for key in ["CMUX_SOCKET", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
         env.pop(key, None)
@@ -90,6 +96,7 @@ def run_cli(cli: str, socket_path: str, args: list[str]) -> RunResult:
         check=False,
         env=env,
         timeout=5,
+        cwd=cwd,
     )
     return RunResult(proc.returncode, proc.stdout, proc.stderr)
 
@@ -109,6 +116,7 @@ def main() -> int:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
+            (Path(tmp) / "wait").mkdir()
             result = run_cli(
                 cli,
                 socket_path,
@@ -121,6 +129,7 @@ def main() -> int:
                     "--timeout",
                     "2500",
                 ],
+                cwd=tmp,
             )
             expect(result.returncode == 0, f"satisfied wait failed: {result}")
             expect(result.stdout == "", f"plain success should be silent: {result.stdout!r}")

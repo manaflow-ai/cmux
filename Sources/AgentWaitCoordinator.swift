@@ -27,6 +27,7 @@ struct AgentWaitCoordinator {
     }
 
     func wait(
+        surfaceID: UUID,
         until: AgentWaitUntil,
         timeoutMilliseconds: Int64?,
         snapshot: () -> AgentWaitSurfaceSnapshot?
@@ -34,7 +35,8 @@ struct AgentWaitCoordinator {
         let subscriptionSnapshot = eventBus.subscribe(
             afterSequence: nil,
             names: Self.eventNames,
-            categories: []
+            categories: [],
+            surfaceIDs: [surfaceID.uuidString]
         )
         onSubscribe(subscriptionSnapshot.subscription)
         defer {
@@ -76,7 +78,7 @@ struct AgentWaitCoordinator {
         }
         while true {
             guard shouldContinue() else {
-                return .failure(.subscriptionClosed(nil))
+                return .failure(.subscriptionClosed)
             }
             let waitInterval: TimeInterval
             if let deadline {
@@ -89,12 +91,6 @@ struct AgentWaitCoordinator {
             }
 
             if let event = subscriptionSnapshot.subscription.next(timeout: waitInterval) {
-                guard event["surface_id"] as? String == surface.surfaceID.uuidString else {
-                    if let timeout = timeoutResultIfExpired() {
-                        return .success(timeout)
-                    }
-                    continue
-                }
                 if event["name"] as? String == "surface.closed" {
                     return .success(
                         result(
@@ -137,9 +133,7 @@ struct AgentWaitCoordinator {
             }
 
             if subscriptionSnapshot.subscription.isClosed {
-                return .failure(
-                    .subscriptionClosed(subscriptionSnapshot.subscription.closeReason)
-                )
+                return .failure(.subscriptionClosed)
             }
             if let timeout = timeoutResultIfExpired() {
                 return .success(timeout)

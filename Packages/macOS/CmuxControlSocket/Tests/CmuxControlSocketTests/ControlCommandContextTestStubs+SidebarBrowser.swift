@@ -72,6 +72,14 @@ extension ControlSidebarContext {
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
 
+    nonisolated func controlSidebarSetAgentLifecycleUsage() -> String {
+        "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--session-id=<id>] [--new-occupant]"
+    }
+
+    nonisolated func controlSidebarClearAgentPIDUsage() -> String {
+        "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>]"
+    }
+
     nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
         _ key: String,
         target: ControlSidebarTabTarget,
@@ -83,7 +91,8 @@ extension ControlSidebarContext {
         key: String,
         lifecycleRawValue: String,
         panelID: UUID?,
-        sessionID: String?
+        sessionID: String?,
+        startsNewOccupant: Bool
     ) {}
 
     func controlSidebarSetWorkspaceLoading(

@@ -226986,6 +226986,40 @@
         }
       }
     },
+    "socket.sidebar.agentLifecycle.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--session-id=<id>] [--new-occupant]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set_agent_lifecycle <キー> <unknown|running|idle|needsInput> [--tab=<ID>] [--panel=<ID>] [--session-id=<ID>] [--new-occupant]"
+          }
+        }
+      }
+    },
+    "socket.sidebar.clearAgentPID.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_agent_pid <キー> [--tab=<ID>] [--panel=<ID>] [--clear-status] [--session-id=<ID>]"
+          }
+        }
+      }
+    },
     "socket.sidebar.custom.invalidName": {
       "extractionState": "manual",
       "localizations": {

@@ -69,8 +69,8 @@ extension TerminalController {
         }
 
         let timeoutMilliseconds: Int64?
-        if let rawTimeout = params["timeout_ms"] {
-            guard let parsedTimeout = CmuxEventBus.int64(rawTimeout), parsedTimeout >= 0 else {
+        if params["timeout_ms"] != nil {
+            guard let parsedTimeout = v2StrictInt(params, "timeout_ms"), parsedTimeout >= 0 else {
                 writeAgentWaitResponse(
                     v2Error(
                         id: id,
@@ -84,7 +84,7 @@ extension TerminalController {
                 )
                 return
             }
-            timeoutMilliseconds = parsedTimeout
+            timeoutMilliseconds = Int64(parsedTimeout)
         } else {
             timeoutMilliseconds = nil
         }
@@ -125,6 +125,7 @@ extension TerminalController {
             }
         )
         let waitResult = waitCoordinator.wait(
+            surfaceID: surfaceID,
             until: until,
             timeoutMilliseconds: timeoutMilliseconds,
             snapshot: {
@@ -180,11 +181,11 @@ extension TerminalController {
                     defaultValue: "No agent lifecycle is recorded for this surface"
                 )
             )
-        case .failure(.subscriptionClosed(let reason)):
+        case .failure(.subscriptionClosed):
             response = v2Error(
                 id: id,
                 code: "wait_cancelled",
-                message: reason ?? String(
+                message: String(
                     localized: "socket.agentWait.error.cancelled",
                     defaultValue: "Agent wait was cancelled"
                 )

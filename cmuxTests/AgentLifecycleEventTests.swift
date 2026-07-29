@@ -62,6 +62,85 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
+    func anonymousSessionStartRotatesOccupantGeneration() throws {
+        let fixture = try Fixture()
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            startsNewOccupant: true
+        )
+        let original = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .needsInput
+        )
+        let updated = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+        #expect(updated.revision == original.revision)
+
+        let baselineSequence = CmuxEventBus.shared.latestSequence
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .idle,
+            startsNewOccupant: true
+        )
+
+        let replacement = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+        let payloads = fixture.agentEvents(after: baselineSequence)
+            .compactMap { $0["payload"] as? [String: Any] }
+        #expect(payloads.compactMap { $0["state"] as? String } == ["exit", "idle"])
+        #expect(payloads.allSatisfy { $0["session_id"] is NSNull })
+        #expect(replacement.revision > original.revision)
+        #expect(!replacement.identifiesSameOccupant(as: original))
+    }
+
+    @Test
+    func socketNewOccupantFlagRotatesAnonymousGeneration() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            TerminalMutationBus.shared.drainForTesting()
+        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let target = "--tab=\(workspace.id.uuidString) --panel=\(surfaceID.uuidString)"
+
+        let firstResponse = TerminalController.shared.handleSocketLine(
+            "set_agent_lifecycle codex running \(target) --new-occupant"
+        )
+        #expect(firstResponse == "OK")
+        TerminalMutationBus.shared.drainForTesting()
+        let original = try #require(
+            workspace.agentLifecycleRecordsByPanelId[surfaceID]?["codex"]
+        )
+
+        let replacementResponse = TerminalController.shared.handleSocketLine(
+            "set_agent_lifecycle codex idle \(target) --new-occupant"
+        )
+        #expect(replacementResponse == "OK")
+        TerminalMutationBus.shared.drainForTesting()
+        let replacement = try #require(
+            workspace.agentLifecycleRecordsByPanelId[surfaceID]?["codex"]
+        )
+
+        #expect(original.sessionID == nil)
+        #expect(replacement.sessionID == nil)
+        #expect(replacement.revision > original.revision)
+        #expect(!replacement.identifiesSameOccupant(as: original))
+    }
+
+    @Test
     func staleSessionTeardownCannotClearReplacementLifecycle() throws {
         let fixture = try Fixture()
         fixture.workspace.recordAgentPID(
@@ -109,10 +188,51 @@ struct AgentLifecycleEventTests {
         #expect(fixture.agentEvents(after: baselineSequence).isEmpty)
     }
 
+    @Test
+    func liveDetachAndReattachPreservesLifecycleWithoutExit() throws {
+        let fixture = try Fixture()
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-live"
+        )
+        let original = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+        let baselineSequence = CmuxEventBus.shared.latestSequence
+
+        let detached = try #require(
+            fixture.workspace.detachSurface(panelId: fixture.surfaceID)
+        )
+
+        #expect(detached.agentLifecycleRecords["codex"] == original)
+        #expect(fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID] == nil)
+        #expect(fixture.agentEvents(after: baselineSequence).isEmpty)
+
+        let destination = Workspace()
+        let destinationPane = try #require(
+            destination.bonsplitController.allPaneIds.first
+        )
+        let attachedPanelID = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        )
+
+        #expect(attachedPanelID == fixture.surfaceID)
+        #expect(
+            destination.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+                == original
+        )
+        #expect(fixture.agentEvents(after: baselineSequence).isEmpty)
+    }
+
     private struct Fixture {
         let workspace: Workspace
         let surfaceID: UUID
 
+        @MainActor
         init() throws {
             workspace = Workspace()
             surfaceID = try #require(workspace.focusedPanelId)

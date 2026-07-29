@@ -54,7 +54,10 @@ Each lifecycle mutation also publishes the semantic
 `agent.hook.*` events, its state vocabulary is the same for every integration:
 `unknown`, `running`, `idle`, `needs-input`, or `exit`. The payload includes
 the agent key, session id when available, prior state, and a process-local
-occupant revision.
+occupant revision. A surface ID used only as a hook-routing fallback is not
+published as an agent session ID. For agents that do not report a session ID,
+each genuine session-start rotates the occupant revision, while later state
+updates remain bound to that revision.
 
 Use `cmux wait --surface <id|ref|index> --until
 <idle|needs-input|exit> [--timeout <ms>]` to block on that lifecycle. The

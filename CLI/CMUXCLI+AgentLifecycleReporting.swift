@@ -7,7 +7,8 @@ extension CMUXCLI {
         lifecycle: AgentHibernationLifecycleState,
         workspaceId: String,
         surfaceId: String?,
-        sessionId: String?
+        sessionId: String?,
+        startsNewOccupant: Bool = false
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
             cliWriteStderr("Warning: unsupported agent lifecycle key\n")
@@ -17,6 +18,9 @@ extension CMUXCLI {
         var command = "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
         if let sessionId = normalizedAgentLifecycleSessionID(sessionId) {
             command += " --session-id=\(socketQuote(sessionId))"
+        }
+        if startsNewOccupant {
+            command += " --new-occupant"
         }
         do {
             _ = try sendV1Command(command, client: client)

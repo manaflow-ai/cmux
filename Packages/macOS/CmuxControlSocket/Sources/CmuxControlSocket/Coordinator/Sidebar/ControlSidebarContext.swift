@@ -77,6 +77,12 @@ public protocol ControlSidebarContext: AnyObject {
     /// (the app owns the `AgentHibernationLifecycleState` token table).
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String?
 
+    /// Localized usage text for `set_agent_lifecycle`.
+    nonisolated func controlSidebarSetAgentLifecycleUsage() -> String
+
+    /// Localized usage text for `clear_agent_pid`.
+    nonisolated func controlSidebarClearAgentPIDUsage() -> String
+
     /// Whether a lifecycle key is allowed (built-in status keys or a
     /// registered vault agent id for the target tab).
     nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
@@ -93,7 +99,8 @@ public protocol ControlSidebarContext: AnyObject {
         key: String,
         lifecycleRawValue: String,
         panelID: UUID?,
-        sessionID: String?
+        sessionID: String?,
+        startsNewOccupant: Bool
     )
 
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`
