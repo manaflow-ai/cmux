@@ -79,6 +79,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     private var isScreenConfigurationChanging = false
     private var presentation: Presentation = .visible
     private var accessoryIsTransientForVisibleRename = false
+    private weak var renameFocusController: MainWindowFocusController?
+    private var renameFocusSessionID: UUID?
     private lazy var parkingAccessoryController = WorkspaceFloatingDockParkingAccessoryController(
         dockID: dock.id,
         onRestore: { [weak self] in
@@ -275,7 +277,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         }
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
-        parkingAccessoryController.hide(animated: false)
+        hideParkingAccessory(animated: false)
         window?.ignoresMouseEvents = false
         window?.orderOut(nil)
     }
@@ -291,7 +293,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         }
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
-        parkingAccessoryController.hide(animated: false)
+        hideParkingAccessory(animated: false)
         window?.ignoresMouseEvents = false
         window?.orderOut(nil)
     }
@@ -363,7 +365,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                 animated: animated
             )
         } else {
-            parkingAccessoryController.hide(animated: false)
+            hideParkingAccessory(animated: false)
         }
 
         guard animated,
@@ -393,7 +395,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         let wasKeyWindow = panel.isKeyWindow
         persistRestorableFrame(originalFrame)
         presentation = .parked(snapshot)
-        parkingAccessoryController.hide(animated: false)
+        hideParkingAccessory(animated: false)
         detachParkedPanel(panel)
         stashOverlay.isHidden = false
         dock.ownsInputFocus = false
@@ -473,7 +475,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         let destinationFrame = parkingSnapshot.restoreFrame
         presentation = .visible
         accessoryIsTransientForVisibleRename = false
-        parkingAccessoryController.hide(animated: true)
+        hideParkingAccessory(animated: true)
         stashOverlay.isHidden = true
         if let panel = panel as? WorkspaceFloatingDockPanel {
             panel.presentsStashedWindow = false
@@ -535,7 +537,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                 animated: animated
             )
         } else {
-            parkingAccessoryController.hide(animated: animated)
+            hideParkingAccessory(animated: animated)
         }
         if animated {
             animatePanel(panel, to: targetFrame, duration: 0.16)
@@ -605,6 +607,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         isAnimatingPresentation = false
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
+        endRenameFocusSession()
         parkingAccessoryController.teardown()
         if let window, let parent = window.parent {
             parent.removeChildWindow(window)
@@ -733,6 +736,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
 
     func beginRenaming() {
         guard let panel = window else { return }
+        beginRenameFocusSession()
         if let parkingSnapshot {
             presentation = .revealed(parkingSnapshot)
             accessoryIsTransientForVisibleRename = false
@@ -756,9 +760,10 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     }
 
     private func parkingAccessoryEditingEnded() {
+        endRenameFocusSession()
         if accessoryIsTransientForVisibleRename {
             accessoryIsTransientForVisibleRename = false
-            parkingAccessoryController.hide(animated: true)
+            hideParkingAccessory(animated: true)
             window?.makeKeyAndOrderFront(nil)
         } else if let panel = window, let parkingSnapshot {
             showParkingAccessory(
@@ -768,6 +773,28 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             )
             parentWindow?.makeKeyAndOrderFront(nil)
         }
+    }
+
+    private func beginRenameFocusSession() {
+        guard renameFocusSessionID == nil,
+              let parentWindow,
+              let controller = AppDelegate.shared?.keyboardFocusCoordinator(for: parentWindow) else {
+            return
+        }
+        renameFocusController = controller
+        renameFocusSessionID = controller.beginOwnedTransientInputSession()
+    }
+
+    private func endRenameFocusSession() {
+        guard let id = renameFocusSessionID else { return }
+        renameFocusController?.endOwnedTransientInputSession(id)
+        renameFocusSessionID = nil
+        renameFocusController = nil
+    }
+
+    private func hideParkingAccessory(animated: Bool) {
+        endRenameFocusSession()
+        parkingAccessoryController.hide(animated: animated)
     }
 
     private func applyModelFrame() {

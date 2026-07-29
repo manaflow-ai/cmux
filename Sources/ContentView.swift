@@ -9392,6 +9392,15 @@ struct ContentView: View {
 #if DEBUG
         cmuxDebugLog("palette.run commandId=\(command.id) dismissOnRun=\(command.dismissOnRun ? 1 : 0)")
 #endif
+        let handoffFocusController = Self.commandPaletteNeedsOwnedTransientInputHandoff(
+            forCommandId: command.id
+        ) ? AppDelegate.shared?.keyboardFocusCoordinator(for: observedWindow) : nil
+        let handoffSessionID = handoffFocusController?.beginOwnedTransientInputSession()
+        defer {
+            if let handoffSessionID {
+                handoffFocusController?.endOwnedTransientInputSession(handoffSessionID)
+            }
+        }
         let postRunFocusTarget = commandPalettePostRunFocusTarget(for: command)
         recordCommandPaletteUsage(command.id)
         if command.dismissOnRun,
@@ -9613,6 +9622,10 @@ struct ContentView: View {
         default:
             return false
         }
+    }
+
+    static func commandPaletteNeedsOwnedTransientInputHandoff(forCommandId commandId: String) -> Bool {
+        commandId == "palette.renameFloatingWindow"
     }
 
     static func commandPalettePostRunRestoreFocusIntent(forCommandId commandId: String) -> PanelFocusIntent? {

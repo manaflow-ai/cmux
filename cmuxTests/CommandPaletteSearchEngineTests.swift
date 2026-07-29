@@ -1109,6 +1109,12 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         ))
         XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalSplitRight"))
         XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalFocusTextBoxInput"))
+        XCTAssertTrue(ContentView.commandPaletteNeedsOwnedTransientInputHandoff(
+            forCommandId: "palette.renameFloatingWindow"
+        ))
+        XCTAssertFalse(ContentView.commandPaletteNeedsOwnedTransientInputHandoff(
+            forCommandId: "palette.terminalSplitRight"
+        ))
     }
 
     func testForkableAgentCacheKeepsVerifiedOpenCodeVisible() {

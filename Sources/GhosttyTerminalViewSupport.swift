@@ -97,11 +97,10 @@ func shouldAllowEnsureFocusWindowActivation(
         return keyWindow === targetWindow
     }
 
-    if let mainWindow {
-        return mainWindow === targetWindow
-    }
-
-    return true
+    // A main window can remain `NSApp.mainWindow` while a child panel hands key
+    // status to another transient input owner. Wait for a real didBecomeKey
+    // notification instead of letting deferred terminal focus claim that gap.
+    return mainWindow == nil
 }
 
 extension TerminalSurface {

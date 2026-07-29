@@ -57,6 +57,7 @@ final class MainWindowFocusController {
     private weak var fileSearchHost: FileExplorerContainerView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
+    private var ownedTransientInputSessionIDs: Set<UUID> = []
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -172,7 +173,22 @@ final class MainWindowFocusController {
         publishFeedFocusSnapshot()
     }
 
+    /// Suspends automatic main-window focus while an owned child window is
+    /// accepting text. Tokens compose so a command-palette handoff can overlap
+    /// the longer-lived child editor without exposing a focus-stealing gap.
+    @discardableResult
+    func beginOwnedTransientInputSession() -> UUID {
+        let id = UUID()
+        ownedTransientInputSessionIDs.insert(id)
+        return id
+    }
+
+    func endOwnedTransientInputSession(_ id: UUID) {
+        ownedTransientInputSessionIDs.remove(id)
+    }
+
     func allowsTerminalFocus(workspaceId: UUID, panelId: UUID) -> Bool {
+        guard ownedTransientInputSessionIDs.isEmpty else { return false }
         if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
             return true
         }
@@ -273,6 +289,7 @@ final class MainWindowFocusController {
 
     @discardableResult
     func restoreTargetAfterWindowBecameKey() -> Bool {
+        guard ownedTransientInputSessionIDs.isEmpty else { return false }
         switch intent {
         case .rightSidebar(let mode):
             return restoreRightSidebarTargetAfterWindowBecameKey(mode: mode)

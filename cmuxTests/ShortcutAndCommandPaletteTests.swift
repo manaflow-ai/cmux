@@ -1417,6 +1417,28 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
+    func testOwnedTransientInputSessionsBlockTerminalFocusUntilEveryOwnerEnds() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        let paletteHandoff = controller.beginOwnedTransientInputSession()
+        let renameEditor = controller.beginOwnedTransientInputSession()
+        XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+
+        controller.endOwnedTransientInputSession(paletteHandoff)
+        XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+
+        controller.endOwnedTransientInputSession(renameEditor)
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @MainActor
     func testHiddenRightSidebarClearsFocusIntentWhenNoTerminalCanRestore() {
         let controller = MainWindowFocusController(
             windowId: UUID(),
