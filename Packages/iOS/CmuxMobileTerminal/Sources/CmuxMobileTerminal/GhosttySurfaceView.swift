@@ -366,6 +366,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
+    #if DEBUG
+    var latencyLastAppliedSequence: UInt64?
+    #endif
     private var lastReportedSize: TerminalGridSize?
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
@@ -3118,6 +3121,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard self.surfaceGeneration == generation else { return }
+                #if DEBUG
+                if let sequence = self.latencyLastAppliedSequence {
+                    MobileLatencyTrace.stamp("rd.present", "seq=\(sequence)")
+                } else {
+                    MobileLatencyTrace.stamp("rd.present")
+                }
+                #endif
                 self.renderInFlight = false
                 self.renderInFlightSince = nil
                 guard !self.isDismantled else {

@@ -146,9 +146,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
                 scheduleWorkspaceChangesSummaryRefresh()
+                #if DEBUG
+                startLatencyProbeIfReady()
+                #endif
             } else {
                 deactivateAllTerminalLanes()
                 resetWorkspaceChangesState()
+                #if DEBUG
+                cancelLatencyProbe()
+                #endif
             }
             // Intentional teardown (sign-out, hide, switch) must not look like
             // a network outage: swallow this edge and reset the throttle so a
@@ -984,6 +990,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var rawTerminalInputDrainWaiters: [CheckedContinuation<Void, Never>]
     private var isRawTerminalInputDrainLoopRunning: Bool
+    #if DEBUG
+    var latencyProbeTask: Task<Void, Never>?
+    private var rawTerminalInputLatencyBatchNumber: UInt64
+    #endif
     private var pairingAttemptID: UUID
 
     /// High-level shell phase derived from sign-in and connection state.
@@ -1220,6 +1230,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.rawTerminalInputDrainWaiters = []
         self.isRawTerminalInputDrainLoopRunning = false
+        #if DEBUG
+        self.latencyProbeTask = nil
+        self.rawTerminalInputLatencyBatchNumber = 0
+        #endif
         self.pairingAttemptID = UUID()
     }
 
@@ -5362,11 +5376,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Matches MobileIrohTerminalLane.maximumInputByteCount and the Mac lane
         // router's maximumInputFrameByteCount.
         while let chunk = rawTerminalInputBuffer.nextBatch(maximumByteCount: 16 * 1_024) {
+            #if DEBUG
+            rawTerminalInputLatencyBatchNumber &+= 1
+            let latencyBatchNumber = rawTerminalInputLatencyBatchNumber
+            MobileLatencyTrace.stamp(
+                "in.send",
+                "n=\(latencyBatchNumber) bytes=\(chunk.text.utf8.count)"
+            )
+            #endif
             await sendRemoteTerminalInput(
                 chunk.text,
                 workspaceID: chunk.workspaceID,
                 terminalID: chunk.terminalID
             )
+            #if DEBUG
+            MobileLatencyTrace.stamp("in.settled", "n=\(latencyBatchNumber)")
+            #endif
         }
     }
 
@@ -7556,6 +7581,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               let remoteSeq = payload.terminalSeq else {
             return
         }
+        #if DEBUG
+        MobileLatencyTrace.stamp("in.resp", "ack_seq=\(remoteSeq)")
+        #endif
         let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         guard remoteSeq > localSeq else { return }
         let canRenderGridAdvancePendingSeq = terminalOutputTransport == .renderGrid
@@ -7627,6 +7655,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
+        startLatencyProbeIfReady()
         #endif
         requestColdAttachTerminalReplay(surfaceID: surfaceID)
         ensureTerminalLane(surfaceID: surfaceID)
@@ -8064,6 +8093,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let accepted = self.deliverTerminalBytes(
                     deliverBytes,
                     surfaceID: surfaceID,
+                    endSequence: replaySeq,
                     bypassReplayBarrier: replayBarrierTokenForRequest != nil
                 )
                 if accepted,
@@ -8165,6 +8195,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let json = event.payloadJSON else {
             return
         }
+        #if DEBUG
+        let latencyReceiveTime = MobileLatencyTrace.captureTime()
+        #endif
         // The frame may arrive nested under `render_grid` or as the bare payload;
         // try the wrapper first, then fall back to decoding the whole payload.
         let renderGridDTO = try? MobileTerminalRenderGridEvent.decode(json)
@@ -8173,6 +8206,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         #if DEBUG
+        if let latencyReceiveTime {
+            let decodeDuration = MobileLatencyTrace.elapsedMicroseconds(since: latencyReceiveTime)
+            MobileLatencyTrace.stamp(
+                "ev.grid",
+                at: latencyReceiveTime,
+                "seq=\(renderGrid.stateSeq) bytes=\(json.count) dec_us=\(decodeDuration)"
+            )
+        }
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
         deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
@@ -8264,7 +8305,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     b: Int(clamping: seq)
                 ))
                 mobileShellLog.info("terminal byte gap surface=\(surfaceID, privacy: .public) deliveredSeq=\(deliveredSeq, privacy: .public) nextSeq=\(seq, privacy: .public)")
-                guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else { return }
+                guard deliverTerminalBytes(bytes, surfaceID: surfaceID, endSequence: endSeq) else { return }
                 markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
                 if terminalReplaySurfaceIDsInFlight.contains(surfaceID) {
                     cancelTerminalReplayInFlight(surfaceID: surfaceID)
@@ -8281,7 +8322,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             let overlap = deliveredSeq - seq
             let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
-            guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID) else { return }
+            guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID, endSequence: endSeq) else { return }
             markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
             return
         }
@@ -8295,12 +8336,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if seq < floorSeq {
                 let overlap = floorSeq - seq
                 let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
-                guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID) else { return }
+                guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID, endSequence: endSeq) else { return }
                 markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
                 return
             }
         }
-        guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else { return }
+        guard deliverTerminalBytes(bytes, surfaceID: surfaceID, endSequence: endSeq) else { return }
         markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
     }
 

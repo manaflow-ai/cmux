@@ -443,7 +443,8 @@ final class MobileHostService {
     /// synchronous bounded queues as every other event.
     nonisolated static func emitRenderGridEvent(
         framesByAnchor: [MobileTerminalRenderGridFrame.Anchor: (payloadJSON: Data, isFullFrame: Bool)],
-        surfaceID: String
+        surfaceID: String,
+        stateSeq: UInt64
     ) {
         let topic = MobileHostEventTopicPolicy.renderGridTopic
         guard !framesByAnchor.isEmpty,
@@ -462,7 +463,7 @@ final class MobileHostService {
             encodedByAnchor[anchor] = (frame, item.isFullFrame)
         }
         guard !encodedByAnchor.isEmpty else { return }
-        deliverEventFrames(topic: topic, coalesceKey: surfaceID) { connection in
+        deliverEventFrames(topic: topic, coalesceKey: surfaceID, stateSeq: stateSeq) { connection in
             encodedByAnchor[
                 MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
             ]
@@ -507,7 +508,7 @@ final class MobileHostService {
         coalesceKey: String?,
         isFullRenderGridFrame: Bool
     ) {
-        deliverEventFrames(topic: topic, coalesceKey: coalesceKey) { _ in
+        deliverEventFrames(topic: topic, coalesceKey: coalesceKey, stateSeq: nil) { _ in
             (frame, isFullRenderGridFrame)
         }
     }
@@ -521,6 +522,7 @@ final class MobileHostService {
     nonisolated private static func deliverEventFrames(
         topic: String,
         coalesceKey: String?,
+        stateSeq: UInt64?,
         frameFor: (MobileHostConnection) -> (frame: Data, isFullRenderGridFrame: Bool)?
     ) {
         let connections = MobileHostConnectionRegistry.shared.snapshot()
@@ -535,8 +537,14 @@ final class MobileHostService {
                 item.frame,
                 topic: topic,
                 coalesceKey: coalesceKey,
-                isFullRenderGridFrame: item.isFullRenderGridFrame
+                isFullRenderGridFrame: item.isFullRenderGridFrame,
+                stateSeq: stateSeq
             )
+            #if DEBUG
+            if let stateSeq, result.admitted, let depth = result.depthAfterEnqueue {
+                HostLatencyTrace.stamp("host.enq", "seq=\(stateSeq) depth=\(depth)")
+            }
+            #endif
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
             if result.startDrain {
                 Task { await connection.drainQueuedEvents() }
@@ -2384,6 +2392,7 @@ actor MobileHostConnection {
             coalesceKey: MobileHostService.eventCoalesceKey(topic: topic, payload: payload),
             isFullRenderGridFrame: topic == MobileHostEventTopicPolicy.renderGridTopic
                 && payload["full"] as? Bool == true,
+            stateSeq: nil,
             frame: frame
         )
         if !result.renderGridResyncSurfaceIDs.isEmpty {
@@ -2418,12 +2427,14 @@ actor MobileHostConnection {
         _ frame: Data,
         topic: String,
         coalesceKey: String?,
-        isFullRenderGridFrame: Bool
+        isFullRenderGridFrame: Bool,
+        stateSeq: UInt64?
     ) -> MobileHostEventEnqueueResult {
         eventQueue.enqueue(
             topic: topic,
             coalesceKey: coalesceKey,
             isFullRenderGridFrame: isFullRenderGridFrame,
+            stateSeq: stateSeq,
             frame: frame
         )
     }
@@ -2481,10 +2492,21 @@ actor MobileHostConnection {
                 return
             }
             guard eventQueue.isSubscribed(topic: event.topic) else { continue }
+            #if DEBUG
+            let latencyWriteStart = event.stateSeq == nil ? nil : HostLatencyTrace.captureTime()
+            #endif
             guard await deliverQueuedEvent(event) else {
                 eventQueue.abandonDrain()
                 return
             }
+            #if DEBUG
+            if let stateSeq = event.stateSeq {
+                HostLatencyTrace.stampElapsed(
+                    "host.write",
+                    since: latencyWriteStart
+                ) { "seq=\(stateSeq) us=\($0)" }
+            }
+            #endif
             let resyncSurfaceIDs = eventQueue.takeResyncAfterDrainRequests()
             if !resyncSurfaceIDs.isEmpty {
                 MobileTerminalRenderObserver.requestRenderGridFullResync(

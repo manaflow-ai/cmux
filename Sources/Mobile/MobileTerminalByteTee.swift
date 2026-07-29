@@ -179,6 +179,9 @@ final class MobileTerminalByteTee {
             state.replayBuffer.removeFirst(state.replayBuffer.count - replayBudget)
         }
         statesBySurfaceID[surfaceID] = state
+        #if DEBUG
+        HostLatencyTrace.stamp("host.tee", "seq=\(state.seq) bytes=\(data.count)")
+        #endif
         MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
 
         if let continuations = laneContinuationsBySurfaceID[surfaceID] {

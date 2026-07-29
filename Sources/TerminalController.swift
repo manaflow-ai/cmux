@@ -14826,6 +14826,9 @@ class TerminalController {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
         }
+        #if DEBUG
+        HostLatencyTrace.stamp("host.in.recv", "bytes=\(text.utf8.count)")
+        #endif
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -14869,6 +14872,9 @@ class TerminalController {
         ]
         if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
             payload["terminal_seq"] = seq
+            #if DEBUG
+            HostLatencyTrace.stamp("host.in.applied", "seq=\(seq)")
+            #endif
         }
         return .ok(payload)
     }
