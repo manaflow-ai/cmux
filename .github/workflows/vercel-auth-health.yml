@@ -37,9 +37,9 @@ jobs:
         run: |
           set -euo pipefail
           bunx vercel@56.3.1 link --yes \
-            --project cmux --scope manaflow --cwd web
+            --project cmux --scope manaflow --cwd .
           preview_url="$(
-            bunx vercel@56.3.1 deploy --yes --scope manaflow --cwd web
+            bunx vercel@56.3.1 deploy --yes --scope manaflow --cwd .
           )"
           case "$preview_url" in
             https://*) ;;
