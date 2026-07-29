@@ -169,7 +169,20 @@ extension Workspace {
         return didChange
     }
     @discardableResult
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID?,
+        refreshPorts: Bool = true,
+        expectedLifecycleSessionID: String? = nil
+    ) -> Bool {
+        if let expectedLifecycleSessionID {
+            guard let panelId,
+                  agentLifecycleRecordsByPanelId[panelId]?[agentStatusKey(forAgentPIDKey: key)]?.sessionID
+                    == expectedLifecycleSessionID else {
+                return false
+            }
+        }
         let previous = (
             panelId: agentPIDPanelIdsByKey[key],
             pid: agentPIDs[key],
@@ -299,10 +312,32 @@ extension Workspace {
         panelId: UUID? = nil,
         clearStatus: Bool = false,
         refreshPorts: Bool = true,
-        expectedLifecycleSessionID: String? = nil
+        expectedLifecycleSessionID: String? = nil,
+        expectedPID: pid_t? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
         if let panelId, let ownedPanelId, ownedPanelId != panelId {
+            return false
+        }
+        if let expectedPID {
+            guard agentPIDs[key] == expectedPID else { return false }
+            switch (expectedPIDStartSeconds, expectedPIDStartMicroseconds) {
+            case (nil, nil):
+                break
+            case let (startSeconds?, startMicroseconds?):
+                guard agentPIDProcessIdentitiesByKey[key] == AgentPIDProcessIdentity(
+                    pid: expectedPID,
+                    startSeconds: startSeconds,
+                    startMicroseconds: startMicroseconds
+                ) else {
+                    return false
+                }
+            case (nil, _?), (_?, nil):
+                return false
+            }
+        } else if expectedPIDStartSeconds != nil || expectedPIDStartMicroseconds != nil {
             return false
         }
         let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil

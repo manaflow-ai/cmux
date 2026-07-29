@@ -218,9 +218,13 @@ struct ControlCommandCoordinatorSurfaceTests {
         _ = coordinator.handle(ControlRequest(
             id: .int(1),
             method: "surface.resume.clear",
-            params: ["agent_session_ended": .bool(true)]
+            params: [
+                "agent_session_ended": .bool(true),
+                "_cmux_expected_updated_at": .double(123.25),
+            ]
         ))
         #expect(context.resumeClearAgentSessionEnded == true)
+        #expect(context.resumeClearExpectedBindingUpdatedAt == 123.25)
 
         _ = coordinator.handle(ControlRequest(
             id: .int(2),
@@ -228,6 +232,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             params: [:]
         ))
         #expect(context.resumeClearAgentSessionEnded == false)
+        #expect(context.resumeClearExpectedBindingUpdatedAt == nil)
     }
 
     @Test(
@@ -237,7 +242,8 @@ struct ControlCommandCoordinatorSurfaceTests {
     func surfaceResumeClearRejectsMalformedSessionEndProvenance(value: JSONValue) {
         let context = FakeSurfaceControlCommandContext()
         context.resumeStrings = ControlSurfaceResumeStrings(
-            agentSessionEndedMustBeBoolean: "localized boolean validation"
+            agentSessionEndedMustBeBoolean: "localized boolean validation",
+            invalidExpectedUpdatedAt: "localized revision validation"
         )
         let coordinator = ControlCommandCoordinator(context: context)
 
@@ -253,6 +259,32 @@ struct ControlCommandCoordinatorSurfaceTests {
             data: nil
         ))
         #expect(context.resumeClearAgentSessionEnded == nil)
+    }
+
+    @Test(
+        "surface resume clear rejects malformed binding revision",
+        arguments: [JSONValue.null, .string("nan"), .object([:])]
+    )
+    func surfaceResumeClearRejectsMalformedBindingRevision(value: JSONValue) {
+        let context = FakeSurfaceControlCommandContext()
+        context.resumeStrings = ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: "localized boolean validation",
+            invalidExpectedUpdatedAt: "localized revision validation"
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.clear",
+            params: ["_cmux_expected_updated_at": value]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "localized revision validation",
+            data: nil
+        ))
+        #expect(context.resumeClearExpectedBindingUpdatedAt == nil)
     }
 
     @Test func paneCreateDockUnsupportedTypeReturnsInvalidParams() throws {

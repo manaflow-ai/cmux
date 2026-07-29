@@ -73,13 +73,15 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        expectedLifecycleSessionID: String?
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             let didReplaceAgentRuntime = tab.recordAgentPID(
                 key: key,
                 pid: pid,
-                panelId: panelID
+                panelId: panelID,
+                expectedLifecycleSessionID: expectedLifecycleSessionID
             )
             if didReplaceAgentRuntime, let panelId = panelID {
                 TerminalNotificationStore.shared.clearNotifications(
@@ -247,14 +249,20 @@ extension TerminalController: ControlSidebarContext {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
-        expectedLifecycleSessionID: String?
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             tab.clearAgentPID(
                 key: key,
                 panelId: panelID,
                 clearStatus: clearStatus,
-                expectedLifecycleSessionID: expectedLifecycleSessionID
+                expectedLifecycleSessionID: expectedLifecycleSessionID,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
             )
         }
     }

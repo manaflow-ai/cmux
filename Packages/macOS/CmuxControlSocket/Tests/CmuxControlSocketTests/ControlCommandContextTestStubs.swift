@@ -445,7 +445,10 @@ extension ControlSurfaceContext {
     }
 
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
-        ControlSurfaceResumeStrings(agentSessionEndedMustBeBoolean: "")
+        ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: "",
+            invalidExpectedUpdatedAt: ""
+        )
     }
 
     func controlSurfaceSendText(
@@ -481,7 +484,8 @@ extension ControlSurfaceContext {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
-        agentSessionEnded: Bool
+        agentSessionEnded: Bool,
+        expectedBindingUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }

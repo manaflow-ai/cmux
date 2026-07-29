@@ -227479,6 +227479,23 @@
         }
       }
     },
+    "socket.surface.resume.invalidExpectedUpdatedAt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid internal resume-binding revision"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部の再開バインディングリビジョンが指定されていないか、無効です"
+          }
+        }
+      }
+    },
     "socket.surfaceSplitOff.error.appDelegateUnavailable": {
       "extractionState": "manual",
       "localizations": {

@@ -8,8 +8,10 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeClearAgentSessionEnded: Bool?
+    var resumeClearExpectedBindingUpdatedAt: Double?
     var resumeStrings = ControlSurfaceResumeStrings(
-        agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean"
+        agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean",
+        invalidExpectedUpdatedAt: "invalid expected updated at"
     )
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
@@ -67,9 +69,11 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
-        agentSessionEnded: Bool
+        agentSessionEnded: Bool,
+        expectedBindingUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution {
         resumeClearAgentSessionEnded = agentSessionEnded
+        resumeClearExpectedBindingUpdatedAt = expectedBindingUpdatedAt
         return resumeResolution
     }
 

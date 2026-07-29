@@ -328,11 +328,21 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let expectedLifecycleSessionID: String?
+        if parsed.options["session-id"] != nil {
+            guard let sessionID = sidebarNormalizedOptionValue(parsed.options["session-id"]) else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedLifecycleSessionID = sessionID
+        } else {
+            expectedLifecycleSessionID = nil
+        }
         context?.controlSidebarScheduleAgentPIDRecord(
             target: target,
             key: key,
             pid: pid,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            expectedLifecycleSessionID: expectedLifecycleSessionID
         )
         return "OK"
     }
@@ -434,12 +444,60 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let expectedLifecycleSessionID: String?
+        if parsed.options["session-id"] != nil {
+            guard let sessionID = sidebarNormalizedOptionValue(parsed.options["session-id"]) else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedLifecycleSessionID = sessionID
+        } else {
+            expectedLifecycleSessionID = nil
+        }
+        let expectedPID: Int32?
+        if parsed.options["expected-pid"] != nil {
+            guard let rawPID = sidebarNormalizedOptionValue(parsed.options["expected-pid"]),
+                  let parsedPID = Int32(rawPID),
+                  parsedPID > 0 else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedPID = parsedPID
+        } else {
+            expectedPID = nil
+        }
+        let expectedPIDStartSeconds: Int64?
+        let expectedPIDStartMicroseconds: Int64?
+        switch (
+            parsed.options["expected-pid-start-seconds"],
+            parsed.options["expected-pid-start-microseconds"]
+        ) {
+        case (nil, nil):
+            expectedPIDStartSeconds = nil
+            expectedPIDStartMicroseconds = nil
+        case (let rawSeconds?, let rawMicroseconds?):
+            guard expectedPID != nil,
+                  let normalizedSeconds = sidebarNormalizedOptionValue(rawSeconds),
+                  let normalizedMicroseconds = sidebarNormalizedOptionValue(rawMicroseconds),
+                  let seconds = Int64(normalizedSeconds),
+                  let microseconds = Int64(normalizedMicroseconds),
+                  seconds >= 0,
+                  microseconds >= 0,
+                  microseconds < 1_000_000 else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedPIDStartSeconds = seconds
+            expectedPIDStartMicroseconds = microseconds
+        case (nil, _?), (_?, nil):
+            return "ERROR: Usage: \(usage)"
+        }
         context?.controlSidebarScheduleAgentPIDClear(
             target: target,
             key: key,
             panelID: panelResolution.panelId,
             clearStatus: parsed.options["clear-status"] != nil,
-            expectedLifecycleSessionID: sidebarNormalizedOptionValue(parsed.options["session-id"])
+            expectedLifecycleSessionID: expectedLifecycleSessionID,
+            expectedPID: expectedPID,
+            expectedPIDStartSeconds: expectedPIDStartSeconds,
+            expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
         )
         return "OK"
     }

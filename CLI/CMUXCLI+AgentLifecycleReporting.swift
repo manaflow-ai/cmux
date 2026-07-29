@@ -1,6 +1,23 @@
 import Foundation
 
 extension CMUXCLI {
+    func setAgentPID(
+        client: SocketClient,
+        key: String,
+        pid: Int,
+        workspaceId: String,
+        surfaceId: String?,
+        expectedLifecycleSessionId: String? = nil
+    ) {
+        var command = "set_agent_pid \(key) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+        if let expectedLifecycleSessionId = normalizedAgentLifecycleSessionID(
+            expectedLifecycleSessionId
+        ) {
+            command += " --session-id=\(socketQuote(expectedLifecycleSessionId))"
+        }
+        _ = try? sendV1Command(command, client: client)
+    }
+
     func setAgentLifecycle(
         client: SocketClient,
         key: String,

@@ -67,7 +67,8 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        expectedLifecycleSessionID: String?
     ) {}
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
@@ -110,7 +111,10 @@ extension ControlSidebarContext {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
-        expectedLifecycleSessionID: String?
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
     ) {}
 
     nonisolated func controlSidebarScheduleMetadataBlockUpsert(

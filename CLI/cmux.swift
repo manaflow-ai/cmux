@@ -144,6 +144,9 @@ struct ClaudeHookSessionRecord: Codable {
     /// Exact process-generation identity captured when the hook recorded `pid`.
     var pidStartSeconds: Int64? = nil
     var pidStartMicroseconds: Int64? = nil
+    /// The `updated_at` revision returned by the last successful
+    /// `surface.resume.set` for this exact hook process generation.
+    var resumeBindingUpdatedAt: TimeInterval? = nil
     var launchCommand: AgentHookLaunchCommandRecord?
     /// Last hook-observed `permission_mode`, re-applied as `--permission-mode`
     /// on user-owned session restore (https://github.com/manaflow-ai/cmux/issues/8066).
@@ -1133,15 +1136,23 @@ final class ClaudeHookSessionStore {
         }
         if let pid {
             let previousPID = record.pid
+            let previousStartSeconds = record.pidStartSeconds
+            let previousStartMicroseconds = record.pidStartMicroseconds
             record.pid = pid
             if let identity = processStartIdentity(pid: pid) {
                 record.pidStartSeconds = identity.seconds
                 record.pidStartMicroseconds = identity.microseconds
+                if previousPID != pid
+                    || previousStartSeconds != identity.seconds
+                    || previousStartMicroseconds != identity.microseconds {
+                    record.resumeBindingUpdatedAt = nil
+                }
             } else if previousPID != pid {
                 // A different numeric PID without a captured start identity cannot
                 // inherit generation authority from the previous process.
                 record.pidStartSeconds = nil
                 record.pidStartMicroseconds = nil
+                record.resumeBindingUpdatedAt = nil
             }
         }
         if let launchCommand {
@@ -1406,7 +1417,10 @@ final class ClaudeHookSessionStore {
         sessionId: String?,
         workspaceId: String?,
         surfaceId: String?,
-        turnId: String? = nil
+        turnId: String? = nil,
+        expectedPID: Int? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) throws -> ClaudeHookSessionRecord? {
         let normalizedSessionId = normalizeOptional(sessionId)
         let normalizedWorkspace = normalizeOptional(workspaceId)
@@ -1414,7 +1428,13 @@ final class ClaudeHookSessionStore {
         return try withLockedState { state in
             if let normalizedSessionId,
                let existing = state.sessions[normalizedSessionId] {
-                guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
+                guard matchesExpectedProcess(
+                    existing,
+                    expectedPID: expectedPID,
+                    expectedPIDStartSeconds: expectedPIDStartSeconds,
+                    expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
+                ),
+                      !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
                     return nil
                 }
                 let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
@@ -1429,13 +1449,66 @@ final class ClaudeHookSessionStore {
             ) else {
                 return nil
             }
-            guard !hasActiveTurnMismatch(state, record: fallback, turnId: turnId) else {
+            guard matchesExpectedProcess(
+                fallback,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
+            ),
+                  !hasActiveTurnMismatch(state, record: fallback, turnId: turnId) else {
                 return nil
             }
             state.sessions.removeValue(forKey: fallback.sessionId)
             clearActiveSessionIfMatching(&state, removed: fallback, turnId: turnId)
             return fallback
         }
+    }
+
+    @discardableResult
+    func recordResumeBindingUpdatedAt(
+        sessionId: String,
+        updatedAt: TimeInterval,
+        expectedPID: Int?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
+    ) throws -> Bool {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty, updatedAt.isFinite else { return false }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalizedSessionId],
+                  matchesExpectedProcess(
+                      record,
+                      expectedPID: expectedPID,
+                      expectedPIDStartSeconds: expectedPIDStartSeconds,
+                      expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
+                  ) else {
+                return false
+            }
+            record.resumeBindingUpdatedAt = updatedAt
+            state.sessions[normalizedSessionId] = record
+            return true
+        }
+    }
+
+    private func matchesExpectedProcess(
+        _ record: ClaudeHookSessionRecord,
+        expectedPID: Int?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
+    ) -> Bool {
+        guard let expectedPID else {
+            return expectedPIDStartSeconds == nil && expectedPIDStartMicroseconds == nil
+        }
+        guard record.pid == expectedPID else { return false }
+        if let expectedPIDStartSeconds,
+           record.pidStartSeconds != expectedPIDStartSeconds {
+            return false
+        }
+        if let expectedPIDStartMicroseconds,
+           record.pidStartMicroseconds != expectedPIDStartMicroseconds {
+            return false
+        }
+        return true
     }
 
     private func hasActiveTurnMismatch(
@@ -24306,6 +24379,7 @@ struct CMUXCLI {
                 if shouldPromoteActiveSession {
                     publishAgentSurfaceResumeBinding(
                         client: client,
+                        sessionStore: sessionStore,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         kind: "claude",
@@ -24441,6 +24515,7 @@ struct CMUXCLI {
                     )
                     publishAgentSurfaceResumeBinding(
                         client: client,
+                        sessionStore: sessionStore,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         kind: "claude",
@@ -24584,6 +24659,7 @@ struct CMUXCLI {
                 )
                 publishAgentSurfaceResumeBinding(
                     client: client,
+                    sessionStore: sessionStore,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: "claude",
@@ -24902,7 +24978,8 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: cleanupSurfaceId,
                     sessionId: consumedSession.sessionId,
-                    sessionDidEnd: true
+                    sessionDidEnd: true,
+                    expectedBindingUpdatedAt: consumedSession.resumeBindingUpdatedAt
                 )
                 if cleanupSurfaceId != consumedSession.surfaceId {
                     clearAgentSurfaceResumeBinding(
@@ -24910,7 +24987,8 @@ struct CMUXCLI {
                         workspaceId: consumedSession.workspaceId,
                         surfaceId: consumedSession.surfaceId,
                         sessionId: consumedSession.sessionId,
-                        sessionDidEnd: true
+                        sessionDidEnd: true,
+                        expectedBindingUpdatedAt: consumedSession.resumeBindingUpdatedAt
                     )
                 }
                 sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
@@ -27964,6 +28042,7 @@ struct CMUXCLI {
 
     private func publishAgentSurfaceResumeBinding(
         client: SocketClient,
+        sessionStore: ClaudeHookSessionStore,
         workspaceId: String,
         surfaceId: String,
         kind: String,
@@ -28016,7 +28095,22 @@ struct CMUXCLI {
         if let resumeEnvironment, !resumeEnvironment.isEmpty {
             params["environment"] = resumeEnvironment
         }
-        _ = try? client.sendV2(method: "surface.resume.set", params: params)
+        let owner = try? sessionStore.lookup(sessionId: sessionId)
+        guard let payload = try? client.sendV2(method: "surface.resume.set", params: params),
+              let binding = payload["resume_binding"] as? [String: Any],
+              let updatedAt = (binding["updated_at"] as? NSNumber)?.doubleValue else {
+            return
+        }
+        guard let owner, let ownerPID = owner.pid else {
+            return
+        }
+        _ = try? sessionStore.recordResumeBindingUpdatedAt(
+            sessionId: sessionId,
+            updatedAt: updatedAt,
+            expectedPID: ownerPID,
+            expectedPIDStartSeconds: owner.pidStartSeconds,
+            expectedPIDStartMicroseconds: owner.pidStartMicroseconds
+        )
     }
 
     private func clearAgentSurfaceResumeBinding(
@@ -28024,7 +28118,8 @@ struct CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         sessionId: String?,
-        sessionDidEnd: Bool = false
+        sessionDidEnd: Bool = false,
+        expectedBindingUpdatedAt: TimeInterval? = nil
     ) {
         let normalizedSessionId = normalizedHookValue(sessionId)
         var params: [String: Any] = [
@@ -28036,6 +28131,9 @@ struct CMUXCLI {
         }
         if sessionDidEnd, normalizedSessionId != nil {
             params["agent_session_ended"] = true
+        }
+        if let expectedBindingUpdatedAt, expectedBindingUpdatedAt.isFinite {
+            params["_cmux_expected_updated_at"] = expectedBindingUpdatedAt
         }
         _ = try? client.sendV2(method: "surface.resume.clear", params: params)
     }
@@ -30551,27 +30649,61 @@ export default CMUXSessionRestore;
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         let expectedLifecyclePIDKey = hasExplicitLifecycleSessionId ? nil : pidKey
         let expectedLifecyclePID = hasExplicitLifecycleSessionId ? nil : inferredPID
+        var validatedAnonymousOccupant: ClaudeHookSessionRecord?
         var didSendFeedTelemetry = false
         // Destructive session teardown shared by a genuine (non-turn-boundary)
         // `session-end` and the dedicated `session-finalize` action: consume the
         // restore record, clear the surface resume binding, and clear PID routing.
         func performAgentSessionTeardown() {
-            guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) else { return }
+            let mapped = hasExplicitLifecycleSessionId
+                ? (sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)))
+                : validatedAnonymousOccupant
+            guard let mapped else { return }
             sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
-            } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
-                clearAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: consumed.workspaceId,
-                    surfaceId: consumed.surfaceId,
-                    sessionId: consumed.sessionId,
-                    sessionDidEnd: true
-                )
+            } else {
+                let expectedPID = hasExplicitLifecycleSessionId ? nil : mapped.pid
+                guard hasExplicitLifecycleSessionId || expectedPID != nil else { return }
+                guard let consumed = try? store.consume(
+                    sessionId: sessionId,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    expectedPID: expectedPID,
+                    expectedPIDStartSeconds: hasExplicitLifecycleSessionId
+                        ? nil
+                        : mapped.pidStartSeconds,
+                    expectedPIDStartMicroseconds: hasExplicitLifecycleSessionId
+                        ? nil
+                        : mapped.pidStartMicroseconds
+                ) else {
+                    return
+                }
+                // Anonymous integrations reuse the surface-derived session id,
+                // so checkpoint matching alone cannot distinguish a replacement.
+                // Without the binding revision returned by resume.set, leave the
+                // binding in place rather than risk clearing a newer occupant.
+                if hasExplicitLifecycleSessionId || consumed.resumeBindingUpdatedAt != nil {
+                    clearAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: consumed.workspaceId,
+                        surfaceId: consumed.surfaceId,
+                        sessionId: consumed.sessionId,
+                        sessionDidEnd: true,
+                        expectedBindingUpdatedAt: consumed.resumeBindingUpdatedAt
+                    )
+                }
                 var clearCommand = "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status"
                 if let authoritativeLifecycleSessionId {
                     clearCommand += " --session-id=\(socketQuote(authoritativeLifecycleSessionId))"
+                } else if let expectedPID = consumed.pid, expectedPID > 0 {
+                    clearCommand += " --expected-pid=\(expectedPID)"
+                    if let startSeconds = consumed.pidStartSeconds,
+                       let startMicroseconds = consumed.pidStartMicroseconds {
+                        clearCommand += " --expected-pid-start-seconds=\(startSeconds)"
+                        clearCommand += " --expected-pid-start-microseconds=\(startMicroseconds)"
+                    }
                 }
                 _ = try? sendV1Command(clearCommand, client: client)
             }
@@ -30824,7 +30956,9 @@ export default CMUXSessionRestore;
                   let mappedPID = mapped.pid else {
                 return false
             }
-            return mappedPID == inferredPID
+            guard mappedPID == inferredPID else { return false }
+            validatedAnonymousOccupant = mapped
+            return true
         }
         guard isCurrentAnonymousHookOccupant() else {
             telemetry.breadcrumb("\(def.name)-hook.stale-anonymous-occupant-suppressed")
@@ -30939,6 +31073,7 @@ export default CMUXSessionRestore;
                     }
                     publishAgentSurfaceResumeBinding(
                         client: client,
+                        sessionStore: store,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         kind: def.name,
@@ -30956,9 +31091,12 @@ export default CMUXSessionRestore;
                 return
             }
             if let pid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                setAgentPID(
+                    client: client,
+                    key: pidKey,
+                    pid: pid,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
                 )
             }
             setAgentLifecycle(
@@ -31009,6 +31147,7 @@ export default CMUXSessionRestore;
                 }
                 publishAgentSurfaceResumeBinding(
                     client: client,
+                    sessionStore: store,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: def.name,
@@ -31224,6 +31363,7 @@ export default CMUXSessionRestore;
                 try? store.clearNotificationEmission(sessionId: sessionId)
                 publishAgentSurfaceResumeBinding(
                     client: client,
+                    sessionStore: store,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: def.name,
@@ -31242,9 +31382,13 @@ export default CMUXSessionRestore;
                 return
             }
             if let pid, !suppressVisibleMutations, hasExplicitLifecycleSessionId {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                setAgentPID(
+                    client: client,
+                    key: pidKey,
+                    pid: pid,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    expectedLifecycleSessionId: authoritativeLifecycleSessionId
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -31501,6 +31645,7 @@ export default CMUXSessionRestore;
                                   updateRuntimeStatus: true)
                 publishAgentSurfaceResumeBinding(
                     client: client,
+                    sessionStore: store,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: def.name,
@@ -31511,9 +31656,13 @@ export default CMUXSessionRestore;
                 )
             }
             if let pid, !suppressVisibleMutations, hasExplicitLifecycleSessionId {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                setAgentPID(
+                    client: client,
+                    key: pidKey,
+                    pid: pid,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    expectedLifecycleSessionId: authoritativeLifecycleSessionId
                 )
             }
 
@@ -31717,6 +31866,7 @@ export default CMUXSessionRestore;
                 )
                 publishAgentSurfaceResumeBinding(
                     client: client,
+                    sessionStore: store,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     kind: def.name,
@@ -31727,9 +31877,13 @@ export default CMUXSessionRestore;
                 )
             }
             if let pid, !suppressVisibleMutations, hasExplicitLifecycleSessionId {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
+                setAgentPID(
+                    client: client,
+                    key: pidKey,
+                    pid: pid,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    expectedLifecycleSessionId: authoritativeLifecycleSessionId
                 )
             }
             if !suppressVisibleMutations {

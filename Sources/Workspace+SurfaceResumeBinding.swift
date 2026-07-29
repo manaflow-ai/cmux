@@ -22,11 +22,16 @@ extension Workspace {
     @discardableResult
     func clearSurfaceResumeBinding(
         panelId: UUID,
-        agentSessionEnded: Bool = false
+        agentSessionEnded: Bool = false,
+        expectedBindingUpdatedAt: Double? = nil
     ) -> Bool {
-        guard let binding = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) else {
+        guard let binding = surfaceResumeBindingsByPanelId[panelId] else {
             return false
         }
+        if let expectedBindingUpdatedAt, binding.updatedAt != expectedBindingUpdatedAt {
+            return false
+        }
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
         agentSessionRetryCoordinator.managedResumeBindingDidClear(
             panelId: panelId,
             binding: binding,

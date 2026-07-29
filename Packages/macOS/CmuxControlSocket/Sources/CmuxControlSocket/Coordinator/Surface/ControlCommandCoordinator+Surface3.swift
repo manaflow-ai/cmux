@@ -126,6 +126,20 @@ extension ControlCommandCoordinator {
                 data: nil
             )
         }
+        let expectedBindingUpdatedAt: Double?
+        if params["_cmux_expected_updated_at"] != nil {
+            guard let updatedAt = double(params, "_cmux_expected_updated_at"),
+                  updatedAt.isFinite else {
+                return .err(
+                    code: "invalid_params",
+                    message: surfaceResumeStrings().invalidExpectedUpdatedAt,
+                    data: nil
+                )
+            }
+            expectedBindingUpdatedAt = updatedAt
+        } else {
+            expectedBindingUpdatedAt = nil
+        }
         let resolution = context?.controlSurfaceResumeClear(
             routing: routing,
             explicitTargetID: surfaceResumeExplicitTargetID(params),
@@ -133,7 +147,8 @@ extension ControlCommandCoordinator {
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             expectedSource: optionalTrimmedRawString(params, "source"),
-            agentSessionEnded: agentSessionEnded
+            agentSessionEnded: agentSessionEnded,
+            expectedBindingUpdatedAt: expectedBindingUpdatedAt
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
     }
@@ -141,7 +156,8 @@ extension ControlCommandCoordinator {
     /// The localized surface-resume strings supplied by the app bundle.
     private func surfaceResumeStrings() -> ControlSurfaceResumeStrings {
         context?.controlSurfaceResumeStrings() ?? ControlSurfaceResumeStrings(
-            agentSessionEndedMustBeBoolean: ""
+            agentSessionEndedMustBeBoolean: "",
+            invalidExpectedUpdatedAt: ""
         )
     }
 

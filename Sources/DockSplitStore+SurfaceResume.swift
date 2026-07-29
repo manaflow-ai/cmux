@@ -13,8 +13,18 @@ extension DockSplitStore {
     }
 
     @discardableResult
-    func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+    func clearSurfaceResumeBinding(
+        panelId: UUID,
+        expectedBindingUpdatedAt: Double? = nil
+    ) -> Bool {
+        guard let binding = surfaceResumeBindingsByPanelId[panelId] else {
+            return false
+        }
+        if let expectedBindingUpdatedAt, binding.updatedAt != expectedBindingUpdatedAt {
+            return false
+        }
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        return true
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {

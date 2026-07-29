@@ -54,15 +54,23 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
-    func clearBinding(agentSessionEnded: Bool) {
+    @discardableResult
+    func clearBinding(
+        agentSessionEnded: Bool,
+        expectedBindingUpdatedAt: Double?
+    ) -> Bool {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            _ = workspace.clearSurfaceResumeBinding(
+            workspace.clearSurfaceResumeBinding(
                 panelId: surfaceID,
-                agentSessionEnded: agentSessionEnded
+                agentSessionEnded: agentSessionEnded,
+                expectedBindingUpdatedAt: expectedBindingUpdatedAt
             )
         case .dock(_, let dock, let surfaceID):
-            _ = dock.clearSurfaceResumeBinding(panelId: surfaceID)
+            dock.clearSurfaceResumeBinding(
+                panelId: surfaceID,
+                expectedBindingUpdatedAt: expectedBindingUpdatedAt
+            )
         }
     }
 
@@ -376,7 +384,8 @@ extension TerminalController {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
-        agentSessionEnded: Bool
+        agentSessionEnded: Bool,
+        expectedBindingUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .windowUnavailable
@@ -396,7 +405,15 @@ extension TerminalController {
         if let expectedSource, currentBinding?.source != expectedSource {
             return .result(surfaceResumeSnapshot(target: target, binding: currentBinding, cleared: false))
         }
-        target.clearBinding(agentSessionEnded: agentSessionEnded)
+        if let expectedBindingUpdatedAt,
+           let currentBinding,
+           currentBinding.updatedAt != expectedBindingUpdatedAt {
+            return .result(surfaceResumeSnapshot(target: target, binding: currentBinding, cleared: false))
+        }
+        target.clearBinding(
+            agentSessionEnded: agentSessionEnded,
+            expectedBindingUpdatedAt: expectedBindingUpdatedAt
+        )
         return .result(surfaceResumeSnapshot(target: target, binding: nil, cleared: true))
     }
 }

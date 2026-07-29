@@ -506,6 +506,149 @@ struct AgentLifecycleEventTests {
             workspace.surfaceResumeBinding(panelId: surfaceID)
                 == replacement
         )
+
+        let matchingRequest: [String: Any] = [
+            "id": "matching-resume-binding-clear",
+            "method": "surface.resume.clear",
+            "params": [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "checkpoint_id": sharedSessionID,
+                "source": "agent-hook",
+                "agent_session_ended": true,
+                "_cmux_expected_updated_at": replacement.updatedAt,
+            ],
+        ]
+        let matchingRequestData = try JSONSerialization.data(withJSONObject: matchingRequest)
+        let matchingRequestLine = try #require(
+            String(data: matchingRequestData, encoding: .utf8)
+        )
+        let matchingResponseLine = TerminalController.shared.handleSocketLine(
+            matchingRequestLine
+        )
+        let matchingResponseData = try #require(
+            matchingResponseLine.data(using: .utf8)
+        )
+        let matchingEnvelope = try #require(
+            JSONSerialization.jsonObject(with: matchingResponseData) as? [String: Any]
+        )
+        let matchingResult = try #require(
+            matchingEnvelope["result"] as? [String: Any]
+        )
+        #expect(matchingEnvelope["ok"] as? Bool == true)
+        #expect(matchingResult["cleared"] as? Bool == true)
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == nil)
+    }
+
+    @Test
+    func staleAnonymousPIDTokenCannotClearReplacementRuntime() throws {
+        let fixture = try Fixture()
+        let pidKey = "kiro.\(fixture.surfaceID.uuidString)"
+        let originalPID = getpid()
+        let replacementPID = getppid()
+        fixture.workspace.recordAgentPID(
+            key: pidKey,
+            pid: originalPID,
+            panelId: fixture.surfaceID,
+            refreshPorts: false
+        )
+        let originalIdentity = try #require(
+            fixture.workspace.agentPIDProcessIdentitiesByKey[pidKey]
+        )
+        fixture.workspace.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            startsNewOccupant: true
+        )
+        fixture.workspace.recordAgentPID(
+            key: pidKey,
+            pid: replacementPID,
+            panelId: fixture.surfaceID,
+            refreshPorts: false
+        )
+        fixture.workspace.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.surfaceID,
+            lifecycle: .idle,
+            startsNewOccupant: true
+        )
+        let replacement = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["kiro"]
+        )
+
+        let didClear = fixture.workspace.clearAgentPID(
+            key: pidKey,
+            panelId: fixture.surfaceID,
+            clearStatus: true,
+            refreshPorts: false,
+            expectedPID: originalPID,
+            expectedPIDStartSeconds: originalIdentity.startSeconds,
+            expectedPIDStartMicroseconds: originalIdentity.startMicroseconds
+        )
+
+        #expect(!didClear)
+        #expect(fixture.workspace.agentPIDs[pidKey] == replacementPID)
+        #expect(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["kiro"]
+                == replacement
+        )
+    }
+
+    @Test
+    func sessionStoreCompareAndConsumeRejectsReplacementProcess() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-consume-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ClaudeHookSessionStore(
+            processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": root
+                    .appendingPathComponent("sessions.json", isDirectory: false)
+                    .path
+            ]
+        )
+        let sessionID = "surface-derived-session"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let originalPID = Int(getpid())
+        let replacementPID = Int(getppid())
+        try store.upsert(
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: root.path,
+            pid: originalPID
+        )
+        let original = try #require(try store.lookup(sessionId: sessionID))
+        try store.upsert(
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: root.path,
+            pid: replacementPID
+        )
+        let staleBindingRevisionWrite = try store.recordResumeBindingUpdatedAt(
+            sessionId: sessionID,
+            updatedAt: 100,
+            expectedPID: original.pid,
+            expectedPIDStartSeconds: original.pidStartSeconds,
+            expectedPIDStartMicroseconds: original.pidStartMicroseconds
+        )
+
+        let staleConsume = try store.consume(
+            sessionId: sessionID,
+            workspaceId: nil,
+            surfaceId: nil,
+            expectedPID: original.pid,
+            expectedPIDStartSeconds: original.pidStartSeconds,
+            expectedPIDStartMicroseconds: original.pidStartMicroseconds
+        )
+
+        #expect(!staleBindingRevisionWrite)
+        #expect(staleConsume == nil)
+        #expect(try store.lookup(sessionId: sessionID)?.pid == replacementPID)
+        #expect(try store.lookup(sessionId: sessionID)?.resumeBindingUpdatedAt == nil)
     }
 
     @Test

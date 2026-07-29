@@ -70,7 +70,8 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        expectedLifecycleSessionID: String?
     )
 
     /// Parses an agent lifecycle CLI token, returning the canonical raw value
@@ -131,7 +132,10 @@ public protocol ControlSidebarContext: AnyObject {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
-        expectedLifecycleSessionID: String?
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
     )
 
     /// Enqueues the `report_meta_block` upsert mutation.
