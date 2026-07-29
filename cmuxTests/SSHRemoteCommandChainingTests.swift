@@ -1,3 +1,4 @@
+import CmuxCore
 import CmuxFoundation
 import Foundation
 import Testing
@@ -99,5 +100,47 @@ struct SSHRemoteCommandChainingTests {
             try String(contentsOf: resultFile, encoding: .utf8)
                 == "command 'ran'\n127.0.0.1:64123\n\(workingDirectory.path)\n"
         )
+    }
+
+    @Test
+    func persistentWorkspaceRestoreKeepsConfiguredRemoteCommandInNewPaneBootstrap() throws {
+        let configuredRemoteCommand = #"cd "/srv/project dir" && exec fish"#
+        let liveConfiguration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-%C",
+            ],
+            localProxyPort: nil,
+            relayPort: 64_123,
+            relayID: "relay-id",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-live.sock",
+            terminalStartupCommand: "live startup command",
+            configuredRemoteCommand: configuredRemoteCommand,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-restore-slot"
+        )
+        let encodedSnapshot = try JSONEncoder().encode(try #require(liveConfiguration.sessionSnapshot()))
+        let snapshot = try JSONDecoder().decode(
+            SessionRemoteWorkspaceSnapshot.self,
+            from: encodedSnapshot
+        )
+        let restored = try #require(
+            snapshot.workspaceConfiguration(localSocketPath: "/tmp/cmux-restored.sock")
+        )
+        let startupCommand = try #require(restored.terminalStartupCommand)
+        let expectedBootstrap = SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
+            relayPort: 64_123,
+            configuredRemoteCommand: configuredRemoteCommand
+        )
+        let expectedBootstrapBase64 = Data(expectedBootstrap.utf8).base64EncodedString()
+
+        #expect(snapshot.configuredRemoteCommand == configuredRemoteCommand)
+        #expect(restored.configuredRemoteCommand == configuredRemoteCommand)
+        #expect(startupCommand.contains(expectedBootstrapBase64), "\(startupCommand)")
     }
 }

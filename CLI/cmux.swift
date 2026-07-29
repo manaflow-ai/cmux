@@ -9179,7 +9179,19 @@ struct CMUXCLI {
     ) throws {
         var sshOptions = inputSSHOptions
         let sharingOptions = SSHConnectionSharingOptions()
-        let resolvedUserSSHConfiguration = resolvedSSHConfigurationOutput(for: inputSSHOptions)
+        let usesImplicitManagedInteractiveShell =
+            !sshOptions.skipDaemonBootstrap &&
+            sshOptions.extraArguments.isEmpty &&
+            sshOptions.initialCommand == nil &&
+            sshOptions.terminalProfile.kind == .shell
+        // This lookup determines which program the user expects to run. Match
+        // exec rules can legitimately take longer than the best-effort timeout
+        // used by connection sharing, so wait just as the real SSH invocation
+        // would instead of silently treating an unresolved command as `none`.
+        let resolvedUserSSHConfiguration = resolvedSSHConfigurationOutput(
+            for: inputSSHOptions,
+            timeout: usesImplicitManagedInteractiveShell ? nil : 2
+        )
         sshOptions.sshOptions = sharingOptions.mergingDefaults(
             into: inputSSHOptions.sshOptions,
             userConfiguredControlOptions: resolvedUserSSHConfiguration.flatMap {
@@ -9191,10 +9203,7 @@ struct CMUXCLI {
         // program. Explicit cmux commands and terminal profiles continue to
         // take precedence over that default.
         let configuredInteractiveRemoteCommand =
-            !sshOptions.skipDaemonBootstrap &&
-            sshOptions.extraArguments.isEmpty &&
-            sshOptions.initialCommand == nil &&
-            sshOptions.terminalProfile.kind == .shell
+            usesImplicitManagedInteractiveShell
                 ? resolvedUserSSHConfiguration.flatMap {
                     SSHHostConfiguredRemoteCommand().configuredCommand(fromSSHConfigOutput: $0)
                 }
@@ -9484,6 +9493,9 @@ struct CMUXCLI {
             ]
             if let tmuxSessionName = sshOptions.terminalProfile.tmuxSessionName {
                 configureParams["terminal_tmux_session"] = tmuxSessionName
+            }
+            if let configuredInteractiveRemoteCommand {
+                configureParams["configured_remote_command"] = configuredInteractiveRemoteCommand
             }
             if let configuredForegroundAuthToken {
                 configureParams["foreground_auth_token"] = configuredForegroundAuthToken

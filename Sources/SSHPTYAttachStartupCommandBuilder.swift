@@ -55,12 +55,14 @@ enum SSHPTYAttachStartupCommandBuilder {
 
     static func restoredRemoteShellCommand(
         relayPort: Int,
-        initialCommand: String? = nil
+        initialCommand: String? = nil,
+        configuredRemoteCommand: String? = nil
     ) -> String {
         RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: relayPort,
             shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
             initialCommand: initialCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
             bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
             bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
             bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "fish/config.fish")

@@ -156,9 +156,11 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
 
     @Test("Mosh restore keeps its relay namespace without claiming SSH persistent PTY")
     func moshRestoresRelayWithoutPersistentSSHPTY() throws {
+        let configuredRemoteCommand = #"cd "/srv/project dir" && exec fish"#
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             terminalTransport: .mosh,
+            configuredRemoteCommand: configuredRemoteCommand,
             destination: "dev@example.com",
             sshOptions: [],
             preserveAfterTerminalExit: true,
@@ -177,5 +179,22 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(configuration.localSocketPath == "/tmp/cmux.sock")
         #expect(configuration.terminalStartupCommand?.contains("52000.bootstrap.sh") == true)
         #expect(configuration.terminalStartupCommand?.contains("cmux_remote_bootstrap_b64") == true)
+        let expectedBootstrap = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 52_000,
+            shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+            configuredRemoteCommand: configuredRemoteCommand,
+            bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                named: "cmux-zsh-integration.zsh"
+            ),
+            bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                named: "cmux-bash-integration.bash"
+            ),
+            bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                named: "fish/config.fish"
+            )
+        )
+        let expectedBootstrapBase64 = Data(expectedBootstrap.utf8).base64EncodedString()
+        #expect(configuration.configuredRemoteCommand == configuredRemoteCommand)
+        #expect(configuration.terminalStartupCommand?.contains(expectedBootstrapBase64) == true)
     }
 }

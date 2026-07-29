@@ -98,13 +98,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let bridgeInput = MockBridgeInputCapture()
         let bridgeHandled = startBridgeReadyCapturingInputUntilEOF(listenerFD: bridge.fd, capture: bridgeInput)
         let attachState = MockSocketServerState()
-        let attachHandled = startMockServer(listenerFD: listenerFD, state: attachState) { line in
+        let attachHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: attachState,
+            connectionCount: 2
+        ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
             switch method {
+            case "workspace.remote.foreground_auth_ready":
+                return self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": workspaceID,
+                    "workspace_ref": "workspace:9",
+                    "remote": ["enabled": true, "state": "connecting"],
+                ])
             case "workspace.remote.pty_bridge":
                 return self.v2Response(id: id, ok: true, result: [
                     "host": "127.0.0.1",

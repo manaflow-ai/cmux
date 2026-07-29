@@ -28,7 +28,10 @@ extension CMUXCLI {
         }
     }
 
-    func resolvedSSHConfigurationOutput(for options: SSHCommandOptions) -> String? {
+    func resolvedSSHConfigurationOutput(
+        for options: SSHCommandOptions,
+        timeout: TimeInterval? = 2
+    ) -> String? {
         var arguments = ["-G"]
         if let port = options.port {
             arguments += ["-p", String(port)]
@@ -49,7 +52,7 @@ extension CMUXCLI {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/ssh",
             arguments: arguments,
-            timeout: 2
+            timeout: timeout
         )
         return result.status == 0 ? result.stdout : nil
     }

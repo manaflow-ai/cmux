@@ -108,7 +108,12 @@ extension SessionRemoteWorkspaceSnapshot {
             ? Self.restoreRelayTokenHex()
             : nil
         let restoredRemoteShellCommand = preservePTYSession
-            ? normalizedRelayPort.map { SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(relayPort: $0) }
+            ? normalizedRelayPort.map {
+                SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
+                    relayPort: $0,
+                    configuredRemoteCommand: configuredRemoteCommand
+                )
+            }
             : nil
         return WorkspaceRemoteConfiguration(
             transport: transport,
@@ -156,6 +161,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     sshFallbackCommand: fallbackCommand
                 )
             }(),
+            configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
                 sshOptions: restoredSSHOptions,
@@ -226,6 +232,7 @@ extension SessionRemoteWorkspaceSnapshot {
             let remoteBootstrapScript = RemoteInteractiveShellBootstrapBuilder.script(
                 remoteRelayPort: remoteRelayPort,
                 shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+                configuredRemoteCommand: configuredRemoteCommand,
                 bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
                     named: "cmux-zsh-integration.zsh"
                 ),
