@@ -895,15 +895,19 @@ impl AuthDatabase {
     ) -> Result<Vec<PendingEnrollment>, IdentityError> {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
+            let notified = self.pending_changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             let pending = self.pending_enrollments().await;
             if !pending.is_empty() {
                 return Ok(pending);
             }
             #[cfg(test)]
             self.pending_wait_hooks.pause_after_empty().await;
-            tokio::time::timeout_at(deadline, self.pending_changed.notified())
-                .await
-                .map_err(|_| IdentityError::Timeout)?;
+            if tokio::time::timeout_at(deadline, notified.as_mut()).await.is_err() {
+                let pending = self.pending_enrollments().await;
+                return if pending.is_empty() { Err(IdentityError::Timeout) } else { Ok(pending) };
+            }
         }
     }
 

@@ -1,8 +1,9 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
 use cmux_remote_protocol::Lane;
-use serde_json::Value;
+use serde::Deserialize;
 
 const MAX_TRACKED_REQUESTS: usize = 4096;
 
@@ -30,10 +31,73 @@ enum ResponseDisposition {
     Suppress,
 }
 
+struct MuxName<'a>(Cow<'a, str>);
+
+impl MuxName<'_> {
+    fn as_str(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
+impl<'de: 'a, 'a> Deserialize<'de> for MuxName<'a> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct MuxNameVisitor<'a>(std::marker::PhantomData<&'a ()>);
+
+        impl<'de: 'a, 'a> serde::de::Visitor<'de> for MuxNameVisitor<'a> {
+            type Value = MuxName<'a>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a mux protocol name")
+            }
+
+            fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(MuxName(Cow::Borrowed(value)))
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(MuxName(Cow::Owned(value.to_owned())))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(MuxName(Cow::Owned(value)))
+            }
+        }
+
+        deserializer.deserialize_str(MuxNameVisitor(std::marker::PhantomData))
+    }
+}
+
+#[derive(Deserialize)]
+struct MuxEnvelope<'a> {
+    id: Option<u64>,
+    #[serde(borrow)]
+    cmd: Option<MuxName<'a>>,
+    #[serde(borrow)]
+    event: Option<MuxName<'a>>,
+    #[serde(borrow)]
+    scope: Option<MuxName<'a>>,
+}
+
+fn parse_envelope(line: &[u8]) -> Result<MuxEnvelope<'_>, serde_json::Error> {
+    serde_json::from_slice(line)
+}
+
 impl MuxLaneTracker {
     pub(crate) fn observe_request(&self, line: &[u8], lane: Lane) {
-        let Ok(value) = serde_json::from_slice::<Value>(line) else { return };
-        if let Some(id) = value.get("id").and_then(Value::as_u64) {
+        let Ok(envelope) = parse_envelope(line) else { return };
+        if let Some(id) = envelope.id {
             self.track(id, ResponseDisposition::Forward(lane));
         }
     }
@@ -43,23 +107,22 @@ impl MuxLaneTracker {
     }
 
     pub(crate) fn classify_server_line(&self, line: &[u8]) -> Option<Lane> {
-        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+        let Ok(envelope) = parse_envelope(line) else {
             return Some(Lane::Control);
         };
-        if let Some(event) = value.get("event").and_then(Value::as_str) {
+        if let Some(event) = envelope.event.as_ref().map(MuxName::as_str) {
             return Some(match event {
                 "output" | "vt-state" | "render-state" | "render-delta" | "frame"
                 | "browser-state" | "resized" | "colors-changed" | "scroll-changed"
                 | "detached" => Lane::Bulk,
-                "overflow" if value.get("scope").and_then(Value::as_str) == Some("surface") => {
+                "overflow" if envelope.scope.as_ref().map(MuxName::as_str) == Some("surface") => {
                     Lane::Bulk
                 }
                 _ => Lane::Control,
             });
         }
-        match value
-            .get("id")
-            .and_then(Value::as_u64)
+        match envelope
+            .id
             .and_then(|id| self.state.lock().unwrap().requests.remove(&id))
             .map(|tracked| tracked.disposition)
         {
@@ -91,8 +154,8 @@ impl MuxLaneTracker {
 }
 
 pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
-    let Ok(value) = serde_json::from_slice::<Value>(line) else { return Lane::Control };
-    match value.get("cmd").and_then(Value::as_str) {
+    let Ok(envelope) = parse_envelope(line) else { return Lane::Control };
+    match envelope.cmd.as_ref().map(MuxName::as_str) {
         Some("attach-surface" | "read-screen" | "read-scrollback" | "vt-state") => Lane::Bulk,
         Some(
             "identify" | "ping" | "list-clients" | "list-workspaces" | "export-layout" | "wait-for"
@@ -262,6 +325,16 @@ mod tests {
     fn large_snapshot_requests_use_bulk_lane() {
         assert_eq!(classify_client_line(br#"{"id":2,"cmd":"vt-state"}"#), Lane::Bulk);
         assert_eq!(classify_client_line(br#"{"id":3,"cmd":"list-workspaces"}"#), Lane::Control);
+    }
+
+    #[test]
+    fn escaped_protocol_names_retain_lane_semantics() {
+        let tracker = MuxLaneTracker::default();
+        assert_eq!(classify_client_line(br#"{"id":2,"cmd":"vt\u002dstate"}"#), Lane::Bulk);
+        assert_eq!(
+            tracker.classify_server_line(br#"{"event":"out\u0070ut","data":"YQ=="}"#),
+            Some(Lane::Bulk)
+        );
     }
 
     #[test]

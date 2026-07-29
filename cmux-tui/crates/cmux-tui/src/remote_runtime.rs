@@ -47,6 +47,7 @@ pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
 const MAX_REMOTE_RUNTIME_WORKERS: usize = 4;
 const INITIAL_GROUP_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+const CLIENT_SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 
 fn remote_runtime_worker_count() -> usize {
     thread::available_parallelism()
@@ -463,6 +464,41 @@ struct ClientReady {
 }
 
 #[cfg(unix)]
+#[derive(Debug)]
+struct ClientSocketPathLock {
+    file: fs::File,
+}
+
+#[cfg(unix)]
+impl Drop for ClientSocketPathLock {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+
+        unsafe {
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+struct ClientSocketPreparation {
+    path: PathBuf,
+    _lock: ClientSocketPathLock,
+}
+
+#[cfg(unix)]
+impl ClientSocketPreparation {
+    fn bind(self) -> anyhow::Result<ClientSocketLease> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let lease = ClientSocketLease::bind_locked(self.path.clone())?;
+        fs::set_permissions(&self.path, fs::Permissions::from_mode(0o600))?;
+        Ok(lease)
+    }
+}
+
+#[cfg(unix)]
 struct ClientSocketLease {
     listener: tokio::net::UnixListener,
     path: PathBuf,
@@ -473,7 +509,7 @@ struct ClientSocketLease {
 
 #[cfg(unix)]
 impl ClientSocketLease {
-    fn bind(path: PathBuf) -> std::io::Result<Self> {
+    fn bind_locked(path: PathBuf) -> std::io::Result<Self> {
         use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
         let listener = tokio::net::UnixListener::bind(&path)?;
@@ -544,15 +580,10 @@ async fn run_client(
             .local_socket
             .clone()
             .unwrap_or_else(|| default_client_socket(&options.state_dir, options.session));
-        prepare_client_socket(&local_socket).await?;
+        let socket_preparation = prepare_client_socket(&local_socket).await?;
         let daemon_public_key = connection.daemon_public_key();
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-        let socket = ClientSocketLease::bind(local_socket.clone())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&local_socket, fs::Permissions::from_mode(0o600))?;
-        }
+        let socket = socket_preparation.bind()?;
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
         let bridge_multiplexer = multiplexer.clone();
         let mut bridge = tokio::spawn(async move {
@@ -1223,8 +1254,7 @@ fn normalize_carrier_endpoint(mut endpoint: Url) -> anyhow::Result<Url> {
     Ok(endpoint)
 }
 
-async fn prepare_client_socket(path: &Path) -> anyhow::Result<()> {
-    #[cfg(unix)]
+async fn prepare_client_socket(path: &Path) -> anyhow::Result<ClientSocketPreparation> {
     if !unix_socket_path_fits(path) {
         return Err(anyhow!(
             "client socket path is too long for this platform: {}",
@@ -1232,27 +1262,127 @@ async fn prepare_client_socket(path: &Path) -> anyhow::Result<()> {
         ));
     }
     let parent = path.parent().ok_or_else(|| anyhow!("client socket path has no parent"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::FileTypeExt;
+    prepare_client_socket_directory(parent)?;
+    let lock_path = client_socket_lock_path(path)?;
+    let path_lock = tokio::task::spawn_blocking(move || acquire_client_socket_lock(&lock_path))
+        .await
+        .context("client socket ownership lock task failed")??;
 
-        prepare_client_socket_directory(parent)?;
-        if let Ok(metadata) = fs::symlink_metadata(path) {
+    use std::os::unix::fs::FileTypeExt;
+
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("could not inspect client socket {}", path.display()));
+        }
+        Ok(metadata) => {
             if !metadata.file_type().is_socket() {
                 return Err(anyhow!(
                     "refusing to replace non-socket client path {}",
                     path.display()
                 ));
             }
-            if tokio::net::UnixStream::connect(path).await.is_ok() {
-                return Err(anyhow!("another client owns {}", path.display()));
+            match tokio::time::timeout(
+                CLIENT_SOCKET_PROBE_TIMEOUT,
+                tokio::net::UnixStream::connect(path),
+            )
+            .await
+            {
+                Ok(Ok(_)) => return Err(anyhow!("another client owns {}", path.display())),
+                Ok(Err(error)) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+                    remove_stale_client_socket(path, &metadata)?;
+                }
+                Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Ok(Err(error)) => {
+                    return Err(error).with_context(|| {
+                        format!("could not verify ownership of client socket {}", path.display())
+                    });
+                }
+                Err(_) => {
+                    return Err(anyhow!(
+                        "timed out checking whether another client owns {}",
+                        path.display()
+                    ));
+                }
             }
-            fs::remove_file(path)?;
         }
     }
-    #[cfg(not(unix))]
-    fs::create_dir_all(parent)?;
-    Ok(())
+    Ok(ClientSocketPreparation { path: path.to_path_buf(), _lock: path_lock })
+}
+
+#[cfg(unix)]
+fn remove_stale_client_socket(path: &Path, expected: &fs::Metadata) -> anyhow::Result<()> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error)
+            .with_context(|| format!("could not recheck stale client socket {}", path.display())),
+        Ok(current)
+            if current.file_type().is_socket()
+                && current.dev() == expected.dev()
+                && current.ino() == expected.ino() =>
+        {
+            fs::remove_file(path)?;
+            Ok(())
+        }
+        Ok(_) => {
+            Err(anyhow!("client socket {} changed during stale-owner detection", path.display()))
+        }
+    }
+}
+
+#[cfg(unix)]
+fn client_socket_lock_path(path: &Path) -> anyhow::Result<PathBuf> {
+    let file_name =
+        path.file_name().ok_or_else(|| anyhow!("client socket path has no file name"))?;
+    let mut lock_name = file_name.to_os_string();
+    lock_name.push(".lock");
+    Ok(path.with_file_name(lock_name))
+}
+
+#[cfg(unix)]
+fn acquire_client_socket_lock(path: &Path) -> anyhow::Result<ClientSocketPathLock> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+        .with_context(|| format!("could not open client socket lock {}", path.display()))?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(anyhow!("client socket lock {} is not a regular file", path.display()));
+    }
+    if metadata.uid() != unsafe { libc::geteuid() } {
+        return Err(anyhow!(
+            "client socket lock {} is not owned by the effective user",
+            path.display()
+        ));
+    }
+    if metadata.permissions().mode() & 0o077 != 0 {
+        return Err(anyhow!("client socket lock {} is accessible by another user", path.display()));
+    }
+    if metadata.nlink() != 1 {
+        return Err(anyhow!("client socket lock {} has unexpected hard links", path.display()));
+    }
+
+    loop {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(ClientSocketPathLock { file });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error)
+                .with_context(|| format!("could not lock client socket path {}", path.display()));
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -3325,6 +3455,28 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn client_socket_rejects_a_symlinked_path_lock() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        fs::write(&target, b"do not lock").unwrap();
+        symlink(&target, directory.path().join("mux.sock.lock")).unwrap();
+
+        let error = prepare_client_socket(&directory.path().join("mux.sock"))
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            error.contains("lock") || error.contains("symlink"),
+            "unexpected lock-file rejection: {error}"
+        );
+        assert_eq!(fs::read(target).unwrap(), b"do not lock");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn client_socket_creates_a_private_owned_parent_directory() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
@@ -3335,6 +3487,13 @@ mod tests {
         let metadata = fs::symlink_metadata(parent).unwrap();
         assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
         assert_eq!(metadata.permissions().mode() & 0o077, 0);
+
+        let lock_metadata = fs::symlink_metadata(directory.path().join("private/mux.sock.lock"))
+            .expect("client socket preparation did not persist its ownership lock");
+        assert!(lock_metadata.is_file());
+        assert_eq!(lock_metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(lock_metadata.permissions().mode() & 0o077, 0);
+        assert_eq!(lock_metadata.nlink(), 1);
     }
 
     #[cfg(unix)]
@@ -3362,8 +3521,7 @@ mod tests {
 
         let contender_path = path.clone();
         let mut contender = tokio::spawn(async move {
-            prepare_client_socket(&contender_path).await.unwrap();
-            ClientSocketLease::bind(contender_path).unwrap()
+            prepare_client_socket(&contender_path).await.unwrap().bind().unwrap()
         });
         assert!(
             tokio::time::timeout(Duration::from_millis(100), &mut contender).await.is_err(),
@@ -3380,11 +3538,51 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_stale_client_socket_takeover_has_one_owner() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mux.sock");
+        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        drop(stale);
+
+        let start = Arc::new(tokio::sync::Barrier::new(2));
+        let spawn_contender = |path: PathBuf, start: Arc<tokio::sync::Barrier>| {
+            tokio::spawn(async move {
+                start.wait().await;
+                prepare_client_socket(&path).await?.bind()
+            })
+        };
+        let first = spawn_contender(path.clone(), Arc::clone(&start));
+        let second = spawn_contender(path.clone(), start);
+        let (first, second) =
+            tokio::time::timeout(Duration::from_secs(2), async { tokio::join!(first, second) })
+                .await
+                .expect("concurrent stale-socket takeover did not settle");
+        let first = first.unwrap();
+        let second = second.unwrap();
+
+        let (lease, rejected) = match (first, second) {
+            (Ok(lease), Err(error)) | (Err(error), Ok(lease)) => (lease, error),
+            (Ok(_), Ok(_)) => panic!("two clients acquired the same local socket"),
+            (Err(first), Err(second)) => {
+                panic!("both clients failed stale-socket takeover: {first:#}; {second:#}")
+            }
+        };
+        assert!(rejected.to_string().contains("another client owns"), "{rejected:#}");
+        tokio::time::timeout(Duration::from_secs(1), tokio::net::UnixStream::connect(&path))
+            .await
+            .expect("winning client socket was unreachable")
+            .unwrap();
+        drop(lease);
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn client_socket_lease_never_unlinks_a_bound_successor() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let mut previous = ClientSocketLease::bind(path.clone()).unwrap();
+        let mut previous = prepare_client_socket(&path).await.unwrap().bind().unwrap();
 
         previous.unlink().unwrap();
         let successor = tokio::net::UnixListener::bind(&path).unwrap();
