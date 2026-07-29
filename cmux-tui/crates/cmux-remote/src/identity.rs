@@ -712,6 +712,26 @@ impl PersistenceTestHooks {
     }
 }
 
+#[cfg(test)]
+#[derive(Default)]
+struct PendingWaitTestHooks {
+    pause_after_empty: std::sync::atomic::AtomicBool,
+    empty_checked: Notify,
+    resume: Notify,
+}
+
+#[cfg(test)]
+impl PendingWaitTestHooks {
+    async fn pause_after_empty(&self) {
+        use std::sync::atomic::Ordering;
+
+        if self.pause_after_empty.swap(false, Ordering::SeqCst) {
+            self.empty_checked.notify_one();
+            self.resume.notified().await;
+        }
+    }
+}
+
 pub struct AuthDatabase {
     state_dir: PathBuf,
     daemon_name: String,
@@ -720,6 +740,8 @@ pub struct AuthDatabase {
     state: Mutex<AuthState>,
     persistence: Arc<PersistenceCoordinator>,
     pending_changed: Notify,
+    #[cfg(test)]
+    pending_wait_hooks: PendingWaitTestHooks,
     revocation_tx: watch::Sender<u64>,
 }
 
@@ -758,6 +780,8 @@ impl AuthDatabase {
             state: Mutex::new(AuthState::from_persisted(persisted)),
             persistence,
             pending_changed: Notify::new(),
+            #[cfg(test)]
+            pending_wait_hooks: PendingWaitTestHooks::default(),
             revocation_tx,
         }))
     }
@@ -875,6 +899,8 @@ impl AuthDatabase {
             if !pending.is_empty() {
                 return Ok(pending);
             }
+            #[cfg(test)]
+            self.pending_wait_hooks.pause_after_empty().await;
             tokio::time::timeout_at(deadline, self.pending_changed.notified())
                 .await
                 .map_err(|_| IdentityError::Timeout)?;
@@ -1114,6 +1140,21 @@ impl AuthDatabase {
     #[cfg(test)]
     pub(crate) fn test_durable_revision(&self) -> u64 {
         self.persistence.durable_revision()
+    }
+
+    #[cfg(test)]
+    fn test_pause_wait_for_pending_after_empty(&self) {
+        self.pending_wait_hooks.pause_after_empty.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    async fn test_wait_for_pending_empty_check(&self) {
+        self.pending_wait_hooks.empty_checked.notified().await;
+    }
+
+    #[cfg(test)]
+    fn test_resume_wait_for_pending(&self) {
+        self.pending_wait_hooks.resume.notify_one();
     }
 
     #[cfg(test)]
@@ -2583,6 +2624,58 @@ mod tests {
         };
         let error = validate_relay_access(&[route], &[access.clone(), access]).unwrap_err();
         assert!(matches!(error, IdentityError::Invalid(message) if message.contains("unique")));
+    }
+
+    #[tokio::test]
+    async fn pending_enrollment_notification_cannot_be_lost_between_check_and_wait() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let invitation =
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let client = StaticIdentity::generate().unwrap();
+        let request = AuthRequest {
+            mode: AuthKind::Invitation,
+            invitation_id: Some(invitation.id.clone()),
+            device_public_key: client.public_key(),
+            device_name: "notification-race".into(),
+            session: SessionId([31; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+        };
+
+        database.test_pause_wait_for_pending_after_empty();
+        let waiter = tokio::spawn({
+            let database = Arc::clone(&database);
+            async move { database.wait_for_pending(Duration::from_millis(250)).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), database.test_wait_for_pending_empty_check())
+            .await
+            .expect("pending waiter never completed its empty-state check");
+
+        let pending_changed = database.pending_changed.notified();
+        tokio::pin!(pending_changed);
+        pending_changed.as_mut().enable();
+        let authorization = tokio::spawn({
+            let database = Arc::clone(&database);
+            async move { database.authorize(request).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), pending_changed)
+            .await
+            .expect("authorization never published its pending enrollment");
+        database.test_resume_wait_for_pending();
+
+        let result = tokio::time::timeout(Duration::from_secs(1), waiter)
+            .await
+            .expect("pending waiter did not finish")
+            .unwrap();
+        database.deny(&invitation.id).await.unwrap();
+        assert_eq!(authorization.await.unwrap().unwrap_err(), "enrollment denied");
+
+        let pending = result.expect("pending waiter lost the enrollment notification");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].invitation_id, invitation.id);
     }
 
     #[tokio::test]

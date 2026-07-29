@@ -3338,6 +3338,48 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stale_client_socket_takeover_waits_for_the_path_lock() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mux.sock");
+        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        drop(stale);
+
+        let lock_path = directory.path().join("mux.sock.lock");
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(lock_path)
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+
+        let contender_path = path.clone();
+        let mut contender = tokio::spawn(async move {
+            prepare_client_socket(&contender_path).await.unwrap();
+            ClientSocketLease::bind(contender_path).unwrap()
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut contender).await.is_err(),
+            "stale-socket takeover ignored the per-path ownership lock"
+        );
+
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        let lease = tokio::time::timeout(Duration::from_secs(1), contender)
+            .await
+            .expect("client socket takeover stayed blocked after the path lock was released")
+            .unwrap();
+        assert!(path.exists());
+        drop(lease);
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn client_socket_lease_never_unlinks_a_bound_successor() {
         let directory = tempfile::tempdir().unwrap();

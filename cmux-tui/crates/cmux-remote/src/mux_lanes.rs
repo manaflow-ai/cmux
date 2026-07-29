@@ -108,7 +108,69 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
 
 #[cfg(test)]
 mod tests {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
     use super::*;
+
+    struct CountingAllocator;
+
+    std::thread_local! {
+        static COUNT_ALLOCATIONS: Cell<bool> = const { Cell::new(false) };
+        static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    #[global_allocator]
+    static TEST_ALLOCATOR: CountingAllocator = CountingAllocator;
+
+    unsafe impl GlobalAlloc for CountingAllocator {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            COUNT_ALLOCATIONS
+                .try_with(|enabled| {
+                    if enabled.get() {
+                        ALLOCATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+                    }
+                })
+                .ok();
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            COUNT_ALLOCATIONS
+                .try_with(|enabled| {
+                    if enabled.get() {
+                        ALLOCATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+                    }
+                })
+                .ok();
+            unsafe { System.alloc_zeroed(layout) }
+        }
+
+        unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(pointer, layout) };
+        }
+
+        unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            COUNT_ALLOCATIONS
+                .try_with(|enabled| {
+                    if enabled.get() {
+                        ALLOCATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+                    }
+                })
+                .ok();
+            unsafe { System.realloc(pointer, layout, new_size) }
+        }
+    }
+
+    fn allocation_count<T>(operation: impl FnOnce() -> T) -> (T, usize) {
+        COUNT_ALLOCATIONS.with(|enabled| enabled.set(false));
+        ALLOCATION_COUNT.with(|count| count.set(0));
+        COUNT_ALLOCATIONS.with(|enabled| enabled.set(true));
+        let result = operation();
+        COUNT_ALLOCATIONS.with(|enabled| enabled.set(false));
+        let allocations = ALLOCATION_COUNT.with(Cell::get);
+        (result, allocations)
+    }
 
     #[test]
     fn keystrokes_and_terminal_output_use_distinct_lanes() {
@@ -208,5 +270,22 @@ mod tests {
             let line = format!(r#"{{"id":2,"cmd":"{command}"}}"#);
             assert_eq!(classify_client_line(line.as_bytes()), Lane::Interactive);
         }
+    }
+
+    #[test]
+    fn large_mux_payload_classification_does_not_allocate() {
+        let tracker = MuxLaneTracker::default();
+        let mut line = br#"{"event":"output","surface":1,"data":""#.to_vec();
+        line.resize(line.len() + 1024 * 1024, b'e');
+        line.extend_from_slice(br#""}"#);
+
+        let (lane, allocations) =
+            allocation_count(|| tracker.classify_server_line(std::hint::black_box(&line)));
+
+        assert_eq!(lane, Some(Lane::Bulk));
+        assert_eq!(
+            allocations, 0,
+            "mux classification allocated while skipping a large output payload"
+        );
     }
 }
