@@ -9,7 +9,7 @@ struct ClaudeNotificationStatusLifecycleTests {
         let context = try harness.makeClaudeHookContext(name: "claude-notify-pid")
         defer { context.cleanup() }
 
-        let claudePID = 42_424
+        let claudePID = ProcessInfo.processInfo.processIdentifier
         let serverHandled = harness.startClaudeSurfaceResolutionServer(
             context: context,
             surfaces: [(context.surfaceId, "surface:1", true)],

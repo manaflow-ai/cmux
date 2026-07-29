@@ -51,7 +51,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.otherWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.otherSurfaceId
-        environment["CMUX_CLAUDE_PID"] = "43210"
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
 
         let result = Harness.runHookProcess(
             context: context,
@@ -115,7 +115,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
-        environment["CMUX_CLAUDE_PID"] = "43211"
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
 
         let result = Harness.runHookProcess(
             context: context,
@@ -167,7 +167,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
-        environment["CMUX_CLAUDE_PID"] = "43214"
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
 
         let result = Harness.runHookProcess(
             context: context,
@@ -275,7 +275,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
-        environment["CMUX_CLAUDE_PID"] = "43213"
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
 
         let result = Harness.runHookProcess(
             context: context,

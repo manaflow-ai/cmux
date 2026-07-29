@@ -438,6 +438,48 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(AgentChatSessionRegistry.nextState(previous: .ended, event: restart) == .idle)
     }
 
+    @Test func acceptedLifecycleOverridesGenericHookProjection() {
+        let receivedAt = Date(timeIntervalSince1970: 42)
+        let clearWithBackgroundWork = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .sessionStart,
+            source: "claude",
+            cmuxAgentLifecycle: "running",
+            receivedAt: receivedAt
+        )
+        let rejectedRunningInference = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            cmuxAgentLifecycle: "idle",
+            receivedAt: receivedAt
+        )
+        let acceptedNeedsInput = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .stop,
+            source: "claude",
+            cmuxAgentLifecycle: "needsInput",
+            receivedAt: receivedAt
+        )
+
+        #expect(
+            AgentChatSessionRegistry.nextState(previous: .idle, event: clearWithBackgroundWork)
+                == .working(since: receivedAt)
+        )
+        #expect(
+            AgentChatSessionRegistry.nextState(previous: .working(since: .distantPast), event: rejectedRunningInference)
+                == .idle
+        )
+        #expect(
+            AgentChatSessionRegistry.nextState(previous: .idle, event: acceptedNeedsInput)
+                == .needsInput(since: receivedAt)
+        )
+        #expect(
+            AgentChatSessionRegistry.nextState(previous: .ended, event: acceptedNeedsInput)
+                == .ended
+        )
+    }
+
     @Test func mobileChatObserverSkipsUnambiguousNonAgentWithoutReadingDetails() {
         let workspaceID = UUID()
         let surfaceID = UUID()

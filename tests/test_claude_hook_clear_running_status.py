@@ -2545,9 +2545,7 @@ def main() -> int:
         state_path = Path(server.root.name) / "claude-hook-state.json"
         env = hook_environment(server, workspace_id, surface_id, state_path)
         old_pid_env = env.copy()
-        old_pid_env["CMUX_CLAUDE_PID"] = "11111"
         clear_pid_env = env.copy()
-        clear_pid_env["CMUX_CLAUDE_PID"] = "22222"
 
         run_claude_hook(
             cli_path,
@@ -2670,7 +2668,7 @@ def main() -> int:
         )
         late_old_start_commands = server.commands[late_old_start:]
 
-        if has_command(late_old_start_commands, "set_agent_pid claude_code 11111"):
+        if has_command(late_old_start_commands, "set_agent_pid claude_code "):
             print("FAIL: stale pre-clear SessionStart must not overwrite active Claude PID")
             print(f"late_old_start_commands={late_old_start_commands!r}")
             return 1

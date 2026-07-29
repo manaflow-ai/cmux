@@ -675,6 +675,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_SOCKET_PATH": context.socketPath,
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_CLAUDE_PID": String(ProcessInfo.processInfo.processIdentifier),
             "CMUX_CLI_TTY_NAME": ttyName,
             "CMUX_CLAUDE_HOOK_STATE_PATH": storeURL.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",

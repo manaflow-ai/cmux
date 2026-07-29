@@ -47,7 +47,8 @@ struct ClaudeHookPIDAuthenticationTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
         let commands = context.state.snapshot()
-        #expect(commands.contains { $0.hasPrefix("notify_target_async \(Self.liveWorkspaceId) \(Self.liveSurfaceId) ") })
+        #expect(!commands.contains { $0.hasPrefix("notify_target_async ") })
+        #expect(!commands.contains { $0.contains(#""method":"feed.push""#) })
         #expect(!commands.contains { $0.hasPrefix("notify_target_async \(Self.otherWorkspaceId)") })
     }
 

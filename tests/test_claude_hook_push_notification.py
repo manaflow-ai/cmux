@@ -162,6 +162,7 @@ def run_push_notification_hook(
         env["CMUX_SOCKET_PATH"] = server.socket_path
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = surface_id
+        env["CMUX_CLAUDE_PID"] = str(os.getpid())
         env["CMUX_CLAUDE_HOOK_STATE_PATH"] = os.path.join(server.root.name, "state.json")
         env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
