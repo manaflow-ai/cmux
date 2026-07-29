@@ -20,6 +20,27 @@ extension DockSplitStore {
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
         let orderedPanelIds = orderedSessionPanelIds()
+        let terminalPanelIds = Set(
+            orderedPanelIds.filter {
+                panels[$0] is TerminalPanel
+            }
+        )
+        let terminalFontSizeSnapshotProjection: WorkspaceTerminalFontSizeSnapshotProjection?
+        if let workspace = terminalFontSizeOwningWorkspace {
+            terminalFontSizeSnapshotProjection =
+                terminalFontSizeChangeArbiter?
+                    .snapshotProjection(
+                        for: workspace,
+                        panelIds: terminalPanelIds
+                    )
+        } else {
+            terminalFontSizeSnapshotProjection =
+                terminalFontSizeChangeArbiter?
+                    .snapshotProjection(
+                        for: self,
+                        panelIds: terminalPanelIds
+                    )
+        }
         let panelSnapshots = orderedPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
@@ -36,6 +57,8 @@ extension DockSplitStore {
                         workspaceId: observationWorkspaceId,
                         panelId: panelId
                     ),
+                    terminalFontSizeSnapshotProjection:
+                        terminalFontSizeSnapshotProjection,
                     currentAgentProcessIdentity: currentAgentProcessIdentity,
                     agentProcessPresence: agentProcessPresence
                 )
@@ -86,6 +109,8 @@ extension DockSplitStore {
         includeScrollback: Bool,
         observation: RestorableAgentSessionIndex.Entry?,
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
+        terminalFontSizeSnapshotProjection:
+            WorkspaceTerminalFontSizeSnapshotProjection?,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
         agentProcessPresence: (Int) -> PIDPresence
     ) -> SessionPanelSnapshot? {
@@ -165,9 +190,27 @@ extension DockSplitStore {
             if let scrollback {
                 restoredTerminalScrollbackByPanelId[panelId] = scrollback
             }
+            let sessionFontSize: Float32?
+            let sessionFontSizeChangeTokens: [UUID]?
+            if let terminalFontSizeSnapshotProjection {
+                let projection =
+                    terminalFontSizeSnapshotProjection
+                        .sessionProjection(
+                            for: terminal
+                        )
+                sessionFontSize = projection.overrideBasePoints
+                sessionFontSizeChangeTokens =
+                    projection.persistedRepresentedRequestTokens
+            } else {
+                sessionFontSize =
+                    terminal.surface
+                        .sessionFontSizeOverrideBasePoints()
+                sessionFontSizeChangeTokens = nil
+            }
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
-                fontSize: terminal.surface.sessionFontSizeOverrideBasePoints(),
+                fontSize: sessionFontSize,
+                fontSizeChangeTokens: sessionFontSizeChangeTokens,
                 scrollback: scrollback,
                 agent: restorableAgent,
                 tmuxStartCommand: tmuxStartCommand,

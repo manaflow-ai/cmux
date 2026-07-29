@@ -25,6 +25,13 @@ extension DockSplitStore {
         clearSessionRestoreState(panelId: panelId)
 
         guard let panel = panels.removeValue(forKey: panelId) else { return nil }
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalDidLeaveDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         panel.close()
         return panel
     }

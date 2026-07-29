@@ -513,6 +513,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    /// Composition-root lifetime owner shared by every window's font-size
+    /// queue. Window coordinators receive this dependency explicitly; no
+    /// coordinator reaches back through `AppDelegate.shared`.
+    let workspaceTerminalFontSizeArbiter =
+        WorkspaceTerminalFontSizeArbiter()
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
@@ -544,6 +549,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
+        private let workspaceTerminalFontSizeArbiter:
+            WorkspaceTerminalFontSizeArbiter
+        /// Window-scoped font-size queue. Requests contain stable workspace ids;
+        /// teardown cancels the queue before any surface owner is released.
+        lazy var workspaceTerminalFontSizeCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: tabManager,
+                arbiter: workspaceTerminalFontSizeArbiter
+            )
+#if DEBUG
+        var debugWorkspaceTerminalFontSizeEnqueueResultOverride: Bool?
+#endif
 
         init(
             windowId: UUID,
@@ -552,7 +569,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarSelectionState: SidebarSelectionState,
             fileExplorerState: FileExplorerState?,
             cmuxConfigStore: CmuxConfigStore?,
-            window: NSWindow?
+            window: NSWindow?,
+            workspaceTerminalFontSizeArbiter:
+                WorkspaceTerminalFontSizeArbiter
         ) {
             self.windowId = windowId
             self.tabManager = tabManager
@@ -561,6 +580,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.fileExplorerState = fileExplorerState
             self.cmuxConfigStore = cmuxConfigStore
             self.window = window
+            self.workspaceTerminalFontSizeArbiter =
+                workspaceTerminalFontSizeArbiter
             self.keyboardFocusCoordinator = MainWindowFocusController(
                 windowId: windowId,
                 window: window,
@@ -2062,6 +2083,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Best-effort presence goodbye; unclean exits are covered by the
         // service's missed-heartbeat timeout.
         PresenceHeartbeatClient.shared.appWillTerminate()
+        PresenceNudgeSubscriber.shared.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
@@ -2117,6 +2139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
+        PresenceNudgeSubscriber.shared.configure(auth: auth.coordinator)
         // DEV-only: auto-publish this Mac's attach route to the signed-in user's
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host
         // entry). No-op on Release / when the flag is off.
@@ -4705,7 +4728,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sidebarSelectionState: sidebarSelectionState,
                 fileExplorerState: fileExplorerState,
                 cmuxConfigStore: cmuxConfigStore,
-                window: window
+                window: window,
+                workspaceTerminalFontSizeArbiter:
+                    workspaceTerminalFontSizeArbiter
             )
             mainWindowContexts[key] = context
             context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
@@ -10656,7 +10681,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
             if layout == "three_pane_terminal" {
-                self.setupThreePaneTerminalLayout(tabManager: tabManager)
+                GotoSplitCycleUITestSupport().setupThreePaneTerminalLayout(
+                    tabManager: tabManager,
+                    previousShortcutDisplay: ghosttyGotoSplitPreviousShortcut?.displayString ?? "",
+                    nextShortcutDisplay: ghosttyGotoSplitNextShortcut?.displayString ?? ""
+                )
                 return
             }
 
@@ -10693,81 +10722,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             runSetupWhenWindowReady()
         }
-    }
-
-    /// Create a 3-pane terminal-only layout: one horizontal split (right) and one vertical split (down).
-    /// Used by `CMUX_UI_TEST_GOTO_SPLIT_LAYOUT=three_pane_terminal`.
-    /// Focus changes are recorded by `recordGotoSplitCycleMoveIfNeeded` in the Ghostty action handler.
-    private func setupThreePaneTerminalLayout(tabManager: TabManager) {
-        let tab = tabManager.addTab()
-        guard let initialPanelId = tab.focusedPanelId else {
-            writeGotoSplitTestData(["setupError": "Missing initial panel id"])
-            return
-        }
-
-        // Create horizontal split (right)
-        guard tabManager.createSplit(
-            tabId: tab.id, surfaceId: initialPanelId, direction: .right
-        ) != nil else {
-            writeGotoSplitTestData(["setupError": "Failed to create horizontal split"])
-            return
-        }
-
-        // Focus back to initial pane, then create vertical split (down)
-        tab.focusPanel(initialPanelId)
-        guard tabManager.createSplit(
-            tabId: tab.id, surfaceId: initialPanelId, direction: .down
-        ) != nil else {
-            writeGotoSplitTestData(["setupError": "Failed to create vertical split"])
-            return
-        }
-
-        // Wait for a terminal surface to become first responder before signaling
-        // setup complete. Ghostty keybinds only fire when GhosttyNSView has focus.
-        var observer: NSObjectProtocol?
-        var resolved = false
-        let deadline = Date().addingTimeInterval(6.0)
-
-        func checkAndSignal() {
-            guard !resolved else { return }
-            guard Date() < deadline else {
-                if let observer { NotificationCenter.default.removeObserver(observer) }
-                resolved = true
-                self.writeGotoSplitTestData(["setupError": "Timed out waiting for terminal focus"])
-                return
-            }
-            guard let focusedPanelId = tab.focusedPanelId,
-                  tab.terminalPanel(for: focusedPanelId) != nil,
-                  let window = NSApp.mainWindow ?? NSApp.keyWindow,
-                  window.firstResponder is NSView else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { checkAndSignal() }
-                return
-            }
-
-            if let observer { NotificationCenter.default.removeObserver(observer) }
-            resolved = true
-
-            let allPaneIds = tab.bonsplitController.allPaneIds.map(\.description)
-            let focusedPaneId = tab.bonsplitController.focusedPaneId?.description ?? ""
-
-            self.writeGotoSplitTestData([
-                "paneCount": String(allPaneIds.count),
-                "allPaneIds": allPaneIds.joined(separator: ","),
-                "focusedPaneId": focusedPaneId,
-                "ghosttyGotoSplitPreviousShortcut": ghosttyGotoSplitPreviousShortcut?.displayString ?? "",
-                "ghosttyGotoSplitNextShortcut": ghosttyGotoSplitNextShortcut?.displayString ?? "",
-                "setupComplete": "true",
-            ])
-        }
-
-        observer = NotificationCenter.default.addObserver(
-            forName: .ghosttyDidFocusSurface,
-            object: nil,
-            queue: .main
-        ) { _ in checkAndSignal() }
-
-        // Also poll in case the notification already fired before we observed.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { checkAndSignal() }
     }
 
     private func setupBonsplitTabDragUITestIfNeeded() {
@@ -11787,16 +11741,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         var updates = gotoSplitFindStateSnapshot(for: workspace)
         updates["lastMoveDirection"] = directionValue
-        writeGotoSplitTestData(updates)
-    }
-
-    func recordGotoSplitCycleMoveIfNeeded(tabId: UUID, forward: Bool) {
-        guard isGotoSplitUITestRecordingEnabled() else { return }
-        guard let tabManager = tabManagerFor(tabId: tabId),
-              let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else { return }
-
-        var updates = gotoSplitFindStateSnapshot(for: workspace)
-        updates["lastMoveDirection"] = forward ? "next" : "previous"
         writeGotoSplitTestData(updates)
     }
 
@@ -12890,20 +12834,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return menu.items.first(where: { $0.title == reloadConfigurationTitle })
     }
 
+    @discardableResult
     func reloadConfiguration(
         soft: Bool = false,
         source: String,
         reloadSettingsFromFile: Bool = true,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
-    ) {
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
+        completion:
+            GhosttyApp.ConfigurationReloadCompletion? = nil
+    ) -> Bool {
 #if DEBUG
         cmuxDebugLog("reload.config.request source=\(source) soft=\(soft)")
 #endif
-        GhosttyApp.shared.reloadConfiguration(
+        return GhosttyApp.shared.reloadConfiguration(
             soft: soft,
             source: source,
             reloadSettingsFromFile: reloadSettingsFromFile,
-            preferredColorScheme: preferredColorScheme
+            preferredColorScheme: preferredColorScheme,
+            completion: completion
         )
     }
 
@@ -12921,60 +12869,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func refreshGhosttyGotoSplitShortcuts() {
-        guard let config = GhosttyApp.shared.config else {
-            ghosttyGotoSplitLeftShortcut = nil
-            ghosttyGotoSplitRightShortcut = nil
-            ghosttyGotoSplitUpShortcut = nil
-            ghosttyGotoSplitDownShortcut = nil
-            ghosttyGotoSplitPreviousShortcut = nil
-            ghosttyGotoSplitNextShortcut = nil
-            return
-        }
-
-        ghosttyGotoSplitLeftShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:left", UInt("goto_split:left".utf8.count))
+        ghosttyGotoSplitLeftShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:left"
         )
-        ghosttyGotoSplitRightShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:right", UInt("goto_split:right".utf8.count))
+        ghosttyGotoSplitRightShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:right"
         )
-        ghosttyGotoSplitUpShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:up", UInt("goto_split:up".utf8.count))
+        ghosttyGotoSplitUpShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:up"
         )
-        ghosttyGotoSplitDownShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:down", UInt("goto_split:down".utf8.count))
+        ghosttyGotoSplitDownShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:down"
         )
-        ghosttyGotoSplitPreviousShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:previous", UInt("goto_split:previous".utf8.count))
+        ghosttyGotoSplitPreviousShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:previous"
         )
-        ghosttyGotoSplitNextShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:next", UInt("goto_split:next".utf8.count))
-        )
-    }
-
-    private func storedShortcutFromGhosttyTrigger(_ trigger: ghostty_input_trigger_s) -> StoredShortcut? {
-        let tag: GhosttyTriggerInput.Tag
-        switch trigger.tag {
-        case GHOSTTY_TRIGGER_PHYSICAL:
-            tag = .physical(GhosttyTriggerPhysicalKey(ghosttyPhysicalKey: trigger.key.physical))
-        case GHOSTTY_TRIGGER_UNICODE:
-            tag = .unicode(UnicodeScalar(trigger.key.unicode))
-        case GHOSTTY_TRIGGER_CATCH_ALL:
-            tag = .catchAll
-        default:
-            return nil
-        }
-
-        let input = GhosttyTriggerInput(
-            tag: tag,
-            modifiers: GhosttyModifierMask(rawValue: trigger.mods.rawValue)
-        )
-        guard let shortcut = GhosttyTriggerShortcut(decoding: input) else { return nil }
-        return StoredShortcut(
-            key: shortcut.key,
-            command: shortcut.command,
-            shift: shortcut.shift,
-            option: shortcut.option,
-            control: shortcut.control
+        ghosttyGotoSplitNextShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:next"
         )
     }
 
@@ -14108,20 +14019,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchesGhosttyGotoSplitPreviousShortcut(event) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.cyclePaneFocus(forward: false)
+            let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
+            let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
 #if DEBUG
-            if let workspace = tabManager?.selectedWorkspace {
-                recordGotoSplitCycleMoveIfNeeded(tabId: workspace.id, forward: false)
+            if moved, let workspace = routedTabs?.selectedWorkspace {
+                GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
+                    tabManager: routedTabs,
+                    tabId: workspace.id,
+                    forward: false
+                )
             }
 #endif
             return true
         }
 
         if matchesGhosttyGotoSplitNextShortcut(event) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.cyclePaneFocus(forward: true)
+            let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
+            let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false
 #if DEBUG
-            if let workspace = tabManager?.selectedWorkspace {
-                recordGotoSplitCycleMoveIfNeeded(tabId: workspace.id, forward: true)
+            if moved, let workspace = routedTabs?.selectedWorkspace {
+                GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
+                    tabManager: routedTabs,
+                    tabId: workspace.id,
+                    forward: true
+                )
             }
 #endif
             return true
@@ -14138,7 +14061,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return true
         }
-        if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
+        let workspaceTerminalFontSizeActions: [KeyboardShortcutSettings.Action] = [
+            .increaseWorkspaceTerminalFontSize,
+            .decreaseWorkspaceTerminalFontSize,
+            .resetWorkspaceTerminalFontSize,
+        ]
+        let workspaceTerminalFontSizeAction = preferredMatchingShortcutAction(
+            event: event,
+            actions: workspaceTerminalFontSizeActions
+        )
+        let equalizeSplitsMatches = matchConfiguredShortcut(event: event, action: .equalizeSplits)
+        // These defaults are new. If their stroke was already assigned to any
+        // explicit action that has not consumed the event earlier, keep routing
+        // so that action's existing handler below retains upgrade precedence.
+        let matchingExplicitActionShouldPreemptFontSizeDefault =
+            workspaceTerminalFontSizeAction.map {
+                explicitShortcutOverrideShouldPreemptImplicitDefault(
+                    event: event,
+                    matchedAction: $0,
+                    actionFamily: workspaceTerminalFontSizeActions
+                )
+            } ?? false
+        // Equalize moved to a previously free default. Preserve an older
+        // explicit binding on that stroke until the user explicitly assigns
+        // equalize there too.
+        let matchingExplicitActionShouldPreemptEqualizeDefault =
+            equalizeSplitsMatches
+            && explicitShortcutOverrideShouldPreemptImplicitDefault(
+                event: event,
+                matchedAction: .equalizeSplits,
+                actionFamily: [.equalizeSplits]
+            )
+        if let workspaceTerminalFontSizeAction,
+           !matchingExplicitActionShouldPreemptFontSizeDefault {
+            let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
+            let routedTabs = routedContext?.tabManager ?? tabManager
+            if let selectedWorkspace = routedTabs?.selectedWorkspace {
+                let accepted =
+                    enqueueWorkspaceTerminalFontSizeChange(
+                        workspaceTerminalFontSizeAction,
+                        workspace: selectedWorkspace,
+                        tabManager: routedTabs,
+                        deferFlush: event.isARepeat
+                    )
+                if !accepted {
+                    NSSound.beep()
+                }
+            }
+            return true
+        }
+        if equalizeSplitsMatches && !matchingExplicitActionShouldPreemptEqualizeDefault {
+            performEqualizeSplitsShortcut()
+            return true
+        }
         // Canvas layout actions share one executor with the palette, View
         // menu, and the canvas.* socket verbs.
         for action in KeyboardShortcutSettings.Action.canvasActions {
@@ -14433,6 +14408,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return false
+    }
+
+    private func enqueueWorkspaceTerminalFontSizeChange(
+        _ action: KeyboardShortcutSettings.Action,
+        workspace: Workspace,
+        tabManager: TabManager?,
+        deferFlush: Bool
+    ) -> Bool {
+        if action == .resetWorkspaceTerminalFontSize, deferFlush {
+            return true
+        }
+        let change: WorkspaceTerminalFontSizeChange
+        if action == .resetWorkspaceTerminalFontSize {
+            change = .resetThen([])
+        } else {
+            let delta: Float32 =
+                action == .increaseWorkspaceTerminalFontSize ? 1 : -1
+            change = .relative([delta])
+        }
+        guard let tabManager,
+              let context = mainWindowContext(for: tabManager) else {
+            return true
+        }
+#if DEBUG
+        if let override =
+                context
+                    .debugWorkspaceTerminalFontSizeEnqueueResultOverride {
+            return override
+        }
+#endif
+        return context.workspaceTerminalFontSizeCoordinator.enqueue(
+            change,
+            workspaceId: workspace.id,
+            deferFlush: deferFlush
+        )
     }
 
 
@@ -15866,6 +15876,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return numberedShortcutDigit(event: event, shortcut: currentShortcut) != nil
         }
         return matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut)
+    }
+
+    private func preferredMatchingShortcutAction(
+        event: NSEvent,
+        actions: [KeyboardShortcutSettings.Action]
+    ) -> KeyboardShortcutSettings.Action? {
+        let matchingActions = actions.filter {
+            matchConfiguredShortcut(event: event, action: $0)
+        }
+        return matchingActions.first {
+            KeyboardShortcutSettings.hasExplicitShortcutOverride(for: $0)
+        } ?? matchingActions.first
+    }
+
+    private func explicitShortcutOverrideShouldPreemptImplicitDefault(
+        event: NSEvent,
+        matchedAction: KeyboardShortcutSettings.Action,
+        actionFamily: [KeyboardShortcutSettings.Action]
+    ) -> Bool {
+        guard !KeyboardShortcutSettings.hasExplicitShortcutOverride(for: matchedAction) else {
+            return false
+        }
+        return KeyboardShortcutSettings.Action.allCases.contains { action in
+            guard !actionFamily.contains(action),
+                  KeyboardShortcutSettings.hasExplicitShortcutOverride(for: action) else {
+                return false
+            }
+            return matchConfiguredShortcut(event: event, action: action)
+        }
     }
 
     private func canCurrentShortcutPreventStaleMenuSuppression(_ action: KeyboardShortcutSettings.Action) -> Bool {

@@ -22,6 +22,8 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The underlying terminal surface
     let surface: TerminalSurface
+    var fontSizePanelTransfer:
+        WorkspaceTerminalFontSizePanelTransfer?
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
