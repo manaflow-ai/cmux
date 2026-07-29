@@ -294,16 +294,31 @@ extension MobileShellComposite {
             )
             return false
         }
-        // The hidden markers were keyed by the display scope when the rows were
-        // hidden, so clear them against that scope — only after the rows are
-        // gone, so a still-online Mac that re-registers is not re-hidden by a
-        // stale marker.
+        // Markers are stored per (user, team). A marker may live under the
+        // display scope (where the user hid the row) AND under each deleted
+        // row's OWN team (the same pairing can be hidden from several teams),
+        // so clear both: a marker left in another team would keep a
+        // re-registering Mac unexpectedly hidden there, contradicting the
+        // forget confirmation that it reappears on its next connect. Cleared
+        // only after the rows are gone, so a still-online Mac that re-registers
+        // is not re-hidden by a stale marker.
         for scope in scopes {
             await clearHiddenMacDeviceID(
                 scope.macDeviceID,
                 instanceTag: scope.instanceTag,
                 scope: displayScope
             )
+            if scope.teamID != displayScope.teamID {
+                await clearHiddenMacDeviceID(
+                    scope.macDeviceID,
+                    instanceTag: scope.instanceTag,
+                    scope: MobileShellScopeSnapshot(
+                        userID: displayScope.userID,
+                        teamID: scope.teamID,
+                        generation: displayScope.generation
+                    )
+                )
+            }
         }
         return true
     }
