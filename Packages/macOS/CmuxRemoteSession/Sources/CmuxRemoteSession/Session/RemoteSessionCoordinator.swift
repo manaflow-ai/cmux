@@ -82,6 +82,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var daemonRemotePath: String?
     var reverseRelayStartupPhase = ReverseRelayStartupPhase.recoveryAvailable
     var reverseRelayProcess: (any RemoteReverseRelayProcess)?
+    var reverseRelayControlMasterForwardSpec: String?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
     /// Stable publication state for best-effort remote TTY attribution scans.
@@ -109,10 +110,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var bootstrapRemoteTTYRetryToken: UUID?
     var bootstrapRemoteTTYFetchInFlight = false
     var bootstrapRemoteTTYRetryCount = 0
-    var reverseRelayStderrPipe: Pipe?
     var reverseRelayRestartTask: Task<Void, Never>?
     var reverseRelayRestartToken: UUID?
-    var reverseRelayStderrBuffer = ""
     var reconnectRetryCount = 0
     var reconnectTask: Task<Void, Never>?
     var reconnectToken: UUID?
@@ -131,11 +130,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     /// `.some(nil)` = computed and unavailable (legacy process-wide
     /// `static let` cache, made per-coordinator with the build-info seam).
     var remoteDaemonSourceFingerprintCache: String??
-    /// Grace period the relay-startup failure probe waits for an `ssh -N -R`
-    /// transport that may exit immediately (public because it is the default
-    /// argument of the test-pinned ``reverseRelayStartupFailureDetail(process:stderrPipe:gracePeriod:)``).
-    public static let reverseRelayStartupGracePeriod: TimeInterval = 0.5
-
     /// Creates a coordinator for one remote-workspace connection attempt.
     ///
     /// - Parameters:

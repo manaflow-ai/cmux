@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 // Remote-side relay provisioning script builders. Static because they
 // compose pure script text from raw inputs independent of a session instance

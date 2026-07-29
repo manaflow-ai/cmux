@@ -74,8 +74,8 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
         }
     }
 
-    @Test("Reverse relay disables shared ControlMaster transport")
-    func reverseRelayDisablesSharedControlMasterTransport() {
+    @Test("Reverse relay standalone fallback disables ControlMaster transport")
+    func reverseRelayStandaloneFallbackDisablesControlMasterTransport() {
         let coordinator = Self.makeCoordinator(
             runner: RecordingProcessRunner(),
             sshOptions: [

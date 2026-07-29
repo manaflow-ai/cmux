@@ -147,4 +147,43 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         )
     }
 
+    @Test("reverseRelayControlMasterArguments uses the configured ControlPath")
+    func reverseRelayControlMasterArguments() throws {
+        let configuration = configuration()
+        let arguments = try #require(
+            configuration.reverseRelayControlMasterArguments(
+                controlCommand: "forward",
+                forwardSpec: "127.0.0.1:64007:127.0.0.1:54321",
+                effectiveSSHOptions: configuration.sshOptions
+            )
+        )
+        #expect(
+            arguments == expectedBatchArguments
+                + [
+                    "-O", "forward",
+                    "-R", "127.0.0.1:64007:127.0.0.1:54321",
+                    "cmux-macmini",
+                ]
+        )
+    }
+
+    @Test("reverse relay ControlMaster commands require a usable ControlPath")
+    func reverseRelayRequiresControlPath() {
+        #expect(
+            configuration(sshOptions: ["StrictHostKeyChecking=accept-new"])
+                .reverseRelayControlMasterArguments(
+                    controlCommand: "forward",
+                    forwardSpec: "127.0.0.1:64007:127.0.0.1:54321",
+                    effectiveSSHOptions: ["StrictHostKeyChecking=accept-new"]
+                ) == nil
+        )
+        #expect(
+            configuration(sshOptions: ["ControlPath=None"])
+                .reverseRelayControlMasterArguments(
+                    controlCommand: "forward",
+                    forwardSpec: "127.0.0.1:64007:127.0.0.1:54321",
+                    effectiveSSHOptions: ["ControlPath=None"]
+                ) == nil
+        )
+    }
 }

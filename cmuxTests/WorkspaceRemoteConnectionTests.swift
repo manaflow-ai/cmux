@@ -707,26 +707,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
 
-    func testReverseRelayStartupFailureDetailCapturesImmediateForwardingFailure() throws {
-        let process = Process()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "echo 'remote port forwarding failed for listen port 64009' >&2; exit 1"]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = stderrPipe
-
-        try process.run()
-
-        let detail = RemoteSessionCoordinator.reverseRelayStartupFailureDetail(
-            process: process,
-            stderrPipe: stderrPipe,
-            gracePeriod: 1.0
-        )
-
-        XCTAssertEqual(detail, "remote port forwarding failed for listen port 64009")
-    }
-
     func testExecutableSearchPathsIncludesHomebrewAndHomeFallbacks() {
         let paths = RemoteSessionCoordinator.executableSearchPaths(
             environment: [

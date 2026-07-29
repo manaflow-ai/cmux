@@ -9,7 +9,10 @@ public struct RemoteReverseRelayLauncher: RemoteReverseRelayLaunching {
     public func launch(
         arguments: [String],
         environment: [String: String]?,
-        terminationHandler: @escaping @Sendable (any RemoteReverseRelayProcess) -> Void
+        terminationHandler: @escaping @Sendable (
+            any RemoteReverseRelayProcess,
+            String?
+        ) -> Void
     ) throws -> any RemoteReverseRelayProcess {
         let process = Process()
         let stderrPipe = Pipe()
@@ -24,11 +27,11 @@ public struct RemoteReverseRelayLauncher: RemoteReverseRelayLaunching {
             process: process,
             stderrPipe: stderrPipe
         )
-        process.terminationHandler = { [weak relayProcess] _ in
-            guard let relayProcess else { return }
-            terminationHandler(relayProcess)
-        }
         try process.run()
+        relayProcess.captureTermination { [weak relayProcess] detail in
+            guard let relayProcess else { return }
+            terminationHandler(relayProcess, detail)
+        }
         return relayProcess
     }
 }

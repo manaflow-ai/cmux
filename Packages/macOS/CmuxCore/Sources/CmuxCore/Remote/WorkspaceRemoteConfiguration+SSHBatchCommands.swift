@@ -54,12 +54,45 @@ extension WorkspaceRemoteConfiguration {
             ]
     }
 
+    /// `ssh -O <controlCommand>` argv that drives a reverse forward on the
+    /// configured ControlMaster socket, or `nil` when no usable `ControlPath`
+    /// option is present in the effective SSH options.
+    ///
+    /// - Parameters:
+    ///   - controlCommand: OpenSSH multiplexing command, such as `forward` or `cancel`.
+    ///   - forwardSpec: Exact reverse-forward specification.
+    ///   - effectiveSSHOptions: Options used by the foreground SSH connection.
+    /// - Returns: Arguments for `/usr/bin/ssh`, or `nil` without a usable control socket.
+    public func reverseRelayControlMasterArguments(
+        controlCommand: String,
+        forwardSpec: String,
+        effectiveSSHOptions: [String]
+    ) -> [String]? {
+        guard let controlPath = Self.firstSSHOptionValue(
+            named: "ControlPath",
+            in: effectiveSSHOptions
+        )?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !controlPath.isEmpty,
+              controlPath.lowercased() != "none" else {
+            return nil
+        }
+
+        var arguments = batchSSHArguments(sshOptions: effectiveSSHOptions)
+        arguments += ["-O", controlCommand, "-R", forwardSpec, destination]
+        return arguments
+    }
+
     // Shared batch-mode `ssh` options: keepalives, BatchMode, no new
     // ControlMaster (existing ControlPath sockets may be reused), port,
     // identity, then the configuration's options minus
     // ControlMaster/ControlPersist.
     private func batchSSHArguments() -> [String] {
-        let effectiveSSHOptions = backgroundSSHOptions()
+        batchSSHArguments(sshOptions: sshOptions)
+    }
+
+    private func batchSSHArguments(sshOptions: [String]) -> [String] {
+        let effectiveSSHOptions = backgroundSSHOptions(sshOptions)
         var args: [String] = [
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
@@ -86,12 +119,35 @@ extension WorkspaceRemoteConfiguration {
 
     // Trimmed options minus ControlMaster/ControlPersist (ControlPath is
     // kept so batch helpers can reuse an existing master's socket).
-    private func backgroundSSHOptions() -> [String] {
+    private func backgroundSSHOptions(_ options: [String]) -> [String] {
         let resolver = SSHAgentSocketResolver()
-        return Self.trimmedSSHOptions(sshOptions).filter { option in
+        return Self.trimmedSSHOptions(options).filter { option in
             guard let key = resolver.optionKey(option) else { return false }
             return !Self.batchSSHControlOptionKeys.contains(key)
         }
+    }
+
+    // OpenSSH uses the first obtained value for these command-line options.
+    private static func firstSSHOptionValue(
+        named key: String,
+        in options: [String]
+    ) -> String? {
+        let loweredKey = key.lowercased()
+        for option in trimmedSSHOptions(options) {
+            let parts = option.split(
+                maxSplits: 1,
+                omittingEmptySubsequences: true,
+                whereSeparator: { $0 == "=" || $0.isWhitespace }
+            )
+            guard parts.count == 2, parts[0].lowercased() == loweredKey else {
+                continue
+            }
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                return value
+            }
+        }
+        return nil
     }
 }
 

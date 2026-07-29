@@ -1,17 +1,15 @@
 internal import CmuxFoundation
+internal import CmuxRemoteWorkspace
 internal import OSLog
-public import CmuxRemoteWorkspace
-public import Foundation
+internal import Foundation
 
 nonisolated private let remoteRelayLogger = Logger(subsystem: "com.cmuxterm.app", category: "RemoteRelay")
 
 // The reverse CLI relay: a remote `127.0.0.1:<relayPort>` listener forwarded
-// back to the local CLI relay server by a dedicated `ssh -N -R` process. The
-// relay targets an in-process server, so its SSH transport is coordinator-owned
-// and standalone rather than attached to a host-scoped ControlMaster. Normal
-// stop terminates it; a later connection attempt reaps a PPID-1 orphan left by
-// a crash using its destination and pinned relay-port argv.
-// Stderr capture caps and restart cadence (2s) are pinned legacy behavior.
+// back to the local CLI relay server. It prefers `ssh -O forward` on the
+// already-authenticated shared ControlMaster, preserving password/MFA hosts,
+// and falls back to a coordinator-owned standalone `ssh -N -R` transport.
+// Standalone stderr capture caps and restart cadence (2s) are pinned behavior.
 extension RemoteSessionCoordinator {
     func startReverseRelayLocked(remotePath: String) {
         guard !isStopping else { return }
@@ -27,6 +25,7 @@ extension RemoteSessionCoordinator {
             return
         }
         guard reverseRelayProcess == nil else { return }
+        guard reverseRelayControlMasterForwardSpec == nil else { return }
         guard reverseRelayStartupPhase.allowsRelayLaunch else { return }
 
         cancelReverseRelayRestartLocked()
@@ -39,7 +38,7 @@ extension RemoteSessionCoordinator {
         )
     }
 
-    /// Launches the app-owned relay without adopting a shared ControlMaster.
+    /// Starts the relay on the authenticated shared master or its standalone fallback.
     func launchReverseRelayLocked(
         remotePath: String,
         relayPort: Int,
@@ -48,6 +47,8 @@ extension RemoteSessionCoordinator {
         localSocketPath: String
     ) {
         guard !isStopping, daemonReady, reverseRelayProcess == nil else { return }
+        guard reverseRelayControlMasterForwardSpec == nil else { return }
+        guard reverseRelayStartupPhase.allowsRelayLaunch else { return }
 
         var relayServer: RemoteCLIRelayServer?
         do {
@@ -64,6 +65,52 @@ extension RemoteSessionCoordinator {
                 persistentDaemonSlot: configuration.persistentDaemonSlot
             )
 
+            let forwardSpec = "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)"
+            switch startReverseRelayViaControlMasterLocked(
+                forwardSpec: forwardSpec,
+                relayPort: relayPort
+            ) {
+            case .started:
+                cliRelayServer = relayServer
+                do {
+                    try installRemoteRelayMetadataLocked(
+                        remotePath: remotePath,
+                        relayPort: relayPort,
+                        relayID: relayID,
+                        relayToken: relayToken
+                    )
+                } catch {
+                    debugLog("remote.relay.metadata.error \(error.localizedDescription)")
+                    stopReverseRelayLocked()
+                    scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+                    return
+                }
+                recordHeartbeatActivityLocked()
+                debugLog(
+                    "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
+                    "target=\(configuration.displayTarget) controlMaster=1"
+                )
+                return
+            case .bindingConflict(let detail):
+                debugLog(
+                    "remote.relay.startFailed relayPort=\(relayPort) error=\(detail)"
+                )
+                if beginConflictedControlMasterExitIfNeededLocked(
+                    startupFailure: detail,
+                    remotePath: remotePath,
+                    relayPort: relayPort
+                ) {
+                    return
+                }
+                publishReverseRelayFailureLocked(
+                    detail: detail,
+                    remotePath: remotePath
+                )
+                return
+            case .unavailable:
+                break
+            }
+
             let relayArguments = reverseRelayArguments(
                 relayPort: relayPort,
                 localRelayPort: localRelayPort
@@ -71,50 +118,17 @@ extension RemoteSessionCoordinator {
             let process = try reverseRelayLauncher.launch(
                 arguments: relayArguments,
                 environment: configuration.sshProcessEnvironment
-            ) { [weak self] terminated in
+            ) { [weak self] terminated, stderrDetail in
                 guard let coordinator = self else { return }
                 coordinator.queue.async {
-                    coordinator.handleReverseRelayTerminationLocked(process: terminated)
+                    coordinator.handleReverseRelayTerminationLocked(
+                        process: terminated,
+                        stderrDetail: stderrDetail
+                    )
                 }
             }
-            let stderrPipe = process.stderrPipe
-            if let startupFailure = process.startupFailureDetail(
-                gracePeriod: Self.reverseRelayStartupGracePeriod
-            ) {
-                let retryDelay = 2.0
-                let retrySeconds = max(1, Int(retryDelay.rounded()))
-                debugLog(
-                    "remote.relay.startFailed relayPort=\(relayPort) " +
-                    "error=\(startupFailure)"
-                )
-                if let relayServer {
-                    relayServer.stop()
-                    if cliRelayServer === relayServer {
-                        cliRelayServer = nil
-                    }
-                }
-                if beginConflictedControlMasterExitIfNeededLocked(
-                    startupFailure: startupFailure,
-                    remotePath: remotePath,
-                    relayPort: relayPort,
-                    relayID: relayID,
-                    relayToken: relayToken,
-                    localSocketPath: localSocketPath
-                ) {
-                    return
-                }
-                publishDaemonStatus(
-                    .error,
-                    detail: "Remote SSH relay unavailable: \(startupFailure) (retry in \(retrySeconds)s)"
-                )
-                scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: retryDelay)
-                return
-            }
-            installReverseRelayStderrHandlerLocked(stderrPipe)
             reverseRelayProcess = process
             cliRelayServer = relayServer
-            reverseRelayStderrPipe = stderrPipe
-            reverseRelayStderrBuffer = ""
             do {
                 try installRemoteRelayMetadataLocked(
                     remotePath: remotePath,
@@ -131,7 +145,7 @@ extension RemoteSessionCoordinator {
             recordHeartbeatActivityLocked()
             debugLog(
                 "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
-                "target=\(configuration.displayTarget) transport=dedicated"
+                "target=\(configuration.displayTarget) controlMaster=0"
             )
         } catch {
             debugLog(
@@ -148,33 +162,12 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    private func installReverseRelayStderrHandlerLocked(_ stderrPipe: Pipe) {
-        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            switch handle.readAvailableDataOrEndOfFile() {
-            case .data(let data):
-                self?.queue.async {
-                    guard let self else { return }
-                    if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
-                        self.reverseRelayStderrBuffer.append(chunk)
-                        if self.reverseRelayStderrBuffer.count > 8192 {
-                            self.reverseRelayStderrBuffer.removeFirst(self.reverseRelayStderrBuffer.count - 8192)
-                        }
-                    }
-                }
-            case .wouldBlock:
-                return
-            case .endOfFile:
-                handle.readabilityHandler = nil
-            }
-        }
-    }
-
-    private func handleReverseRelayTerminationLocked(process: any RemoteReverseRelayProcess) {
+    func handleReverseRelayTerminationLocked(
+        process: any RemoteReverseRelayProcess,
+        stderrDetail: String?
+    ) {
         guard reverseRelayProcess === process else { return }
-        let stderrDetail = Self.bestErrorLine(stderr: reverseRelayStderrBuffer)
-        reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
         reverseRelayProcess = nil
-        reverseRelayStderrPipe = nil
 
         guard !isStopping else { return }
         guard let remotePath = daemonRemotePath,
@@ -182,7 +175,28 @@ extension RemoteSessionCoordinator {
 
         let detail = stderrDetail ?? "status=\(process.terminationStatus)"
         debugLog("remote.relay.exit \(detail)")
+        if let relayPort = configuration.relayPort,
+           beginConflictedControlMasterExitIfNeededLocked(
+               startupFailure: detail,
+               remotePath: remotePath,
+               relayPort: relayPort
+           ) {
+            return
+        }
         scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+    }
+
+    private func publishReverseRelayFailureLocked(
+        detail: String,
+        remotePath: String
+    ) {
+        let retryDelay = 2.0
+        let retrySeconds = max(1, Int(retryDelay.rounded()))
+        publishDaemonStatus(
+            .error,
+            detail: "Remote SSH relay unavailable: \(detail) (retry in \(retrySeconds)s)"
+        )
+        scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: retryDelay)
     }
 
     func scheduleReverseRelayRestartLocked(remotePath: String, delay: TimeInterval) {
@@ -226,22 +240,19 @@ extension RemoteSessionCoordinator {
     @discardableResult
     func stopReverseRelayLocked(cleanupScope: RemoteRelayCleanupScope = .transport) -> Bool {
         cancelReverseRelayStartupLocked()
-        reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
         if let reverseRelayProcess, reverseRelayProcess.isRunning {
             reverseRelayProcess.terminate()
         }
         reverseRelayProcess = nil
-        reverseRelayStderrPipe = nil
-        reverseRelayStderrBuffer = ""
+        stopReverseRelayViaControlMasterLocked()
         cliRelayServer?.stop()
         cliRelayServer = nil
         return removeRemoteRelayMetadataLocked(cleanupScope: cleanupScope)
     }
 
     func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
-        // The relay's SSH process is deliberately standalone and coordinator
-        // owned. `-S none` also protects against a ControlPath inherited from
-        // the host's ssh_config and leaves argv that crash recovery can match.
+        // Fallback only: `-S none` prevents accidental adoption of a shared
+        // transport after `-O forward` proved unavailable.
         var args: [String] = ["-N", "-T", "-S", "none"]
         args += sshCommonArguments(batchMode: true, dropControlPath: true)
         args += [
@@ -383,22 +394,6 @@ extension RemoteSessionCoordinator {
             remoteRelayLogger.error("cleanup error: \(error.localizedDescription, privacy: .private(mask: .hash))")
             return false
         }
-    }
-
-    /// Waits a short grace period for an `ssh -N -R` relay transport that may
-    /// fail immediately (port already bound, auth failure); returns the best
-    /// stderr line when it exited within the grace period, or `nil` while it
-    /// keeps running. Static and pinned by tests; the bounded semaphore wait
-    /// rides the real termination signal.
-    public static func reverseRelayStartupFailureDetail(
-        process: Process,
-        stderrPipe: Pipe,
-        gracePeriod: TimeInterval = reverseRelayStartupGracePeriod
-    ) -> String? {
-        FoundationRemoteReverseRelayProcess(
-            process: process,
-            stderrPipe: stderrPipe
-        ).startupFailureDetail(gracePeriod: gracePeriod)
     }
 
     /// Returns whether OpenSSH reported that this relay's remote listener is

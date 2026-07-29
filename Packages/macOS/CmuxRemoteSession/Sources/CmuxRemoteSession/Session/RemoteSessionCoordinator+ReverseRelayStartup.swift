@@ -1,3 +1,4 @@
+internal import CmuxFoundation
 internal import Foundation
 
 private enum ConflictedControlMasterExitOutcome: Sendable {
@@ -6,32 +7,53 @@ private enum ConflictedControlMasterExitOutcome: Sendable {
 }
 
 extension RemoteSessionCoordinator {
-    /// Exits a legacy ControlPersist master only after the dedicated relay
-    /// proves that its configured remote port is already bound.
+    /// Exits a cmux-owned ControlPersist master only after OpenSSH proves that
+    /// the configured relay port is already bound.
     ///
     /// OpenSSH cannot cancel an inherited reverse forward without its original
-    /// full target specification. Exiting the owning master is the only
-    /// deterministic migration path; persistent remote PTYs survive and active
-    /// transports reconnect.
+    /// full target specification. Custom ControlPaths fail closed here: cmux
+    /// never terminates a master it did not create.
     @discardableResult
     func beginConflictedControlMasterExitIfNeededLocked(
         startupFailure: String,
         remotePath: String,
-        relayPort: Int,
-        relayID: String,
-        relayToken: String,
-        localSocketPath: String
+        relayPort: Int
     ) -> Bool {
-        guard reverseRelayStartupPhase.canAttemptRecovery,
-              Self.isReverseRelayPortBindingFailure(
-                  startupFailure,
-                  relayPort: relayPort
-              ) else {
+        guard Self.isReverseRelayPortBindingFailure(
+            startupFailure,
+            relayPort: relayPort
+        ) else {
+            return false
+        }
+        guard reverseRelayStartupPhase.canAttemptRecovery else {
+            return false
+        }
+        let effectiveSSHOptions = reverseRelayControlMasterSSHOptions
+        guard SSHConnectionSharingOptions().cmuxOwnedControlPath(
+            in: effectiveSSHOptions
+        ) != nil else {
+            debugLog(
+                "remote.relay.conflictedMaster.exitSkipped " +
+                "reason=control-path-not-owned relayPort=\(relayPort) " +
+                debugConfigSummary()
+            )
+            return false
+        }
+
+        guard reverseRelayControlMasterForwardSpec == nil else {
+            debugLog(
+                "remote.relay.conflictedMaster.exitSkipped " +
+                "reason=current-forward-owned relayPort=\(relayPort) " +
+                debugConfigSummary()
+            )
             return false
         }
 
         let arguments = RemoteControlMasterCleanup()
-            .cleanupArguments(configuration: configuration)
+            .cleanupArguments(
+                configuration: configuration,
+                sshOptionsOverride: effectiveSSHOptions
+            )
         let request = RemoteProcessRequest(
             executable: "/usr/bin/ssh",
             arguments: arguments,
@@ -58,10 +80,7 @@ extension RemoteSessionCoordinator {
                     token: token,
                     outcome: outcome,
                     remotePath: remotePath,
-                    relayPort: relayPort,
-                    relayID: relayID,
-                    relayToken: relayToken,
-                    localSocketPath: localSocketPath
+                    relayPort: relayPort
                 )
             }
         }
@@ -112,10 +131,7 @@ extension RemoteSessionCoordinator {
         token: UUID,
         outcome: ConflictedControlMasterExitOutcome,
         remotePath: String,
-        relayPort: Int,
-        relayID: String,
-        relayToken: String,
-        localSocketPath: String
+        relayPort: Int
     ) {
         guard reverseRelayStartupPhase.token == token else { return }
         reverseRelayStartupPhase = .recoveryAttempted
@@ -142,14 +158,8 @@ extension RemoteSessionCoordinator {
             return
         }
 
-        guard !isStopping, daemonReady, reverseRelayProcess == nil else { return }
-        launchReverseRelayLocked(
-            remotePath: remotePath,
-            relayPort: relayPort,
-            relayID: relayID,
-            relayToken: relayToken,
-            localSocketPath: localSocketPath
-        )
+        guard !isStopping else { return }
+        scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
     }
 
     /// Cancels the in-flight OpenSSH recovery and invalidates its continuation.

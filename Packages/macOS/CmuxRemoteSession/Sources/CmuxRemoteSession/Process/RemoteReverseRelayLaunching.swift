@@ -11,6 +11,9 @@ public protocol RemoteReverseRelayLaunching: Sendable {
     func launch(
         arguments: [String],
         environment: [String: String]?,
-        terminationHandler: @escaping @Sendable (any RemoteReverseRelayProcess) -> Void
+        terminationHandler: @escaping @Sendable (
+            any RemoteReverseRelayProcess,
+            String?
+        ) -> Void
     ) throws -> any RemoteReverseRelayProcess
 }

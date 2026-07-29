@@ -45,10 +45,7 @@ struct RemoteSessionReverseRelayStartupTests {
             coordinator.beginConflictedControlMasterExitIfNeededLocked(
                 startupFailure: "Connection refused",
                 remotePath: "/tmp/cmuxd-remote",
-                relayPort: 64_044,
-                relayID: "relay-startup-cancellation",
-                relayToken: String(repeating: "a", count: 64),
-                localSocketPath: coordinator.configuration.localSocketPath ?? ""
+                relayPort: 64_044
             )
         }
         #expect(!ignoredUnrelatedFailure)
@@ -58,10 +55,7 @@ struct RemoteSessionReverseRelayStartupTests {
             coordinator.beginConflictedControlMasterExitIfNeededLocked(
                 startupFailure: "Error: remote port forwarding failed for listen port 64044",
                 remotePath: "/tmp/cmuxd-remote",
-                relayPort: 64_044,
-                relayID: "relay-startup-cancellation",
-                relayToken: String(repeating: "a", count: 64),
-                localSocketPath: coordinator.configuration.localSocketPath ?? ""
+                relayPort: 64_044
             )
         }
         #expect(beganRecovery)
@@ -90,10 +84,7 @@ struct RemoteSessionReverseRelayStartupTests {
             coordinator.beginConflictedControlMasterExitIfNeededLocked(
                 startupFailure: "remote port forwarding failed for listen port 64044",
                 remotePath: "/tmp/cmuxd-remote",
-                relayPort: 64_044,
-                relayID: "relay-startup-cancellation",
-                relayToken: String(repeating: "a", count: 64),
-                localSocketPath: coordinator.configuration.localSocketPath ?? ""
+                relayPort: 64_044
             )
         }
         #expect(!beganSecondRecovery)
@@ -101,54 +92,39 @@ struct RemoteSessionReverseRelayStartupTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
-    @Test("Successful master exit retries the dedicated relay")
-    func successfulMasterExitRetriesDedicatedRelay() async throws {
+    @Test("Successful master exit schedules relay retry after reconnect can recreate it")
+    func successfulMasterExitSchedulesRetry() async throws {
         let runner = RecordingProcessRunner()
         let launcher = RecordingReverseRelayLauncher()
+        let clock = ManualBrokerClock()
         let relayPort = 64_046
         let fixture = try Self.makeCoordinator(
             runner: runner,
             reverseRelayLauncher: launcher,
-            relayPort: relayPort
+            relayPort: relayPort,
+            clock: clock
         )
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
 
-        var launches = launcher.launches.makeAsyncIterator()
         coordinator.queue.async {
             coordinator.daemonReady = true
             _ = coordinator.beginConflictedControlMasterExitIfNeededLocked(
                 startupFailure: "Error: remote port forwarding failed for listen port \(relayPort)",
                 remotePath: "/tmp/cmuxd-remote",
-                relayPort: relayPort,
-                relayID: "relay-successful-recovery",
-                relayToken: String(repeating: "b", count: 64),
-                localSocketPath: coordinator.configuration.localSocketPath ?? ""
+                relayPort: relayPort
             )
         }
 
-        let launch = try #require(await launches.next())
-
+        #expect(await clock.nextRequestedDelay() == 2_000)
         let recoveryRequest = runner.requests.first
         #expect(recoveryRequest?.arguments.contains("-O") == true)
         #expect(recoveryRequest?.arguments.contains("exit") == true)
-        #expect(launch.arguments.starts(with: ["-N", "-T", "-S", "none"]))
-        #expect(launch.arguments.contains("-R"))
-        #expect(launch.arguments.contains(
-            "127.0.0.1:\(relayPort):127.0.0.1:\(launch.localRelayPort)"
-        ))
-        #expect(!launch.arguments.contains(where: { $0.hasPrefix("ControlPath=") }))
-
-        let retriedAfterRecovery = coordinator.queue.sync {
+        #expect(launcher.launchCount == 0)
+        #expect(coordinator.queue.sync {
             coordinator.reverseRelayStartupPhase.allowsRelayLaunch &&
-                coordinator.reverseRelayProcess === launcher.process
-        }
-        #expect(retriedAfterRecovery)
-        #expect(RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
-            psOutput: "909 1 /usr/bin/ssh \(launch.arguments.joined(separator: " "))",
-            destination: "user@example.test",
-            relayPort: relayPort
-        ) == [909])
+                coordinator.reverseRelayProcess == nil
+        })
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
@@ -163,10 +139,7 @@ struct RemoteSessionReverseRelayStartupTests {
             _ = coordinator.beginConflictedControlMasterExitIfNeededLocked(
                 startupFailure: "remote port forwarding failed for listen port 64044",
                 remotePath: "/tmp/cmuxd-remote",
-                relayPort: 64_044,
-                relayID: "relay-startup-cancellation",
-                relayToken: String(repeating: "a", count: 64),
-                localSocketPath: coordinator.configuration.localSocketPath ?? ""
+                relayPort: 64_044
             )
         }
 
@@ -185,11 +158,13 @@ struct RemoteSessionReverseRelayStartupTests {
         #expect(startupCleared)
     }
 
-    private static func makeCoordinator(
+    static func makeCoordinator(
         host: any RemoteSessionHosting = NoopRemoteSessionHost(),
         runner: any RemoteSessionProcessRunning,
         reverseRelayLauncher: any RemoteReverseRelayLaunching = RemoteReverseRelayLauncher(),
-        relayPort: Int = 64_044
+        relayPort: Int = 64_044,
+        sshOptions: [String]? = nil,
+        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
     ) throws -> (coordinator: RemoteSessionCoordinator, scratchDirectory: URL) {
         let scratchDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -204,7 +179,7 @@ struct RemoteSessionReverseRelayStartupTests {
             destination: "user@example.test",
             port: nil,
             identityFile: nil,
-            sshOptions: ["StrictHostKeyChecking=accept-new"],
+            sshOptions: sshOptions ?? ["StrictHostKeyChecking=accept-new"],
             localProxyPort: nil,
             relayPort: relayPort,
             relayID: "relay-startup-cancellation",
@@ -234,25 +209,29 @@ struct RemoteSessionReverseRelayStartupTests {
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
                 suspendedDetailFormat: "%@"
-            )
+            ),
+            clock: clock
         )
         return (coordinator, scratchDirectory)
     }
 }
 
-private struct RecordedReverseRelayLaunch: Sendable {
+struct RecordedReverseRelayLaunch: Sendable {
     let arguments: [String]
     let localRelayPort: Int
 }
 
-/// Immutable recorder; `AsyncStream.Continuation` owns synchronized delivery.
-private final class RecordingReverseRelayLauncher:
+/// Synchronous launcher callbacks cannot await; the lock protects only callback snapshots and a counter.
+final class RecordingReverseRelayLauncher:
     RemoteReverseRelayLaunching,
     @unchecked Sendable
 {
     let launches: AsyncStream<RecordedReverseRelayLaunch>
     let process = StubReverseRelayProcess()
 
+    private let lock = NSLock()
+    private var _launchCount = 0
+    private var terminationHandler: (@Sendable (any RemoteReverseRelayProcess, String?) -> Void)?
     private let launchContinuation: AsyncStream<RecordedReverseRelayLaunch>.Continuation
 
     init() {
@@ -262,7 +241,10 @@ private final class RecordingReverseRelayLauncher:
     func launch(
         arguments: [String],
         environment: [String: String]?,
-        terminationHandler: @escaping @Sendable (any RemoteReverseRelayProcess) -> Void
+        terminationHandler: @escaping @Sendable (
+            any RemoteReverseRelayProcess,
+            String?
+        ) -> Void
     ) throws -> any RemoteReverseRelayProcess {
         let reverseArgumentIndex = try #require(arguments.firstIndex(of: "-R"))
         let reverseArgument = try #require(
@@ -277,22 +259,30 @@ private final class RecordingReverseRelayLauncher:
             arguments: arguments,
             localRelayPort: localRelayPort
         ))
+        lock.withLock {
+            _launchCount += 1
+            self.terminationHandler = terminationHandler
+        }
         return process
+    }
+
+    var launchCount: Int {
+        lock.withLock { _launchCount }
+    }
+
+    func emitTermination(detail: String?) {
+        let handler = lock.withLock { terminationHandler }
+        handler?(process, detail)
     }
 }
 
-/// Immutable fake process; the pipe is never concurrently read or written.
-private final class StubReverseRelayProcess:
+/// Immutable fake process used by the injected launcher.
+final class StubReverseRelayProcess:
     RemoteReverseRelayProcess,
     @unchecked Sendable
 {
-    let stderrPipe = Pipe()
     let isRunning = true
     let terminationStatus: Int32 = 0
-
-    func startupFailureDetail(gracePeriod: TimeInterval) -> String? {
-        nil
-    }
 
     func terminate() {}
 }
