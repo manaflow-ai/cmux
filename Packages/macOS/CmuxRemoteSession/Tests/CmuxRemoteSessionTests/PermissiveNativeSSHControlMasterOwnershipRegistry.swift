@@ -26,7 +26,7 @@ final class PermissiveNativeSSHControlMasterOwnershipRegistry:
 
     func release(lease: NativeSSHControlMasterLeaseIdentity) {}
 
-    func beginReset(
+    func beginRecovery(
         controlPath: String
     ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
         NativeSSHControlMasterExclusiveUseAuthorization {}

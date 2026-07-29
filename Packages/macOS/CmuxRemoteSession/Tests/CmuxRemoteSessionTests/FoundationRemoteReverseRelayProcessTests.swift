@@ -146,7 +146,7 @@ struct FoundationRemoteReverseRelayProcessTests {
             stderrPipe: stderrPipe,
             stderrDrainGracePeriod: 0.05
         )
-        let startupRecorder = ResetEventRecorder()
+        let startupRecorder = SynchronousEventRecorder()
         let (terminations, continuation) = AsyncStream<String?>.makeStream()
         let startedAt = Date()
 
@@ -193,7 +193,7 @@ struct FoundationRemoteReverseRelayProcessTests {
             stderrDrainGracePeriod: 0.05,
             terminationGracePeriod: 0.05
         )
-        let startupRecorder = ResetEventRecorder()
+        let startupRecorder = SynchronousEventRecorder()
         let (terminations, continuation) = AsyncStream<String?>.makeStream()
 
         try process.run()

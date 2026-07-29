@@ -6,8 +6,8 @@ import Testing
 
 @Suite("Native SSH cross-process master ownership")
 struct NativeSSHControlMasterOwnershipRegistryTests {
-    @Test("A live sibling process blocks reset until it releases its lease")
-    func liveSiblingBlocksReset() throws {
+    @Test("A live sibling process blocks recovery until it releases its lease")
+    func liveSiblingBlocksRecovery() throws {
         let scratchDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "cmux-control-owner-\(UUID().uuidString)",
@@ -42,11 +42,11 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
             controlPath: controlPath,
             lease: secondLease
         ))
-        #expect(first.beginReset(controlPath: controlPath) == nil)
+        #expect(first.beginRecovery(controlPath: controlPath) == nil)
 
         second.release(lease: secondLease)
         let authorization = try #require(
-            first.beginReset(controlPath: controlPath)
+            first.beginRecovery(controlPath: controlPath)
         )
         #expect(!second.retain(
             controlPath: controlPath,
@@ -59,8 +59,8 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         ))
     }
 
-    @Test("Resolved authentication blocks reset across different aliases")
-    func resolvedAuthenticationBlocksReset() throws {
+    @Test("Resolved authentication blocks recovery across different aliases")
+    func resolvedAuthenticationBlocksRecovery() throws {
         let scratchDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "cmux-control-auth-\(UUID().uuidString)",
@@ -118,13 +118,13 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         let ready = stdout.fileHandleForReading.readData(ofLength: 6)
         #expect(String(decoding: ready, as: UTF8.self) == "ready\n")
         #expect(registry.retain(controlPath: controlPath, lease: lease))
-        #expect(registry.beginReset(controlPath: controlPath) == nil)
+        #expect(registry.beginRecovery(controlPath: controlPath) == nil)
 
         try stdin.fileHandleForWriting.close()
         process.waitUntilExit()
         #expect(process.terminationStatus == 0)
         let authorization = try #require(
-            registry.beginReset(controlPath: controlPath)
+            registry.beginRecovery(controlPath: controlPath)
         )
         authorization.release()
     }
@@ -152,10 +152,10 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         #expect(registry.retain(controlPath: controlPath, lease: lease))
         #expect(registry.beginCleanup(controlPath: controlPath) == nil)
 
-        let reset = try #require(
-            registry.beginReset(controlPath: controlPath)
+        let recovery = try #require(
+            registry.beginRecovery(controlPath: controlPath)
         )
-        reset.release()
+        recovery.release()
         #expect(registry.beginCleanup(controlPath: controlPath) == nil)
 
         registry.release(lease: lease)
@@ -190,8 +190,8 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
             )
         )
 
-        let reset = try #require(
-            first.beginReset(controlPath: controlPath)
+        let recovery = try #require(
+            first.beginRecovery(controlPath: controlPath)
         )
         #expect(second.beginCleanup(controlPath: controlPath) == nil)
         #expect(
@@ -200,7 +200,7 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
             ) == false
         )
 
-        reset.release()
+        recovery.release()
         let cleanup = try #require(
             second.beginCleanup(controlPath: controlPath)
         )
@@ -237,14 +237,14 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         )
         #expect(first.retain(controlPath: controlPath, lease: lease))
 
-        var authorization = first.beginReset(controlPath: controlPath)
+        var authorization = first.beginRecovery(controlPath: controlPath)
         #expect(authorization != nil)
         authorization = nil
 
-        #expect(second.beginReset(controlPath: controlPath) == nil)
+        #expect(second.beginRecovery(controlPath: controlPath) == nil)
         first.release(lease: lease)
         let secondAuthorization = try #require(
-            second.beginReset(controlPath: controlPath)
+            second.beginRecovery(controlPath: controlPath)
         )
         secondAuthorization.release()
     }

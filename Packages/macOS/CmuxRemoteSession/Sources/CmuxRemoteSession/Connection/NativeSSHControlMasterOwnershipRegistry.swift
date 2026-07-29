@@ -21,7 +21,7 @@ final class NativeSSHControlMasterOwnershipRegistry:
     }
 
     private enum ExclusiveUsePurpose {
-        case conflictedMasterReset
+        case reverseForwardRecovery
         case ordinaryCleanup
     }
 
@@ -98,12 +98,12 @@ final class NativeSSHControlMasterOwnershipRegistry:
         }
     }
 
-    func beginReset(
+    func beginRecovery(
         controlPath: String
     ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
         beginExclusiveUse(
             controlPath: controlPath,
-            purpose: .conflictedMasterReset
+            purpose: .reverseForwardRecovery
         )
     }
 
@@ -138,8 +138,8 @@ final class NativeSSHControlMasterOwnershipRegistry:
 
             let authorized: Bool
             switch purpose {
-            case .conflictedMasterReset:
-                authorized = beginOwnershipResetLocked(
+            case .reverseForwardRecovery:
+                authorized = beginRecoveryLocked(
                     controlPath: controlPath,
                     exclusiveUseID: exclusiveUseID
                 )
@@ -180,7 +180,7 @@ final class NativeSSHControlMasterOwnershipRegistry:
         )
     }
 
-    private func beginOwnershipResetLocked(
+    private func beginRecoveryLocked(
         controlPath: String,
         exclusiveUseID: UUID
     ) -> Bool {

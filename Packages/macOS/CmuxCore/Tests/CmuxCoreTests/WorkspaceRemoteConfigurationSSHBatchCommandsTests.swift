@@ -167,6 +167,54 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         )
     }
 
+    @Test("batch command reuses the supplied authenticated ControlPath")
+    func batchCommandUsesEffectiveControlPath() {
+        let effectiveOptions = [
+            "ControlMaster=auto",
+            "ControlPersist=600",
+            "ControlPath=/tmp/cmux-ssh-resolved",
+            "StrictHostKeyChecking=accept-new",
+        ]
+
+        #expect(
+            configuration().batchSSHCommandArguments(
+                command: "printf relay-metadata",
+                effectiveSSHOptions: effectiveOptions
+            ) == [
+                "-T",
+                "-o", "RemoteCommand=none",
+                "-o", "ConnectTimeout=6",
+                "-o", "ServerAliveInterval=20",
+                "-o", "ServerAliveCountMax=2",
+                "-o", "BatchMode=yes",
+                "-o", "ControlMaster=no",
+                "-p", "2222",
+                "-i", "/Users/test/.ssh/id_ed25519",
+                "-o", "ControlPath=/tmp/cmux-ssh-resolved",
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-o", "RequestTTY=no",
+                "cmux-macmini",
+                "printf relay-metadata",
+            ]
+        )
+    }
+
+    @Test("resolved ControlPath replaces every unresolved option")
+    func resolvedControlPathReplacesTemplates() {
+        let resolved = configuration(
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+                "ControlPath=/tmp/cmux-ssh-%C",
+                "ControlPath=~/.ssh/ignored-%C",
+            ]
+        ).withResolvedSSHControlPath("/tmp/cmux-ssh-resolved")
+
+        #expect(resolved.sshOptions == [
+            "ControlPath=/tmp/cmux-ssh-resolved",
+            "StrictHostKeyChecking=accept-new",
+        ])
+    }
+
     @Test("reverse relay ControlMaster commands require a usable ControlPath")
     func reverseRelayRequiresControlPath() {
         #expect(

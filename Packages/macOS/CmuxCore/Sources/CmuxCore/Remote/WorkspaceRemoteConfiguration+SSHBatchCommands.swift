@@ -90,6 +90,22 @@ extension WorkspaceRemoteConfiguration {
         return arguments
     }
 
+    /// Builds a non-interactive command that reuses the supplied exact ControlPath.
+    ///
+    /// - Parameters:
+    ///   - command: Remote shell command to execute.
+    ///   - effectiveSSHOptions: Options carrying the authenticated ControlPath.
+    /// - Returns: Arguments for `/usr/bin/ssh`.
+    public func batchSSHCommandArguments(
+        command: String,
+        effectiveSSHOptions: [String]
+    ) -> [String] {
+        ["-T"]
+            + SSHHostConfiguredRemoteCommand().overrideArguments
+            + batchSSHArguments(sshOptions: effectiveSSHOptions)
+            + ["-o", "RequestTTY=no", destination, command]
+    }
+
     // Shared batch-mode `ssh` options: keepalives, BatchMode, no new
     // ControlMaster (existing ControlPath sockets may be reused), port,
     // identity, then the configuration's options minus

@@ -6,9 +6,9 @@ extension NativeSSHConnectionBroker {
     /// Begins an ownership handoff while foreground SSH authentication still
     /// holds the resolved ControlPath authentication lock.
     ///
-    /// The returned lease prevents another live cmux process from resetting
-    /// the newly authenticated master before the workspace configuration is
-    /// ready to adopt it.
+    /// The returned lease prevents another live cmux process from recovering
+    /// an inherited forward on the newly authenticated master before the
+    /// workspace configuration is ready to adopt it.
     ///
     /// - Parameters:
     ///   - controlPath: Exact resolved cmux-owned ControlPath.

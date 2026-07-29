@@ -7,7 +7,7 @@ struct NativeSSHControlMasterAdoptionHandoffTests {
     @Test("An unconsumed handoff expires and releases ownership once")
     func unconsumedHandoffExpires() async {
         let clock = ManualBrokerClock()
-        let recorder = ResetEventRecorder()
+        let recorder = SynchronousEventRecorder()
         let handoff = NativeSSHControlMasterAdoptionHandoff(
             controlPath: "/tmp/cmux-ssh-501-test",
             lease: NativeSSHControlMasterLeaseIdentity(

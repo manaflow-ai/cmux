@@ -92,8 +92,8 @@ struct NativeSSHConnectionBrokerTests {
         broker.releaseWorkspace(lease)
     }
 
-    @Test("Unresolved templates authorize reset but not last-owner cleanup")
-    func unresolvedTemplatesOnlyAuthorizeReset() {
+    @Test("Unresolved templates carry a generation but not last-owner cleanup")
+    func unresolvedTemplatesCarryGenerationOnly() {
         let recorder = CleanupRequestRecorder()
         let broker = makeBroker(cleanupRecorder: recorder)
         let templateOptions = sharingOptions.mergingDefaults(into: [])

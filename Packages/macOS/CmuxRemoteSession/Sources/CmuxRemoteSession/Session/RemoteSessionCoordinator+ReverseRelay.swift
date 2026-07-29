@@ -26,7 +26,6 @@ extension RemoteSessionCoordinator {
         }
         guard reverseRelayProcess == nil else { return }
         guard reverseRelayControlMasterForwardSpec == nil else { return }
-        guard reverseRelayStartupPhase.allowsRelayLaunch else { return }
 
         cancelReverseRelayRestartLocked()
         launchReverseRelayLocked(
@@ -48,7 +47,6 @@ extension RemoteSessionCoordinator {
     ) {
         guard !isStopping, daemonReady, reverseRelayProcess == nil else { return }
         guard reverseRelayControlMasterForwardSpec == nil else { return }
-        guard reverseRelayStartupPhase.allowsRelayLaunch else { return }
 
         var relayServer: RemoteCLIRelayServer?
         do {
@@ -91,18 +89,10 @@ extension RemoteSessionCoordinator {
                     "target=\(configuration.displayTarget) controlMaster=1"
                 )
                 return
-            case .bindingConflict(let detail, let controlPath):
+            case .bindingConflict(let detail):
                 debugLog(
                     "remote.relay.startFailed relayPort=\(relayPort) error=\(detail)"
                 )
-                if beginConflictedControlMasterExitIfNeededLocked(
-                    startupFailure: detail,
-                    remotePath: remotePath,
-                    relayPort: relayPort,
-                    resolvedControlPath: controlPath
-                ) {
-                    return
-                }
                 publishReverseRelayFailureLocked(
                     remotePath: remotePath
                 )
@@ -263,7 +253,6 @@ extension RemoteSessionCoordinator {
 
     @discardableResult
     func stopReverseRelayLocked(cleanupScope: RemoteRelayCleanupScope = .transport) -> Bool {
-        cancelReverseRelayStartupLocked()
         if let reverseRelayProcess, reverseRelayProcess.isRunning {
             reverseRelayProcess.terminate()
         }

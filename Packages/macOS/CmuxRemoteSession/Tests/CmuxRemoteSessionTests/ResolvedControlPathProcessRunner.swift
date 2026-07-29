@@ -9,7 +9,7 @@ enum ResolvedControlPathFixture {
 }
 
 /// Gives relay tests deterministic `ssh -G` expansion while preserving their
-/// existing process-runner scripts for forward, cancel, and reset commands.
+/// existing process-runner scripts for forward and cancel commands.
 final class ResolvedControlPathProcessRunner:
     RemoteSessionProcessRunning,
     @unchecked Sendable

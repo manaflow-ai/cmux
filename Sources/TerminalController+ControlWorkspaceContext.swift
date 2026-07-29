@@ -668,7 +668,21 @@ extension TerminalController: ControlWorkspaceContext {
             persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
-        workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+        guard workspace.configureRemoteConnection(
+            config,
+            autoConnect: autoConnect
+        ) else {
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized:
+                        "remoteSession.controlMaster.ownershipUnavailable",
+                    defaultValue:
+                        "SSH connection is busy in another cmux process."
+                ),
+                data: nil
+            )
+        }
         notifyRemotePTYControllerAvailabilityChanged()
 
         let windowId = AppDelegate.shared?.windowId(for: owner)

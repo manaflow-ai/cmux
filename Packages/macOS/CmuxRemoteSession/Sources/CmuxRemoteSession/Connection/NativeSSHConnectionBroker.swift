@@ -16,10 +16,8 @@ public final class NativeSSHConnectionBroker {
     let clock: any RemoteProxyRetryClock
     private let jitterMilliseconds: @MainActor @Sendable () -> Int
     let cleanupLauncherOverride: (@MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void)?
-    private nonisolated let conflictedMasterResetEventHub: NativeSSHControlMasterResetEventHub
     nonisolated let controlMasterOwnershipRegistry:
         any NativeSSHControlMasterOwnershipTracking
-    private let conflictedMasterResetCoordinator: NativeSSHControlMasterResetCoordinator
 
     var ownerLeases: [UUID: [NativeSSHControlMasterKey: WorkspaceRemoteConfiguration]] = [:]
     var ownersByControlMaster: [NativeSSHControlMasterKey: Set<UUID>] = [:]
@@ -45,20 +43,11 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
         self.cleanupLauncherOverride = nil
-        let eventHub = NativeSSHControlMasterResetEventHub()
         let ownershipRegistry =
             NativeSSHControlMasterOwnershipRegistry(
                 sharingOptions: sharingOptions
             )
-        self.conflictedMasterResetEventHub = eventHub
         self.controlMasterOwnershipRegistry = ownershipRegistry
-        self.conflictedMasterResetCoordinator = NativeSSHControlMasterResetCoordinator(
-            sharingOptions: sharingOptions,
-            processRunner: RemoteSessionProcessRunner(),
-            clock: clock,
-            eventHub: eventHub,
-            ownershipRegistry: ownershipRegistry
-        )
     }
 
     /// Creates a broker with an injected cleanup launcher.
@@ -77,20 +66,11 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
         self.cleanupLauncherOverride = cleanupLauncher
-        let eventHub = NativeSSHControlMasterResetEventHub()
         let ownershipRegistry =
             NativeSSHControlMasterOwnershipRegistry(
                 sharingOptions: sharingOptions
             )
-        self.conflictedMasterResetEventHub = eventHub
         self.controlMasterOwnershipRegistry = ownershipRegistry
-        self.conflictedMasterResetCoordinator = NativeSSHControlMasterResetCoordinator(
-            sharingOptions: sharingOptions,
-            processRunner: RemoteSessionProcessRunner(),
-            clock: clock,
-            eventHub: eventHub,
-            ownershipRegistry: ownershipRegistry
-        )
     }
 
     nonisolated init(
@@ -98,8 +78,6 @@ public final class NativeSSHConnectionBroker {
         clock: any RemoteProxyRetryClock,
         jitterMilliseconds: @escaping @MainActor @Sendable () -> Int,
         cleanupLauncher: @escaping @MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void,
-        conflictedMasterResetRunner: any RemoteSessionProcessRunning =
-            RemoteSessionProcessRunner(),
         controlMasterOwnershipRegistry:
             any NativeSSHControlMasterOwnershipTracking
     ) {
@@ -107,16 +85,7 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = jitterMilliseconds
         self.cleanupLauncherOverride = cleanupLauncher
-        let eventHub = NativeSSHControlMasterResetEventHub()
-        self.conflictedMasterResetEventHub = eventHub
         self.controlMasterOwnershipRegistry = controlMasterOwnershipRegistry
-        self.conflictedMasterResetCoordinator = NativeSSHControlMasterResetCoordinator(
-            sharingOptions: sharingOptions,
-            processRunner: conflictedMasterResetRunner,
-            clock: clock,
-            eventHub: eventHub,
-            ownershipRegistry: controlMasterOwnershipRegistry
-        )
     }
 
     /// Retains the cmux-owned master used by a configured workspace.
@@ -129,23 +98,24 @@ public final class NativeSSHConnectionBroker {
     @discardableResult
     public func retainWorkspace(_ configuration: WorkspaceRemoteConfiguration) -> WorkspaceRemoteConfiguration {
         guard let ownerWorkspaceID = configuration.ownerWorkspaceID else { return configuration }
-        let nextKey = NativeSSHControlMasterKey(
-            configuration: configuration,
-            sharingOptions: sharingOptions
+        guard configuration.transport == .ssh else { return configuration }
+        let effectiveOptions = sharingOptions.mergingDefaults(
+            into: configuration.sshOptions
         )
-        let resetKey = NativeSSHControlMasterResetKey(
-            configuration: configuration,
-            sharingOptions: sharingOptions
-        )
-        guard nextKey != nil || resetKey != nil else { return configuration }
-        let leasedConfiguration = configuration.withSSHControlMasterLeaseGeneration(UUID())
-        if let resetKey {
-            conflictedMasterResetCoordinator.retainWorkspace(
-                leasedConfiguration,
-                ownerWorkspaceID: ownerWorkspaceID,
-                key: resetKey
-            )
+        guard sharingOptions.cmuxOwnedControlPath(
+            in: effectiveOptions
+        ) != nil else {
+            return configuration
         }
+        let leasedConfiguration =
+            configuration.withSSHControlMasterLeaseGeneration(UUID())
+        let nextKey = NativeSSHControlMasterKey(
+            configuration: leasedConfiguration,
+            sharingOptions: sharingOptions
+        )
+        // An unresolved `%C` template still needs a generation so the
+        // coordinator can retain its exact resolved socket before reuse.
+        // Lifecycle ownership remains exact-path-only.
         guard let nextKey else { return leasedConfiguration }
         if let lease = NativeSSHControlMasterLeaseIdentity(
             configuration: leasedConfiguration
@@ -182,16 +152,6 @@ public final class NativeSSHConnectionBroker {
         ) {
             controlMasterOwnershipRegistry.release(lease: lease)
         }
-        if let resetKey = NativeSSHControlMasterResetKey(
-            configuration: configuration,
-            sharingOptions: sharingOptions
-        ) {
-            conflictedMasterResetCoordinator.releaseWorkspace(
-                ownerWorkspaceID: ownerWorkspaceID,
-                generation: generation,
-                key: resetKey
-            )
-        }
         guard let key = NativeSSHControlMasterKey(
             configuration: configuration,
             sharingOptions: sharingOptions
@@ -218,32 +178,19 @@ public final class NativeSSHConnectionBroker {
         )
     }
 
-    /// Coalesces an inherited-master reset after OpenSSH confirms a relay bind conflict.
-    func resetConflictedControlMaster(
-        for configuration: WorkspaceRemoteConfiguration,
-        resolvedControlPath: String
-    ) async -> NativeSSHControlMasterResetOutcome {
-        await conflictedMasterResetCoordinator.reset(
-            for: configuration,
-            resolvedControlPath: resolvedControlPath
-        )
-    }
-
-    /// Observes resets that invalidate an exact cmux-owned control socket.
-    nonisolated func observeControlMasterResets(
-        controlPath: String,
-        handler: @escaping @Sendable () -> Void
-    ) -> NativeSSHControlMasterResetObservation? {
+    /// Serializes a narrow inherited-forward cancellation against other cmux processes.
+    nonisolated func beginReverseForwardRecovery(
+        controlPath: String
+    ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
         guard !controlPath.contains("%"),
               sharingOptions.cmuxOwnedControlPath(in: [
-                "ControlMaster=auto",
-                "ControlPath=\(controlPath)",
+                  "ControlMaster=auto",
+                  "ControlPath=\(controlPath)",
               ]) == controlPath else {
             return nil
         }
-        return conflictedMasterResetEventHub.observe(
-            controlPath: controlPath,
-            handler: handler
+        return controlMasterOwnershipRegistry.beginRecovery(
+            controlPath: controlPath
         )
     }
 

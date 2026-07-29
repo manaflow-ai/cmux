@@ -996,6 +996,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             config,
             autoConnect: false
         ))
+        XCTAssertEqual(
+            workspace.remoteConfiguration?.sshOptions.first,
+            "ControlPath=\(resolvedControlPath)"
+        )
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
         XCTAssertNotNil(workspace.activeRemoteSessionControllerID)
         workspace.disconnectRemoteConnection(clearConfiguration: true)

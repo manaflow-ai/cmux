@@ -5423,7 +5423,6 @@ final class Workspace: Identifiable, ObservableObject {
         autoConnect: Bool = true
     ) -> Bool {
         var configuration = configuration.scopedToOwnerWorkspace(id)
-        configuration = nativeSSHConnectionBroker.retainWorkspace(configuration)
         let foregroundAuthToken =
             Self.normalizedForegroundAuthToken(
                 configuration.foregroundAuthToken
@@ -5440,6 +5439,12 @@ final class Workspace: Identifiable, ObservableObject {
             cancelPendingRemoteControlMasterAdoption()
             pendingControlMasterAdoption = nil
         }
+        if let pendingControlMasterAdoption {
+            configuration = configuration.withResolvedSSHControlPath(
+                pendingControlMasterAdoption.controlPath
+            )
+        }
+        configuration = nativeSSHConnectionBroker.retainWorkspace(configuration)
         if let pendingControlMasterAdoption,
            !nativeSSHConnectionBroker.completeControlMasterAdoption(
                pendingControlMasterAdoption,

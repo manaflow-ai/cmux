@@ -9,21 +9,19 @@ import Testing
 @MainActor
 @Suite("Native SSH ownership-gated recovery")
 struct NativeSSHControlMasterOwnershipRecoveryTests {
-    @Test("A live foreign owner prevents destructive reset")
-    func foreignOwnerFailsClosed() async {
+    @Test("A live foreign owner prevents inherited-forward recovery")
+    func foreignOwnerFailsClosed() {
         let controlPath =
             "/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567"
-        let runner = RecordingProcessRunner()
         let broker = NativeSSHConnectionBroker(
             sharingOptions: SSHConnectionSharingOptions(userID: 501),
             clock: RecordingImmediateClock(),
             jitterMilliseconds: { 200 },
             cleanupLauncher: { _ in },
-            conflictedMasterResetRunner: runner,
             controlMasterOwnershipRegistry:
                 DenyingControlMasterOwnershipRegistry()
         )
-        let lease = broker.retainWorkspace(WorkspaceRemoteConfiguration(
+        _ = broker.retainWorkspace(WorkspaceRemoteConfiguration(
             destination: "alice@example.test",
             port: nil,
             identityFile: nil,
@@ -43,15 +41,11 @@ struct NativeSSHControlMasterOwnershipRecoveryTests {
             persistentDaemonSlot: "ssh-test"
         ))
 
-        guard case .deferred =
-            await broker.resetConflictedControlMaster(
-                for: lease,
-                resolvedControlPath: controlPath
-            ) else {
-            Issue.record("Expected a live foreign owner to defer reset")
-            return
-        }
-        #expect(runner.requests.isEmpty)
+        #expect(
+            broker.beginReverseForwardRecovery(
+                controlPath: controlPath
+            ) == nil
+        )
     }
 
     @Test("Foreground authentication hands ownership to the workspace without a gap")
@@ -89,7 +83,7 @@ struct NativeSSHControlMasterOwnershipRecoveryTests {
                 ownerWorkspaceID: ownerWorkspaceID
             )
         )
-        #expect(secondRegistry.beginReset(controlPath: controlPath) == nil)
+        #expect(secondRegistry.beginRecovery(controlPath: controlPath) == nil)
 
         let configuration = broker.retainWorkspace(
             WorkspaceRemoteConfiguration(
@@ -116,11 +110,11 @@ struct NativeSSHControlMasterOwnershipRecoveryTests {
             handoff,
             configuration: configuration
         ))
-        #expect(secondRegistry.beginReset(controlPath: controlPath) == nil)
+        #expect(secondRegistry.beginRecovery(controlPath: controlPath) == nil)
 
         broker.releaseWorkspace(configuration)
         let authorization = try #require(
-            secondRegistry.beginReset(controlPath: controlPath)
+            secondRegistry.beginRecovery(controlPath: controlPath)
         )
         authorization.release()
     }
@@ -139,7 +133,7 @@ private final class DenyingControlMasterOwnershipRegistry:
 
     func release(lease: NativeSSHControlMasterLeaseIdentity) {}
 
-    func beginReset(
+    func beginRecovery(
         controlPath: String
     ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
         nil

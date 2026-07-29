@@ -84,7 +84,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var reverseRelayProcess: (any RemoteReverseRelayProcess)?
     var reverseRelayControlMasterForwardSpec: String?
     var resolvedControlMasterSSHOptions: [String]?
-    var conflictedControlMasterResetObservation: NativeSSHControlMasterResetObservation?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
     /// Stable publication state for best-effort remote TTY attribution scans.

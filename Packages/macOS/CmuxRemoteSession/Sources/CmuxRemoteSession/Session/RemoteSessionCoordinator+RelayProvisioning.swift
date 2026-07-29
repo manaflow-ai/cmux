@@ -5,6 +5,40 @@ internal import Foundation
 // (the CmuxCore SSH-option-normalization precedent); the script text is
 // wire/process behavior pinned by tests — do not alter.
 extension RemoteSessionCoordinator {
+    /// Proves that stale relay metadata belongs to this exact relay identity.
+    static func remoteRelayMetadataOwnershipProbeScript(
+        relayPort: Int,
+        relayID: String,
+        relayToken: String,
+        persistentDaemonSlot: String?
+    ) -> String {
+        let authPayload =
+            "{\"relay_id\":\"\(relayID)\",\"relay_token\":\"\(relayToken)\"}"
+        let normalizedSlot = normalizedPersistentDaemonSlotForRemoteCleanup(
+            persistentDaemonSlot
+        )
+        guard persistentDaemonSlot == nil || normalizedSlot != nil else {
+            return "exit 64"
+        }
+        let slotCheck: String
+        if let normalizedSlot {
+            slotCheck = """
+            [ -r "$slot_file" ] || exit 64
+            [ "$(tr -d '\\r\\n' < "$slot_file")" = \(normalizedSlot.shellSingleQuoted) ] || exit 64
+            """
+        } else {
+            slotCheck = "[ ! -e \"$slot_file\" ] || exit 64"
+        }
+        return """
+        relay_directory="$HOME/.cmux/relay"
+        auth_file="$relay_directory/\(relayPort).auth"
+        slot_file="$relay_directory/\(relayPort).slot"
+        [ -r "$auth_file" ] || exit 64
+        [ "$(tr -d '\\r\\n' < "$auth_file")" = \(authPayload.shellSingleQuoted) ] || exit 64
+        \(slotCheck)
+        """
+    }
+
     /// Builds a direct persistent-slot shutdown script when no relay metadata exists.
     static func remotePersistentDaemonStopScript(
         daemonRemotePath: String,
