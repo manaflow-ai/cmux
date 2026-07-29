@@ -1343,6 +1343,19 @@ fn scan_sessions(
     sessions: &HashSet<libc::pid_t>,
     deadline: Option<Instant>,
 ) -> io::Result<HashMap<libc::pid_t, Vec<libc::pid_t>>> {
+    scan_sessions_with(sessions, deadline, || all_process_ids(deadline), active_process_session)
+}
+
+fn scan_sessions_with<P, S>(
+    sessions: &HashSet<libc::pid_t>,
+    deadline: Option<Instant>,
+    process_ids: P,
+    mut process_session: S,
+) -> io::Result<HashMap<libc::pid_t, Vec<libc::pid_t>>>
+where
+    P: FnOnce() -> io::Result<Vec<libc::pid_t>>,
+    S: FnMut(libc::pid_t) -> io::Result<Option<libc::pid_t>>,
+{
     let mut members =
         sessions.iter().copied().map(|session| (session, Vec::new())).collect::<HashMap<_, _>>();
     if sessions.is_empty() {
@@ -1350,12 +1363,12 @@ fn scan_sessions(
     }
     #[cfg(test)]
     PROCESS_TABLE_SCAN_COUNT.set(PROCESS_TABLE_SCAN_COUNT.get() + 1);
-    for pid in all_process_ids(deadline)? {
+    for pid in process_ids()? {
         ensure_before_deadline(deadline)?;
         if pid <= 1 {
             continue;
         }
-        let Some(current_session) = active_process_session(pid)? else {
+        let Some(current_session) = process_session(pid)? else {
             continue;
         };
         ensure_before_deadline(deadline)?;
@@ -1912,6 +1925,35 @@ mod tests {
             scan_count, 1,
             "one shutdown batch scanned the global process table more than once"
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn session_scan_skips_inaccessible_foreign_processes_but_not_leaders() {
+        let sessions = HashSet::from([41]);
+        let snapshot = scan_sessions_with(
+            &sessions,
+            None,
+            || Ok(vec![73, 41]),
+            |pid| {
+                if pid == 73 {
+                    Err(io::Error::from_raw_os_error(libc::EACCES))
+                } else {
+                    Ok(Some(41))
+                }
+            },
+        )
+        .expect("an inaccessible foreign process aborted the session scan");
+        assert_eq!(snapshot.get(&41), Some(&vec![41]));
+
+        let error = scan_sessions_with(
+            &sessions,
+            None,
+            || Ok(vec![41]),
+            |_| Err(io::Error::from_raw_os_error(libc::EACCES)),
+        )
+        .expect_err("an inaccessible session leader was silently skipped");
+        assert_eq!(error.raw_os_error(), Some(libc::EACCES));
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
