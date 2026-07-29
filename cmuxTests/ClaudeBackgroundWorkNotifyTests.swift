@@ -58,11 +58,15 @@ struct ClaudeBackgroundWorkNotifyTests {
     }
 
     private func cachedPending(_ storeURL: URL, sessionId: String) -> Bool? {
+        sessionRecord(storeURL, sessionId: sessionId)?["hadPendingBackgroundWorkAtStop"] as? Bool
+    }
+
+    private func sessionRecord(_ storeURL: URL, sessionId: String) -> [String: Any]? {
         guard let data = try? Data(contentsOf: storeURL),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let sessions = obj["sessions"] as? [String: Any],
               let record = sessions[sessionId] as? [String: Any] else { return nil }
-        return record["hadPendingBackgroundWorkAtStop"] as? Bool
+        return record
     }
 
     @Test func stopWithRunningBackgroundTaskTagsPendingAndCaches() throws {
@@ -85,6 +89,104 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(lifecycleLine(snapshot, value: "running") != nil,
                 "Pending stop must publish a running lifecycle; saw \(snapshot)")
         #expect(lifecycleLine(snapshot, value: "idle") == nil)
+    }
+
+    @Test func clearCarriesPendingBackgroundWorkUntilItDrains() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "bg-clear-carry")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let oldSession = "bg-clear-old-session"
+        let clearSession = "bg-clear-new-session"
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-bg-clear-carry",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-bg-clear-carry",
+            storeURL: storeURL
+        )
+
+        let promptResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(oldSession)","turn_id":"turn-1","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(promptResult)
+
+        let pendingStopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(oldSession)","turn_id":"turn-1","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"build","command":"sleep 1"}],"session_crons":[]}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(pendingStopResult)
+
+        let clearCommandStart = context.state.snapshot().count
+        let clearResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(clearSession)","source":"clear","cwd":"/tmp/x","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(clearResult)
+        let clearCommands = Array(context.state.snapshot().dropFirst(clearCommandStart))
+
+        #expect(
+            statusLine(clearCommands, value: "Running") != nil,
+            "/clear must preserve the Running pill while background work survives; saw \(clearCommands)"
+        )
+        #expect(statusLine(clearCommands, value: "Idle") == nil)
+        #expect(
+            lifecycleLine(clearCommands, value: "running") != nil,
+            "/clear must keep the pane non-hibernatable while background work survives; saw \(clearCommands)"
+        )
+        #expect(lifecycleLine(clearCommands, value: "idle") == nil)
+        let clearRecord = try #require(sessionRecord(storeURL, sessionId: clearSession))
+        #expect(clearRecord["agentLifecycle"] as? String == "running")
+        #expect(clearRecord["hadPendingBackgroundWorkAtStop"] as? Bool == true)
+
+        let nextPromptResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(clearSession)","turn_id":"turn-2","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(nextPromptResult)
+
+        let drainedCommandStart = context.state.snapshot().count
+        let drainedStopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(clearSession)","turn_id":"turn-2","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"done","background_tasks":[],"session_crons":[]}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(drainedStopResult)
+        let drainedCommands = Array(context.state.snapshot().dropFirst(drainedCommandStart))
+
+        #expect(
+            statusLine(drainedCommands, value: "Idle") != nil,
+            "The first Stop that observes drained background work must restore Idle; saw \(drainedCommands)"
+        )
+        #expect(lifecycleLine(drainedCommands, value: "idle") != nil)
+        let drainedRecord = try #require(sessionRecord(storeURL, sessionId: clearSession))
+        #expect(drainedRecord["agentLifecycle"] as? String == "idle")
+        #expect(drainedRecord["hadPendingBackgroundWorkAtStop"] as? Bool == false)
     }
 
     @Test func stopWithEmptyArraysTagsIdleAndCachesFalse() throws {
