@@ -2,6 +2,14 @@ import CMUXAgentLaunch
 import Foundation
 
 struct CachedAgentProcessIdentityValidator: Sendable {
+    private let launchExecutableMatcher: AgentLaunchExecutableMatcher
+
+    init(
+        launchExecutableMatcher: AgentLaunchExecutableMatcher = AgentLaunchExecutableMatcher()
+    ) {
+        self.launchExecutableMatcher = launchExecutableMatcher
+    }
+
     func currentProcess(
         _ process: CmuxTopProcessArguments,
         matches snapshot: SessionRestorableAgentSnapshot
@@ -82,10 +90,11 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         if liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame {
             return true
         }
-        if Self.liveProcessMatchesLaunchExecutableEnvironment(
-            kind: kind,
+        if launchExecutableMatcher.matches(
+            kind: kind.rawValue,
             executableCandidates: [liveExecutable],
-            environment: environment
+            recordedKind: environment["CMUX_AGENT_LAUNCH_KIND"],
+            recordedExecutable: environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]
         ) {
             return true
         }
@@ -137,23 +146,6 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             return false
         }
         return AgentLaunchCaptureTrust.launcherDescribesKind(liveKind, kind: kind.rawValue)
-    }
-
-    static func liveProcessMatchesLaunchExecutableEnvironment(
-        kind: RestorableAgentKind,
-        executableCandidates: [String],
-        environment: [String: String]
-    ) -> Bool {
-        guard let liveKind = normalizedProcessValue(environment["CMUX_AGENT_LAUNCH_KIND"]),
-              (liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) == .orderedSame
-                  || AgentLaunchCaptureTrust.launcherDescribesKind(liveKind, kind: kind.rawValue)),
-              let launchExecutable = normalizedProcessValue(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) else {
-            return false
-        }
-        let launchBasename = executableBasename(launchExecutable)
-        return executableCandidates.contains { candidate in
-            executableBasename(candidate).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame
-        }
     }
 
     private func registrationDetectRule(

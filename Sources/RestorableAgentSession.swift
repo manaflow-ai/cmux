@@ -1093,7 +1093,9 @@ struct RestorableAgentSessionIndex: Sendable {
             fileManager: fileManager
         )
         let codexCwdLookup = CodexSessionCwdLookupCache(fileManager: fileManager)
-        let cachedAgentProcessValidator = CachedAgentProcessIdentityValidator()
+        let cachedAgentProcessValidator = CachedAgentProcessIdentityValidator(
+            launchExecutableMatcher: AgentLaunchExecutableMatcher()
+        )
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }

@@ -1,28 +1,7 @@
 import Foundation
 
 extension AppDelegate {
-    /// Starts the per-pane runaway-memory guardrail and the central
-    /// memory-pressure monitor. The pane guardrail keeps its existing
-    /// process-tree accounting timer; global memory pressure is handled through
-    /// responder registration so future reclaim paths are one conformance away.
-    func startPaneMemoryGuardrailIfNeeded() {
-        let guardrail = PaneMemoryGuardrail.shared
-        guardrail.paneProvider = { [weak self] in
-            self?.paneMemoryGuardrailDescriptors() ?? []
-        }
-        guardrail.start()
-        startMemoryPressureMonitorIfNeeded()
-    }
-
-    func paneMemoryGuardrailDescriptors() -> [PaneMemoryDescriptor] {
-        paneMemoryGuardrailTabManagers().flatMap { manager in
-            manager.tabs.flatMap { workspace in
-                paneMemoryGuardrailDescriptors(in: workspace)
-            }
-        }
-    }
-
-    private func startMemoryPressureMonitorIfNeeded() {
+    func startMemoryMonitoringIfNeeded() {
         let monitor = MemoryPressureMonitor.shared
         monitor.registry.register(
             RendererRealizationMemoryPressureResponder(
@@ -31,7 +10,7 @@ extension AppDelegate {
         )
         monitor.registry.register(
             BrowserHiddenWebViewMemoryPressureResponder { [weak self] in
-                self?.paneMemoryGuardrailTabManagers() ?? []
+                self?.memoryPressureTabManagers() ?? []
             }
         )
         if let notificationStore {
@@ -47,7 +26,7 @@ extension AppDelegate {
 
     private func postPersistentCriticalMemoryPressureWarning(snapshot: MemoryPressureSnapshot) {
         guard let notificationStore else { return }
-        let managers = paneMemoryGuardrailTabManagers()
+        let managers = memoryPressureTabManagers()
         guard let tabId = tabManager?.selectedTabId
             ?? managers.compactMap(\.selectedTabId).first
             ?? managers.flatMap(\.tabs).first?.id
@@ -73,7 +52,7 @@ extension AppDelegate {
         )
     }
 
-    private func paneMemoryGuardrailTabManagers() -> [TabManager] {
+    private func memoryPressureTabManagers() -> [TabManager] {
         var managers: [TabManager] = []
         var seen: Set<ObjectIdentifier> = []
 
@@ -92,24 +71,5 @@ extension AppDelegate {
         }
         append(tabManager)
         return managers
-    }
-
-    private func paneMemoryGuardrailDescriptors(in workspace: Workspace) -> [PaneMemoryDescriptor] {
-        workspace.panels.values.compactMap { panel in
-            guard let terminalPanel = panel as? TerminalPanel else { return nil }
-            let surface = terminalPanel.surface
-            let hasLiveSurface = surface.hasLiveSurface
-            let ttyName = hasLiveSurface ? surface.controllingTTYName()?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                : nil
-            return PaneMemoryDescriptor(
-                workspaceId: workspace.id,
-                panelId: terminalPanel.id,
-                workspaceTitle: workspace.title,
-                paneTitle: terminalPanel.displayTitle,
-                ttyName: ttyName?.isEmpty == false ? ttyName : nil,
-                foregroundPID: hasLiveSurface ? surface.foregroundProcessID() : nil
-            )
-        }
     }
 }

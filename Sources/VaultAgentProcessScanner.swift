@@ -48,37 +48,22 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
-            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        processArgumentsProvider: ((Int) -> CmuxTopProcessArguments?)? = nil,
+        processArgumentBytesProvider: @escaping (Int) -> [UInt8]? = {
+            CmuxTopProcessSnapshot.kernProcArgsBytes(for: $0)
+        },
+        processArgumentsDecoder: @escaping ([UInt8]) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(fromKernProcArgs: $0)
         }
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
-        // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan; memoize so
-        // the OpenCode, fork-parent-fallback, and registry passes read each pid once.
-        // updateValue (not subscript) so a nil miss is unambiguously stored, not removed.
-        var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
-        func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
-            if let cached = processArgumentsByPID[processID] { return cached }
-            let resolved = processArgumentsProvider(processID)
-            processArgumentsByPID.updateValue(resolved, forKey: processID)
-            return resolved
-        }
-
-        let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
-        var resolved = processDetectedOpenCodeSnapshots(
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt,
-            fileManager: fileManager,
-            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
-            processArgumentsProvider: cachedProcessArguments
+        let scopedProcesses = processSnapshot.cmuxScopedProcesses()
+        let processCandidates = scopedProcesses.map(AgentProcessCandidate.init(cmux:))
+        let launchExecutableMatcher = AgentLaunchExecutableMatcher()
+        let candidateSelector = AgentProcessCandidateSelector(
+            processes: processCandidates,
+            policy: AgentProcessCandidatePolicy(cmux: registry),
+            launchExecutableMatcher: launchExecutableMatcher
         )
-        resolved.merge(processDetectedOllamaSnapshots(
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt,
-            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
-            processArgumentsProvider: cachedProcessArguments
-        )) { existing, _ in existing }
-        resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
-        guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
@@ -95,7 +80,48 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
-        for process in processSnapshot.cmuxScopedProcesses() {
+        var argumentScan = AgentProcessArgumentScan(
+            processes: processCandidates,
+            selector: candidateSelector,
+            injectedArgumentsProvider: processArgumentsProvider,
+            processArgumentBytesProvider: processArgumentBytesProvider,
+            processArgumentsDecoder: processArgumentsDecoder,
+            additionalMetadataRequiresFullDecode: { metadata in
+                guard !registry.registrations.isEmpty else { return false }
+                let workingDirectory = normalized(metadata?.projectWorkingDirectory)
+                let processRegistry = registryForWorkingDirectory(workingDirectory)
+                return processRegistry.registrations != registry.registrations
+            }
+        )
+
+        func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
+            argumentScan.arguments(for: processID)
+        }
+
+        let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
+        var resolved = processDetectedOpenCodeSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            fileManager: fileManager,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: cachedProcessArguments
+        )
+        resolved.merge(processDetectedOllamaSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: cachedProcessArguments
+        )) { existing, _ in existing }
+        resolved.merge(processDetectedForkParentFallbackSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: cachedProcessArguments,
+            launchExecutableMatcher: launchExecutableMatcher
+        )) { existing, _ in existing }
+        guard !registry.registrations.isEmpty else { return resolved }
+
+        for process in scopedProcesses {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
                   let processArguments = cachedProcessArguments(process.pid) else {

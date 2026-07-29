@@ -564,7 +564,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable, Sendable {
         return Array(normalizedArguments.dropFirst().prefix(required.count)) == required
     }
 
-    private static let argumentHostBasenames: Set<String> = [
+    static let argumentHostBasenames: Set<String> = [
         "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx", "ts-node"
     ]
 
