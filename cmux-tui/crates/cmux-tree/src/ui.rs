@@ -903,6 +903,41 @@ mod tests {
     }
 
     #[test]
+    fn focused_column_matches_cmux_tui_left_sidebar_chrome() {
+        let mut app = long_conversation_app();
+        app.focus = Focus::Machines;
+        let mut terminal = Terminal::new(TestBackend::new(90, 14)).unwrap();
+        terminal.draw(|frame| draw(&mut app, frame)).unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let machines = app.columns.machines;
+        let conversations = app.columns.conversations;
+
+        let focused_header = &buffer[(machines.x + 1, machines.y)];
+        assert_eq!(focused_header.fg, ACTIVE_BORDER_FG);
+        assert_eq!(focused_header.bg, Color::Indexed(240));
+        assert!(focused_header.modifier.contains(Modifier::BOLD));
+        assert_eq!(
+            buffer[(machines.x + machines.width - 2, machines.y)].bg,
+            Color::Indexed(240)
+        );
+
+        let idle_header = &buffer[(conversations.x + 1, conversations.y)];
+        assert_eq!(idle_header.fg, DIM_FG);
+        assert_eq!(idle_header.bg, Color::Reset);
+
+        let selected_row_y = machines.y + 2;
+        assert_eq!(buffer[(machines.x, selected_row_y)].symbol(), "▎");
+        assert_eq!(buffer[(machines.x, selected_row_y)].fg, ACTIVE_BORDER_FG);
+        assert_eq!(buffer[(machines.x + machines.width - 2, selected_row_y)].bg, SELECTED_BG);
+
+        let divider = &buffer[(machines.x + machines.width - 1, machines.y)];
+        assert_eq!(divider.symbol(), "┃");
+        assert_eq!(divider.fg, ACTIVE_BORDER_FG);
+        assert!(divider.modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
     fn conversation_mouse_wheel_scroll_survives_redraw() {
         let mut app = long_conversation_app();
         let mut terminal = Terminal::new(TestBackend::new(90, 14)).unwrap();
