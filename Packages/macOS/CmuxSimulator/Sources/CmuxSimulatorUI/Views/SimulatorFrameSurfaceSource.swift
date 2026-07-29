@@ -121,7 +121,11 @@ final class SimulatorFrameSurfaceSource: SimulatorFrameSurfaceReading, @unchecke
         let word = Int64(bitPattern: cmux_simulator_atomic_load_u64_acquire(
             layout.publishedWordPointer(in: mapping)
         ))
-        return layout.publishedWordReportsSourceFailure(word)
+        return Self.publishedWordReportsSourceFailure(word)
+    }
+
+    static func publishedWordReportsSourceFailure(_ word: Int64) -> Bool {
+        word == Int64.min
     }
 
     func hasPublishedFrame(after sequence: UInt64?) -> Bool {
