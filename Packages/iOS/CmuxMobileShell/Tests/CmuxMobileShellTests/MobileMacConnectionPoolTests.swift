@@ -4144,7 +4144,7 @@ import Testing
         _ = try? await redial.value
     }
 
-    @Test func manualSameRouteRepairReleasesLeaseBeforeTicketProbe()
+    @Test func manualSameRouteRepairProbesBeforeReplacingForeground()
         async throws {
         let router = LivenessHostRouter()
         let shell = try await makeConnectedStore(
@@ -4167,6 +4167,47 @@ import Testing
         #expect(shell.remoteClient !== originalClient)
         #expect(shell.foregroundMacDeviceIDForTesting() == "test-mac")
         #expect(await router.count(of: "mobile.attach_ticket.create") == 1)
+    }
+
+    @Test func failedManualSameRouteProbePreservesForeground()
+        async throws {
+        let router = LivenessHostRouter()
+        let shell = try await makeConnectedStore(
+            router: router,
+            box: TransportBox(),
+            clock: TestClock()
+        )
+        let originalClient = try #require(shell.remoteClient)
+        let originalForegroundMacDeviceID =
+            shell.foregroundMacDeviceIDForTesting()
+        await router.failNextAttachTicketRequests()
+
+        await shell.connectManualHost(
+            name: "Test Mac",
+            host: "127.0.0.1",
+            port: 56_584,
+            pairedMacDeviceID: "test-mac"
+        )
+
+        #expect(shell.connectionState == .connected)
+        #expect(shell.remoteClient === originalClient)
+        #expect(
+            shell.foregroundMacDeviceIDForTesting()
+                == originalForegroundMacDeviceID
+        )
+        #expect(await router.count(of: "mobile.attach_ticket.create") == 1)
+        let hostStatusRequestsBeforeProof = await router.count(
+            of: "mobile.host.status"
+        )
+        let proofRequest = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:]
+        )
+        _ = try await originalClient.sendRequest(proofRequest)
+        #expect(
+            await router.count(of: "mobile.host.status")
+                == hostStatusRequestsBeforeProof + 1
+        )
     }
 
     @Test func rejectedAnonymousIdentityPreservesAuthenticatedControlOwner()

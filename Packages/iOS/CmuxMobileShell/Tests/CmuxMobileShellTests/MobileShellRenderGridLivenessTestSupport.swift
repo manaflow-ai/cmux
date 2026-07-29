@@ -26,6 +26,7 @@ actor LivenessHostRouter {
     }
 
     private var recorded: [RecordedRequest] = []
+    private var attachTicketFailuresRemaining = 0
     private var countWaiters: [(
         id: UUID,
         method: String,
@@ -123,6 +124,10 @@ actor LivenessHostRouter {
 
     func heldRequestCount() -> Int {
         heldContinuations.count
+    }
+
+    func failNextAttachTicketRequests(count: Int = 1) {
+        attachTicketFailuresRemaining += count
     }
 
     func replayResponsesServed() -> Int {
@@ -410,6 +415,14 @@ actor LivenessHostRouter {
     ) async -> Data? {
         switch method {
         case "mobile.attach_ticket.create":
+            if attachTicketFailuresRemaining > 0 {
+                attachTicketFailuresRemaining -= 1
+                return try? Self.errorFrame(
+                    id: id,
+                    code: "internal",
+                    message: "scripted attach ticket failure"
+                )
+            }
             return try? Self.resultFrame(id: id, result: ["ticket": Self.attachTicketObject()])
         case "workspace.list", "mobile.workspace.list":
             workspaceListRequestCount += 1

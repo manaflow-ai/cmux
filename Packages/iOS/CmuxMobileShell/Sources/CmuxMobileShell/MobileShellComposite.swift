@@ -1917,29 +1917,61 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
 
-        let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
-        activeRoute = directRoute
-        let attemptID = recordsPairingAttempt ? beginPairingAttempt(method: "manual") : beginPairingValidationAttempt()
+        let directRoute = try? Self.manualHostRoute(
+            host: normalizedHost,
+            port: port
+        )
+        let sameRouteProbeClient: MobileCoreRPCClient? = directRoute.flatMap { route in
+            guard remoteClient?.sharesPhysicalTransportRoute(
+                with: route
+            ) == true else {
+                return nil
+            }
+            return remoteClient
+        }
+        if sameRouteProbeClient == nil {
+            activeRoute = directRoute
+        }
+        let attemptID: UUID
+        if sameRouteProbeClient != nil {
+            attemptID = recordsPairingAttempt
+                ? beginPairingValidationAttempt(method: "manual")
+                : beginPairingValidationAttempt()
+            clearPairingError()
+            clearPairingVersionWarning()
+        } else {
+            attemptID = recordsPairingAttempt
+                ? beginPairingAttempt(method: "manual")
+                : beginPairingValidationAttempt()
+        }
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
         let manualRoutes = directRoute.map { [$0] } ?? []
-        guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: manualRoutes) == .proceed else { return }
-        if let directRoute,
-           remoteClient?.sharesPhysicalTransportRoute(
-               with: directRoute
-           ) == true {
-            await releaseRemoteClientForReplacement()
-            guard isCurrentPairingAttempt(attemptID),
-                  ifStillCurrent?() ?? true else { return }
+        if sameRouteProbeClient == nil {
+            guard await failPairingIfOffline(
+                attemptID: attemptID,
+                phase: "preflight",
+                routes: manualRoutes
+            ) == .proceed else {
+                return
+            }
         }
         do {
             let ticket = try await manualHostTicket(
                 name: trimmedName,
                 host: normalizedHost,
                 port: port,
-                attemptStartedAt: pairingAttemptStartedAt
+                attemptStartedAt: pairingAttemptStartedAt,
+                probeClient: sameRouteProbeClient
             )
-            guard isCurrentPairingAttempt(attemptID) else { return }
+            guard isCurrentPairingAttempt(attemptID),
+                  ifStillCurrent?() ?? true else {
+                return
+            }
+            if let sameRouteProbeClient {
+                guard remoteClient === sameRouteProbeClient else { return }
+                preparePairingConnectionAttempt()
+            }
             let noThrowFailure = try await connect(
                 ticket: ticket,
                 allowsStackAuthFallback: true,
@@ -1963,6 +1995,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return }
+            if sameRouteProbeClient.map({ remoteClient === $0 }) == true {
+                return
+            }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -1977,6 +2012,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
             applyPairingFailure(category, phase: "connect")
+            if sameRouteProbeClient.map({ remoteClient === $0 }) == true {
+                return
+            }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -8164,12 +8202,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// single `ios_pairing_started` fire-site. `method` is `qr`/`manual`/
     /// `attach_url`; pass `nil` for non-instrumented internal flows (preview).
     private func beginPairingAttempt(method: String? = nil) -> UUID {
+        let attemptID = beginPairingValidationAttempt(method: method)
+        preparePairingConnectionAttempt()
+        return attemptID
+    }
+
+    /// Supersede recovery and terminal work only after any non-destructive
+    /// ticket probe has succeeded and a foreground replacement can proceed.
+    private func preparePairingConnectionAttempt() {
         // Any explicit connect supersedes launch/network recovery, including a
         // recovery suspended in a registry refresh for the same device id.
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
         invalidateStoredMacReconnectAttempt()
-        let attemptID = beginPairingValidationAttempt(method: method)
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
@@ -8177,7 +8222,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         resumeRawTerminalInputDrainWaiters()
         clearPairingError()
         clearPairingVersionWarning()
-        return attemptID
     }
 
     private func beginPairingValidationAttempt(method: String? = nil) -> UUID {
