@@ -4403,6 +4403,36 @@ mod tests {
     }
 
     #[test]
+    fn kitty_replay_placement_does_not_replace_the_saved_cursor_slot() {
+        let mut source = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        source.resize(20, 8, 10, 20).unwrap();
+        source.vt_write(b"before");
+        source.vt_write(b"\x1b_Ga=T,t=d,f=32,i=77,p=1,s=1,v=1,c=2,r=2,q=2;/wAAfw==\x1b\\");
+        source.vt_write(b"\x1b[8;10Htail");
+        let source_graphics = source.kitty_graphics_snapshot().unwrap();
+        assert_eq!(source_graphics.placements.len(), 1);
+        assert!(
+            source_graphics.placements[0].pixel_width > 0,
+            "fixture placement: {:?}",
+            source_graphics.placements[0]
+        );
+
+        let replay = source.vt_replay_bounded_theme_portable_with_aliases(1024 * 1024).unwrap();
+        let mut target = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        target.resize(20, 8, 10, 20).unwrap();
+        target.vt_write(&replay.bytes);
+        assert_eq!(target.kitty_graphics_snapshot().unwrap().placements.len(), 1);
+        target.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+        target.vt_write(b"\x1b[8;20H\x1b8");
+
+        assert_eq!(
+            target.cursor_position(),
+            Some((0, 0)),
+            "a placement replay must leave the no-save DECRC fallback unchanged"
+        );
+    }
+
+    #[test]
     fn minimal_bounded_replay_resets_before_numbered_kitty_images() {
         let mut source = Terminal::new(256, 1, 0, Callbacks::default()).unwrap();
         source.vt_write("x".repeat(255).as_bytes());

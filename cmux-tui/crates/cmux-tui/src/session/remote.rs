@@ -3662,6 +3662,100 @@ mod tests {
         peer.join().unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn queued_attach_waits_while_an_earlier_snapshot_is_progressing() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let (first_seen_tx, first_seen_rx) = channel();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut first_line = String::new();
+            peer.read_line(&mut first_line).unwrap();
+            let first: Value = serde_json::from_str(&first_line).unwrap();
+            assert_eq!(first["cmd"], "attach-surface");
+            first_seen_tx.send(()).unwrap();
+
+            let mut second_line = String::new();
+            peer.read_line(&mut second_line).unwrap();
+            let second: Value = serde_json::from_str(&second_line).unwrap();
+            assert_eq!(second["cmd"], "attach-surface");
+
+            let first_surface = first["surface"].as_u64().unwrap();
+            let event = json!({
+                "event": "vt-state",
+                "surface": first_surface,
+                "cols": 80,
+                "rows": 24,
+                "data": "",
+                "padding": "x".repeat(768),
+            })
+            .to_string();
+            let splits = [64, 256, 512, event.len()];
+            let mut copied = 0;
+            for (index, end) in splits.into_iter().enumerate() {
+                peer.get_mut().write_all(&event.as_bytes()[copied..end]).unwrap();
+                peer.get_mut().flush().unwrap();
+                copied = end;
+                if index + 1 < splits.len() {
+                    std::thread::sleep(REMOTE_ATTACH_IDLE_TIMEOUT * 3 / 4);
+                }
+            }
+            peer.get_mut().write_all(b"\n").unwrap();
+            writeln!(peer.get_mut(), "{}", json!({"id": first["id"], "ok": true, "data": null}))
+                .unwrap();
+
+            let second_surface = second["surface"].as_u64().unwrap();
+            writeln!(
+                peer.get_mut(),
+                "{}",
+                json!({
+                    "event": "vt-state",
+                    "surface": second_surface,
+                    "cols": 80,
+                    "rows": 24,
+                    "data": "",
+                })
+            )
+            .unwrap();
+            writeln!(peer.get_mut(), "{}", json!({"id": second["id"], "ok": true, "data": null}))
+                .unwrap();
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+
+        let first_session = session.clone();
+        let first = std::thread::spawn(move || {
+            first_session.try_ensure_surface_with_kind(7, SurfaceKind::Pty, None)
+        });
+        first_seen_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let second_session = session.clone();
+        let second = std::thread::spawn(move || {
+            second_session.try_ensure_surface_with_kind(8, SurfaceKind::Pty, None)
+        });
+
+        assert!(first.join().unwrap().unwrap().is_some());
+        assert!(second.join().unwrap().unwrap().is_some());
+        assert!(!session.shutdown.load(Ordering::Acquire));
+        peer.join().unwrap();
+    }
+
     #[test]
     fn inflight_attach_does_not_hold_the_cell_pixel_lifecycle() {
         let (session, attach_started_rx, release_attach_tx) = test_session_with_deferred_attach();

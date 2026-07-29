@@ -21783,6 +21783,66 @@ mod tests {
     }
 
     #[test]
+    fn visible_remote_attach_promotes_prefetch_into_reserved_capacity() {
+        let mux = Mux::new("visible-attach-promotion-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.session.remote = true;
+        let state = Arc::new((Mutex::new((0_usize, false)), std::sync::Condvar::new()));
+        let hook_state = state.clone();
+        *app.session.surface_attach_after_obsolete_check.lock().unwrap() =
+            Some(Arc::new(move || {
+                let (state, changed) = &*hook_state;
+                let mut state = state.lock().unwrap();
+                state.0 += 1;
+                changed.notify_all();
+                while !state.1 {
+                    state = changed.wait(state).unwrap();
+                }
+            }));
+
+        for surface in 1..=4 {
+            app.session.attach_surface(surface, None);
+        }
+
+        let (lock, changed) = &*state;
+        let state = lock.lock().unwrap();
+        let (state, _) =
+            changed.wait_timeout_while(state, Duration::from_secs(1), |state| state.0 < 3).unwrap();
+        let (mut state, _) = changed
+            .wait_timeout_while(state, Duration::from_millis(200), |state| state.0 == 3)
+            .unwrap();
+        let background_running = state.0;
+        if background_running != 3 {
+            state.1 = true;
+            changed.notify_all();
+            drop(state);
+            assert_eq!(
+                background_running, 3,
+                "background prefetch consumed the worker reserved for visible attaches"
+            );
+        } else {
+            drop(state);
+        }
+
+        app.session.attach_surface(4, Some((100, 30)));
+        let state = lock.lock().unwrap();
+        let (mut state, _) =
+            changed.wait_timeout_while(state, Duration::from_secs(1), |state| state.0 < 4).unwrap();
+        let promoted_running = state.0;
+        state.1 = true;
+        changed.notify_all();
+        drop(state);
+        assert_eq!(promoted_running, 4, "the visible attach did not leave the background queue");
+
+        for _ in 0..4 {
+            assert!(matches!(
+                events.recv_timeout(Duration::from_secs(1)).unwrap(),
+                AppEvent::SurfaceAttachSettled { .. }
+            ));
+        }
+    }
+
+    #[test]
     fn remote_attach_admission_failure_uses_the_selected_locale() {
         const CHILD_ENV: &str = "CMUX_REMOTE_ATTACH_ADMISSION_LOCALE_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {
