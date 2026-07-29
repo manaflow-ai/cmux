@@ -3738,6 +3738,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             initialScript
         )
+        XCTAssertTrue(
+            initialScript.contains(
+                "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi"
+            ),
+            initialScript
+        )
         XCTAssertEqual(initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 1, initialScript)
         XCTAssertTrue(terminalStartupScript.contains("ssh-pty-attach"), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("ssh-session-end") && terminalStartupScript.contains("--lifecycle-only"), terminalStartupScript)
@@ -3762,6 +3768,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         assertSSHPTYAttachOmitsSurfaceArgument(terminalStartupScript)
         XCTAssertTrue(
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
+            terminalStartupScript
+        )
+        XCTAssertTrue(
+            terminalStartupScript.contains(
+                "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi"
+            ),
             terminalStartupScript
         )
         XCTAssertEqual(terminalStartupScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 1, terminalStartupScript)
@@ -3933,7 +3945,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
-    func testSSHPTYAttachBridgeEOFWhileSessionRunsPreservesLifecycleForRetry() throws {
+    func testSSHPTYAttachExhaustedZeroOutputBridgeEOFReleasesSurface() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyeof")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -4017,6 +4029,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         "detached": true,
                     ]
                 )
+            case "workspace.remote.pty_attach_end":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                return self.v2Response(id: id, ok: true, result: ["ended": true])
             default:
                 return self.v2Response(
                     id: id,
@@ -4032,6 +4049,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
         environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
+        environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY"] = "2"
+        environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT"] = "3"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4048,9 +4067,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         wait(for: [socketHandled, bridgeHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 254, result.stderr)
+        XCTAssertEqual(result.status, 252, result.stderr)
         XCTAssertTrue(
-            result.stderr.contains("ssh-pty-attach: bridge closed while remote PTY session is still running"),
+            result.stderr.contains("bridge closed without receiving new output"),
             result.stderr
         )
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
@@ -4061,6 +4080,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "workspace.remote.pty_resize",
                 "workspace.remote.pty_sessions",
                 "workspace.remote.pty_detach",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_attach_end",
             ]
         )
         XCTAssertEqual(
@@ -5062,7 +5083,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("254|255") && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS") && initialCommand.contains("∞"), initialCommand)
+            XCTAssertTrue(initialCommand.contains("251|254|255") && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS") && initialCommand.contains("∞"), initialCommand)
             XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, initialCommand)
             XCTAssertTrue(initialCommand.contains("ssh-session-end --lifecycle-only"), initialCommand)
             return self.v2Response(
