@@ -6,61 +6,97 @@ import Testing
 
 @Suite("CommandRunner descriptor lifecycle", .serialized)
 struct CommandRunnerDescriptorLifecycleTests {
-    private let runner = CommandRunner()
     private let tempDirectory = FileManager.default.temporaryDirectory
 
     @Test("Capture pipes are close-on-exec and close before success returns")
     func capturePipesAreCloseOnExecAndCloseAfterSuccess() async throws {
-        let baseline = openPipeDescriptors()
-        let marker = uniqueTemporaryFile(named: "started")
-        defer { try? FileManager.default.removeItem(at: marker) }
-
-        let command = Task {
-            await runner.run(
-                directory: tempDirectory.path,
-                executable: "sh",
-                arguments: ["-c", "printf started > \"$1\"; sleep 1", "cmux-test", marker.path],
-                timeout: 5
-            )
-        }
-
-        try await waitForFile(at: marker)
-        let captureDescriptors = openPipeDescriptors().subtracting(baseline)
-        #expect(
-            captureDescriptors.count >= 2,
-            "Expected CommandRunner's live stdout and stderr capture pipes"
-        )
-        for descriptor in captureDescriptors {
-            let flags = fcntl(descriptor, F_GETFD)
+        let execution = try makeExecution(executable: "/usr/bin/true")
+        let descriptors = try snapshotDescriptors(of: execution)
+        #expect(descriptors.count == 8)
+        for descriptor in descriptors {
+            let flags = fcntl(descriptor.fileDescriptor, F_GETFD)
             #expect(flags != -1)
             #expect(
                 flags & FD_CLOEXEC != 0,
-                "CommandRunner pipe descriptor \(descriptor) can leak into unrelated child processes"
+                "CommandRunner pipe descriptor \(descriptor.fileDescriptor) can leak into unrelated children"
             )
         }
 
-        let result = await command.value
+        let result = await execution.run(timeout: 5)
         #expect(result.exitStatus == 0)
-        let retained = openPipeDescriptors().subtracting(baseline)
-        #expect(
-            retained.isEmpty,
-            "CommandRunner retained pipe descriptors after success: \(retained.sorted())"
+        expectDescriptorsClosed(descriptors)
+    }
+
+    @Test("Launch failure closes capture pipes")
+    func launchFailureClosesPipes() async throws {
+        let execution = try makeExecution(
+            executable: "/usr/bin/true",
+            directory: URL(
+                fileURLWithPath: "/cmux-test-directory-that-does-not-exist-\(UUID().uuidString)"
+            )
         )
+        let descriptors = try snapshotDescriptors(of: execution)
+        let result = await execution.run(timeout: 5)
+
+        #expect(result.executionError != nil)
+        expectDescriptorsClosed(descriptors)
+    }
+
+    @Test("Abandoning an execution before launch closes every pipe")
+    func abandonedExecutionClosesPipes() throws {
+        weak var abandonedExecution: CommandExecution?
+        var descriptors: [DescriptorIdentity] = []
+
+        do {
+            let execution = try makeExecution(executable: "/usr/bin/true")
+            abandonedExecution = execution
+            descriptors = try snapshotDescriptors(of: execution)
+        }
+
+        #expect(abandonedExecution == nil)
+        expectDescriptorsClosed(descriptors)
+    }
+
+    @Test("Timeout terminates the child and closes capture pipes")
+    func timeoutTerminatesAndClosesPipes() async throws {
+        let execution = try makeExecution(
+            executable: "/bin/sh",
+            arguments: ["-c", "sleep 2 &"]
+        )
+        let descriptors = try snapshotDescriptors(of: execution)
+        let result = await execution.run(timeout: 0.1)
+
+        #expect(result.timedOut)
+        expectDescriptorsClosed(descriptors)
+    }
+
+    @Test("Cancellation before launch closes every pipe")
+    func cancellationBeforeLaunchClosesPipes() async throws {
+        let execution = try makeExecution(executable: "/usr/bin/true")
+        let descriptors = try snapshotDescriptors(of: execution)
+
+        let result = await Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await execution.run(timeout: 5)
+        }.value
+
+        #expect(result.timedOut == false)
+        #expect(result.executionError != nil)
+        expectDescriptorsClosed(descriptors)
     }
 
     @Test("Task cancellation terminates the child and closes capture pipes")
     func cancellationTerminatesAndClosesPipes() async throws {
-        let baseline = openPipeDescriptors()
         let pidFile = uniqueTemporaryFile(named: "pid")
         defer { try? FileManager.default.removeItem(at: pidFile) }
 
+        let execution = try makeExecution(
+            executable: "/bin/sh",
+            arguments: ["-c", "printf %s $$ > \"$1\"; exec sleep 30", "cmux-test", pidFile.path]
+        )
+        let descriptors = try snapshotDescriptors(of: execution)
         let command = Task {
-            await runner.run(
-                directory: tempDirectory.path,
-                executable: "sh",
-                arguments: ["-c", "printf %s $$ > \"$1\"; exec sleep 30", "cmux-test", pidFile.path],
-                timeout: 2
-            )
+            await execution.run(timeout: 2)
         }
 
         try await waitForFile(at: pidFile)
@@ -73,11 +109,50 @@ struct CommandRunnerDescriptorLifecycleTests {
         #expect(result.executionError != nil)
         #expect(kill(pid, 0) == -1 && errno == ESRCH)
 
-        let retained = openPipeDescriptors().subtracting(baseline)
-        #expect(
-            retained.isEmpty,
-            "CommandRunner retained pipe descriptors after cancellation: \(retained.sorted())"
+        expectDescriptorsClosed(descriptors)
+    }
+
+    private func makeExecution(
+        executable: String,
+        arguments: [String] = [],
+        directory: URL? = nil
+    ) throws -> CommandExecution {
+        try CommandExecution(
+            executableURL: URL(fileURLWithPath: executable),
+            arguments: arguments,
+            currentDirectoryURL: directory ?? tempDirectory
         )
+    }
+
+    private func snapshotDescriptors(
+        of execution: CommandExecution
+    ) throws -> [DescriptorIdentity] {
+        let descriptors = execution.ownedFileDescriptors
+        #expect(Set(descriptors).count == descriptors.count)
+        return try descriptors.map { descriptor in
+            var metadata = stat()
+            guard fstat(descriptor, &metadata) == 0 else {
+                throw DescriptorLifecycleTestError.snapshotFailed(descriptor)
+            }
+            return DescriptorIdentity(
+                fileDescriptor: descriptor,
+                inode: UInt64(metadata.st_ino)
+            )
+        }
+    }
+
+    private func expectDescriptorsClosed(_ descriptors: [DescriptorIdentity]) {
+        for descriptor in descriptors {
+            var metadata = stat()
+            if fstat(descriptor.fileDescriptor, &metadata) == 0 {
+                #expect(
+                    UInt64(metadata.st_ino) != descriptor.inode,
+                    "CommandRunner retained pipe descriptor \(descriptor.fileDescriptor)"
+                )
+            } else {
+                #expect(errno == EBADF)
+            }
+        }
     }
 
     private func uniqueTemporaryFile(named suffix: String) -> URL {
@@ -98,20 +173,13 @@ struct CommandRunnerDescriptorLifecycleTests {
         }
     }
 
-    private func openPipeDescriptors() -> Set<Int32> {
-        var descriptors: Set<Int32> = []
-        for descriptor in 0..<getdtablesize() {
-            var metadata = stat()
-            guard fstat(descriptor, &metadata) == 0,
-                  metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFIFO) else {
-                continue
-            }
-            descriptors.insert(descriptor)
-        }
-        return descriptors
+    private struct DescriptorIdentity {
+        let fileDescriptor: Int32
+        let inode: UInt64
     }
 
     private enum DescriptorLifecycleTestError: Error {
         case markerTimedOut
+        case snapshotFailed(Int32)
     }
 }
