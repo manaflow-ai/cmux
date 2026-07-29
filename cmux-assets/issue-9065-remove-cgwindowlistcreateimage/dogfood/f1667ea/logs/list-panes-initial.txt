@@ -1,0 +1,1 @@
+* pane:2  [1 surface]  [focused]

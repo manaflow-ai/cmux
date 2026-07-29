@@ -1,0 +1,4 @@
+Last login: Tue Jul 28 17:00:58 on ttys123
+clear; for i in {1..12}; do printf '\033[48;2;245;40;210m%-120s\033[0m
+' 'CMUX_SCREENSHOT_MARKER_9065'; done
+                                                                                              

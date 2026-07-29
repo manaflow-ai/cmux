@@ -1,0 +1,1 @@
+Error: Failed to connect to socket at /tmp/cmux-debug-issue-9065-remove-cgwindowlistcreateimage.sock (Connection refused, errno 61)

@@ -1,0 +1,978 @@
+diff --git a/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+Debug.swift b/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+Debug.swift
+index b15c2196cd..3d1634e46c 100644
+--- a/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+Debug.swift
++++ b/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+Debug.swift
+@@ -94,8 +94,6 @@ extension ControlCommandCoordinator {
+             return debugPanelSnapshot(request.params)
+         case "debug.panel_snapshot.reset":
+             return debugPanelSnapshotReset(request.params)
+-        case "debug.window.screenshot":
+-            return debugScreenshot(request.params)
+         case "debug.canvas.command_scroll_hint":
+             return debugCanvasCommandScrollHint(request.params)
+         default:
+diff --git a/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+Debug2.swift b/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+Debug2.swift
+index 93e1dcd84c..3595af7f63 100644
+--- a/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+Debug2.swift
++++ b/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+Debug2.swift
+@@ -405,28 +405,5 @@ extension ControlCommandCoordinator {
+             : .err(code: "internal_error", message: resp, data: nil)
+     }
+ 
+-    // MARK: - debug.window.screenshot
+-
+-    /// `debug.window.screenshot` — capture a window screenshot (shared v1
+-    /// body; the coordinator parses its 2-field response line).
+-    func debugScreenshot(_ params: [String: JSONValue]) -> ControlCallResult {
+-        let label = string(params, "label") ?? ""
+-        let resp = debugContext?.controlDebugCaptureScreenshot(label: label)
+-            ?? Self.debugContextUnavailableResponse
+-        guard resp.hasPrefix("OK ") else {
+-            return .err(code: "internal_error", message: resp, data: nil)
+-        }
+-        let payload = String(resp.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+-        let parts = payload.split(separator: " ", maxSplits: 1).map(String.init)
+-        guard parts.count == 2 else {
+-            return .err(code: "internal_error", message: "screenshot parse failed", data: .object([
+-                "payload": .string(payload)
+-            ]))
+-        }
+-        return .ok(.object([
+-            "screenshot_id": .string(parts[0]),
+-            "path": .string(parts[1]),
+-        ]))
+-    }
+ }
+ #endif
+diff --git a/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+DebugV1.swift b/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+DebugV1.swift
+index 6aa33340cc..374744f924 100644
+--- a/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+DebugV1.swift
++++ b/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+DebugV1.swift
+@@ -2,7 +2,8 @@ internal import Foundation
+ 
+ /// The v1 line-protocol debug/test command dispatch (`set_shortcut`,
+ /// `simulate_shortcut`, `activate_app`, the counter reads/resets, the panel
+-/// snapshot/screenshot family, and `debug_right_sidebar_focus`).
++/// snapshot family, and `debug_right_sidebar_focus`). Window screenshots stay
++/// app-owned because their async compositor wait runs on the socket worker.
+ ///
+ /// Every command here was compiled only into DEBUG builds (the legacy
+ /// `processCommand` cases sat inside `#if DEBUG`), so the whole dispatch is
+@@ -80,9 +81,6 @@ extension ControlCommandCoordinator {
+         case "panel_snapshot_reset":
+             return debugContext?.controlDebugPanelSnapshotReset(surfaceArgument: args)
+                 ?? Self.debugContextUnavailableResponse
+-        case "screenshot":
+-            return debugContext?.controlDebugCaptureScreenshot(label: args)
+-                ?? Self.debugContextUnavailableResponse
+         default:
+             return nil
+         }
+diff --git a/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlDebugContext.swift b/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlDebugContext.swift
+index 118c7c7bf1..695132ca81 100644
+--- a/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlDebugContext.swift
++++ b/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlDebugContext.swift
+@@ -147,12 +147,6 @@ public protocol ControlDebugContext: AnyObject {
+     /// - Returns: The raw v1 response.
+     func controlDebugPanelSnapshotReset(surfaceArgument: String) -> String
+ 
+-    /// Runs the shared v1 `screenshot` body for `debug.window.screenshot`.
+-    ///
+-    /// - Parameter label: The optional screenshot label (may be empty).
+-    /// - Returns: The raw v1 response (`"OK <id> <path>"` or an `ERROR:` line).
+-    func controlDebugCaptureScreenshot(label: String) -> String
+-
+     /// Shows the canvas Command+scroll discovery hint for
+     /// `debug.canvas.command_scroll_hint`.
+     ///
+diff --git a/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift b/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift
+index 158a65f72c..d0d4380756 100644
+--- a/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift
++++ b/Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift
+@@ -135,6 +135,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
+         "sidebar.custom.reload",
+         "sidebar.custom.select",
+         "sidebar.custom.open",
++        // Window screenshot capture waits for ScreenCaptureKit's async
++        // compositor before falling back to AppKit. Keep that wait on the
++        // socket worker so WebKit-backed panels can render on the main actor.
++        "debug.window.screenshot",
+         // debug.sidebar.simulate_drag intentionally runs on the socket worker
+         // so its Thread.sleep between drag-state ticks doesn't block the main
+         // actor (which still owns the SidebarDragState mutations via
+@@ -425,10 +429,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
+     ]
+ 
+     /// v1 commands that run on the socket-worker thread instead of the main
+-    /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
+-    /// sidebar telemetry, notification, terminal-read, resolution-read, and
+-    /// terminal-send families. Internal (not private) so the package tests
+-    /// can pin the exact set.
++    /// actor: `ping` (the dispatcher's former hard-coded fast path),
++    /// `screenshot` (which waits for ScreenCaptureKit's async compositor),
++    /// plus the sidebar telemetry, notification, terminal-read,
++    /// resolution-read, and terminal-send families. Internal (not private) so
++    /// the package tests can pin the exact set.
+     static let socketWorkerV1Commands: Set<String> =
+         sidebarTelemetryV1Commands
+             .union(notificationV1Commands)
+@@ -436,7 +441,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
+             .union(diagnosticReadV1Commands)
+             .union(resolutionReadV1Commands)
+             .union(terminalSendV1Commands)
+-            .union(["ping"])
++            .union(["ping", "screenshot"])
+ 
+     /// Worker-lane v1 commands that are also safe to invoke from the main
+     /// thread. Must be a subset of ``socketWorkerV1Commands``, and is
+diff --git a/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs+Debug.swift b/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs+Debug.swift
+index 6ef7a8b3e9..8a28f03841 100644
+--- a/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs+Debug.swift
++++ b/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs+Debug.swift
+@@ -29,7 +29,6 @@ extension ControlDebugContext {
+     func controlDebugResetFlashCounts() -> String { "ERROR: not implemented" }
+     func controlDebugPanelSnapshot(arguments: String) -> String { "ERROR: not implemented" }
+     func controlDebugPanelSnapshotReset(surfaceArgument: String) -> String { "ERROR: not implemented" }
+-    func controlDebugCaptureScreenshot(label: String) -> String { "ERROR: not implemented" }
+     func controlDebugShowCanvasCommandScrollHint(
+         routing: ControlRoutingSelectors
+     ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+diff --git a/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandCoordinatorDebugV1Tests.swift b/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandCoordinatorDebugV1Tests.swift
+index 0d25b6e5e1..b1e842ae34 100644
+--- a/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandCoordinatorDebugV1Tests.swift
++++ b/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandCoordinatorDebugV1Tests.swift
+@@ -64,6 +64,18 @@ struct ControlCommandCoordinatorDebugV1Tests {
+         let (coordinator, _) = makeCoordinator()
+         #expect(coordinator.handleDebugV1(command: "ping", args: "") == nil)
+         #expect(coordinator.handleDebugV1(command: "simulate_type", args: "hi") == nil)
++        #expect(coordinator.handleDebugV1(command: "screenshot", args: "") == nil)
++
++        let screenshotRequest = ControlRequest(
++            id: .int(1),
++            method: "debug.window.screenshot",
++            params: [:]
++        )
++        #expect(coordinator.handle(screenshotRequest) == nil)
++        #expect(
++            ControlCommandExecutionPolicy(forMethod: screenshotRequest.method)
++                == .socketWorker(mainThreadCallable: false)
++        )
+     }
+ 
+     @Test func remoteTmuxSizingSettlementUsesMainActorDebugSeam() {
+diff --git a/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift b/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift
+index 709fc53b9d..318ea66eff 100644
+--- a/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift
++++ b/Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift
+@@ -33,6 +33,7 @@ struct ControlCommandExecutionPolicyTests {
+             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
+             "sidebar.custom.open",
+             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
++            "debug.window.screenshot",
+             "mobile.terminal.set_font",
+             // JavaScript-evaluating browser methods block on page JS and must
+             // not hold the main actor (see socketWorkerMethods rationale).
+@@ -153,6 +154,17 @@ struct ControlCommandExecutionPolicyTests {
+         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
+     }
+ 
++    @Test func windowScreenshotsRunOnTheWorkerAndAreNotMainThreadCallable() {
++        #expect(
++            ControlCommandExecutionPolicy(forMethod: "debug.window.screenshot")
++                == .socketWorker(mainThreadCallable: false)
++        )
++        #expect(
++            ControlCommandExecutionPolicy(forV1Command: "screenshot")
++                == .socketWorker(mainThreadCallable: false)
++        )
++    }
++
+     @Test func diagnosticReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
+         #expect(ControlCommandExecutionPolicy(forV1Command: "iroh_diag") == .socketWorker(mainThreadCallable: false))
+     }
+@@ -305,16 +317,19 @@ struct ControlCommandExecutionPolicyTests {
+             "send_workspace",
+         ]
+         #expect(ControlCommandExecutionPolicy.terminalSendV1Commands == sends)
++        let windowCapture: Set<String> = ["screenshot"]
+         let expectedWorker = telemetry.union(notification).union(terminalRead)
+             .union(diagnosticRead)
+-            .union(resolutionReads).union(sends).union(["ping"])
++            .union(resolutionReads).union(sends).union(windowCapture).union(["ping"])
+         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
+-        // Every member except terminal and diagnostic reads is deliberately main-thread
+-        // callable (deadlock-free inline: bus enqueues plus inline-collapsing
+-        // hops). The read families opt out because their bodies must stay off-main.
++        // Every member except terminal reads, diagnostic reads, and the async
++        // window capture is deliberately main-thread callable (deadlock-free
++        // inline: bus enqueues plus inline-collapsing hops).
+         #expect(
+             ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands
+-                == expectedWorker.subtracting(terminalRead).subtracting(diagnosticRead)
++                == expectedWorker.subtracting(terminalRead)
++                    .subtracting(diagnosticRead)
++                    .subtracting(windowCapture)
+         )
+     }
+ }
+diff --git a/Sources/GhosttyTerminalView.swift b/Sources/GhosttyTerminalView.swift
+index ddc21b99ca..f55e320003 100644
+--- a/Sources/GhosttyTerminalView.swift
++++ b/Sources/GhosttyTerminalView.swift
+@@ -10746,8 +10746,8 @@ final class GhosttySurfaceScrollView: NSView {
+ 
+     /// Create a CGImage from the terminal's IOSurface-backed layer contents.
+     ///
+-    /// This avoids Screen Recording permissions (unlike CGWindowListCreateImage) and is therefore
+-    /// suitable for debug socket tests running in headless/VM contexts.
++    /// This avoids the Screen Recording permission required by legacy window-list capture, making
++    /// it suitable for debug socket tests running in headless/VM contexts.
+     func debugCopyIOSurfaceCGImage() -> CGImage? {
+         guard let modelLayer = surfaceView.layer else { return nil }
+         let layer = modelLayer.presentation() ?? modelLayer
+diff --git a/Sources/TerminalController+ControlDebugContext.swift b/Sources/TerminalController+ControlDebugContext.swift
+index 8d38667ab5..237be90d77 100644
+--- a/Sources/TerminalController+ControlDebugContext.swift
++++ b/Sources/TerminalController+ControlDebugContext.swift
+@@ -120,8 +120,6 @@ extension TerminalController: ControlDebugContext {
+         panelSnapshotReset(surfaceArgument)
+     }
+ 
+-    func controlDebugCaptureScreenshot(label: String) -> String { captureScreenshot(label) }
+-
+     func controlDebugShowCanvasCommandScrollHint(
+         routing: ControlRoutingSelectors
+     ) -> ControlCanvasActionResolution {
+diff --git a/Sources/TerminalController.swift b/Sources/TerminalController.swift
+index f7c4b518f6..43aa8f419e 100644
+--- a/Sources/TerminalController.swift
++++ b/Sources/TerminalController.swift
+@@ -20,6 +20,7 @@ import CmuxAgentChat
+ import Foundation
+ import os
+ import Bonsplit
++import ScreenCaptureKit
+ import WebKit
+ import CmuxSidebar
+ import CmuxWorkspaces
+@@ -42,6 +43,46 @@ private struct SocketLineProcessingResult: Sendable {
+ // AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
+ 
+ #if DEBUG
++enum WindowScreenshotCaptureAttempt: Sendable {
++    case captured(Data)
++    case unavailable
++    case busy
++    case timedOut
++}
++
++struct WindowScreenshotCaptureTimeoutLatch: Sendable {
++    private(set) var isDisabled = false
++
++    var allowsCapture: Bool {
++        !isDisabled
++    }
++
++    mutating func recordTimeout() {
++        isDisabled = true
++    }
++}
++
++enum WindowScreenshotCaptureAction: Equatable, Sendable {
++    case useCaptured(Data)
++    case captureWithAppKit
++    case fail(String)
++}
++
++func windowScreenshotCaptureAction(
++    for attempt: WindowScreenshotCaptureAttempt
++) -> WindowScreenshotCaptureAction {
++    switch attempt {
++    case .captured(let data):
++        return .useCaptured(data)
++    case .unavailable:
++        return .captureWithAppKit
++    case .busy:
++        return .fail("screenshot capture already in progress")
++    case .timedOut:
++        return .fail("screenshot capture timed out")
++    }
++}
++
+ /// Accumulated worker→main `v2MainSync` hop time for the socket command
+ /// currently executing on a worker thread. Confined to one thread: it lives in
+ /// that thread's `threadDictionary`, `processSocketLine` installs a fresh
+@@ -117,6 +158,12 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
+ @MainActor
+ class TerminalController {
+     static let shared = TerminalController()
++#if DEBUG
++    private nonisolated static let windowScreenshotCaptureAdmission = DispatchSemaphore(value: 1)
++    private nonisolated static let windowScreenshotCaptureTimeoutLatch = OSAllocatedUnfairLock(
++        initialState: WindowScreenshotCaptureTimeoutLatch()
++    )
++#endif
+     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
+     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
+     /// One process-wide admission budget shared by every mobile connection.
+@@ -1177,6 +1224,12 @@ class TerminalController {
+                 // reply instead of the internal-error backstop below (the
+                 // debug.sidebar.simulate_drag precedent).
+                 return (true, "ERROR: Unknown command 'send_workspace'. Use 'help' for available commands.")
++#endif
++            case "screenshot":
++#if DEBUG
++                return (true, captureScreenshot(args))
++#else
++                return (true, "ERROR: Unknown command 'screenshot'. Use 'help' for available commands.")
+ #endif
+             default:
+                 // The sidebar telemetry family: nonisolated coordinator bodies
+@@ -1391,6 +1444,31 @@ class TerminalController {
+ #if DEBUG
+         case "debug.sidebar.simulate_drag":
+             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
++        case "debug.window.screenshot":
++            let label = (request.params["label"] as? String) ?? ""
++            let response = captureScreenshot(label)
++            guard response.hasPrefix("OK ") else {
++                return v2Error(
++                    id: request.id,
++                    code: "internal_error",
++                    message: response
++                )
++            }
++            let payload = String(response.dropFirst(3))
++                .trimmingCharacters(in: .whitespacesAndNewlines)
++            let parts = payload.split(separator: " ", maxSplits: 1).map(String.init)
++            guard parts.count == 2 else {
++                return v2Error(
++                    id: request.id,
++                    code: "internal_error",
++                    message: "screenshot parse failed",
++                    data: ["payload": payload]
++                )
++            }
++            return v2Ok(id: request.id, result: [
++                "screenshot_id": parts[0],
++                "path": parts[1],
++            ])
+ #endif
+         case let method where method.hasPrefix("vm."):
+             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
+@@ -1404,7 +1482,8 @@ class TerminalController {
+             // its worker case above is compiled out; the Release main lane
+             // answers method_not_found for debug verbs, so mirror that reply
+             // instead of the internal-error backstop below.
+-            if request.method == "debug.sidebar.simulate_drag" {
++            if request.method == "debug.sidebar.simulate_drag"
++                || request.method == "debug.window.screenshot" {
+                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
+             }
+ #endif
+@@ -13115,7 +13194,11 @@ class TerminalController {
+         return "OK"
+     }
+ 
+-    func captureScreenshot(_ args: String) -> String {
++    nonisolated func captureScreenshot(_ args: String) -> String {
++        guard !Thread.isMainThread else {
++            return "ERROR: screenshot must run off the main thread"
++        }
++
+         // Parse optional label from args
+         let label = args.trimmingCharacters(in: .whitespacesAndNewlines)
+ 
+@@ -13134,9 +13217,7 @@ class TerminalController {
+         let filename = label.isEmpty ? "\(screenshotId).png" : "\(label)_\(screenshotId).png"
+         let outputPath = outputDir.appendingPathComponent(filename)
+ 
+-        // Capture the main window on main thread
+-        var captureError: String?
+-        v2MainSync {
++        let captureTarget: (windowID: CGWindowID, needsCompositedCapture: Bool)? = v2MainSync {
+             let candidateWindows = NSApp.windows.filter { window in
+                 window.isVisible &&
+                 !window.isMiniaturized &&
+@@ -13150,42 +13231,145 @@ class TerminalController {
+                 (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
+             } ?? NSApp.mainWindow ?? NSApp.windows.first
+ 
+-            guard let window else {
+-                captureError = "No window available"
+-                return
++            return window.map {
++                (
++                    windowID: CGWindowID($0.windowNumber),
++                    needsCompositedCapture: $0.contentView.map(self.viewHierarchyContainsWebView) ?? false
++                )
+             }
++        }
+ 
+-            guard let pngData = self.captureCompositedWindowPNGData(window)
+-                ?? self.captureAppKitWindowPNGData(window) else {
+-                captureError = "Failed to create PNG data"
+-                return
+-            }
++        guard let captureTarget else {
++            return "ERROR: No window available"
++        }
+ 
+-            do {
+-                try pngData.write(to: outputPath)
+-            } catch {
+-                captureError = "Failed to write file: \(error.localizedDescription)"
++        let captureWithAppKit: () -> Data? = {
++            self.v2MainSync {
++                guard let window = NSApp.windows.first(where: {
++                    CGWindowID($0.windowNumber) == captureTarget.windowID
++                }) else {
++                    return nil
++                }
++                return self.captureAppKitWindowPNGData(window)
++            }
++        }
++        // Ghostty's terminal IOSurface participates in this AppKit cache path
++        // (pinned by terminal-only UI regression coverage). WKWebView pixels do
++        // not, so only windows with visible browser-backed content need the
++        // current-process compositor.
++        let pngData: Data?
++        if captureTarget.needsCompositedCapture {
++            switch windowScreenshotCaptureAction(
++                for: captureScreenCaptureKitWindowPNGData(captureTarget.windowID)
++            ) {
++            case .useCaptured(let data):
++                pngData = data
++            case .captureWithAppKit:
++                pngData = captureWithAppKit()
++            case .fail(let message):
++                return "ERROR: \(message)"
+             }
++        } else {
++            pngData = captureWithAppKit()
+         }
+ 
+-        if let error = captureError {
+-            return "ERROR: \(error)"
++        guard let pngData else {
++            return "ERROR: Failed to create PNG data"
++        }
++
++        do {
++            try pngData.write(to: outputPath)
++        } catch {
++            return "ERROR: Failed to write file: \(error.localizedDescription)"
+         }
+ 
+         // Return OK with screenshot ID and path for easy reference
+         return "OK \(screenshotId) \(outputPath.path)"
+     }
+ 
+-    private func captureCompositedWindowPNGData(_ window: NSWindow) -> Data? {
+-        guard let cgImage = CGWindowListCreateImage(
+-            .null,
+-            .optionIncludingWindow,
+-            CGWindowID(window.windowNumber),
+-            [.boundsIgnoreFraming, .nominalResolution]
+-        ) else {
++    private nonisolated func captureScreenCaptureKitWindowPNGData(
++        _ windowID: CGWindowID
++    ) -> WindowScreenshotCaptureAttempt {
++        guard Self.windowScreenshotCaptureAdmission.wait(timeout: .now()) == .success else {
++            return .busy
++        }
++        // Keep the admission release in this synchronous waiter so a stuck
++        // ScreenCaptureKit continuation cannot wedge the semaphore. A timeout
++        // also disables this backend for the process lifetime, bounding any
++        // non-cancellable compositor work to one orphaned attempt.
++        defer { Self.windowScreenshotCaptureAdmission.signal() }
++        guard Self.windowScreenshotCaptureTimeoutLatch.withLock({
++            $0.allowsCapture
++        }) else {
++            return .timedOut
++        }
++
++        let captureTask = Task {
++            return await Self.captureScreenCaptureKitWindowPNGDataAsync(windowID)
++        }
++        let captured: Data?? = socketAwaitCallback(timeout: 5) { completion in
++            Task {
++                completion(await captureTask.value)
++            }
++        }
++        guard let captured else {
++            captureTask.cancel()
++            Self.windowScreenshotCaptureTimeoutLatch.withLock {
++                $0.recordTimeout()
++            }
++            return .timedOut
++        }
++        guard let captured else {
++            return .unavailable
++        }
++        return .captured(captured)
++    }
++
++    private nonisolated static func captureScreenCaptureKitWindowPNGDataAsync(
++        _ windowID: CGWindowID
++    ) async -> Data? {
++        do {
++            let shareableContent: SCShareableContent
++            if #available(macOS 14.4, *) {
++                // This current-process-only query captures cmux's own windows
++                // without requesting Screen Recording permission.
++                shareableContent = try await SCShareableContent.currentProcess
++            } else {
++                // macOS 14.0–14.3 lacks the permission-free current-process
++                // query. Use the older ScreenCaptureKit inventory solely to
++                // locate our exact window ID; denial falls back to AppKit.
++                shareableContent = try await SCShareableContent.excludingDesktopWindows(
++                    false,
++                    onScreenWindowsOnly: false
++                )
++            }
++            guard let window = shareableContent.windows.first(where: {
++                $0.windowID == windowID
++            }) else {
++                return nil
++            }
++
++            let filter = SCContentFilter(desktopIndependentWindow: window)
++            let contentInfo = SCShareableContent.info(for: filter)
++            let scale = CGFloat(contentInfo.pointPixelScale)
++            let configuration = SCStreamConfiguration()
++            configuration.width = max(1, Int(ceil(contentInfo.contentRect.width * scale)))
++            configuration.height = max(1, Int(ceil(contentInfo.contentRect.height * scale)))
++            configuration.showsCursor = false
++            configuration.ignoreShadowsSingleWindow = true
++            configuration.captureResolution = .best
++
++            let image = try await SCScreenshotManager.captureImage(
++                contentFilter: filter,
++                configuration: configuration
++            )
++            return NSBitmapImageRep(cgImage: image).representation(
++                using: .png,
++                properties: [:]
++            )
++        } catch {
+             return nil
+         }
+-        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
+     }
+ 
+     private func captureAppKitWindowPNGData(_ window: NSWindow) -> Data? {
+@@ -13205,6 +13389,10 @@ class TerminalController {
+ 
+         return bitmap.representation(using: .png, properties: [:])
+     }
++
++    private func viewHierarchyContainsWebView(_ view: NSView) -> Bool {
++        view is WKWebView || view.subviews.contains(where: viewHierarchyContainsWebView)
++    }
+ #endif
+ 
+     func parseSplitDirection(_ value: String) -> SplitDirection? {
+diff --git a/cmuxTests/SocketCallbackAwaiterMainThreadTests.swift b/cmuxTests/SocketCallbackAwaiterMainThreadTests.swift
+index fb4b0b5e4b..e815736a66 100644
+--- a/cmuxTests/SocketCallbackAwaiterMainThreadTests.swift
++++ b/cmuxTests/SocketCallbackAwaiterMainThreadTests.swift
+@@ -54,3 +54,36 @@ import Testing
+         #expect(result == nil)
+     }
+ }
++
++@Suite struct WindowScreenshotCaptureRoutingTests {
++    @Test func timeoutLatchPermanentlyDisablesCompositorCapture() {
++        var latch = WindowScreenshotCaptureTimeoutLatch()
++
++        #expect(latch.allowsCapture)
++        latch.recordTimeout()
++        #expect(!latch.allowsCapture)
++        latch.recordTimeout()
++        #expect(!latch.allowsCapture)
++    }
++
++    @Test func onlyUnavailableCaptureFallsBackToAppKit() {
++        let data = Data([0x89, 0x50, 0x4E, 0x47])
++
++        #expect(
++            windowScreenshotCaptureAction(for: .captured(data))
++                == .useCaptured(data)
++        )
++        #expect(
++            windowScreenshotCaptureAction(for: .unavailable)
++                == .captureWithAppKit
++        )
++        #expect(
++            windowScreenshotCaptureAction(for: .busy)
++                == .fail("screenshot capture already in progress")
++        )
++        #expect(
++            windowScreenshotCaptureAction(for: .timedOut)
++                == .fail("screenshot capture timed out")
++        )
++    }
++}
+diff --git a/cmuxUITests/AutomationSocketUITests.swift b/cmuxUITests/AutomationSocketUITests.swift
+index 07c68f718c..7cbd7feaea 100644
+--- a/cmuxUITests/AutomationSocketUITests.swift
++++ b/cmuxUITests/AutomationSocketUITests.swift
+@@ -1,5 +1,7 @@
+ import XCTest
+ import Foundation
++import CoreGraphics
++import ImageIO
+ import Darwin
+ 
+ final class AutomationSocketUITests: XCTestCase {
+@@ -225,6 +227,314 @@ final class AutomationSocketUITests: XCTestCase {
+         XCTAssertEqual(typedTitles.first, "$iterate-pr")
+     }
+ 
++    func testWindowScreenshotCommandWritesNonBlankPNGWithTerminalAndBrowserContent() throws {
++        let app = configuredApp(mode: "allowAll")
++        app.launchArguments += [
++            "-AppleLanguages", "(en)",
++            "-AppleLocale", "en_US",
++            "-NSAppSleepDisabled", "YES",
++        ]
++        defer { app.terminate() }
++
++        let activationOptions = XCTExpectedFailure.Options()
++        activationOptions.isStrict = false
++        activationOptions.issueMatcher = { issue in
++            let diagnostics = [
++                issue.compactDescription,
++                issue.detailedDescription,
++                issue.associatedError?.localizedDescription,
++            ]
++                .compactMap { $0 }
++                .joined(separator: "\n")
++            return (issue.type == .system || issue.type == .assertionFailure) &&
++                diagnostics.contains("Failed to activate application") &&
++                diagnostics.contains("Running Background")
++        }
++        XCTExpectFailure("App activation may fail on headless CI runners", options: activationOptions) {
++            app.launch()
++        }
++        XCTAssertTrue(
++            ensureRunningAfterLaunch(app, timeout: 12.0),
++            "Expected app to launch for the window screenshot test. state=\(app.state.rawValue)"
++        )
++        XCTAssertTrue(
++            waitForSocketPong(timeout: 12.0),
++            "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
++        )
++
++        let marker = "CMUX_SCREENSHOT_MARKER_9065"
++        let markerCommand = """
++        i=0; while [ $i -lt 8 ]; do printf '\\033[48;2;245;40;210m%-80s\\033[0m\\n' '\(marker)'; i=$((i+1)); done; tail -f /dev/null
++        """
++        let workspace = try XCTUnwrap(
++            socketResult(
++                method: "workspace.create",
++                params: [
++                    "title": "Window screenshot regression",
++                    "initial_command": markerCommand,
++                    "focus": true,
++                ]
++            ),
++            "Expected workspace.create to return the marker terminal"
++        )
++        let surfaceID = try XCTUnwrap(
++            workspace["surface_id"] as? String,
++            "Expected workspace.create to return a surface id"
++        )
++        let workspaceID = try XCTUnwrap(
++            workspace["workspace_id"] as? String,
++            "Expected workspace.create to return a workspace id"
++        )
++        XCTAssertTrue(
++            waitForTerminalText(marker, surfaceID: surfaceID, timeout: 12.0),
++            "Expected marker text to render before taking the screenshot"
++        )
++        XCTAssertTrue(
++            app.windows.firstMatch.waitForExistence(timeout: 5.0),
++            "Expected the main window to exist before taking the screenshot"
++        )
++
++        let terminalOnlyCapture = try XCTUnwrap(
++            waitForWindowScreenshotContainingMarker(
++                label: "issue-9065-terminal-only",
++                minimumMarkerPixels: 100,
++                minimumBrowserPixels: 0,
++                timeout: 12.0
++            ),
++            "Expected the AppKit path to capture terminal-only window content"
++        )
++        XCTAssertGreaterThan(
++            terminalOnlyCapture.stats.markerPixels,
++            100,
++            "Expected the terminal-only screenshot to include the magenta marker"
++        )
++
++        let browserHTML = """
++        <!doctype html>
++        <html>
++          <body style="margin:0;min-height:100vh;background:rgb(20,220,240)">
++            <h1>CMUX_BROWSER_SCREENSHOT_MARKER_9065</h1>
++          </body>
++        </html>
++        """
++        let browserURL = "data:text/html;base64,\(Data(browserHTML.utf8).base64EncodedString())"
++        let browser = try XCTUnwrap(
++            socketResult(
++                method: "browser.open_split",
++                params: [
++                    "workspace_id": workspaceID,
++                    "surface_id": surfaceID,
++                ],
++                responseTimeout: 10.0
++            ),
++            "Expected browser.open_split to create a browser panel"
++        )
++        let browserSurfaceID = try XCTUnwrap(
++            browser["surface_id"] as? String,
++            "Expected browser.open_split to return a surface id"
++        )
++        XCTAssertNotNil(
++            socketResult(
++                method: "browser.navigate",
++                params: [
++                    "surface_id": browserSurfaceID,
++                    "url": browserURL,
++                ],
++                responseTimeout: 12.0
++            ),
++            "Expected the browser marker page to navigate"
++        )
++        XCTAssertNotNil(
++            socketResult(
++                method: "browser.wait",
++                params: [
++                    "surface_id": browserSurfaceID,
++                    "load_state": "complete",
++                    "timeout_ms": 10_000,
++                ],
++                responseTimeout: 12.0
++            ),
++            "Expected the browser marker page to finish loading"
++        )
++
++        let captured = try XCTUnwrap(
++            waitForWindowScreenshotContainingMarker(
++                label: "issue-9065-window",
++                minimumMarkerPixels: 100,
++                minimumBrowserPixels: 1_000,
++                timeout: 12.0
++            ),
++            "Expected debug.window.screenshot to capture terminal and browser content"
++        )
++        let pngData = captured.pngData
++        XCTAssertGreaterThan(pngData.count, 1_024, "Expected a non-empty PNG file")
++        XCTAssertTrue(
++            pngData.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
++            "Expected the screenshot command to write PNG data"
++        )
++
++        let stats = captured.stats
++        XCTAssertGreaterThan(stats.width, 500, "Expected a main-window-sized screenshot")
++        XCTAssertGreaterThan(stats.height, 300, "Expected a main-window-sized screenshot")
++        XCTAssertGreaterThan(
++            stats.uniqueQuantizedColors,
++            8,
++            "Expected a non-blank, non-solid main window screenshot"
++        )
++        XCTAssertGreaterThan(
++            stats.markerPixels,
++            100,
++            "Expected the screenshot to include the terminal's magenta marker content"
++        )
++        XCTAssertGreaterThan(
++            stats.browserPixels,
++            1_000,
++            "Expected the screenshot to include the browser's cyan marker content"
++        )
++    }
++
++    private struct WindowScreenshotPixelStats {
++        let width: Int
++        let height: Int
++        let uniqueQuantizedColors: Int
++        let markerPixels: Int
++        let browserPixels: Int
++    }
++
++    private struct CapturedWindowScreenshot {
++        let pngData: Data
++        let stats: WindowScreenshotPixelStats
++    }
++
++    private func waitForTerminalText(
++        _ expectedText: String,
++        surfaceID: String,
++        timeout: TimeInterval
++    ) -> Bool {
++        let expectation = XCTNSPredicateExpectation(
++            predicate: NSPredicate { _, _ in
++                if let result = self.socketResult(
++                    method: "surface.read_text",
++                    params: ["surface_id": surfaceID]
++                ),
++                   let text = result["text"] as? String,
++                   text.contains(expectedText) {
++                    return true
++                }
++                return false
++            },
++            object: NSObject()
++        )
++        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
++    }
++
++    private func waitForWindowScreenshotContainingMarker(
++        label: String,
++        minimumMarkerPixels: Int,
++        minimumBrowserPixels: Int,
++        timeout: TimeInterval
++    ) -> CapturedWindowScreenshot? {
++        var captured: CapturedWindowScreenshot?
++        let expectation = XCTNSPredicateExpectation(
++            predicate: NSPredicate { _, _ in
++                guard let screenshot = self.socketResult(
++                    method: "debug.window.screenshot",
++                    params: ["label": label],
++                    responseTimeout: 12.0
++                ),
++                    let path = screenshot["path"] as? String else {
++                    return false
++                }
++
++                let screenshotURL = URL(fileURLWithPath: path)
++                defer { try? FileManager.default.removeItem(at: screenshotURL) }
++                guard let pngData = try? Data(contentsOf: screenshotURL),
++                      let stats = self.windowScreenshotPixelStats(pngData),
++                      stats.markerPixels > minimumMarkerPixels,
++                      stats.browserPixels >= minimumBrowserPixels else {
++                    return false
++                }
++
++                captured = CapturedWindowScreenshot(pngData: pngData, stats: stats)
++                return true
++            },
++            object: NSObject()
++        )
++        guard XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed else {
++            return nil
++        }
++        return captured
++    }
++
++    private func windowScreenshotPixelStats(_ pngData: Data) -> WindowScreenshotPixelStats? {
++        guard let source = CGImageSourceCreateWithData(pngData as CFData, nil),
++              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
++            return nil
++        }
++
++        let width = image.width
++        let height = image.height
++        guard width > 0, height > 0 else { return nil }
++
++        let bytesPerPixel = 4
++        let bytesPerRow = width * bytesPerPixel
++        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
++        let decoded = pixels.withUnsafeMutableBytes { rawBuffer -> Bool in
++            guard let baseAddress = rawBuffer.baseAddress,
++                  let context = CGContext(
++                      data: baseAddress,
++                      width: width,
++                      height: height,
++                      bitsPerComponent: 8,
++                      bytesPerRow: bytesPerRow,
++                      space: CGColorSpaceCreateDeviceRGB(),
++                      bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue
++                          | CGImageAlphaInfo.premultipliedLast.rawValue
++                  ) else {
++                return false
++            }
++            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
++            return true
++        }
++        guard decoded else { return nil }
++
++        var uniqueQuantizedColors = Set<UInt16>()
++        var markerPixels = 0
++        var browserPixels = 0
++        let sampleStep = 2
++        for y in stride(from: 0, to: height, by: sampleStep) {
++            let row = y * bytesPerRow
++            for x in stride(from: 0, to: width, by: sampleStep) {
++                let index = row + x * bytesPerPixel
++                let red = pixels[index]
++                let green = pixels[index + 1]
++                let blue = pixels[index + 2]
++                let alpha = pixels[index + 3]
++
++                if alpha > 16 {
++                    let key = (UInt16(red >> 4) << 8)
++                        | (UInt16(green >> 4) << 4)
++                        | UInt16(blue >> 4)
++                    uniqueQuantizedColors.insert(key)
++                }
++                if red > 200, green < 110, blue > 150, alpha > 200 {
++                    markerPixels += 1
++                }
++                if red < 80, green > 180, blue > 180, alpha > 200 {
++                    browserPixels += 1
++                }
++            }
++        }
++
++        return WindowScreenshotPixelStats(
++            width: width,
++            height: height,
++            uniqueQuantizedColors: uniqueQuantizedColors.count,
++            markerPixels: markerPixels,
++            browserPixels: browserPixels
++        )
++    }
++
+     private func configuredApp(mode: String) -> XCUIApplication {
+         let app = XCUIApplication.cmuxTestApplication()
+         app.launchArguments += ["-\(modeKey)", mode]
+@@ -363,18 +673,30 @@ final class AutomationSocketUITests: XCTestCase {
+             controlSocketCommandViaNetcat(command, socketPath: socketPath)
+     }
+ 
+-    private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
++    private func socketJSON(
++        method: String,
++        params: [String: Any],
++        responseTimeout: TimeInterval = 2.0
++    ) -> [String: Any]? {
+         let request: [String: Any] = [
+             "id": UUID().uuidString,
+             "method": method,
+             "params": params,
+         ]
+-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request) ??
++        return ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendJSON(request) ??
+             controlSocketJSONViaNetcat(request, socketPath: socketPath)
+     }
+ 
+-    private func socketResult(method: String, params: [String: Any]) -> [String: Any]? {
+-        guard let envelope = socketJSON(method: method, params: params),
++    private func socketResult(
++        method: String,
++        params: [String: Any],
++        responseTimeout: TimeInterval = 2.0
++    ) -> [String: Any]? {
++        guard let envelope = socketJSON(
++            method: method,
++            params: params,
++            responseTimeout: responseTimeout
++        ),
+               envelope["ok"] as? Bool == true else {
+             return nil
+         }

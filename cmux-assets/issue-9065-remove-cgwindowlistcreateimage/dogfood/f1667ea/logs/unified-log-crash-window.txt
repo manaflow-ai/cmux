@@ -1,0 +1,440 @@
+Timestamp               Ty Process[PID:TID]
+2026-07-28 17:02:16.725 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching
+2026-07-28 17:02:16.725 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:16.725 Df cmux DEV[74822:1ff3523] [com.apple.securityd:thread-local-client-debug] SecSecurityClientGet new thread!
+2026-07-28 17:02:16.726 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching
+2026-07-28 17:02:16.726 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:16.726 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching
+2026-07-28 17:02:16.726 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:17.768 E  kernel[0:1ff3436] (Sandbox) Sandbox: GamePolicyAgent(51647) deny(1) file-read-xattr /Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app
+2026-07-28 17:02:17.885 Df cmux DEV[11317:1ff3569] [com.apple.CFNetwork:Default] Connection 39: cleaning up
+2026-07-28 17:02:17.885 Df cmux DEV[11317:1ff3569] [com.apple.network:connection] [C39 AB93BF21-4A88-43E6-99CE-9236A23254EB Hostname#189336cb:443 quic-connection, url hash: db2219ea, definite, attribution: developer] cancel
+2026-07-28 17:02:17.885 Df cmux DEV[11317:1ff3569] [com.apple.network:connection] [C39 AB93BF21-4A88-43E6-99CE-9236A23254EB Hostname#189336cb:443 quic-connection, url hash: db2219ea, definite, attribution: developer] cancelled
+	[C39.1.1.1 D7223472-41E1-486A-8F9C-B0CBF7213E35 172.20.21.128:56946<->IPv4#c2cf2413:443]
+	Connected Path: satisfied (Path is satisfied), viable, interface: en0[802.11], ipv4, dns, uses wifi, LQM: good
+	Privacy Stance: Not Eligible
+	Duration: 30.464s, DNS @0.000s took 0.002s, TCP @0.003s took 0.053s,  took 0.058s
+	bytes in/out: 10087/2262, packets in/out: 10/15, rtt: 0.065s, retransmitted bytes: 0, out-of-order bytes: 0
+	ecn packets sent/acked/marked/lost: 6/4/0/0
+2026-07-28 17:02:17.885 Df cmux DEV[11317:1ff3569] [com.apple.network:tcp] nw_protocol_tcp_log_summary [C39.1.1.1:3] 
+	[0BDF0584-B558-4DB4-9D7F-531AE843460F <private>:56946<-><private>:443]
+	Init: 1, Conn_Time: 52.536ms, SYNs: 1, WR_T: 0/0, RD_T: 0/0, TFO: 0/0/0, ECN: 0/1/1, Accurate ECN (client/server): Disabled/Disabled, TS: 1, TSO: 1
+	rtt_cache: process, rtt_upd: 5, rtt: 65.468ms, rtt_var: 32.062ms rtt_nc: 65.468ms, rtt_var_nc: 32.062ms base rtt: 36ms
+	ACKs-compressed: 1, ACKs delayed: 0 delayed ACKs sent: 0
+2026-07-28 17:02:17.886 Df cmux DEV[11317:1ff3569] [com.apple.network:connection] nw_connection_report_state_with_handler_on_nw_queue [C39] reporting state cancelled
+2026-07-28 17:02:17.886 Df cmux DEV[11317:1ff3569] [com.apple.network:tcp] tcp_output [C39.1.1.1:3] flags=[F.] seq=1481106349, ack=1233504506, win=2048 state=FIN_WAIT_1 rcv_nxt=1233504506, snd_una=1481106286
+2026-07-28 17:02:17.920 Df cmux DEV[11317:1ff3569] [com.apple.network:tcp] tcp_input [C39.1.1.1:3] flags=[F.] seq=1233504530, ack=1481106349, win=70 state=FIN_WAIT_1 rcv_nxt=1233504506, snd_una=1481106325
+2026-07-28 17:02:17.920 Df cmux DEV[11317:1ff3569] [com.apple.network:tcp] tcp_output [C39.1.1.1:3] flags=[F.] seq=1481106349, ack=1233504506, win=2048 state=FIN_WAIT_1 rcv_nxt=1233504506, snd_una=1481106349
+2026-07-28 17:02:18.489 F  cmux DEV[69018:1dcc04e] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:18.489 A  cmux DEV[69018:1dcc04e] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:18.557 F  cmux DEV[76397:1dd0d7b] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:18.557 A  cmux DEV[76397:1dd0d7b] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:20.768 A  cmux DEV[85164:1ff34fd] (Security) SecItemCopyMatching
+2026-07-28 17:02:20.768 A  cmux DEV[85164:1ff34fd] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:20.768 Df cmux DEV[85164:1ff34fd] [com.apple.securityd:thread-local-client-debug] SecSecurityClientGet new thread!
+2026-07-28 17:02:20.768 A  cmux DEV[85164:1ff34fd] (Security) SecItemCopyMatching
+2026-07-28 17:02:20.768 A  cmux DEV[85164:1ff34fd] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:20.769 A  cmux DEV[85164:1ff34fd] (Security) SecItemCopyMatching
+2026-07-28 17:02:20.769 A  cmux DEV[85164:1ff34fd] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:20.807 A  cmux DEV[27985:1ff2b90] (Security) SecItemCopyMatching
+2026-07-28 17:02:20.807 A  cmux DEV[27985:1ff2b90] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:20.807 Df cmux DEV[27985:1ff2b90] [com.apple.securityd:thread-local-client-debug] SecSecurityClientGet new thread!
+2026-07-28 17:02:20.808 A  cmux DEV[27985:1ff2b90] (Security) SecItemCopyMatching
+2026-07-28 17:02:20.808 A  cmux DEV[27985:1ff2b90] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:20.808 A  cmux DEV[27985:1ff2b90] (Security) SecItemCopyMatching
+2026-07-28 17:02:20.808 A  cmux DEV[27985:1ff2b90] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:21.532 A  cmux DEV[76397:1ff3542] (Security) SecItemCopyMatching
+2026-07-28 17:02:21.532 A  cmux DEV[76397:1ff3542] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:21.532 Df cmux DEV[76397:1ff3542] [com.apple.securityd:thread-local-client-debug] SecSecurityClientGet new thread!
+2026-07-28 17:02:21.533 A  cmux DEV[76397:1ff3542] (Security) SecItemCopyMatching
+2026-07-28 17:02:21.533 A  cmux DEV[76397:1ff3542] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:21.534 A  cmux DEV[76397:1ff3542] (Security) SecItemCopyMatching
+2026-07-28 17:02:21.534 A  cmux DEV[76397:1ff3542] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:21.574 A  cmux DEV[27985:1ff2b90] (RunningBoardServices) didChangeInheritances
+2026-07-28 17:02:21.657 F  cmux DEV[27985:1fdaee5] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:21.657 A  cmux DEV[27985:1fdaee5] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:21.686 F  cmux DEV[27985:1fdaee5] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:21.686 A  cmux DEV[27985:1fdaee5] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:21.719 Df cmux DEV[27985:1fdaee5] [com.apple.TextInputUI:CursorUI] -[TUINSCursorUIController scheduleUpdateCursorLocation]
+2026-07-28 17:02:21.721 A  cmux DEV[11317:1fd928f] (Security) SecItemCopyMatching
+2026-07-28 17:02:21.721 A  cmux DEV[11317:1fd928f] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:21.721 Df cmux DEV[27985:1fdaee5] [com.apple.TextInputUI:CursorUI] -[TUINSCursorUIController scheduleUpdateCursorLocation]
+2026-07-28 17:02:21.721 A  cmux DEV[11317:1fd928f] (Security) SecItemCopyMatching
+2026-07-28 17:02:21.721 A  cmux DEV[11317:1fd928f] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:21.721 Df cmux DEV[27985:1fdaee5] [com.apple.TextInputUI:CursorUI] -[TUINSCursorUIController scheduleUpdateCursorLocation]
+2026-07-28 17:02:21.722 A  cmux DEV[11317:1fd928f] (Security) SecItemCopyMatching
+2026-07-28 17:02:21.722 A  cmux DEV[11317:1fd928f] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:21.762 Sd cmux DEV[27985:0] (59E23BD5-D01E-305A-B96F-A5790356049A) com.apple.appkit:StatusBar
+{
+    0 =     {
+        activeState = 1;
+        appearance = NSAppearanceNameDarkAqua;
+        autosaveName = "Item-0";
+        auxiliaryViews =         {
+            NSStatusItemView = "6C0AAAE8-D1FA-48BD-B241-1A1DFB30AD8B-Aux[1]-NSStatusItemView";
+        };
+        class = NSSceneStatusItem;
+        isVisible = 1;
+        sceneIdentifier = "6C0AAAE8-D1FA-48BD-B241-1A1DFB30AD8B";
+        windowNumber = 100000000;
+        windowWidth = 34;
+    };
+    1 =     {
+        activeState = 0;
+        appearance = NSAppearanceNameDarkAqua;
+        auxiliaryViews =         {
+            NSStatusItemView = "6C0AAAE8-D1FA-48BD-B241-1A1DFB30AD8B-Replicant[1]-Aux[1]-NSStatusItemView";
+        };
+        class = NSSceneStatusItem;
+        isVisible = 1;
+        parentWindowNumber = 100000000;
+        sceneIdentifier = "6C0AAAE8-D1FA-48BD-B241-1A1DFB30AD8B-Replicant[1]";
+        windowNumber = 200000000;
+        windowWidth = 34;
+    };
+}
+2026-07-28 17:02:21.777 Df cmux DEV[27985:1fdaee5] (Foundation) <private>
+2026-07-28 17:02:21.783 F  cmux DEV[27985:1fdaee5] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:21.783 A  cmux DEV[27985:1fdaee5] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:21.791 F  cmux DEV[27985:1fdaee5] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:21.791 A  cmux DEV[27985:1fdaee5] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:21.825 Df cmux DEV[27985:1fdaee5] [com.apple.TextInputUI:CursorUI] -[TUINSCursorUIController scheduleUpdateCursorLocation]
+2026-07-28 17:02:21.903 A  cmux DEV[27985:1ff358d] (RunningBoardServices) didChangeInheritances
+2026-07-28 17:02:22.007 A  cmux DEV[27985:1ff2b90] (CoreSpotlight) end-index-batch
+2026-07-28 17:02:22.007 A  cmux DEV[27985:1ff2b90] (CoreSpotlight) index-items
+2026-07-28 17:02:22.007 Df cmux DEV[27985:1ff2b90] [com.apple.corespotlight:index] CSInlineDonation:<private>: Skipping donation (feature flag disabled)
+2026-07-28 17:02:22.863 A  cmux DEV[39573:1feb9d9] (Security) SecItemCopyMatching
+2026-07-28 17:02:22.863 A  cmux DEV[39573:1feb9d9] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:22.863 Df cmux DEV[39573:1feb9d9] [com.apple.securityd:thread-local-client-debug] SecSecurityClientGet new thread!
+2026-07-28 17:02:22.864 A  cmux DEV[39573:1feb9d9] (Security) SecItemCopyMatching
+2026-07-28 17:02:22.864 A  cmux DEV[39573:1feb9d9] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:22.864 A  cmux DEV[39573:1ff356b] (Security) SecItemCopyMatching
+2026-07-28 17:02:22.864 A  cmux DEV[39573:1ff356b] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:22.864 Df cmux DEV[39573:1ff356b] [com.apple.securityd:thread-local-client-debug] SecSecurityClientGet new thread!
+2026-07-28 17:02:23.423 F  cmux DEV[27985:1fdaee5] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:23.423 A  cmux DEV[27985:1fdaee5] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:23.615 F  cmux DEV[74822:1e56c39] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:23.615 A  cmux DEV[74822:1e56c39] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:23.619 Sd cmux DEV[74822:0] (59E23BD5-D01E-305A-B96F-A5790356049A) com.apple.appkit:StatusBar
+{
+    0 =     {
+        activeState = 1;
+        appearance = NSAppearanceNameDarkAqua;
+        autosaveName = "Item-0";
+        auxiliaryViews =         {
+            NSStatusItemView = "94DDA453-2391-48E4-A279-07B00ED3E431-Aux[1]-NSStatusItemView";
+        };
+        class = NSSceneStatusItem;
+        isVisible = 1;
+        sceneIdentifier = "94DDA453-2391-48E4-A279-07B00ED3E431";
+        windowNumber = 100000000;
+        windowWidth = 34;
+    };
+    1 =     {
+        activeState = 0;
+        appearance = NSAppearanceNameDarkAqua;
+        auxiliaryViews =         {
+            NSStatusItemView = "94DDA453-2391-48E4-A279-07B00ED3E431-Replicant[1]-Aux[1]-NSStatusItemView";
+        };
+        class = NSSceneStatusItem;
+        isVisible = 1;
+        parentWindowNumber = 100000000;
+        sceneIdentifier = "94DDA453-2391-48E4-A279-07B00ED3E431-Replicant[1]";
+        windowNumber = 200000000;
+        windowWidth = 34;
+    };
+}
+2026-07-28 17:02:23.647 F  cmux DEV[74822:1e56c39] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:23.647 A  cmux DEV[74822:1e56c39] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:23.685 F  cmux DEV[74822:1e56c39] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:23.685 A  cmux DEV[74822:1e56c39] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:23.937 F  cmux DEV[69018:1dcc04e] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:23.937 A  cmux DEV[69018:1dcc04e] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:23.971 F  cmux DEV[76397:1dd0d7b] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:23.971 A  cmux DEV[76397:1dd0d7b] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:24.124 F  cmux DEV[76397:1dd0d7b] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:24.124 A  cmux DEV[76397:1dd0d7b] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:24.144 F  cmux DEV[76397:1dd0d7b] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:24.144 A  cmux DEV[76397:1dd0d7b] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:24.239 F  cmux DEV[76397:1dd0d7b] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:24.239 A  cmux DEV[76397:1dd0d7b] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:24.269 F  cmux DEV[76397:1dd0d7b] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:24.269 A  cmux DEV[76397:1dd0d7b] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:24.271 F  cmux DEV[76397:1dd0d7b] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:24.271 A  cmux DEV[76397:1dd0d7b] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:24.300 F  cmux DEV[76397:1dd0d7b] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:24.300 A  cmux DEV[76397:1dd0d7b] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:24.318 Df cmux DEV[69018:1e1e000] [com.apple.WebKit:MemoryPressure] WebContent[89371] Current memory footprint: 17 MB
+2026-07-28 17:02:24.324 F  cmux DEV[76397:1dd0d7b] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:24.324 A  cmux DEV[76397:1dd0d7b] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:24.390 F  cmux DEV[27985:1fdaee5] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:24.390 A  cmux DEV[27985:1fdaee5] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:24.494 F  cmux DEV[27985:1fdaee5] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:24.494 A  cmux DEV[27985:1fdaee5] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:24.524 Df cmux DEV[27985:1fdaee5] (libswiftCore.dylib) Swift/arm64e-apple-macos.swiftinterface:13152: Fatal error: Not enough bits to represent the passed value
+2026-07-28 17:02:24.542 Df WindowManager[692:1ff76ea] [com.apple.windowmanagement:xpcconnection] Connection invalidated | (27985) cmux DEV issue-9065-remove-cgwindowlistcreateimage
+2026-07-28 17:02:24.545 Df WindowServer[422:1268] [com.apple.SkyLight.processes:Lifecycle] 0[outside of RPC]: Process death: 0x0-0x3f64f61 (cmux DEV issue-9065-remove-cgwindowlistcreateimage) connectionID: 1CE46B pid: 27985 in session 0x101
+2026-07-28 17:02:24.545 Df WindowServer[422:1268] [com.apple.SkyLight.processes:Focus] <BSCompoundAssertion:0xa76809680> ([FocusManager:257]-deferringPolicyEvaluationSuppression) acquire for reason:process death - 0x0-0x3f64f61 (cmux DEV issue-9065-remove-cgwindowlistcreateimage) acq:0xa794cb7e0 count:1
+2026-07-28 17:02:24.554 Df WindowServer[422:1268] [com.apple.SkyLight.processes:Focus] 0[outside of RPC]: [FocusManager:257] update to deferring policy requested for reason: permitted list updated - 0x0-0x3f64f61 removed - but we are suppressing evaluation for reasons: {(
+    "process death - 0x0-0x3f64f61 (cmux DEV issue-9065-remove-cgwindowlistcreateimage)"
+)}
+2026-07-28 17:02:24.555 Df WindowServer[422:1268] [com.apple.SkyLight.processes:Focus] 0[outside of RPC]: [FocusManager:257] update to deferring policy requested for reason: permitted list updated - 0x1-0x6d51 removed - but we are suppressing evaluation for reasons: {(
+    "process death - 0x0-0x3f64f61 (cmux DEV issue-9065-remove-cgwindowlistcreateimage)"
+)}
+2026-07-28 17:02:24.569 Df tccd[685:1ff7ffb] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=31590.2, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, },
+2026-07-28 17:02:24.573 Df tccd[685:1ff7ffb] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=31590.3, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, },
+2026-07-28 17:02:24.601 Df tccd[685:1ff7ffb] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=31590.4, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, },
+2026-07-28 17:02:24.614 Df tccd[685:1feaecf] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.181, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.617 Df tccd[685:1ff7ffb] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.182, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.618 Df tccd[685:1feaecf] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.183, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.620 Df tccd[685:1feaecf] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.184, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.626 Df tccd[685:1feaecf] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.185, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.627 Df tccd[685:1ff7ffd] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.186, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.628 Df tccd[685:1ff7ffd] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.187, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.629 Df tccd[685:1ff7ffd] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.188, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.643 Df tccd[685:1feaecf] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.189, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.645 Df tccd[685:1feaecf] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.190, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.646 Df tccd[685:1feaecf] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.191, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.648 Df tccd[685:1feaecf] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.192, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.652 Df tccd[685:1feaecf] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.193, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.653 Df tccd[685:1ff7ffd] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.194, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.655 Df tccd[685:1ff7ffd] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.195, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.656 Df tccd[685:1ff7ffd] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.196, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.671 Df tccd[685:1ff7ffd] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.197, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.672 Df tccd[685:1feaecf] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=63835.198, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, accessing={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.contactsd, pid=63835, <…>},
+2026-07-28 17:02:24.812 Df loginwindow[418:1226] [com.apple.loginwindow.logging:AppExit] -[ApplicationManager handleCASEvent:withData:] | CAS notification for appDeath for com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage with asn: LSASN:{hi=0x0;lo=0x3f64f61} for bundle path: /Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app with URL: file:///Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux%20DEV%20issue-9065-remove-cgwindowlistcreateimage.app/
+2026-07-28 17:02:24.812 Df loginwindow[418:1226] [com.apple.loginwindow.logging:Standard] -[Application setState:] | enter: <Application: 0x902f08be0: cmux DEV issue-9065-remove-cgwindowlistcreateimage> state 3
+2026-07-28 17:02:24.812 Df loginwindow[418:1226] [com.apple.loginwindow.logging:TAL] -[PersistentAppsSupport applicationQuit:] | for app:cmux DEV issue-9065-remove-cgwindowlistcreateimage, _appTrackingState = 2
+2026-07-28 17:02:24.812 Df loginwindow[418:1226] [com.apple.loginwindow.logging:TAL] -[PersistentAppsSupport applicationQuit:] | App: cmux DEV issue-9065-remove-cgwindowlistcreateimage, quit, updating active tracking timer
+2026-07-28 17:02:24.815 Df loginwindow[418:1226] [com.apple.loginwindow.logging:Standard] -[Application setState:] | enter: <Application: 0x902f08be0: cmux DEV issue-9065-remove-cgwindowlistcreateimage> state 4
+2026-07-28 17:02:24.815 Df loginwindow[418:1226] [com.apple.loginwindow.logging:TAL] -[PersistentAppsSupport applicationQuit:] | for app:cmux DEV issue-9065-remove-cgwindowlistcreateimage, _appTrackingState = 2
+2026-07-28 17:02:24.815 Df loginwindow[418:1226] [com.apple.loginwindow.logging:TAL] -[PersistentAppsSupport applicationQuit:] | App: cmux DEV issue-9065-remove-cgwindowlistcreateimage, quit, updating active tracking timer
+2026-07-28 17:02:24.840 Df tccd[685:1ff7ffb] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=31590.5, attribution={responsible={TCCDProcess: identifier=com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage, pid=31590, auid=501, euid=501, responsible_path=/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app/Contents/MacOS/cmux DEV, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, requesting={TCCDProcess: identifier=com.apple.SafariPlatformSupport.Helper, pid=31590, auid=501, euid=501, binary_path=/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper}, },
+2026-07-28 17:02:25.016 A  cmux DEV[2330:1ff3551] (Security) SecItemCopyMatching
+2026-07-28 17:02:25.016 A  cmux DEV[2330:1ff3551] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:25.016 A  cmux DEV[2330:1ff3551] (Security) SecItemCopyMatching
+2026-07-28 17:02:25.016 A  cmux DEV[2330:1ff3551] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:25.017 A  cmux DEV[2330:1ff3551] (Security) SecItemCopyMatching
+2026-07-28 17:02:25.017 A  cmux DEV[2330:1ff3551] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:25.129 A  cmux DEV[69018:1ff3539] (Security) SecItemCopyMatching
+2026-07-28 17:02:25.129 A  cmux DEV[69018:1ff3539] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:25.129 Df cmux DEV[69018:1ff3539] [com.apple.securityd:thread-local-client-debug] SecSecurityClientGet new thread!
+2026-07-28 17:02:25.129 A  cmux DEV[69018:1ff3539] (Security) SecItemCopyMatching
+2026-07-28 17:02:25.129 A  cmux DEV[69018:1ff3539] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:25.130 A  cmux DEV[69018:1ff3539] (Security) SecItemCopyMatching
+2026-07-28 17:02:25.130 A  cmux DEV[69018:1ff3539] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:25.376 Df WindowManager[692:1ff7fd0] [com.apple.windowmanagement:xpcconnection] Connection invalidated | (28087) Dock Extra (cmux DEV issue-9065-remove-cgwindowlistcreateimage.app)
+2026-07-28 17:02:28.659 F  cmux DEV[2330:1f82d2c] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:28.659 A  cmux DEV[2330:1f82d2c] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:28.678 Sd cmux DEV[2330:0] (59E23BD5-D01E-305A-B96F-A5790356049A) com.apple.appkit:StatusBar
+{
+    0 =     {
+        activeState = 1;
+        appearance = NSAppearanceNameDarkAqua;
+        autosaveName = "Item-0";
+        auxiliaryViews =         {
+            NSStatusItemView = "26EAC3FE-55AB-4F05-8A77-E823C39BFDC3-Aux[1]-NSStatusItemView";
+        };
+        class = NSSceneStatusItem;
+        isVisible = 1;
+        sceneIdentifier = "26EAC3FE-55AB-4F05-8A77-E823C39BFDC3";
+        windowNumber = 100000000;
+        windowWidth = 34;
+    };
+    1 =     {
+        activeState = 0;
+        appearance = NSAppearanceNameDarkAqua;
+        auxiliaryViews =         {
+            NSStatusItemView = "26EAC3FE-55AB-4F05-8A77-E823C39BFDC3-Replicant[1]-Aux[1]-NSStatusItemView";
+        };
+        class = NSSceneStatusItem;
+        isVisible = 1;
+        parentWindowNumber = 100000000;
+        sceneIdentifier = "26EAC3FE-55AB-4F05-8A77-E823C39BFDC3-Replicant[1]";
+        windowNumber = 200000000;
+        windowWidth = 34;
+    };
+}
+2026-07-28 17:02:28.703 F  cmux DEV[2330:1f82d2c] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:28.703 A  cmux DEV[2330:1f82d2c] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:28.754 Df cmux DEV[11317:1ff3569] [com.apple.CFNetwork:Default] Task <21FB88FB-B5A9-452A-ACC9-880EA88FFA5C>.<78> resuming, timeouts(8.0, 8.0) qos(0x11) voucher((null)) activity(00000000-0000-0000-0000-000000000000)
+2026-07-28 17:02:28.757 Df cmux DEV[11317:1ff3569] [com.apple.CFNetwork:Summary] Task <21FB88FB-B5A9-452A-ACC9-880EA88FFA5C>.<78> summary for task success {transaction_duration_ms=2, response_status=200, cache_hit=true}
+2026-07-28 17:02:28.757 Df cmux DEV[11317:1ff3569] [com.apple.CFNetwork:Default] Task <21FB88FB-B5A9-452A-ACC9-880EA88FFA5C>.<78> finished successfully
+2026-07-28 17:02:28.802 F  cmux DEV[2330:1f82d2c] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:28.802 A  cmux DEV[2330:1f82d2c] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:28.845 F  cmux DEV[2330:1f82d2c] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:28.845 A  cmux DEV[2330:1f82d2c] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:28.965 F  cmux DEV[2330:1f82d2c] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:28.965 A  cmux DEV[2330:1f82d2c] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:29.001 F  cmux DEV[2330:1f82d2c] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:29.001 A  cmux DEV[2330:1f82d2c] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:29.022 F  cmux DEV[2330:1f82d2c] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:29.022 A  cmux DEV[2330:1f82d2c] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:29.373 A  cmux DEV[64659:1ff0eea] (Security) SecItemCopyMatching
+2026-07-28 17:02:29.373 A  cmux DEV[64659:1ff0eea] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:29.373 A  cmux DEV[64659:1ff0eea] (Security) SecItemCopyMatching
+2026-07-28 17:02:29.374 A  cmux DEV[64659:1ff0eea] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:29.374 A  cmux DEV[64659:1ff0eea] (Security) SecItemCopyMatching
+2026-07-28 17:02:29.374 A  cmux DEV[64659:1ff0eea] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:29.394 F  cmux DEV[76397:1dd0d7b] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:29.394 A  cmux DEV[76397:1dd0d7b] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:29.450 F  cmux DEV[69018:1dcc04e] [com.apple.SwiftUI:Invalid Configuration] NSHostingView is being laid out reentrantly while rendering its SwiftUI content. This is not supported and the current layout pass will be skipped.
+2026-07-28 17:02:29.450 A  cmux DEV[69018:1dcc04e] (libsystem_trace.dylib) Activity for state dumps
+2026-07-28 17:02:29.821 Df loginwindow[418:1fbf96f] [com.apple.loginwindow.logging:TAL] -[PersistentAppsSupport saveLogoutPersistentState:finalSnapshot:] |      previouslyRunningApps: (
+        {
+        BackgroundState = 2;
+        BundleID = "com.cmuxterm.app.debug.issue.9065.remove.cgwindowlistcreateimage";
+        Hide = 0;
+        Path = "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9065-remove-cgwindowlistcreateimage/Build/Products/Debug/cmux DEV issue-9065-remove-cgwindowlistcreateimage.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.cmuxterm.app";
+        Hide = 0;
+        Path = "/Applications/cmux.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.apple.mobilesms";
+        Hide = 0;
+        Path = "/System/Applications/Messages.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.google.chrome";
+        Hide = 0;
+        Path = "/Applications/Google Chrome.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.cmuxterm.app.debug.issue.8349.ghost.window.contexts";
+        Hide = 0;
+        Path = "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-8349-ghost-window-contexts/Build/Products/Debug/cmux DEV issue-8349-ghost-window-contexts.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.cmuxterm.app.debug.issue.9014.agent.auto.retry";
+        Hide = 0;
+        Path = "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9014-agent-auto-retry/Build/Products/Debug/cmux DEV issue-9014-agent-auto-retry.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.hnc.discord";
+        Hide = 0;
+        Path = "/Applications/Discord.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.cmuxterm.app.debug.pr8541.verify";
+        Hide = 0;
+        Path = "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-pr8541-verify/Build/Products/Debug/cmux DEV pr8541-verify.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.cmuxterm.app.debug.issue.8529.workflow.guard.sleep.assert";
+        Hide = 0;
+        Path = "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-8529-workflow-guard-sleep-assert/Build/Products/Debug/cmux DEV issue-8529-workflow-guard-sleep-assert.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.cmuxterm.app.debug.issue.8984.display.sleep.crash";
+        Hide = 0;
+        Path = "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-8984-display-sleep-crash/Build/Products/Debug/cmux DEV issue-8984-display-sleep-crash.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.cmuxterm.app.debug.issue.4499.tmux.split.resize.shortcuts";
+        Hide = 0;
+        Path = "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-4499-tmux-split-resize-shortcuts/Build/Products/Debug/cmux DEV issue-4499-tmux-split-resize-shortcuts.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.apple.calculator";
+        Hide = 0;
+        Path = "/System/Applications/Calculator.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.cmuxterm.app.debug.issue.9007.ssh.tmux.single.pane.focus";
+        Hide = 0;
+        Path = "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9007-ssh-tmux-single-pane-focus/Build/Products/Debug/cmux DEV issue-9007-ssh-tmux-single-pane-focus.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.cmuxterm.app.debug.issue.9067.ssh.boot.retry";
+        Hide = 0;
+        Path = "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9067-ssh-boot-retry/Build/Products/Debug/cmux DEV issue-9067-ssh-boot-retry.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.cmuxterm.app.nightly";
+        Hide = 0;
+        Path = "/Applications/cmux NIGHTLY.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.apple.finder";
+        Hide = 0;
+        Path = "/System/Library/CoreServices/Finder.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.apple.preview";
+        Hide = 0;
+        Path = "/System/Applications/Preview.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.apple.systempreferences";
+        Hide = 0;
+        Path = "/System/Applications/System Settings.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.mitchellh.ghostty";
+        Hide = 0;
+        Path = "/Applications/Ghostty.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.apple.findmy";
+        Hide = 0;
+        Path = "/System/Applications/FindMy.app";
+    },
+        {
+        BackgroundState = 3;
+        BundleID = "com.apple.screensharing";
+        Hide = 0;
+        Path = "/System/Applications/Utilities/Screen Sharing.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.tinyspeck.slackmacgap";
+        Hide = 0;
+        Path = "/Applications/Slack.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "com.apple.notes";
+        Hide = 0;
+        Path = "/System/Applications/Notes.app";
+    },
+        {
+        BackgroundState = 2;
+        BundleID = "io.tailscale.ipn.macsys";
+        Hide = 0;
+        Path = "/Applications/Tailscale.app";
+    },
+        {
+        BackgroundState = 3;
+        BundleID = "net.whatsapp.whatsapp";
+        Hide = 0;
+        Path = "/Applications/WhatsApp.app";
+    }
+)
+2026-07-28 17:02:31.901 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching
+2026-07-28 17:02:31.901 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:31.902 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching
+2026-07-28 17:02:31.902 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching_ios
+2026-07-28 17:02:31.903 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching
+2026-07-28 17:02:31.903 A  cmux DEV[74822:1ff3523] (Security) SecItemCopyMatching_ios

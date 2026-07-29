@@ -1,0 +1,504 @@
+2330 /Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-8349-ghost-window-contexts/Build/Products/Debug/cmux DEV issue-8349-ghost-window-contexts.app/Contents/MacOS/cmux DEV
+11317 /Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-8529-workflow-guard-sleep-assert/Build/Products/Debug/cmux DEV issue-8529-workflow-guard-sleep-assert.app/Contents/MacOS/cmux DEV
+25198 sr codex --dangerously-bypass-approvals-and-sandbox --model gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast Work on GitHub issue #6291 in manaflow-ai/cmux: https://github.com/manaflow-ai/cmux/issues/6291
+
+Title: Sidebar becomes unclickable when CLI tools emit frame-by-frame spinner characters in terminal titles
+
+You are in a full clone at /Users/austinwang/manaflow/term/cmux79, already checked out on branch issue-6291-spinner-title-sidebar-freeze. This clone is your working tree. Do NOT create git worktrees. First read the repo-local AGENTS.md and CLAUDE.md and follow them.
+
+Execute this task to the best of your ability. Choose and execute whatever plan you judge best entirely on your own: never stop to ask the user to evaluate options or pick between approaches; pick the best one and proceed through the full pipeline below, including merge and cleanup, autonomously.
+
+## Issue #6291 (verbatim)
+
+
+# Bug: Sidebar becomes unclickable when CLI tools emit frame-by-frame spinner characters
+
+## Summary
+
+CLI tools like `pnpm` and other Node/Go/Rust spinners update the terminal title on every animation frame with Unicode braille spinner characters (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`). cmux forwards every title change through `ghosttyDidSetTitle` into the workspace panel-title coalescer and the toolbar command-text updater. The volume of redundant updates thrashes the sidebar's main-thread layout, and click events get swallowed — the sidebar becomes entirely unresponsive to the mouse, requiring keyboard shortcuts to switch workspaces or panels.
+
+## Repro
+
+1. Open a workspace in cmux on macOS 15 or 26.
+2. In the terminal, run any command that emits a spinner-updating title:
+   ```bash
+   pnpm install
+   # or: npm install, yarn install, cargo build (with progress), etc.
+   ```
+3. While the install is running, try to click a different workspace in the sidebar, or click a different tab.
+
+## Expected
+
+Sidebar clicks register immediately; user can switch workspaces/tabs while a spinner is active.
+
+## Actual
+
+Sidebar clicks are swallowed. User must use keyboard shortcuts (`cmd+1`, `cmd+2`, etc.) to navigate until the spinner-emitting command finishes.
+
+## Environment
+
+- cmux: 0.64.14 (and earlier)
+- macOS: 15.x and 26.x
+- Shell: zsh with stock shell-integration
+- Tools confirmed: `pnpm`, generic Unicode-braille spinners
+
+## Root cause
+
+`GhosttyTerminalView.swift` posts `ghosttyDidSetTitle` on every title action from ghostty, including frame-by-frame spinner updates. `TabManager.enqueuePanelTitleUpdate` then enqueues every change through `panelTitleUpdateCoalescer`, and `WindowToolbarController.scheduleFocusedCommandTextUpdate` runs on every post — even when the title didn't meaningfully change. The coalescer caps throughput but the resulting panel-title and toolbar-text mutations still flood the main thread enough that hit-testing clicks get starved.
+
+## Proposed fix
+
+1. Strip leading spinner glyph + interstitial whitespace from terminal titles before posting `ghosttyDidSetTitle`, so frame N and frame N+1 with the same non-spinner text collapse to the same title.
+2. Dedupe identical posts at the `TerminalSurface` level via `lastPublishedTerminalTitle`.
+3. In `TabManager.enqueuePanelTitleUpdate`, early-return when the pending queue already holds the trimmed title, or when `Workspace.alreadyReflectsPanelTitleUpdate` says the workspace UI already shows it.
+4. In `WindowToolbarController`, only schedule a command-text update when the title change is for the currently selected tab.
+
+## Scope notes
+
+This issue is narrowly about the sidebar-freeze regression. It does not cover:
+
+- Workspace pull-request poll throttling on `shellPrompt` (separately optimizable).
+- Two-line prompt header redraw on startup resize (Powerlevel10k) — separate display bug.
+- Scrollback replay idle-prompt block accumulation — separate scrollback bug.
+
+These were bundled into a single commit on a fork branch but are logically independent and should be filed separately.
+
+## Evidence
+
+- Source: `Sources/GhosttyTerminalView.swift` title post site (`GHOSTTY_ACTION_SET_TITLE`)
+- Source: `Sources/TabManager.swift` `enqueuePanelTitleUpdate` / `panelTitleUpdateCoalescer`
+- Source: `Sources/WindowToolbarController.swift` `.ghosttyDidSetTitle` observer
+- Patch: `TerminalSurface.publishableTerminalTitle` + `stableTerminalNotificationTitle` + `terminalTitleSpinnerCharacters`
+- Patch: `TabManager.stableTerminalPanelTitle` + dedupe guards
+- Patch: `Workspace.alreadyReflectsPanelTitleUpdate`
+- Test: `TabManagerWorkspaceOwnershipTests.testCodexSpinnerTerminalTitlesCollapseToStablePanelTitle`
+
+
+## Reproduction and verification approach
+
+If the issue includes repro steps, follow them; quote them in the PR body. Pick the right reproduction tool yourself: local execution for cheap deterministic bugs, $cloud-mac for visual/layout/clean-environment bugs where video helps. If the issue has no deterministic repro (e.g. crash-report-only), verification means: regression tests for the specific mechanism you fix plus dev-build dogfood of the affected surfaces, with residual uncertainty stated plainly in the PR body. When feasible, commit a failing regression test first, then the fix, as separate commits. If a part is not cleanly testable, say so in the PR instead of faking coverage. Prefer behavior tests over source-shape tests. Do NOT run local `xcodebuild ... test` or XCUITests on this Mac; unit-style checks and script-level tests are fine, and CI covers the rest.
+
+If the change is docs-only, verification means actually following the documented steps against the relevant sample/code instead of a dev-build dogfood, and the dev build steps below may be skipped if genuinely not applicable; state that explicitly in your final summary.
+
+$rethink-architecturally
+$swift-guidance
+
+## Anticipating Swift File Budgets (mandatory)
+
+cmux CI enforces .github/swift-file-length-budget.tsv (max lines per Swift file; files >= 500 lines are tracked) and .github/swift-warning-budget.tsv. `--write-budget` rewrites and re-sorts every row, so any TSV diff conflicts with every other open PR that touches it. Write the PR so it never touches either TSV:
+
+- Before growing a Swift file, check headroom: compare `wc -l <file>` against its row in the TSV, and plan to land at or under the budgeted count.
+- Put new types and features in new files under 500 lines instead of growing tracked files. Offset unavoidable growth by extracting code into new files.
+- Never let a new or previously untracked file reach 500 lines; that adds a TSV row.
+- Shrinking a file never requires a TSV update. Do not run --write-budget to record reductions in a feature PR.
+- If growth past budget is genuinely unavoidable, hand-edit only the touched files' rows (CI checks values, not row order or slack). Never regenerate the full TSV inside a PR.
+- Run `python3 scripts/swift_file_length_budget.py` from the clone root before pushing. If it fails, split the file rather than refreshing the budget.
+- Introduce zero new Swift warnings; never touch swift-warning-budget.tsv.
+
+## Full pipeline (pre-authorized by the user; run it end to end)
+
+1. Implement. Push only to origin (manaflow-ai/cmux); never a fork. Create the PR with local `gh pr create` (author must be austinywang). Reference the issue with the full URL https://github.com/manaflow-ai/cmux/issues/6291 and `Closes #6291` in the body.
+2. Iterate until: all required CI checks green, `gh pr view <n> --repo manaflow-ai/cmux --json mergeable` reports MERGEABLE (conflicts are not green even if checks pass), and every review comment fully addressed.
+3. Build the dev build from the clone root: CMUX_SKIP_ZIG_BUILD=1 /Users/austinwang/manaflow/cmuxterm-hq/scripts/reload-cloud.sh --tag issue-6291-spinner-title-sidebar-freeze --launch (never run bare xcodebuild; only if the cloud build fails, fall back to CMUX_SKIP_ZIG_BUILD=1 ./scripts/reload.sh --tag issue-6291-spinner-title-sidebar-freeze --launch).
+4. Verify your change on that dev build: exercise the exact scenario from issue #6291 plus relevant edge cases until you are 100 percent confident it works and introduces no regressions. For automation against the dev app use the tag-bound CLI (cmux-dev --socket /tmp/cmux-debug-issue-6291-spinner-title-sidebar-freeze.sock) and confirm the target with identify first; never mutate the ambient cmux socket. If verification finds any problem: fix, push, re-green CI, rebuild, re-verify on a fresh build.
+5. Only once you are at 100 percent confidence: merge with `gh pr merge <n> --repo manaflow-ai/cmux --squash`. Then post a closing comment on issue #6291 of the form: Fixed by <PR URL> (merged in <short sha>). Closing. via `gh issue comment 6291 --repo manaflow-ai/cmux`, and close it with `gh issue close 6291 --repo manaflow-ai/cmux --reason completed`.
+6. Only after the merge is done and verification is fully wrapped up, kill the dev build: quit or kill the cmux DEV issue-6291-spinner-title-sidebar-freeze app process and remove /tmp/cmux-issue-6291-spinner-title-sidebar-freeze and any stale /tmp/cmux-debug-issue-6291-spinner-title-sidebar-freeze.sock.
+7. Print a short final summary: what you verified on the dev build, the merged PR URL, and the cleanup you performed.
+25232 node /Users/austinwang/.nvm/versions/node/v22.17.1/bin/codex --enable hooks --dangerously-bypass-hook-trust -c hooks.SessionStart=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-session-start.sh''',timeout=10000}]}] -c hooks.UserPromptSubmit=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-prompt-submit.sh''',timeout=10000}]}] -c hooks.Stop=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}] -c hooks.PreToolUse=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-pre-tool-use.sh''',timeout=120000}]}] -c hooks.PostToolUse=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-post-tool-use.sh''',timeout=10000}]}] -c hooks.PermissionRequest=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-notification.sh''',timeout=120000}]}] -c model_provider="subrouter" -c model_providers.subrouter.name="Subrouter" -c model_providers.subrouter.base_url="http://cmux-mac-mini:31415/v1" -c model_providers.subrouter.env_key="SUBROUTER_CODEX_DUMMY_API_KEY" -c model_providers.subrouter.wire_api="responses" -c model_providers.subrouter.supports_websockets=true -c model_providers.subrouter.http_headers={"X-Subrouter-Agent"="codex","X-Subrouter-Model"="gpt-5.6-sol"} --dangerously-bypass-approvals-and-sandbox --model gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast Work on GitHub issue #6291 in manaflow-ai/cmux: https://github.com/manaflow-ai/cmux/issues/6291
+
+Title: Sidebar becomes unclickable when CLI tools emit frame-by-frame spinner characters in terminal titles
+
+You are in a full clone at /Users/austinwang/manaflow/term/cmux79, already checked out on branch issue-6291-spinner-title-sidebar-freeze. This clone is your working tree. Do NOT create git worktrees. First read the repo-local AGENTS.md and CLAUDE.md and follow them.
+
+Execute this task to the best of your ability. Choose and execute whatever plan you judge best entirely on your own: never stop to ask the user to evaluate options or pick between approaches; pick the best one and proceed through the full pipeline below, including merge and cleanup, autonomously.
+
+## Issue #6291 (verbatim)
+
+
+# Bug: Sidebar becomes unclickable when CLI tools emit frame-by-frame spinner characters
+
+## Summary
+
+CLI tools like `pnpm` and other Node/Go/Rust spinners update the terminal title on every animation frame with Unicode braille spinner characters (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`). cmux forwards every title change through `ghosttyDidSetTitle` into the workspace panel-title coalescer and the toolbar command-text updater. The volume of redundant updates thrashes the sidebar's main-thread layout, and click events get swallowed — the sidebar becomes entirely unresponsive to the mouse, requiring keyboard shortcuts to switch workspaces or panels.
+
+## Repro
+
+1. Open a workspace in cmux on macOS 15 or 26.
+2. In the terminal, run any command that emits a spinner-updating title:
+   ```bash
+   pnpm install
+   # or: npm install, yarn install, cargo build (with progress), etc.
+   ```
+3. While the install is running, try to click a different workspace in the sidebar, or click a different tab.
+
+## Expected
+
+Sidebar clicks register immediately; user can switch workspaces/tabs while a spinner is active.
+
+## Actual
+
+Sidebar clicks are swallowed. User must use keyboard shortcuts (`cmd+1`, `cmd+2`, etc.) to navigate until the spinner-emitting command finishes.
+
+## Environment
+
+- cmux: 0.64.14 (and earlier)
+- macOS: 15.x and 26.x
+- Shell: zsh with stock shell-integration
+- Tools confirmed: `pnpm`, generic Unicode-braille spinners
+
+## Root cause
+
+`GhosttyTerminalView.swift` posts `ghosttyDidSetTitle` on every title action from ghostty, including frame-by-frame spinner updates. `TabManager.enqueuePanelTitleUpdate` then enqueues every change through `panelTitleUpdateCoalescer`, and `WindowToolbarController.scheduleFocusedCommandTextUpdate` runs on every post — even when the title didn't meaningfully change. The coalescer caps throughput but the resulting panel-title and toolbar-text mutations still flood the main thread enough that hit-testing clicks get starved.
+
+## Proposed fix
+
+1. Strip leading spinner glyph + interstitial whitespace from terminal titles before posting `ghosttyDidSetTitle`, so frame N and frame N+1 with the same non-spinner text collapse to the same title.
+2. Dedupe identical posts at the `TerminalSurface` level via `lastPublishedTerminalTitle`.
+3. In `TabManager.enqueuePanelTitleUpdate`, early-return when the pending queue already holds the trimmed title, or when `Workspace.alreadyReflectsPanelTitleUpdate` says the workspace UI already shows it.
+4. In `WindowToolbarController`, only schedule a command-text update when the title change is for the currently selected tab.
+
+## Scope notes
+
+This issue is narrowly about the sidebar-freeze regression. It does not cover:
+
+- Workspace pull-request poll throttling on `shellPrompt` (separately optimizable).
+- Two-line prompt header redraw on startup resize (Powerlevel10k) — separate display bug.
+- Scrollback replay idle-prompt block accumulation — separate scrollback bug.
+
+These were bundled into a single commit on a fork branch but are logically independent and should be filed separately.
+
+## Evidence
+
+- Source: `Sources/GhosttyTerminalView.swift` title post site (`GHOSTTY_ACTION_SET_TITLE`)
+- Source: `Sources/TabManager.swift` `enqueuePanelTitleUpdate` / `panelTitleUpdateCoalescer`
+- Source: `Sources/WindowToolbarController.swift` `.ghosttyDidSetTitle` observer
+- Patch: `TerminalSurface.publishableTerminalTitle` + `stableTerminalNotificationTitle` + `terminalTitleSpinnerCharacters`
+- Patch: `TabManager.stableTerminalPanelTitle` + dedupe guards
+- Patch: `Workspace.alreadyReflectsPanelTitleUpdate`
+- Test: `TabManagerWorkspaceOwnershipTests.testCodexSpinnerTerminalTitlesCollapseToStablePanelTitle`
+
+
+## Reproduction and verification approach
+
+If the issue includes repro steps, follow them; quote them in the PR body. Pick the right reproduction tool yourself: local execution for cheap deterministic bugs, $cloud-mac for visual/layout/clean-environment bugs where video helps. If the issue has no deterministic repro (e.g. crash-report-only), verification means: regression tests for the specific mechanism you fix plus dev-build dogfood of the affected surfaces, with residual uncertainty stated plainly in the PR body. When feasible, commit a failing regression test first, then the fix, as separate commits. If a part is not cleanly testable, say so in the PR instead of faking coverage. Prefer behavior tests over source-shape tests. Do NOT run local `xcodebuild ... test` or XCUITests on this Mac; unit-style checks and script-level tests are fine, and CI covers the rest.
+
+If the change is docs-only, verification means actually following the documented steps against the relevant sample/code instead of a dev-build dogfood, and the dev build steps below may be skipped if genuinely not applicable; state that explicitly in your final summary.
+
+$rethink-architecturally
+$swift-guidance
+
+## Anticipating Swift File Budgets (mandatory)
+
+cmux CI enforces .github/swift-file-length-budget.tsv (max lines per Swift file; files >= 500 lines are tracked) and .github/swift-warning-budget.tsv. `--write-budget` rewrites and re-sorts every row, so any TSV diff conflicts with every other open PR that touches it. Write the PR so it never touches either TSV:
+
+- Before growing a Swift file, check headroom: compare `wc -l <file>` against its row in the TSV, and plan to land at or under the budgeted count.
+- Put new types and features in new files under 500 lines instead of growing tracked files. Offset unavoidable growth by extracting code into new files.
+- Never let a new or previously untracked file reach 500 lines; that adds a TSV row.
+- Shrinking a file never requires a TSV update. Do not run --write-budget to record reductions in a feature PR.
+- If growth past budget is genuinely unavoidable, hand-edit only the touched files' rows (CI checks values, not row order or slack). Never regenerate the full TSV inside a PR.
+- Run `python3 scripts/swift_file_length_budget.py` from the clone root before pushing. If it fails, split the file rather than refreshing the budget.
+- Introduce zero new Swift warnings; never touch swift-warning-budget.tsv.
+
+## Full pipeline (pre-authorized by the user; run it end to end)
+
+1. Implement. Push only to origin (manaflow-ai/cmux); never a fork. Create the PR with local `gh pr create` (author must be austinywang). Reference the issue with the full URL https://github.com/manaflow-ai/cmux/issues/6291 and `Closes #6291` in the body.
+2. Iterate until: all required CI checks green, `gh pr view <n> --repo manaflow-ai/cmux --json mergeable` reports MERGEABLE (conflicts are not green even if checks pass), and every review comment fully addressed.
+3. Build the dev build from the clone root: CMUX_SKIP_ZIG_BUILD=1 /Users/austinwang/manaflow/cmuxterm-hq/scripts/reload-cloud.sh --tag issue-6291-spinner-title-sidebar-freeze --launch (never run bare xcodebuild; only if the cloud build fails, fall back to CMUX_SKIP_ZIG_BUILD=1 ./scripts/reload.sh --tag issue-6291-spinner-title-sidebar-freeze --launch).
+4. Verify your change on that dev build: exercise the exact scenario from issue #6291 plus relevant edge cases until you are 100 percent confident it works and introduces no regressions. For automation against the dev app use the tag-bound CLI (cmux-dev --socket /tmp/cmux-debug-issue-6291-spinner-title-sidebar-freeze.sock) and confirm the target with identify first; never mutate the ambient cmux socket. If verification finds any problem: fix, push, re-green CI, rebuild, re-verify on a fresh build.
+5. Only once you are at 100 percent confidence: merge with `gh pr merge <n> --repo manaflow-ai/cmux --squash`. Then post a closing comment on issue #6291 of the form: Fixed by <PR URL> (merged in <short sha>). Closing. via `gh issue comment 6291 --repo manaflow-ai/cmux`, and close it with `gh issue close 6291 --repo manaflow-ai/cmux --reason completed`.
+6. Only after the merge is done and verification is fully wrapped up, kill the dev build: quit or kill the cmux DEV issue-6291-spinner-title-sidebar-freeze app process and remove /tmp/cmux-issue-6291-spinner-title-sidebar-freeze and any stale /tmp/cmux-debug-issue-6291-spinner-title-sidebar-freeze.sock.
+7. Print a short final summary: what you verified on the dev build, the merged PR URL, and the cleanup you performed.
+25366 /Users/austinwang/.nvm/versions/node/v22.17.1/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex --enable hooks --dangerously-bypass-hook-trust -c hooks.SessionStart=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-session-start.sh''',timeout=10000}]}] -c hooks.UserPromptSubmit=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-prompt-submit.sh''',timeout=10000}]}] -c hooks.Stop=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}] -c hooks.PreToolUse=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-pre-tool-use.sh''',timeout=120000}]}] -c hooks.PostToolUse=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-post-tool-use.sh''',timeout=10000}]}] -c hooks.PermissionRequest=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-notification.sh''',timeout=120000}]}] -c model_provider="subrouter" -c model_providers.subrouter.name="Subrouter" -c model_providers.subrouter.base_url="http://cmux-mac-mini:31415/v1" -c model_providers.subrouter.env_key="SUBROUTER_CODEX_DUMMY_API_KEY" -c model_providers.subrouter.wire_api="responses" -c model_providers.subrouter.supports_websockets=true -c model_providers.subrouter.http_headers={"X-Subrouter-Agent"="codex","X-Subrouter-Model"="gpt-5.6-sol"} --dangerously-bypass-approvals-and-sandbox --model gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast Work on GitHub issue #6291 in manaflow-ai/cmux: https://github.com/manaflow-ai/cmux/issues/6291
+
+Title: Sidebar becomes unclickable when CLI tools emit frame-by-frame spinner characters in terminal titles
+
+You are in a full clone at /Users/austinwang/manaflow/term/cmux79, already checked out on branch issue-6291-spinner-title-sidebar-freeze. This clone is your working tree. Do NOT create git worktrees. First read the repo-local AGENTS.md and CLAUDE.md and follow them.
+
+Execute this task to the best of your ability. Choose and execute whatever plan you judge best entirely on your own: never stop to ask the user to evaluate options or pick between approaches; pick the best one and proceed through the full pipeline below, including merge and cleanup, autonomously.
+
+## Issue #6291 (verbatim)
+
+
+# Bug: Sidebar becomes unclickable when CLI tools emit frame-by-frame spinner characters
+
+## Summary
+
+CLI tools like `pnpm` and other Node/Go/Rust spinners update the terminal title on every animation frame with Unicode braille spinner characters (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`). cmux forwards every title change through `ghosttyDidSetTitle` into the workspace panel-title coalescer and the toolbar command-text updater. The volume of redundant updates thrashes the sidebar's main-thread layout, and click events get swallowed — the sidebar becomes entirely unresponsive to the mouse, requiring keyboard shortcuts to switch workspaces or panels.
+
+## Repro
+
+1. Open a workspace in cmux on macOS 15 or 26.
+2. In the terminal, run any command that emits a spinner-updating title:
+   ```bash
+   pnpm install
+   # or: npm install, yarn install, cargo build (with progress), etc.
+   ```
+3. While the install is running, try to click a different workspace in the sidebar, or click a different tab.
+
+## Expected
+
+Sidebar clicks register immediately; user can switch workspaces/tabs while a spinner is active.
+
+## Actual
+
+Sidebar clicks are swallowed. User must use keyboard shortcuts (`cmd+1`, `cmd+2`, etc.) to navigate until the spinner-emitting command finishes.
+
+## Environment
+
+- cmux: 0.64.14 (and earlier)
+- macOS: 15.x and 26.x
+- Shell: zsh with stock shell-integration
+- Tools confirmed: `pnpm`, generic Unicode-braille spinners
+
+## Root cause
+
+`GhosttyTerminalView.swift` posts `ghosttyDidSetTitle` on every title action from ghostty, including frame-by-frame spinner updates. `TabManager.enqueuePanelTitleUpdate` then enqueues every change through `panelTitleUpdateCoalescer`, and `WindowToolbarController.scheduleFocusedCommandTextUpdate` runs on every post — even when the title didn't meaningfully change. The coalescer caps throughput but the resulting panel-title and toolbar-text mutations still flood the main thread enough that hit-testing clicks get starved.
+
+## Proposed fix
+
+1. Strip leading spinner glyph + interstitial whitespace from terminal titles before posting `ghosttyDidSetTitle`, so frame N and frame N+1 with the same non-spinner text collapse to the same title.
+2. Dedupe identical posts at the `TerminalSurface` level via `lastPublishedTerminalTitle`.
+3. In `TabManager.enqueuePanelTitleUpdate`, early-return when the pending queue already holds the trimmed title, or when `Workspace.alreadyReflectsPanelTitleUpdate` says the workspace UI already shows it.
+4. In `WindowToolbarController`, only schedule a command-text update when the title change is for the currently selected tab.
+
+## Scope notes
+
+This issue is narrowly about the sidebar-freeze regression. It does not cover:
+
+- Workspace pull-request poll throttling on `shellPrompt` (separately optimizable).
+- Two-line prompt header redraw on startup resize (Powerlevel10k) — separate display bug.
+- Scrollback replay idle-prompt block accumulation — separate scrollback bug.
+
+These were bundled into a single commit on a fork branch but are logically independent and should be filed separately.
+
+## Evidence
+
+- Source: `Sources/GhosttyTerminalView.swift` title post site (`GHOSTTY_ACTION_SET_TITLE`)
+- Source: `Sources/TabManager.swift` `enqueuePanelTitleUpdate` / `panelTitleUpdateCoalescer`
+- Source: `Sources/WindowToolbarController.swift` `.ghosttyDidSetTitle` observer
+- Patch: `TerminalSurface.publishableTerminalTitle` + `stableTerminalNotificationTitle` + `terminalTitleSpinnerCharacters`
+- Patch: `TabManager.stableTerminalPanelTitle` + dedupe guards
+- Patch: `Workspace.alreadyReflectsPanelTitleUpdate`
+- Test: `TabManagerWorkspaceOwnershipTests.testCodexSpinnerTerminalTitlesCollapseToStablePanelTitle`
+
+
+## Reproduction and verification approach
+
+If the issue includes repro steps, follow them; quote them in the PR body. Pick the right reproduction tool yourself: local execution for cheap deterministic bugs, $cloud-mac for visual/layout/clean-environment bugs where video helps. If the issue has no deterministic repro (e.g. crash-report-only), verification means: regression tests for the specific mechanism you fix plus dev-build dogfood of the affected surfaces, with residual uncertainty stated plainly in the PR body. When feasible, commit a failing regression test first, then the fix, as separate commits. If a part is not cleanly testable, say so in the PR instead of faking coverage. Prefer behavior tests over source-shape tests. Do NOT run local `xcodebuild ... test` or XCUITests on this Mac; unit-style checks and script-level tests are fine, and CI covers the rest.
+
+If the change is docs-only, verification means actually following the documented steps against the relevant sample/code instead of a dev-build dogfood, and the dev build steps below may be skipped if genuinely not applicable; state that explicitly in your final summary.
+
+$rethink-architecturally
+$swift-guidance
+
+## Anticipating Swift File Budgets (mandatory)
+
+cmux CI enforces .github/swift-file-length-budget.tsv (max lines per Swift file; files >= 500 lines are tracked) and .github/swift-warning-budget.tsv. `--write-budget` rewrites and re-sorts every row, so any TSV diff conflicts with every other open PR that touches it. Write the PR so it never touches either TSV:
+
+- Before growing a Swift file, check headroom: compare `wc -l <file>` against its row in the TSV, and plan to land at or under the budgeted count.
+- Put new types and features in new files under 500 lines instead of growing tracked files. Offset unavoidable growth by extracting code into new files.
+- Never let a new or previously untracked file reach 500 lines; that adds a TSV row.
+- Shrinking a file never requires a TSV update. Do not run --write-budget to record reductions in a feature PR.
+- If growth past budget is genuinely unavoidable, hand-edit only the touched files' rows (CI checks values, not row order or slack). Never regenerate the full TSV inside a PR.
+- Run `python3 scripts/swift_file_length_budget.py` from the clone root before pushing. If it fails, split the file rather than refreshing the budget.
+- Introduce zero new Swift warnings; never touch swift-warning-budget.tsv.
+
+## Full pipeline (pre-authorized by the user; run it end to end)
+
+1. Implement. Push only to origin (manaflow-ai/cmux); never a fork. Create the PR with local `gh pr create` (author must be austinywang). Reference the issue with the full URL https://github.com/manaflow-ai/cmux/issues/6291 and `Closes #6291` in the body.
+2. Iterate until: all required CI checks green, `gh pr view <n> --repo manaflow-ai/cmux --json mergeable` reports MERGEABLE (conflicts are not green even if checks pass), and every review comment fully addressed.
+3. Build the dev build from the clone root: CMUX_SKIP_ZIG_BUILD=1 /Users/austinwang/manaflow/cmuxterm-hq/scripts/reload-cloud.sh --tag issue-6291-spinner-title-sidebar-freeze --launch (never run bare xcodebuild; only if the cloud build fails, fall back to CMUX_SKIP_ZIG_BUILD=1 ./scripts/reload.sh --tag issue-6291-spinner-title-sidebar-freeze --launch).
+4. Verify your change on that dev build: exercise the exact scenario from issue #6291 plus relevant edge cases until you are 100 percent confident it works and introduces no regressions. For automation against the dev app use the tag-bound CLI (cmux-dev --socket /tmp/cmux-debug-issue-6291-spinner-title-sidebar-freeze.sock) and confirm the target with identify first; never mutate the ambient cmux socket. If verification finds any problem: fix, push, re-green CI, rebuild, re-verify on a fresh build.
+5. Only once you are at 100 percent confidence: merge with `gh pr merge <n> --repo manaflow-ai/cmux --squash`. Then post a closing comment on issue #6291 of the form: Fixed by <PR URL> (merged in <short sha>). Closing. via `gh issue comment 6291 --repo manaflow-ai/cmux`, and close it with `gh issue close 6291 --repo manaflow-ai/cmux --reason completed`.
+6. Only after the merge is done and verification is fully wrapped up, kill the dev build: quit or kill the cmux DEV issue-6291-spinner-title-sidebar-freeze app process and remove /tmp/cmux-issue-6291-spinner-title-sidebar-freeze and any stale /tmp/cmux-debug-issue-6291-spinner-title-sidebar-freeze.sock.
+7. Print a short final summary: what you verified on the dev build, the merged PR URL, and the cleanup you performed.
+39573 /Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9014-agent-auto-retry/Build/Products/Debug/cmux DEV issue-9014-agent-auto-retry.app/Contents/MacOS/cmux DEV
+41239 rsync --partial -e ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 cmux@cmuxs-mac-mini-3-1:/Users/cmux/.cache/cmux-job/cloud-build-runs/issue-9056-ssh-tmux-pane-input-capture-240e707b8a38/app.zip /Users/austinwang/manaflow/cmuxterm-hq/artifacts/reload-cloud/issue-9056-ssh-tmux-pane-input-capture-240e707b8a38/cmux DEV issue-9056-ssh-tmux-pane-input-capture.app.zip
+44811 /bin/zsh -c source /Users/austinwang/.claude/shell-snapshots/snapshot-zsh-1785239151451-vzhyvm.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && { \builtin unalias -- 'unsetenv'; \builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'while ps -p 63334 >/dev/null 2>&1; do sleep 20; done
+echo "cu-v18 xcodebuild exited"
+sleep 20
+W="$HOME/Library/Developer/Xcode/DerivedData/cmux-cu-v18/Build/Products/Debug/cmux DEV cu-v18.app/Contents/Resources/bin/cmux-claude-wrapper"
+if [ -f "$W" ]; then
+  if grep -q "cmux_claude_install_computer_use_skill" "$W"; then echo "cu-v18 bundle HAS claude skill fix"; else echo "cu-v18 bundle MISSING claude skill fix"; fi
+else
+  echo "cu-v18 wrapper not found (build failed)"
+fi
+for i in 1 2 3 4 5 6 7 8 9; do
+  if pgrep -f "cmux DEV cu-v18.app/Contents/MacOS" >/dev/null 2>&1; then echo "cu-v18 app LAUNCHED"; exit 0; fi
+  sleep 10
+done
+echo "cu-v18 app not launched within 90s of build exit"' < /dev/null && pwd -P >| /tmp/claude-0a00-cwd
+64659 /Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9067-ssh-boot-retry/Build/Products/Debug/cmux DEV issue-9067-ssh-boot-retry.app/Contents/MacOS/cmux DEV
+69018 /Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-4499-tmux-split-resize-shortcuts/Build/Products/Debug/cmux DEV issue-4499-tmux-split-resize-shortcuts.app/Contents/MacOS/cmux DEV
+74074 /bin/zsh -c tail -80 cmux-assets/issue-9065-remove-cgwindowlistcreateimage/dogfood/f1667ea/logs/app-debug-log-tail.txt; sed -n '1,240p' cmux-assets/issue-9065-remove-cgwindowlistcreateimage/dogfood/f1667ea/logs/tmp-related-after-rpc.txt; pgrep -fal 'cmux DEV' | tee cmux-assets/issue-9065-remove-cgwindowlistcreateimage/dogfood/f1667ea/logs/all-cmux-processes-after-rpc.txt; lsof -n -U | rg 'cmux-debug-issue-9065-remove-cgwindowlistcreateimage|cmux-screenshots' | tee cmux-assets/issue-9065-remove-cgwindowlistcreateimage/dogfood/f1667ea/logs/lsof-after-rpc.txt; if [ -d /tmp/cmux-screenshots ]; then find /tmp/cmux-screenshots -maxdepth 1 -type f -mmin -10 -print -exec ls -l {} \; | tee cmux-assets/issue-9065-remove-cgwindowlistcreateimage/dogfood/f1667ea/logs/recent-screenshot-files-after-rpc.txt; fi
+74822 /Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-8984-display-sleep-crash/Build/Products/Debug/cmux DEV issue-8984-display-sleep-crash.app/Contents/MacOS/cmux DEV
+76397 /Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-9007-ssh-tmux-single-pane-focus/Build/Products/Debug/cmux DEV issue-9007-ssh-tmux-single-pane-focus.app/Contents/MacOS/cmux DEV
+85164 /Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-pr8541-verify/Build/Products/Debug/cmux DEV pr8541-verify.app/Contents/MacOS/cmux DEV
+90817 sr codex --dangerously-bypass-approvals-and-sandbox --model gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast Fix GitHub issue #8969 in manaflow-ai/cmux: Large paste into a TUI silently drops a contiguous interior chunk. Read it first: gh issue view 8969 --repo manaflow-ai/cmux
+
+WORKING TREE: You are already in /Users/austinwang/manaflow/term/cmux37 on branch issue-8969-large-paste-drops-chunk, freshly cut from origin/main (64ec2bbf0). This clone on this branch is your working tree. No git worktrees, no branch switches. Read the repo AGENTS.md / CLAUDE.md before coding.
+
+REPRO (verbatim from the issue): "1. Open a cmux terminal running a bracketed-paste TUI (Claude Code CLI is where I hit it; any readline TUI with bracketed paste should do). 2. Copy a multi-paragraph text block of a few KB to the clipboard. 3. Paste with cmd+v. 4. Compare what the TUI received against the clipboard: an interior chunk is missing." Not deterministic per paste (~3 of 12 large pastes in a day); small pastes never truncate; always a single contiguous interior run, suggesting a chunk-boundary bug in chunked bracketed-paste forwarding on the write side. Related symptom class: #2966, #3096.
+
+APPROACH: Find the chunked paste write path into the embedded Ghostty surface and the seam where a chunk can be dropped (short write, retry-without-offset, coalescing, backpressure). A deterministic unit/behavior test at the chunking layer that forces the boundary condition is the right regression test; commit it failing first. For live verification use the dev build: put a known multi-KB payload on the clipboard (pbcopy), paste into a bracketed-paste receiver in the tagged app, diff received vs payload across at least 10 trials (the bug is probabilistic - one clean paste proves nothing).
+
+AUTONOMY: Execute to the best of your ability. Choose and execute whatever plan you judge best entirely on your own; never stop to ask the user to evaluate options or pick between approaches.
+
+Apply $rethink-architecturally and $swift-guidance: prefer the architecturally right fix over the most local patch.
+
+SWIFT FILE BUDGETS (mandatory): cmux CI enforces .github/swift-file-length-budget.tsv (files >= 500 lines tracked) and .github/swift-warning-budget.tsv. The PR must not touch either TSV: check headroom (wc -l vs the TSV row) before growing any tracked Swift file; put new code in new files under 500 lines; never let a new file reach 500 lines; never run --write-budget; if growth past budget is genuinely unavoidable, hand-edit only the touched rows. Run python3 scripts/swift_file_length_budget.py before pushing; if it fails, split files. Zero new Swift warnings.
+
+OTHER RULES: Localize user-facing strings via String(localized:defaultValue:) in Resources/Localizable.xcstrings (EN+JA). No sleep-based timing in app code. Do NOT run local xcodebuild builds or tests on this Mac (never bare xcodebuild); CI is the test gate.
+
+PR: Commit failing regression test first, then the fix, when feasible. Push only to origin. gh pr create against main with "Closes #8969". Iterate until required CI green AND gh pr view --json mergeable reports MERGEABLE AND every review-bot comment is addressed.
+
+DEV BUILD VERIFICATION (pre-authorized by the user — do this after CI is green, not before): from the clone root run
+  CMUX_SKIP_ZIG_BUILD=1 /Users/austinwang/manaflow/cmuxterm-hq/scripts/reload-cloud.sh --tag <full-branch-name> --launch
+The tag must be the full `git branch --show-current` output. If the wrapper prints "Blacksmith build failed", verify with gh run view <run-id> --json status,conclusion before believing it (known false negative while the run is still in_progress). Only if the cloud build genuinely fails, fall back to CMUX_SKIP_ZIG_BUILD=1 ./scripts/reload.sh --tag <branch> --launch. Drive the launched tagged app ONLY through its tag-bound CLI: cmux-dev --socket /tmp/cmux-debug-<tag>.sock (run `identify` first to confirm you are talking to the dev app, never the ambient cmux socket).
+
+MERGE (pre-authorized, strictly conditional): merge ONLY when ALL hold: required CI green, MERGEABLE, all review comments addressed, and the dev-build verification above confirms the fix. Then: gh pr merge <n> --repo manaflow-ai/cmux --merge. After merging, close the issue explicitly:
+  gh issue comment 8969 --repo manaflow-ai/cmux --body "Fixed by <PR-URL> (merged in <short-sha>). Verified on dev build <tag>. Closing."
+  gh issue close 8969 --repo manaflow-ai/cmux --reason completed
+If verification fails or any condition is not met, do NOT merge — fix and re-verify, or report the blocker.
+
+TEARDOWN (after merge or after giving up): fully close the dev build — quit the "cmux DEV <tag>" app; check launchctl list | grep -i <tag-fragment> and launchctl remove com.cmuxterm.app.debug.<sanitized-tag>.reload if present (tagged apps can relaunch via launchd otherwise); remove /tmp/cmux-<tag> and /tmp/cmux-debug-<tag>.sock*; verify with pgrep -fl <tag-fragment> that nothing remains.
+90831 node /Users/austinwang/.nvm/versions/node/v22.17.1/bin/codex --enable hooks --dangerously-bypass-hook-trust -c hooks.SessionStart=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-session-start.sh''',timeout=10000}]}] -c hooks.UserPromptSubmit=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-prompt-submit.sh''',timeout=10000}]}] -c hooks.Stop=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}] -c hooks.PreToolUse=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-pre-tool-use.sh''',timeout=120000}]}] -c hooks.PostToolUse=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-post-tool-use.sh''',timeout=10000}]}] -c hooks.PermissionRequest=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-notification.sh''',timeout=120000}]}] -c model_provider="subrouter" -c model_providers.subrouter.name="Subrouter" -c model_providers.subrouter.base_url="http://cmux-mac-mini:31415/v1" -c model_providers.subrouter.env_key="SUBROUTER_CODEX_DUMMY_API_KEY" -c model_providers.subrouter.wire_api="responses" -c model_providers.subrouter.supports_websockets=true -c model_providers.subrouter.http_headers={"X-Subrouter-Agent"="codex","X-Subrouter-Model"="gpt-5.6-sol"} --dangerously-bypass-approvals-and-sandbox --model gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast Fix GitHub issue #8969 in manaflow-ai/cmux: Large paste into a TUI silently drops a contiguous interior chunk. Read it first: gh issue view 8969 --repo manaflow-ai/cmux
+
+WORKING TREE: You are already in /Users/austinwang/manaflow/term/cmux37 on branch issue-8969-large-paste-drops-chunk, freshly cut from origin/main (64ec2bbf0). This clone on this branch is your working tree. No git worktrees, no branch switches. Read the repo AGENTS.md / CLAUDE.md before coding.
+
+REPRO (verbatim from the issue): "1. Open a cmux terminal running a bracketed-paste TUI (Claude Code CLI is where I hit it; any readline TUI with bracketed paste should do). 2. Copy a multi-paragraph text block of a few KB to the clipboard. 3. Paste with cmd+v. 4. Compare what the TUI received against the clipboard: an interior chunk is missing." Not deterministic per paste (~3 of 12 large pastes in a day); small pastes never truncate; always a single contiguous interior run, suggesting a chunk-boundary bug in chunked bracketed-paste forwarding on the write side. Related symptom class: #2966, #3096.
+
+APPROACH: Find the chunked paste write path into the embedded Ghostty surface and the seam where a chunk can be dropped (short write, retry-without-offset, coalescing, backpressure). A deterministic unit/behavior test at the chunking layer that forces the boundary condition is the right regression test; commit it failing first. For live verification use the dev build: put a known multi-KB payload on the clipboard (pbcopy), paste into a bracketed-paste receiver in the tagged app, diff received vs payload across at least 10 trials (the bug is probabilistic - one clean paste proves nothing).
+
+AUTONOMY: Execute to the best of your ability. Choose and execute whatever plan you judge best entirely on your own; never stop to ask the user to evaluate options or pick between approaches.
+
+Apply $rethink-architecturally and $swift-guidance: prefer the architecturally right fix over the most local patch.
+
+SWIFT FILE BUDGETS (mandatory): cmux CI enforces .github/swift-file-length-budget.tsv (files >= 500 lines tracked) and .github/swift-warning-budget.tsv. The PR must not touch either TSV: check headroom (wc -l vs the TSV row) before growing any tracked Swift file; put new code in new files under 500 lines; never let a new file reach 500 lines; never run --write-budget; if growth past budget is genuinely unavoidable, hand-edit only the touched rows. Run python3 scripts/swift_file_length_budget.py before pushing; if it fails, split files. Zero new Swift warnings.
+
+OTHER RULES: Localize user-facing strings via String(localized:defaultValue:) in Resources/Localizable.xcstrings (EN+JA). No sleep-based timing in app code. Do NOT run local xcodebuild builds or tests on this Mac (never bare xcodebuild); CI is the test gate.
+
+PR: Commit failing regression test first, then the fix, when feasible. Push only to origin. gh pr create against main with "Closes #8969". Iterate until required CI green AND gh pr view --json mergeable reports MERGEABLE AND every review-bot comment is addressed.
+
+DEV BUILD VERIFICATION (pre-authorized by the user — do this after CI is green, not before): from the clone root run
+  CMUX_SKIP_ZIG_BUILD=1 /Users/austinwang/manaflow/cmuxterm-hq/scripts/reload-cloud.sh --tag <full-branch-name> --launch
+The tag must be the full `git branch --show-current` output. If the wrapper prints "Blacksmith build failed", verify with gh run view <run-id> --json status,conclusion before believing it (known false negative while the run is still in_progress). Only if the cloud build genuinely fails, fall back to CMUX_SKIP_ZIG_BUILD=1 ./scripts/reload.sh --tag <branch> --launch. Drive the launched tagged app ONLY through its tag-bound CLI: cmux-dev --socket /tmp/cmux-debug-<tag>.sock (run `identify` first to confirm you are talking to the dev app, never the ambient cmux socket).
+
+MERGE (pre-authorized, strictly conditional): merge ONLY when ALL hold: required CI green, MERGEABLE, all review comments addressed, and the dev-build verification above confirms the fix. Then: gh pr merge <n> --repo manaflow-ai/cmux --merge. After merging, close the issue explicitly:
+  gh issue comment 8969 --repo manaflow-ai/cmux --body "Fixed by <PR-URL> (merged in <short-sha>). Verified on dev build <tag>. Closing."
+  gh issue close 8969 --repo manaflow-ai/cmux --reason completed
+If verification fails or any condition is not met, do NOT merge — fix and re-verify, or report the blocker.
+
+TEARDOWN (after merge or after giving up): fully close the dev build — quit the "cmux DEV <tag>" app; check launchctl list | grep -i <tag-fragment> and launchctl remove com.cmuxterm.app.debug.<sanitized-tag>.reload if present (tagged apps can relaunch via launchd otherwise); remove /tmp/cmux-<tag> and /tmp/cmux-debug-<tag>.sock*; verify with pgrep -fl <tag-fragment> that nothing remains.
+90953 /Users/austinwang/.nvm/versions/node/v22.17.1/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex --enable hooks --dangerously-bypass-hook-trust -c hooks.SessionStart=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-session-start.sh''',timeout=10000}]}] -c hooks.UserPromptSubmit=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-prompt-submit.sh''',timeout=10000}]}] -c hooks.Stop=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}] -c hooks.PreToolUse=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-pre-tool-use.sh''',timeout=120000}]}] -c hooks.PostToolUse=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-post-tool-use.sh''',timeout=10000}]}] -c hooks.PermissionRequest=[{hooks=[{type="command",command='''/Users/austinwang/.cmux/hooks/cmux-codex-hook-notification.sh''',timeout=120000}]}] -c model_provider="subrouter" -c model_providers.subrouter.name="Subrouter" -c model_providers.subrouter.base_url="http://cmux-mac-mini:31415/v1" -c model_providers.subrouter.env_key="SUBROUTER_CODEX_DUMMY_API_KEY" -c model_providers.subrouter.wire_api="responses" -c model_providers.subrouter.supports_websockets=true -c model_providers.subrouter.http_headers={"X-Subrouter-Agent"="codex","X-Subrouter-Model"="gpt-5.6-sol"} --dangerously-bypass-approvals-and-sandbox --model gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast Fix GitHub issue #8969 in manaflow-ai/cmux: Large paste into a TUI silently drops a contiguous interior chunk. Read it first: gh issue view 8969 --repo manaflow-ai/cmux
+
+WORKING TREE: You are already in /Users/austinwang/manaflow/term/cmux37 on branch issue-8969-large-paste-drops-chunk, freshly cut from origin/main (64ec2bbf0). This clone on this branch is your working tree. No git worktrees, no branch switches. Read the repo AGENTS.md / CLAUDE.md before coding.
+
+REPRO (verbatim from the issue): "1. Open a cmux terminal running a bracketed-paste TUI (Claude Code CLI is where I hit it; any readline TUI with bracketed paste should do). 2. Copy a multi-paragraph text block of a few KB to the clipboard. 3. Paste with cmd+v. 4. Compare what the TUI received against the clipboard: an interior chunk is missing." Not deterministic per paste (~3 of 12 large pastes in a day); small pastes never truncate; always a single contiguous interior run, suggesting a chunk-boundary bug in chunked bracketed-paste forwarding on the write side. Related symptom class: #2966, #3096.
+
+APPROACH: Find the chunked paste write path into the embedded Ghostty surface and the seam where a chunk can be dropped (short write, retry-without-offset, coalescing, backpressure). A deterministic unit/behavior test at the chunking layer that forces the boundary condition is the right regression test; commit it failing first. For live verification use the dev build: put a known multi-KB payload on the clipboard (pbcopy), paste into a bracketed-paste receiver in the tagged app, diff received vs payload across at least 10 trials (the bug is probabilistic - one clean paste proves nothing).
+
+AUTONOMY: Execute to the best of your ability. Choose and execute whatever plan you judge best entirely on your own; never stop to ask the user to evaluate options or pick between approaches.
+
+Apply $rethink-architecturally and $swift-guidance: prefer the architecturally right fix over the most local patch.
+
+SWIFT FILE BUDGETS (mandatory): cmux CI enforces .github/swift-file-length-budget.tsv (files >= 500 lines tracked) and .github/swift-warning-budget.tsv. The PR must not touch either TSV: check headroom (wc -l vs the TSV row) before growing any tracked Swift file; put new code in new files under 500 lines; never let a new file reach 500 lines; never run --write-budget; if growth past budget is genuinely unavoidable, hand-edit only the touched rows. Run python3 scripts/swift_file_length_budget.py before pushing; if it fails, split files. Zero new Swift warnings.
+
+OTHER RULES: Localize user-facing strings via String(localized:defaultValue:) in Resources/Localizable.xcstrings (EN+JA). No sleep-based timing in app code. Do NOT run local xcodebuild builds or tests on this Mac (never bare xcodebuild); CI is the test gate.
+
+PR: Commit failing regression test first, then the fix, when feasible. Push only to origin. gh pr create against main with "Closes #8969". Iterate until required CI green AND gh pr view --json mergeable reports MERGEABLE AND every review-bot comment is addressed.
+
+DEV BUILD VERIFICATION (pre-authorized by the user — do this after CI is green, not before): from the clone root run
+  CMUX_SKIP_ZIG_BUILD=1 /Users/austinwang/manaflow/cmuxterm-hq/scripts/reload-cloud.sh --tag <full-branch-name> --launch
+The tag must be the full `git branch --show-current` output. If the wrapper prints "Blacksmith build failed", verify with gh run view <run-id> --json status,conclusion before believing it (known false negative while the run is still in_progress). Only if the cloud build genuinely fails, fall back to CMUX_SKIP_ZIG_BUILD=1 ./scripts/reload.sh --tag <branch> --launch. Drive the launched tagged app ONLY through its tag-bound CLI: cmux-dev --socket /tmp/cmux-debug-<tag>.sock (run `identify` first to confirm you are talking to the dev app, never the ambient cmux socket).
+
+MERGE (pre-authorized, strictly conditional): merge ONLY when ALL hold: required CI green, MERGEABLE, all review comments addressed, and the dev-build verification above confirms the fix. Then: gh pr merge <n> --repo manaflow-ai/cmux --merge. After merging, close the issue explicitly:
+  gh issue comment 8969 --repo manaflow-ai/cmux --body "Fixed by <PR-URL> (merged in <short-sha>). Verified on dev build <tag>. Closing."
+  gh issue close 8969 --repo manaflow-ai/cmux --reason completed
+If verification fails or any condition is not met, do NOT merge — fix and re-verify, or report the blocker.
+
+TEARDOWN (after merge or after giving up): fully close the dev build — quit the "cmux DEV <tag>" app; check launchctl list | grep -i <tag-fragment> and launchctl remove com.cmuxterm.app.debug.<sanitized-tag>.reload if present (tagged apps can relaunch via launchd otherwise); remove /tmp/cmux-<tag> and /tmp/cmux-debug-<tag>.sock*; verify with pgrep -fl <tag-fragment> that nothing remains.
+91859 sr codex --dangerously-bypass-approvals-and-sandbox --model gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast Fix GitHub issue #8971 in manaflow-ai/cmux: Cmd-G (Find Next) searches for the literal word "next". Read it first: gh issue view 8971 --repo manaflow-ai/cmux
+
+WORKING TREE: You are already in /Users/austinwang/manaflow/term/cmux76 on branch issue-8971-find-next-navigate-search, freshly cut from origin/main (64ec2bbf0). This clone on this branch is your working tree. No git worktrees, no branch switches. Read the repo AGENTS.md / CLAUDE.md before coding.
+
+ROOT CAUSE (supplied in the issue, verify against current main): Sources/TabManager.swift:837 sends performBindingAction("search:next") and :846 sends "search:previous". Ghostty's "search:" action STARTS A NEW SEARCH for the given literal text (replacing the active query); navigating results requires "navigate_search:next" / "navigate_search:previous". So Cmd-G searches for the literal word "next" and Opt-Cmd-G for "previous", destroying the user's query. The find bar's own arrows/Return work, only the shortcuts are wrong.
+
+APPROACH: Fix the binding action strings (and audit the file for any other search:/navigate_search: confusions). Add a regression test asserting Find Next/Find Previous dispatch navigate_search:next/navigate_search:previous and never "search:<literal>". Check whether behavior when no search is active needs handling (navigate_search is a no-op then - decide whether Cmd-G should open the find bar instead; keep scope tight and justify in the PR). Live verification in the dev build: open a terminal with repeated matches, Cmd-F, type a query, press Cmd-G and Opt-Cmd-G, confirm the query survives and the selection advances/retreats (read the find bar state via the tag-bound CLI or screen reads).
+
+AUTONOMY: Execute to the best of your ability. Choose and execute whatever plan you judge best entirely on your own; never stop to ask the user to evaluate options or pick between approaches.
+
+Apply $rethink-architecturally and $swift-guidance: prefer the architecturally right fix over the most local patch.
+
+SWIFT FILE BUDGETS (mandatory): cmux CI enforces .github/swift-file-length-budget.tsv (files >= 500 lines tracked) and .github/swift-warning-budget.tsv. The PR must not touch either TSV: check headroom (wc -l vs the TSV row) before growing any tracked Swift file; put new code in new files under 500 lines; never let a new file reach 500 lines; never run --write-budget; if growth past budget is genuinely unavoidable, hand-edit only the touched rows. Run python3 scripts/swift_file_length_budget.py before pushing; if it fails, split files. Zero new Swift warnings.
+
+OTHER RULES: Localize user-facing strings via String(localized:defaultValue:) in Resources/Localizable.xcstrings (EN+JA). No sleep-based timing in app code. Do NOT run local xcodebuild builds or tests on this Mac (never bare xcodebuild); CI is the test gate.
+
+PR: Commit failing regression test first, then the fix, when feasible. Push only to origin. gh pr create against main with "Closes #8971". Iterate until required CI green AND gh pr view --json mergeable reports MERGEABLE AND every review-bot comment is addressed.
+
+DEV BUILD VERIFICATION (pre-authorized by the user — do this after CI is green, not before): from the clone root run
+  CMUX_SKIP_ZIG_BUILD=1 /Users/austinwang/manaflow/cmuxterm-hq/scripts/reload-cloud.sh --tag <full-branch-name> --launch
+The tag must be the full `git branch --show-current` output. If the wrapper prints "Blacksmith build failed", verify with gh run view <run-id> --json status,conclusion before believing it (known false negative while the run is still in_progress). Only if the cloud build genuinely fails, fall back to CMUX_SKIP_ZIG_BUILD=1 ./scripts/reload.sh --tag <branch> --launch. Drive the launched tagged app ONLY through its tag-bound CLI: cmux-dev --socket /tmp/cmux-debug-<tag>.sock (run `identify` first to confirm you are talking to the dev app, never the ambient cmux socket).
+
+MERGE (pre-authorized, strictly conditional): merge ONLY when ALL hold: required CI green, MERGEABLE, all review comments addressed, and the dev-build verification above confirms the fix. Then: gh pr merge <n> --repo manaflow-ai/cmux --merge. After merging, close the issue explicitly:
+  gh issue comment 8971 --repo manaflow-ai/cmux --body "Fixed by <PR-URL> (merged in <short-sha>). Verified on dev build <tag>. Closing."
+  gh issue close 8971 --repo manaflow-ai/cmux --reason completed
+If verification fails or any condition is not met, do NOT merge — fix and re-verify, or report the blocker.
+
+TEARDOWN (after merge or after giving up): fully close the dev build — quit the "cmux DEV <tag>" app; check launchctl list | grep -i <tag-fragment> and launchctl remove com.cmuxterm.app.debug.<sanitized-tag>.reload if present (tagged apps can relaunch via launchd otherwise); remove /tmp/cmux-<tag> and /tmp/cmux-debug-<tag>.sock*; verify with pgrep -fl <tag-fragment> that nothing remains.
+91873 node /Users/austinwang/.nvm/versions/node/v22.17.1/bin/codex -c model_provider="subrouter" -c model_providers.subrouter.name="Subrouter" -c model_providers.subrouter.base_url="http://cmux-mac-mini:31415/v1" -c model_providers.subrouter.env_key="SUBROUTER_CODEX_DUMMY_API_KEY" -c model_providers.subrouter.wire_api="responses" -c model_providers.subrouter.supports_websockets=true -c model_providers.subrouter.http_headers={"X-Subrouter-Agent"="codex","X-Subrouter-Model"="gpt-5.6-sol"} --dangerously-bypass-approvals-and-sandbox --model gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast Fix GitHub issue #8971 in manaflow-ai/cmux: Cmd-G (Find Next) searches for the literal word "next". Read it first: gh issue view 8971 --repo manaflow-ai/cmux
+
+WORKING TREE: You are already in /Users/austinwang/manaflow/term/cmux76 on branch issue-8971-find-next-navigate-search, freshly cut from origin/main (64ec2bbf0). This clone on this branch is your working tree. No git worktrees, no branch switches. Read the repo AGENTS.md / CLAUDE.md before coding.
+
+ROOT CAUSE (supplied in the issue, verify against current main): Sources/TabManager.swift:837 sends performBindingAction("search:next") and :846 sends "search:previous". Ghostty's "search:" action STARTS A NEW SEARCH for the given literal text (replacing the active query); navigating results requires "navigate_search:next" / "navigate_search:previous". So Cmd-G searches for the literal word "next" and Opt-Cmd-G for "previous", destroying the user's query. The find bar's own arrows/Return work, only the shortcuts are wrong.
+
+APPROACH: Fix the binding action strings (and audit the file for any other search:/navigate_search: confusions). Add a regression test asserting Find Next/Find Previous dispatch navigate_search:next/navigate_search:previous and never "search:<literal>". Check whether behavior when no search is active needs handling (navigate_search is a no-op then - decide whether Cmd-G should open the find bar instead; keep scope tight and justify in the PR). Live verification in the dev build: open a terminal with repeated matches, Cmd-F, type a query, press Cmd-G and Opt-Cmd-G, confirm the query survives and the selection advances/retreats (read the find bar state via the tag-bound CLI or screen reads).
+
+AUTONOMY: Execute to the best of your ability. Choose and execute whatever plan you judge best entirely on your own; never stop to ask the user to evaluate options or pick between approaches.
+
+Apply $rethink-architecturally and $swift-guidance: prefer the architecturally right fix over the most local patch.
+
+SWIFT FILE BUDGETS (mandatory): cmux CI enforces .github/swift-file-length-budget.tsv (files >= 500 lines tracked) and .github/swift-warning-budget.tsv. The PR must not touch either TSV: check headroom (wc -l vs the TSV row) before growing any tracked Swift file; put new code in new files under 500 lines; never let a new file reach 500 lines; never run --write-budget; if growth past budget is genuinely unavoidable, hand-edit only the touched rows. Run python3 scripts/swift_file_length_budget.py before pushing; if it fails, split files. Zero new Swift warnings.
+
+OTHER RULES: Localize user-facing strings via String(localized:defaultValue:) in Resources/Localizable.xcstrings (EN+JA). No sleep-based timing in app code. Do NOT run local xcodebuild builds or tests on this Mac (never bare xcodebuild); CI is the test gate.
+
+PR: Commit failing regression test first, then the fix, when feasible. Push only to origin. gh pr create against main with "Closes #8971". Iterate until required CI green AND gh pr view --json mergeable reports MERGEABLE AND every review-bot comment is addressed.
+
+DEV BUILD VERIFICATION (pre-authorized by the user — do this after CI is green, not before): from the clone root run
+  CMUX_SKIP_ZIG_BUILD=1 /Users/austinwang/manaflow/cmuxterm-hq/scripts/reload-cloud.sh --tag <full-branch-name> --launch
+The tag must be the full `git branch --show-current` output. If the wrapper prints "Blacksmith build failed", verify with gh run view <run-id> --json status,conclusion before believing it (known false negative while the run is still in_progress). Only if the cloud build genuinely fails, fall back to CMUX_SKIP_ZIG_BUILD=1 ./scripts/reload.sh --tag <branch> --launch. Drive the launched tagged app ONLY through its tag-bound CLI: cmux-dev --socket /tmp/cmux-debug-<tag>.sock (run `identify` first to confirm you are talking to the dev app, never the ambient cmux socket).
+
+MERGE (pre-authorized, strictly conditional): merge ONLY when ALL hold: required CI green, MERGEABLE, all review comments addressed, and the dev-build verification above confirms the fix. Then: gh pr merge <n> --repo manaflow-ai/cmux --merge. After merging, close the issue explicitly:
+  gh issue comment 8971 --repo manaflow-ai/cmux --body "Fixed by <PR-URL> (merged in <short-sha>). Verified on dev build <tag>. Closing."
+  gh issue close 8971 --repo manaflow-ai/cmux --reason completed
+If verification fails or any condition is not met, do NOT merge — fix and re-verify, or report the blocker.
+
+TEARDOWN (after merge or after giving up): fully close the dev build — quit the "cmux DEV <tag>" app; check launchctl list | grep -i <tag-fragment> and launchctl remove com.cmuxterm.app.debug.<sanitized-tag>.reload if present (tagged apps can relaunch via launchd otherwise); remove /tmp/cmux-<tag> and /tmp/cmux-debug-<tag>.sock*; verify with pgrep -fl <tag-fragment> that nothing remains.
+91893 /Users/austinwang/.nvm/versions/node/v22.17.1/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex -c model_provider="subrouter" -c model_providers.subrouter.name="Subrouter" -c model_providers.subrouter.base_url="http://cmux-mac-mini:31415/v1" -c model_providers.subrouter.env_key="SUBROUTER_CODEX_DUMMY_API_KEY" -c model_providers.subrouter.wire_api="responses" -c model_providers.subrouter.supports_websockets=true -c model_providers.subrouter.http_headers={"X-Subrouter-Agent"="codex","X-Subrouter-Model"="gpt-5.6-sol"} --dangerously-bypass-approvals-and-sandbox --model gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast Fix GitHub issue #8971 in manaflow-ai/cmux: Cmd-G (Find Next) searches for the literal word "next". Read it first: gh issue view 8971 --repo manaflow-ai/cmux
+
+WORKING TREE: You are already in /Users/austinwang/manaflow/term/cmux76 on branch issue-8971-find-next-navigate-search, freshly cut from origin/main (64ec2bbf0). This clone on this branch is your working tree. No git worktrees, no branch switches. Read the repo AGENTS.md / CLAUDE.md before coding.
+
+ROOT CAUSE (supplied in the issue, verify against current main): Sources/TabManager.swift:837 sends performBindingAction("search:next") and :846 sends "search:previous". Ghostty's "search:" action STARTS A NEW SEARCH for the given literal text (replacing the active query); navigating results requires "navigate_search:next" / "navigate_search:previous". So Cmd-G searches for the literal word "next" and Opt-Cmd-G for "previous", destroying the user's query. The find bar's own arrows/Return work, only the shortcuts are wrong.
+
+APPROACH: Fix the binding action strings (and audit the file for any other search:/navigate_search: confusions). Add a regression test asserting Find Next/Find Previous dispatch navigate_search:next/navigate_search:previous and never "search:<literal>". Check whether behavior when no search is active needs handling (navigate_search is a no-op then - decide whether Cmd-G should open the find bar instead; keep scope tight and justify in the PR). Live verification in the dev build: open a terminal with repeated matches, Cmd-F, type a query, press Cmd-G and Opt-Cmd-G, confirm the query survives and the selection advances/retreats (read the find bar state via the tag-bound CLI or screen reads).
+
+AUTONOMY: Execute to the best of your ability. Choose and execute whatever plan you judge best entirely on your own; never stop to ask the user to evaluate options or pick between approaches.
+
+Apply $rethink-architecturally and $swift-guidance: prefer the architecturally right fix over the most local patch.
+
+SWIFT FILE BUDGETS (mandatory): cmux CI enforces .github/swift-file-length-budget.tsv (files >= 500 lines tracked) and .github/swift-warning-budget.tsv. The PR must not touch either TSV: check headroom (wc -l vs the TSV row) before growing any tracked Swift file; put new code in new files under 500 lines; never let a new file reach 500 lines; never run --write-budget; if growth past budget is genuinely unavoidable, hand-edit only the touched rows. Run python3 scripts/swift_file_length_budget.py before pushing; if it fails, split files. Zero new Swift warnings.
+
+OTHER RULES: Localize user-facing strings via String(localized:defaultValue:) in Resources/Localizable.xcstrings (EN+JA). No sleep-based timing in app code. Do NOT run local xcodebuild builds or tests on this Mac (never bare xcodebuild); CI is the test gate.
+
+PR: Commit failing regression test first, then the fix, when feasible. Push only to origin. gh pr create against main with "Closes #8971". Iterate until required CI green AND gh pr view --json mergeable reports MERGEABLE AND every review-bot comment is addressed.
+
+DEV BUILD VERIFICATION (pre-authorized by the user — do this after CI is green, not before): from the clone root run
+  CMUX_SKIP_ZIG_BUILD=1 /Users/austinwang/manaflow/cmuxterm-hq/scripts/reload-cloud.sh --tag <full-branch-name> --launch
+The tag must be the full `git branch --show-current` output. If the wrapper prints "Blacksmith build failed", verify with gh run view <run-id> --json status,conclusion before believing it (known false negative while the run is still in_progress). Only if the cloud build genuinely fails, fall back to CMUX_SKIP_ZIG_BUILD=1 ./scripts/reload.sh --tag <branch> --launch. Drive the launched tagged app ONLY through its tag-bound CLI: cmux-dev --socket /tmp/cmux-debug-<tag>.sock (run `identify` first to confirm you are talking to the dev app, never the ambient cmux socket).
+
+MERGE (pre-authorized, strictly conditional): merge ONLY when ALL hold: required CI green, MERGEABLE, all review comments addressed, and the dev-build verification above confirms the fix. Then: gh pr merge <n> --repo manaflow-ai/cmux --merge. After merging, close the issue explicitly:
+  gh issue comment 8971 --repo manaflow-ai/cmux --body "Fixed by <PR-URL> (merged in <short-sha>). Verified on dev build <tag>. Closing."
+  gh issue close 8971 --repo manaflow-ai/cmux --reason completed
+If verification fails or any condition is not met, do NOT merge — fix and re-verify, or report the blocker.
+
+TEARDOWN (after merge or after giving up): fully close the dev build — quit the "cmux DEV <tag>" app; check launchctl list | grep -i <tag-fragment> and launchctl remove com.cmuxterm.app.debug.<sanitized-tag>.reload if present (tagged apps can relaunch via launchd otherwise); remove /tmp/cmux-<tag> and /tmp/cmux-debug-<tag>.sock*; verify with pgrep -fl <tag-fragment> that nothing remains.
