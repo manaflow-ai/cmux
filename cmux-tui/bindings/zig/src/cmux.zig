@@ -173,8 +173,6 @@ pub const Tab = resource.Tab;
 pub const Terminal = resource.Terminal;
 pub const Browser = resource.Browser;
 pub const ConnectedClient = resource.ConnectedClient;
-pub const Notification = resource.Notification;
-pub const Agent = resource.Agent;
 pub const PairingRequest = resource.PairingRequest;
 pub const FrontendProjection = resource.FrontendProjection;
 pub const SidebarView = resource.SidebarView;
@@ -268,6 +266,8 @@ pub const OwnedReloadConfigResult = resource.OwnedReloadConfigResult;
 pub const OwnedLayoutDocument = resource.OwnedLayoutDocument;
 pub const OwnedFrontendProjectionSnapshot =
     resource.OwnedFrontendProjectionSnapshot;
+pub const OwnedSidebarViewSnapshot =
+    resource.OwnedSidebarViewSnapshot;
 pub const OwnedPairingResolutionResult =
     resource.OwnedPairingResolutionResult;
 pub const ScreenList = resource.ScreenList;

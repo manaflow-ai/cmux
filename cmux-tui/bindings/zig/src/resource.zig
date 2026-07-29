@@ -4036,6 +4036,46 @@ const RawStream = struct {
     }
 };
 
+fn nextTypedStreamItem(
+    comptime Item: type,
+    raw_stream: *RawStream,
+) !?OwnedStreamItem(Item) {
+    var message = (try raw_stream.nextRaw()) orelse return null;
+    errdefer message.deinit();
+    var decoded = std.heap.ArenaAllocator.init(
+        raw_stream.client.allocator,
+    );
+    errdefer decoded.deinit();
+    const object = switch (message.value) {
+        .object => |value| value,
+        else => return error.ExpectedObject,
+    };
+    const sequence = try decimalU64(
+        object.get("sequence") orelse return error.MissingField,
+    );
+    const cursor = if (object.get("cursor")) |cursor_value|
+        switch (cursor_value) {
+            .null => null,
+            else => try parseCursor(cursor_value),
+        }
+    else
+        null;
+    const raw_item = object.get("item") orelse
+        return error.MissingField;
+    return .{
+        .owned = message,
+        .decoded = decoded,
+        .sequence = sequence,
+        .cursor = cursor,
+        .value = try domainItem(
+            Item,
+            decoded.allocator(),
+            raw_item,
+            cursor,
+        ),
+    };
+}
+
 fn TypedStream(comptime Item: type) type {
     return struct {
         const Self = @This();
@@ -4049,232 +4089,7 @@ fn TypedStream(comptime Item: type) type {
         }
 
         pub fn next(self: *Self) !?OwnedItem {
-            var message = (try self.raw_stream.nextRaw()) orelse return null;
-            errdefer message.deinit();
-            var decoded = std.heap.ArenaAllocator.init(
-                self.raw_stream.client.allocator,
-            );
-            errdefer decoded.deinit();
-            const object = switch (message.value) {
-                .object => |value| value,
-                else => return error.ExpectedObject,
-            };
-            const sequence = try decimalU64(
-                object.get("sequence") orelse return error.MissingField,
-            );
-            const cursor = if (object.get("cursor")) |cursor_value|
-                switch (cursor_value) {
-                    .null => null,
-                    else => try parseCursor(cursor_value),
-                }
-            else
-                null;
-            const raw_item = object.get("item") orelse
-                return error.MissingField;
-            return .{
-                .owned = message,
-                .decoded = decoded,
-                .sequence = sequence,
-                .cursor = cursor,
-                .value = try domainItem(
-                    Item,
-                    decoded.allocator(),
-                    raw_item,
-                    cursor,
-                ),
-            };
-        }
-
-        fn control(
-            self: *Self,
-            operation: Operation,
-            params: raw.wire.Value,
-        ) !OwnedResult {
-            return self.raw_stream.control(operation, params);
-        }
-
-        pub fn resizeTerminalViewer(
-            self: *Self,
-            cols: u16,
-            rows: u16,
-        ) !OwnedViewerResizeResult {
-            if (comptime Item != TerminalAttachmentItem) {
-                return error.UnsupportedStreamControl;
-            }
-            if (cols == 0 or rows == 0) {
-                return error.InvalidTerminalSize;
-            }
-            var arena = std.heap.ArenaAllocator.init(
-                self.raw_stream.client.allocator,
-            );
-            defer arena.deinit();
-            const allocator = arena.allocator();
-            var params = raw.wire.Object.init(allocator);
-            try params.put(
-                "machine",
-                .{ .string = try allocator.dupe(
-                    u8,
-                    self.raw_stream.machine_selector,
-                ) },
-            );
-            try params.put(
-                "session",
-                .{ .string = try allocator.dupe(
-                    u8,
-                    self.raw_stream.session_selector,
-                ) },
-            );
-            const terminal = switch (self.raw_stream.attachment) {
-                .terminal => |selector| selector,
-                else => return error.NotTerminalAttachment,
-            };
-            try params.put(
-                "terminal",
-                .{ .string = try allocator.dupe(u8, terminal) },
-            );
-            try params.put("cols", .{ .integer = cols });
-            try params.put("rows", .{ .integer = rows });
-            return decodeOwnedSimpleResult(
-                ViewerResizeResult,
-                try self.control(
-                    .terminal_viewer_resize,
-                    .{ .object = params },
-                ),
-            );
-        }
-
-        pub fn releaseTerminalViewer(
-            self: *Self,
-        ) !OwnedEmptyResult {
-            if (comptime Item != TerminalAttachmentItem) {
-                return error.UnsupportedStreamControl;
-            }
-            var arena = std.heap.ArenaAllocator.init(
-                self.raw_stream.client.allocator,
-            );
-            defer arena.deinit();
-            const allocator = arena.allocator();
-            var params = raw.wire.Object.init(allocator);
-            try params.put(
-                "machine",
-                .{ .string = try allocator.dupe(
-                    u8,
-                    self.raw_stream.machine_selector,
-                ) },
-            );
-            try params.put(
-                "session",
-                .{ .string = try allocator.dupe(
-                    u8,
-                    self.raw_stream.session_selector,
-                ) },
-            );
-            const terminal = switch (self.raw_stream.attachment) {
-                .terminal => |selector| selector,
-                else => return error.NotTerminalAttachment,
-            };
-            try params.put(
-                "terminal",
-                .{ .string = try allocator.dupe(u8, terminal) },
-            );
-            return decodeEmptyResult(
-                try self.control(
-                    .terminal_viewer_release,
-                    .{ .object = params },
-                ),
-            );
-        }
-
-        pub fn resizeBrowserViewer(
-            self: *Self,
-            width_px: u32,
-            height_px: u32,
-        ) !OwnedBrowserViewerResizeResult {
-            if (comptime Item != BrowserAttachmentItem) {
-                return error.UnsupportedStreamControl;
-            }
-            if (width_px == 0 or height_px == 0) {
-                return error.InvalidBrowserSize;
-            }
-            var arena = std.heap.ArenaAllocator.init(
-                self.raw_stream.client.allocator,
-            );
-            defer arena.deinit();
-            const allocator = arena.allocator();
-            var params = raw.wire.Object.init(allocator);
-            try params.put(
-                "machine",
-                .{ .string = try allocator.dupe(
-                    u8,
-                    self.raw_stream.machine_selector,
-                ) },
-            );
-            try params.put(
-                "session",
-                .{ .string = try allocator.dupe(
-                    u8,
-                    self.raw_stream.session_selector,
-                ) },
-            );
-            const browser = switch (self.raw_stream.attachment) {
-                .browser => |selector| selector,
-                else => return error.NotBrowserAttachment,
-            };
-            try params.put(
-                "browser",
-                .{ .string = try allocator.dupe(u8, browser) },
-            );
-            try params.put("width_px", .{ .integer = width_px });
-            try params.put("height_px", .{ .integer = height_px });
-            return decodeOwnedSimpleResult(
-                BrowserViewerResizeResult,
-                try self.control(
-                    .browser_viewer_resize,
-                    .{ .object = params },
-                ),
-            );
-        }
-
-        pub fn releaseBrowserViewer(
-            self: *Self,
-        ) !OwnedEmptyResult {
-            if (comptime Item != BrowserAttachmentItem) {
-                return error.UnsupportedStreamControl;
-            }
-            var arena = std.heap.ArenaAllocator.init(
-                self.raw_stream.client.allocator,
-            );
-            defer arena.deinit();
-            const allocator = arena.allocator();
-            var params = raw.wire.Object.init(allocator);
-            try params.put(
-                "machine",
-                .{ .string = try allocator.dupe(
-                    u8,
-                    self.raw_stream.machine_selector,
-                ) },
-            );
-            try params.put(
-                "session",
-                .{ .string = try allocator.dupe(
-                    u8,
-                    self.raw_stream.session_selector,
-                ) },
-            );
-            const browser = switch (self.raw_stream.attachment) {
-                .browser => |selector| selector,
-                else => return error.NotBrowserAttachment,
-            };
-            try params.put(
-                "browser",
-                .{ .string = try allocator.dupe(u8, browser) },
-            );
-            return decodeEmptyResult(
-                try self.control(
-                    .browser_viewer_release,
-                    .{ .object = params },
-                ),
-            );
+            return nextTypedStreamItem(Item, &self.raw_stream);
         }
 
         pub fn cancel(self: *Self) !*const StreamEnd {
@@ -4288,9 +4103,233 @@ fn TypedStream(comptime Item: type) type {
 }
 
 pub const SessionEventStream = TypedStream(SessionEvent);
-pub const TerminalAttachmentStream = TypedStream(TerminalAttachmentItem);
-pub const BrowserAttachmentStream = TypedStream(BrowserAttachmentItem);
 pub const SidebarViewStream = TypedStream(SidebarViewItem);
+
+pub const TerminalAttachmentStream = struct {
+    const Self = @This();
+    pub const OwnedItem = OwnedStreamItem(TerminalAttachmentItem);
+
+    raw_stream: RawStream,
+
+    pub fn deinit(self: *Self) void {
+        self.raw_stream.deinit();
+        self.* = undefined;
+    }
+
+    pub fn next(self: *Self) !?OwnedItem {
+        return nextTypedStreamItem(
+            TerminalAttachmentItem,
+            &self.raw_stream,
+        );
+    }
+
+    pub fn resizeTerminalViewer(
+        self: *Self,
+        cols: u16,
+        rows: u16,
+    ) !OwnedViewerResizeResult {
+        if (cols == 0 or rows == 0) {
+            return error.InvalidTerminalSize;
+        }
+        var arena = std.heap.ArenaAllocator.init(
+            self.raw_stream.client.allocator,
+        );
+        defer arena.deinit();
+        const allocator = arena.allocator();
+        var params = raw.wire.Object.init(allocator);
+        try params.put(
+            "machine",
+            .{ .string = try allocator.dupe(
+                u8,
+                self.raw_stream.machine_selector,
+            ) },
+        );
+        try params.put(
+            "session",
+            .{ .string = try allocator.dupe(
+                u8,
+                self.raw_stream.session_selector,
+            ) },
+        );
+        const terminal = switch (self.raw_stream.attachment) {
+            .terminal => |selector| selector,
+            else => return error.NotTerminalAttachment,
+        };
+        try params.put(
+            "terminal",
+            .{ .string = try allocator.dupe(u8, terminal) },
+        );
+        try params.put("cols", .{ .integer = cols });
+        try params.put("rows", .{ .integer = rows });
+        return decodeOwnedSimpleResult(
+            ViewerResizeResult,
+            try self.raw_stream.control(
+                .terminal_viewer_resize,
+                .{ .object = params },
+            ),
+        );
+    }
+
+    pub fn releaseTerminalViewer(
+        self: *Self,
+    ) !OwnedEmptyResult {
+        var arena = std.heap.ArenaAllocator.init(
+            self.raw_stream.client.allocator,
+        );
+        defer arena.deinit();
+        const allocator = arena.allocator();
+        var params = raw.wire.Object.init(allocator);
+        try params.put(
+            "machine",
+            .{ .string = try allocator.dupe(
+                u8,
+                self.raw_stream.machine_selector,
+            ) },
+        );
+        try params.put(
+            "session",
+            .{ .string = try allocator.dupe(
+                u8,
+                self.raw_stream.session_selector,
+            ) },
+        );
+        const terminal = switch (self.raw_stream.attachment) {
+            .terminal => |selector| selector,
+            else => return error.NotTerminalAttachment,
+        };
+        try params.put(
+            "terminal",
+            .{ .string = try allocator.dupe(u8, terminal) },
+        );
+        return decodeEmptyResult(
+            try self.raw_stream.control(
+                .terminal_viewer_release,
+                .{ .object = params },
+            ),
+        );
+    }
+
+    pub fn cancel(self: *Self) !*const StreamEnd {
+        return self.raw_stream.cancel();
+    }
+
+    pub fn end(self: *const Self) ?StreamEnd {
+        return self.raw_stream.stream_end;
+    }
+};
+
+pub const BrowserAttachmentStream = struct {
+    const Self = @This();
+    pub const OwnedItem = OwnedStreamItem(BrowserAttachmentItem);
+
+    raw_stream: RawStream,
+
+    pub fn deinit(self: *Self) void {
+        self.raw_stream.deinit();
+        self.* = undefined;
+    }
+
+    pub fn next(self: *Self) !?OwnedItem {
+        return nextTypedStreamItem(
+            BrowserAttachmentItem,
+            &self.raw_stream,
+        );
+    }
+
+    pub fn resizeBrowserViewer(
+        self: *Self,
+        width_px: u32,
+        height_px: u32,
+    ) !OwnedBrowserViewerResizeResult {
+        if (width_px == 0 or height_px == 0) {
+            return error.InvalidBrowserSize;
+        }
+        var arena = std.heap.ArenaAllocator.init(
+            self.raw_stream.client.allocator,
+        );
+        defer arena.deinit();
+        const allocator = arena.allocator();
+        var params = raw.wire.Object.init(allocator);
+        try params.put(
+            "machine",
+            .{ .string = try allocator.dupe(
+                u8,
+                self.raw_stream.machine_selector,
+            ) },
+        );
+        try params.put(
+            "session",
+            .{ .string = try allocator.dupe(
+                u8,
+                self.raw_stream.session_selector,
+            ) },
+        );
+        const browser = switch (self.raw_stream.attachment) {
+            .browser => |selector| selector,
+            else => return error.NotBrowserAttachment,
+        };
+        try params.put(
+            "browser",
+            .{ .string = try allocator.dupe(u8, browser) },
+        );
+        try params.put("width_px", .{ .integer = width_px });
+        try params.put("height_px", .{ .integer = height_px });
+        return decodeOwnedSimpleResult(
+            BrowserViewerResizeResult,
+            try self.raw_stream.control(
+                .browser_viewer_resize,
+                .{ .object = params },
+            ),
+        );
+    }
+
+    pub fn releaseBrowserViewer(
+        self: *Self,
+    ) !OwnedEmptyResult {
+        var arena = std.heap.ArenaAllocator.init(
+            self.raw_stream.client.allocator,
+        );
+        defer arena.deinit();
+        const allocator = arena.allocator();
+        var params = raw.wire.Object.init(allocator);
+        try params.put(
+            "machine",
+            .{ .string = try allocator.dupe(
+                u8,
+                self.raw_stream.machine_selector,
+            ) },
+        );
+        try params.put(
+            "session",
+            .{ .string = try allocator.dupe(
+                u8,
+                self.raw_stream.session_selector,
+            ) },
+        );
+        const browser = switch (self.raw_stream.attachment) {
+            .browser => |selector| selector,
+            else => return error.NotBrowserAttachment,
+        };
+        try params.put(
+            "browser",
+            .{ .string = try allocator.dupe(u8, browser) },
+        );
+        return decodeEmptyResult(
+            try self.raw_stream.control(
+                .browser_viewer_release,
+                .{ .object = params },
+            ),
+        );
+    }
+
+    pub fn cancel(self: *Self) !*const StreamEnd {
+        return self.raw_stream.cancel();
+    }
+
+    pub fn end(self: *const Self) ?StreamEnd {
+        return self.raw_stream.stream_end;
+    }
+};
 
 pub const RunOptions = struct {
     command: RunCommand,
@@ -8276,7 +8315,8 @@ const HandleConfig = struct {
     clear_name_with_null: bool = true,
 };
 
-fn Handle(
+/// Private implementation shared by capability-specific public facades.
+fn HandleImpl(
     comptime Id: type,
     comptime scope: []const u8,
     comptime config: HandleConfig,
@@ -8296,7 +8336,7 @@ fn Handle(
             };
         }
 
-        pub fn initScoped(
+        fn initScoped(
             client: *Client,
             selection: anytype,
             ancestors: HandleRoute,
@@ -8442,29 +8482,6 @@ fn Handle(
             var route = self.target.ancestors;
             route.session = self.target.selector;
             return SidebarView.initScoped(self.client, child, route);
-        }
-
-        pub fn notification(
-            self: Self,
-            child: anytype,
-        ) Notification {
-            if (comptime !std.mem.eql(u8, scope, "session")) {
-                @compileError(
-                    "notification() is available only on Session",
-                );
-            }
-            var route = self.target.ancestors;
-            route.session = self.target.selector;
-            return Notification.initScoped(self.client, child, route);
-        }
-
-        pub fn agent(self: Self, child: anytype) Agent {
-            if (comptime !std.mem.eql(u8, scope, "session")) {
-                @compileError("agent() is available only on Session");
-            }
-            var route = self.target.ancestors;
-            route.session = self.target.selector;
-            return Agent.initScoped(self.client, child, route);
         }
 
         pub fn refresh(self: Self) !RefreshResult(Id, scope) {
@@ -10850,64 +10867,1464 @@ fn Handle(
     };
 }
 
-pub const Machine = Handle(MachineId, "machine", .{
-    .get = .machine_get,
-});
-pub const Session = Handle(SessionId, "session", .{
-    .get = .session_get,
-    .close = .session_shutdown,
-});
-pub const Workspace = Handle(WorkspaceId, "workspace", .{
-    .get = .workspace_get,
-    .close = .workspace_close,
-    .rename = .workspace_rename,
-    .run = .workspace_run,
-    .clear_name_with_null = false,
-});
-pub const Screen = Handle(ScreenId, "screen", .{
-    .get = .screen_get,
-    .close = .screen_close,
-    .rename = .screen_rename,
-});
-pub const Pane = Handle(PaneId, "pane", .{
-    .get = .pane_get,
-    .close = .pane_close,
-    .rename = .pane_rename,
-    .run = .pane_run,
-});
-pub const Tab = Handle(TabId, "tab", .{
-    .get = .tab_get,
-    .close = .tab_close,
-    .rename = .tab_rename,
-});
-pub const Terminal = Handle(TerminalId, "terminal", .{
-    .get = .terminal_get,
-    .close = .terminal_close,
-});
-pub const Browser = Handle(BrowserId, "browser", .{
-    .get = .browser_get,
-    .close = .browser_close,
-});
-pub const ConnectedClient = Handle(ConnectedClientId, "client", .{
-    .get = .client_get,
-});
-pub const Notification = Handle(NotificationId, "notification", .{
-    .get = .notification_list,
-});
-pub const Agent = Handle(AgentId, "agent", .{
-    .get = .agent_list,
-});
-pub const PairingRequest = Handle(PairingRequestId, "pairing_request", .{
-    .get = .pairing_request_list,
-});
-pub const FrontendProjection = Handle(
-    FrontendProjectionId,
-    "frontend_projection",
-    .{ .get = .frontend_projection_get },
+fn initHandleFacade(
+    comptime Facade: type,
+    comptime Id: type,
+    client: *Client,
+    selection: anytype,
+    ancestors: HandleRoute,
+) Facade {
+    return .{
+        .client = client,
+        .target = .{
+            .selector = selectorValue(Id, selection),
+            .ancestors = ancestors,
+        },
+    };
+}
+
+fn handleFacadeImpl(comptime Impl: type, facade: anytype) Impl {
+    return .{
+        .client = facade.client,
+        .target = facade.target,
+    };
+}
+
+pub const Machine = struct {
+    const Self = @This();
+    const Impl = HandleImpl(MachineId, "machine", .{
+        .get = .machine_get,
+    });
+
+    client: *Client,
+    target: ScopedSelector(MachineId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            MachineId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            MachineId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(MachineId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?MachineId {
+        return self.impl().id();
+    }
+
+    pub fn session(self: Self, child: anytype) Session {
+        return self.impl().session(child);
+    }
+
+    pub fn refresh(self: Self) !OwnedMachineSnapshot {
+        return self.impl().refresh();
+    }
+
+    pub fn listSessions(self: Self) !SessionList {
+        return self.impl().listSessions();
+    }
+
+    pub fn openSession(
+        self: Self,
+        selection: anytype,
+        mutation: MutationOptions,
+    ) !SessionMutationResult {
+        return self.impl().openSession(selection, mutation);
+    }
+};
+
+pub const Session = struct {
+    const Self = @This();
+    const Impl = HandleImpl(SessionId, "session", .{
+        .get = .session_get,
+        .close = .session_shutdown,
+    });
+
+    client: *Client,
+    target: ScopedSelector(SessionId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            SessionId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            SessionId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(SessionId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?SessionId {
+        return self.impl().id();
+    }
+
+    pub fn workspace(self: Self, child: anytype) Workspace {
+        return self.impl().workspace(child);
+    }
+
+    pub fn connectedClient(
+        self: Self,
+        child: anytype,
+    ) ConnectedClient {
+        return self.impl().connectedClient(child);
+    }
+
+    pub fn pairingRequest(
+        self: Self,
+        child: anytype,
+    ) PairingRequest {
+        return self.impl().pairingRequest(child);
+    }
+
+    pub fn frontendProjection(
+        self: Self,
+        child: anytype,
+    ) FrontendProjection {
+        return self.impl().frontendProjection(child);
+    }
+
+    pub fn sidebarView(
+        self: Self,
+        child: anytype,
+    ) SidebarView {
+        return self.impl().sidebarView(child);
+    }
+
+    pub fn refresh(self: Self) !OwnedSessionSnapshot {
+        return self.impl().refresh();
+    }
+
+    pub fn listWorkspaces(self: Self) !WorkspaceList {
+        return self.impl().listWorkspaces();
+    }
+
+    pub fn listScreens(self: Self) !ScreenList {
+        return self.impl().listScreens();
+    }
+
+    pub fn listPanes(self: Self) !PaneList {
+        return self.impl().listPanes();
+    }
+
+    pub fn listTerminals(self: Self) !TerminalList {
+        return self.impl().listTerminals();
+    }
+
+    pub fn listBrowsers(self: Self) !BrowserList {
+        return self.impl().listBrowsers();
+    }
+
+    pub fn listClients(self: Self) !ClientList {
+        return self.impl().listClients();
+    }
+
+    pub fn listPairingRequests(self: Self) !PairingRequestList {
+        return self.impl().listPairingRequests();
+    }
+
+    pub fn listNotifications(
+        self: Self,
+        options: NotificationListOptions,
+    ) !NotificationList {
+        return self.impl().listNotifications(options);
+    }
+
+    pub fn listAgents(
+        self: Self,
+        options: AgentListOptions,
+    ) !AgentList {
+        return self.impl().listAgents(options);
+    }
+
+    pub fn createNotification(
+        self: Self,
+        options: NotificationCreateOptions,
+        mutation: MutationOptions,
+    ) !NotificationMutationResult {
+        return self.impl().createNotification(options, mutation);
+    }
+
+    pub fn reportAgent(
+        self: Self,
+        report: AgentReportOptions,
+        mutation: MutationOptions,
+    ) !AgentMutationResult {
+        return self.impl().reportAgent(report, mutation);
+    }
+
+    pub fn ensureSidebarView(
+        self: Self,
+        ensure: SidebarEnsureOptions,
+        mutation: MutationOptions,
+    ) !SidebarViewMutationResult {
+        return self.impl().ensureSidebarView(ensure, mutation);
+    }
+
+    pub fn ping(self: Self) !OwnedPingResult {
+        return self.impl().ping();
+    }
+
+    pub fn fullSnapshot(self: Self) !OwnedResourceSnapshot {
+        return self.impl().fullSnapshot();
+    }
+
+    pub fn resolveCreation(
+        self: Self,
+        correlation_key: []const u8,
+    ) !OwnedCreationResolution {
+        return self.impl().resolveCreation(correlation_key);
+    }
+
+    pub fn shutdown(
+        self: Self,
+        force: ?bool,
+        mutation: MutationOptions,
+    ) !ShutdownMutationResult {
+        return self.impl().shutdown(force, mutation);
+    }
+
+    pub fn close(
+        self: Self,
+        mutation: MutationOptions,
+    ) !ShutdownMutationResult {
+        return self.impl().close(mutation);
+    }
+
+    pub fn reloadConfig(
+        self: Self,
+        mutation: MutationOptions,
+    ) !ReloadConfigMutationResult {
+        return self.impl().reloadConfig(mutation);
+    }
+
+    pub fn updateTerminalDefaults(
+        self: Self,
+        update: TerminalDefaultsUpdate,
+        mutation: MutationOptions,
+    ) !TerminalDefaultsMutationResult {
+        return self.impl().updateTerminalDefaults(update, mutation);
+    }
+
+    pub fn setWindowTitle(
+        self: Self,
+        title: []const u8,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().setWindowTitle(title, mutation);
+    }
+
+    pub fn clearWindowTitle(
+        self: Self,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().clearWindowTitle(mutation);
+    }
+
+    pub fn createWorkspace(
+        self: Self,
+        create: CreateWorkspaceOptions,
+        mutation: MutationOptions,
+    ) !CreatedPathMutationResult {
+        return self.impl().createWorkspace(create, mutation);
+    }
+
+    pub fn events(self: Self) !SessionEventStream {
+        return self.impl().events();
+    }
+
+    pub fn eventsFrom(
+        self: Self,
+        cursor: ?Cursor,
+    ) !SessionEventStream {
+        return self.impl().eventsFrom(cursor);
+    }
+};
+
+pub const Workspace = struct {
+    const Self = @This();
+    const Impl = HandleImpl(WorkspaceId, "workspace", .{
+        .get = .workspace_get,
+        .close = .workspace_close,
+        .rename = .workspace_rename,
+        .run = .workspace_run,
+        .clear_name_with_null = false,
+    });
+
+    client: *Client,
+    target: ScopedSelector(WorkspaceId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            WorkspaceId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            WorkspaceId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(WorkspaceId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?WorkspaceId {
+        return self.impl().id();
+    }
+
+    pub fn screen(self: Self, child: anytype) Screen {
+        return self.impl().screen(child);
+    }
+
+    pub fn refresh(self: Self) !OwnedWorkspaceSnapshot {
+        return self.impl().refresh();
+    }
+
+    pub fn listScreens(self: Self) !ScreenList {
+        return self.impl().listScreens();
+    }
+
+    pub fn listPanes(self: Self) !PaneList {
+        return self.impl().listPanes();
+    }
+
+    pub fn listTerminals(self: Self) !TerminalList {
+        return self.impl().listTerminals();
+    }
+
+    pub fn listBrowsers(self: Self) !BrowserList {
+        return self.impl().listBrowsers();
+    }
+
+    pub fn close(
+        self: Self,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().close(mutation);
+    }
+
+    pub fn rename(
+        self: Self,
+        name: []const u8,
+        mutation: MutationOptions,
+    ) !WorkspaceMutationResult {
+        return self.impl().rename(name, mutation);
+    }
+
+    pub fn clearName(
+        self: Self,
+        mutation: MutationOptions,
+    ) !WorkspaceMutationResult {
+        return self.impl().clearName(mutation);
+    }
+
+    pub fn moveWorkspace(
+        self: Self,
+        index: u32,
+        mutation: MutationOptions,
+    ) !WorkspaceMutationResult {
+        return self.impl().moveWorkspace(index, mutation);
+    }
+
+    pub fn focusWorkspace(
+        self: Self,
+        mutation: MutationOptions,
+    ) !WorkspaceMutationResult {
+        return self.impl().focusWorkspace(mutation);
+    }
+
+    pub fn applyLayout(
+        self: Self,
+        document: LayoutDocument,
+        mutation: MutationOptions,
+    ) !WorkspaceMutationResult {
+        return self.impl().applyLayout(document, mutation);
+    }
+
+    pub fn createScreen(
+        self: Self,
+        create: CreateScreenOptions,
+        mutation: MutationOptions,
+    ) !CreatedPathMutationResult {
+        return self.impl().createScreen(create, mutation);
+    }
+
+    pub fn run(
+        self: Self,
+        options: RunOptions,
+        mutation: MutationOptions,
+    ) !CreatedTerminalPathMutationResult {
+        return self.impl().run(options, mutation);
+    }
+};
+pub const Screen = struct {
+    const Self = @This();
+    const Impl = HandleImpl(ScreenId, "screen", .{
+        .get = .screen_get,
+        .close = .screen_close,
+        .rename = .screen_rename,
+    });
+
+    client: *Client,
+    target: ScopedSelector(ScreenId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            ScreenId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            ScreenId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(ScreenId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?ScreenId {
+        return self.impl().id();
+    }
+
+    pub fn pane(self: Self, child: anytype) Pane {
+        return self.impl().pane(child);
+    }
+
+    pub fn refresh(self: Self) !OwnedScreenSnapshot {
+        return self.impl().refresh();
+    }
+
+    pub fn listPanes(self: Self) !PaneList {
+        return self.impl().listPanes();
+    }
+
+    pub fn listTerminals(self: Self) !TerminalList {
+        return self.impl().listTerminals();
+    }
+
+    pub fn listBrowsers(self: Self) !BrowserList {
+        return self.impl().listBrowsers();
+    }
+
+    pub fn close(
+        self: Self,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().close(mutation);
+    }
+
+    pub fn rename(
+        self: Self,
+        name: []const u8,
+        mutation: MutationOptions,
+    ) !ScreenMutationResult {
+        return self.impl().rename(name, mutation);
+    }
+
+    pub fn clearName(
+        self: Self,
+        mutation: MutationOptions,
+    ) !ScreenMutationResult {
+        return self.impl().clearName(mutation);
+    }
+
+    pub fn focusScreen(
+        self: Self,
+        mutation: MutationOptions,
+    ) !ScreenMutationResult {
+        return self.impl().focusScreen(mutation);
+    }
+
+    pub fn exportLayout(self: Self) !OwnedLayoutDocument {
+        return self.impl().exportLayout();
+    }
+
+    pub fn undoLayout(
+        self: Self,
+        options: UndoLayoutOptions,
+        mutation: MutationOptions,
+    ) !ScreenMutationResult {
+        return self.impl().undoLayout(options, mutation);
+    }
+
+    pub fn createPane(
+        self: Self,
+        create: CreatePaneOptions,
+        mutation: MutationOptions,
+    ) !CreatedPathMutationResult {
+        return self.impl().createPane(create, mutation);
+    }
+};
+
+pub const Pane = struct {
+    const Self = @This();
+    const Impl = HandleImpl(PaneId, "pane", .{
+        .get = .pane_get,
+        .close = .pane_close,
+        .rename = .pane_rename,
+        .run = .pane_run,
+    });
+
+    client: *Client,
+    target: ScopedSelector(PaneId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            PaneId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            PaneId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(PaneId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?PaneId {
+        return self.impl().id();
+    }
+
+    pub fn tab(self: Self, child: anytype) Tab {
+        return self.impl().tab(child);
+    }
+
+    pub fn refresh(self: Self) !OwnedPaneSnapshot {
+        return self.impl().refresh();
+    }
+
+    pub fn listTabs(self: Self) !TabList {
+        return self.impl().listTabs();
+    }
+
+    pub fn listTerminals(self: Self) !TerminalList {
+        return self.impl().listTerminals();
+    }
+
+    pub fn listBrowsers(self: Self) !BrowserList {
+        return self.impl().listBrowsers();
+    }
+
+    pub fn close(
+        self: Self,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().close(mutation);
+    }
+
+    pub fn rename(
+        self: Self,
+        name: []const u8,
+        mutation: MutationOptions,
+    ) !PaneMutationResult {
+        return self.impl().rename(name, mutation);
+    }
+
+    pub fn clearName(
+        self: Self,
+        mutation: MutationOptions,
+    ) !PaneMutationResult {
+        return self.impl().clearName(mutation);
+    }
+
+    pub fn splitPane(
+        self: Self,
+        split: SplitOptions,
+        mutation: MutationOptions,
+    ) !CreatedPathMutationResult {
+        return self.impl().splitPane(split, mutation);
+    }
+
+    pub fn focusPane(
+        self: Self,
+        mutation: MutationOptions,
+    ) !PaneMutationResult {
+        return self.impl().focusPane(mutation);
+    }
+
+    pub fn focusDirection(
+        self: Self,
+        direction: Direction,
+        mutation: MutationOptions,
+    ) !PaneMutationResult {
+        return self.impl().focusDirection(direction, mutation);
+    }
+
+    pub fn neighbor(
+        self: Self,
+        direction: Direction,
+    ) !OwnedPaneNeighborResult {
+        return self.impl().neighbor(direction);
+    }
+
+    pub fn swapPane(
+        self: Self,
+        destination: MoveDestination,
+        mutation: MutationOptions,
+    ) !PaneMutationResult {
+        return self.impl().swapPane(destination, mutation);
+    }
+
+    pub fn zoomPane(
+        self: Self,
+        enabled: ?bool,
+        mutation: MutationOptions,
+    ) !PaneMutationResult {
+        return self.impl().zoomPane(enabled, mutation);
+    }
+
+    pub fn setSplitRatio(
+        self: Self,
+        split_id: SplitId,
+        ratio: f64,
+        mutation: MutationOptions,
+    ) !PaneMutationResult {
+        return self.impl().setSplitRatio(
+            split_id,
+            ratio,
+            mutation,
+        );
+    }
+
+    pub fn setViewportWidth(
+        self: Self,
+        columns: u16,
+        mutation: MutationOptions,
+    ) !PaneMutationResult {
+        return self.impl().setViewportWidth(columns, mutation);
+    }
+
+    pub fn run(
+        self: Self,
+        options: RunOptions,
+        mutation: MutationOptions,
+    ) !CreatedTerminalPathMutationResult {
+        return self.impl().run(options, mutation);
+    }
+
+    pub fn createTerminalTab(
+        self: Self,
+        create: CreateTerminalTabOptions,
+        mutation: MutationOptions,
+    ) !CreatedTerminalPathMutationResult {
+        return self.impl().createTerminalTab(create, mutation);
+    }
+
+    pub fn createBrowserTab(
+        self: Self,
+        create: CreateBrowserTabOptions,
+        mutation: MutationOptions,
+    ) !CreatedBrowserPathMutationResult {
+        return self.impl().createBrowserTab(create, mutation);
+    }
+};
+
+pub const Tab = struct {
+    const Self = @This();
+    const Impl = HandleImpl(TabId, "tab", .{
+        .get = .tab_get,
+        .close = .tab_close,
+        .rename = .tab_rename,
+    });
+
+    client: *Client,
+    target: ScopedSelector(TabId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            TabId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            TabId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(TabId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?TabId {
+        return self.impl().id();
+    }
+
+    pub fn terminal(self: Self, child: anytype) Terminal {
+        return self.impl().terminal(child);
+    }
+
+    pub fn browser(self: Self, child: anytype) Browser {
+        return self.impl().browser(child);
+    }
+
+    pub fn refresh(self: Self) !OwnedTabSnapshot {
+        return self.impl().refresh();
+    }
+
+    pub fn listTerminals(self: Self) !TerminalList {
+        return self.impl().listTerminals();
+    }
+
+    pub fn listBrowsers(self: Self) !BrowserList {
+        return self.impl().listBrowsers();
+    }
+
+    pub fn close(
+        self: Self,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().close(mutation);
+    }
+
+    pub fn rename(
+        self: Self,
+        name: []const u8,
+        mutation: MutationOptions,
+    ) !TabMutationResult {
+        return self.impl().rename(name, mutation);
+    }
+
+    pub fn clearName(
+        self: Self,
+        mutation: MutationOptions,
+    ) !TabMutationResult {
+        return self.impl().clearName(mutation);
+    }
+
+    pub fn focusTab(
+        self: Self,
+        mutation: MutationOptions,
+    ) !TabMutationResult {
+        return self.impl().focusTab(mutation);
+    }
+
+    pub fn moveTab(
+        self: Self,
+        destination: MoveDestination,
+        mutation: MutationOptions,
+    ) !TabMutationResult {
+        return self.impl().moveTab(destination, mutation);
+    }
+};
+pub const Terminal = struct {
+    const Self = @This();
+    const Impl = HandleImpl(TerminalId, "terminal", .{
+        .get = .terminal_get,
+        .close = .terminal_close,
+    });
+
+    client: *Client,
+    target: ScopedSelector(TerminalId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            TerminalId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            TerminalId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(TerminalId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?TerminalId {
+        return self.impl().id();
+    }
+
+    pub fn refresh(self: Self) !OwnedTerminalSnapshot {
+        return self.impl().refresh();
+    }
+
+    pub fn close(
+        self: Self,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().close(mutation);
+    }
+
+    pub fn readScreen(self: Self) !OwnedTerminalScreenResult {
+        return self.impl().readScreen();
+    }
+
+    pub fn readState(self: Self) !OwnedTerminalStateResult {
+        return self.impl().readState();
+    }
+
+    pub fn readHistory(
+        self: Self,
+        options: TerminalHistoryOptions,
+    ) !OwnedTerminalHistoryResult {
+        return self.impl().readHistory(options);
+    }
+
+    pub fn copy(
+        self: Self,
+        mode: ?TerminalCopyMode,
+    ) !OwnedTerminalCopyResult {
+        return self.impl().copy(mode);
+    }
+
+    pub fn processInfo(self: Self) !OwnedProcessInfoResult {
+        return self.impl().processInfo();
+    }
+
+    pub fn waitFor(
+        self: Self,
+        pattern: []const u8,
+        timeout_ms: ?u64,
+    ) !OwnedTerminalWaitResult {
+        return self.impl().waitFor(pattern, timeout_ms);
+    }
+
+    pub fn waitForExit(
+        self: Self,
+        timeout_ms: ?u64,
+    ) !OwnedTerminalWaitExitResult {
+        return self.impl().waitForExit(timeout_ms);
+    }
+
+    pub fn clearHistory(
+        self: Self,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().clearHistory(mutation);
+    }
+
+    pub fn writeText(
+        self: Self,
+        text: []const u8,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().writeText(text, mutation);
+    }
+
+    pub fn writeBytes(
+        self: Self,
+        bytes: []const u8,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().writeBytes(bytes, mutation);
+    }
+
+    pub fn sendKeys(
+        self: Self,
+        keys: []const []const u8,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().sendKeys(keys, mutation);
+    }
+
+    pub fn sendMouse(
+        self: Self,
+        mouse: TerminalMouseOptions,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().sendMouse(mouse, mutation);
+    }
+
+    pub fn setInputFocus(
+        self: Self,
+        focused: bool,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().setInputFocus(focused, mutation);
+    }
+
+    pub fn moveTerminal(
+        self: Self,
+        destination: MoveDestination,
+        mutation: MutationOptions,
+    ) !TerminalMutationResult {
+        return self.impl().moveTerminal(destination, mutation);
+    }
+
+    pub fn scroll(
+        self: Self,
+        delta_rows: i32,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().scroll(delta_rows, mutation);
+    }
+
+    pub fn attachTerminal(self: Self) !TerminalAttachmentStream {
+        return self.impl().attachTerminal();
+    }
+
+    pub fn attachTerminalWith(
+        self: Self,
+        options: TerminalAttachOptions,
+    ) !TerminalAttachmentStream {
+        return self.impl().attachTerminalWith(options);
+    }
+
+    pub fn rendererGrant(self: Self) !*RendererGrant {
+        return self.impl().rendererGrant();
+    }
+
+    pub fn rendererGrantWith(
+        self: Self,
+        request: RendererGrantRequest,
+    ) !*RendererGrant {
+        return self.impl().rendererGrantWith(request);
+    }
+};
+
+pub const Browser = struct {
+    const Self = @This();
+    const Impl = HandleImpl(BrowserId, "browser", .{
+        .get = .browser_get,
+        .close = .browser_close,
+    });
+
+    client: *Client,
+    target: ScopedSelector(BrowserId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            BrowserId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            BrowserId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(BrowserId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?BrowserId {
+        return self.impl().id();
+    }
+
+    pub fn refresh(self: Self) !OwnedBrowserSnapshot {
+        return self.impl().refresh();
+    }
+
+    pub fn close(
+        self: Self,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().close(mutation);
+    }
+
+    pub fn navigate(
+        self: Self,
+        url: []const u8,
+        mutation: MutationOptions,
+    ) !BrowserMutationResult {
+        return self.impl().navigate(url, mutation);
+    }
+
+    pub fn browserBack(
+        self: Self,
+        mutation: MutationOptions,
+    ) !BrowserMutationResult {
+        return self.impl().browserBack(mutation);
+    }
+
+    pub fn browserForward(
+        self: Self,
+        mutation: MutationOptions,
+    ) !BrowserMutationResult {
+        return self.impl().browserForward(mutation);
+    }
+
+    pub fn reloadBrowser(
+        self: Self,
+        mutation: MutationOptions,
+    ) !BrowserMutationResult {
+        return self.impl().reloadBrowser(mutation);
+    }
+
+    pub fn activateBrowser(
+        self: Self,
+        mutation: MutationOptions,
+    ) !BrowserMutationResult {
+        return self.impl().activateBrowser(mutation);
+    }
+
+    pub fn sendBrowserKey(
+        self: Self,
+        key: BrowserKeyOptions,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().sendBrowserKey(key, mutation);
+    }
+
+    pub fn sendBrowserText(
+        self: Self,
+        text: []const u8,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().sendBrowserText(text, mutation);
+    }
+
+    pub fn sendBrowserMouse(
+        self: Self,
+        mouse: BrowserMouseOptions,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().sendBrowserMouse(mouse, mutation);
+    }
+
+    pub fn sendBrowserWheel(
+        self: Self,
+        wheel: BrowserWheelOptions,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().sendBrowserWheel(wheel, mutation);
+    }
+
+    pub fn attachBrowser(self: Self) !BrowserAttachmentStream {
+        return self.impl().attachBrowser();
+    }
+
+    pub fn attachBrowserWith(
+        self: Self,
+        options: BrowserAttachOptions,
+    ) !BrowserAttachmentStream {
+        return self.impl().attachBrowserWith(options);
+    }
+};
+pub const ConnectedClient = struct {
+    const Self = @This();
+    const Impl = HandleImpl(ConnectedClientId, "client", .{
+        .get = .client_get,
+    });
+
+    client: *Client,
+    target: ScopedSelector(ConnectedClientId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            ConnectedClientId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            ConnectedClientId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(ConnectedClientId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?ConnectedClientId {
+        return self.impl().id();
+    }
+
+    pub fn refresh(self: Self) !OwnedClientSnapshot {
+        return self.impl().refresh();
+    }
+
+    pub fn updateMetadata(
+        self: Self,
+        update: ClientMetadataUpdate,
+    ) !OwnedClientSnapshot {
+        return self.impl().updateMetadata(update);
+    }
+
+    pub fn setCellPixels(
+        self: Self,
+        width_px: u32,
+        height_px: u32,
+    ) !OwnedCellPixelsResult {
+        return self.impl().setCellPixels(width_px, height_px);
+    }
+
+    pub fn setSizing(
+        self: Self,
+        terminal_id: TerminalId,
+        enabled: bool,
+        exclusive: ?bool,
+    ) !OwnedClientSnapshot {
+        return self.impl().setSizing(
+            terminal_id,
+            enabled,
+            exclusive,
+        );
+    }
+
+    pub fn releaseSizing(
+        self: Self,
+        terminal_id: TerminalId,
+    ) !OwnedClientSnapshot {
+        return self.impl().releaseSizing(terminal_id);
+    }
+
+    pub fn detachClient(self: Self) !OwnedEmptyResult {
+        return self.impl().detachClient();
+    }
+};
+
+pub const PairingRequest = struct {
+    const Self = @This();
+    const Impl = HandleImpl(PairingRequestId, "pairing_request", .{
+        .get = .pairing_request_list,
+    });
+
+    client: *Client,
+    target: ScopedSelector(PairingRequestId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            PairingRequestId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            PairingRequestId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(PairingRequestId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?PairingRequestId {
+        return self.impl().id();
+    }
+
+    pub fn resolvePairing(
+        self: Self,
+        decision: PairingDecision,
+        mutation: MutationOptions,
+    ) !PairingResolutionMutationResult {
+        return self.impl().resolvePairing(decision, mutation);
+    }
+};
+
+pub const FrontendProjection = struct {
+    const Self = @This();
+    const Impl = HandleImpl(
+        FrontendProjectionId,
+        "frontend_projection",
+        .{ .get = .frontend_projection_get },
+    );
+
+    client: *Client,
+    target: ScopedSelector(FrontendProjectionId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            FrontendProjectionId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            FrontendProjectionId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(FrontendProjectionId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?FrontendProjectionId {
+        return self.impl().id();
+    }
+
+    pub fn refresh(self: Self) !OwnedFrontendProjectionSnapshot {
+        return self.impl().refresh();
+    }
+
+    pub fn putProjection(
+        self: Self,
+        projection: raw.wire.Value,
+        mutation: MutationOptions,
+    ) !FrontendProjectionMutationResult {
+        return self.impl().putProjection(projection, mutation);
+    }
+};
+
+pub const OwnedSidebarViewSnapshot = OwnedValue(
+    SidebarViewSnapshot,
 );
-pub const SidebarView = Handle(SidebarViewId, "sidebar_view", .{
-    .get = .sidebar_view_get,
-});
+
+pub const SidebarView = struct {
+    const Self = @This();
+    const Impl = HandleImpl(SidebarViewId, "sidebar_view", .{
+        .get = .sidebar_view_get,
+    });
+
+    client: *Client,
+    target: ScopedSelector(SidebarViewId),
+
+    pub fn init(client: *Client, selection: anytype) Self {
+        return initHandleFacade(
+            Self,
+            SidebarViewId,
+            client,
+            selection,
+            .{},
+        );
+    }
+
+    fn initScoped(
+        client: *Client,
+        selection: anytype,
+        ancestors: HandleRoute,
+    ) Self {
+        return initHandleFacade(
+            Self,
+            SidebarViewId,
+            client,
+            selection,
+            ancestors,
+        );
+    }
+
+    fn impl(self: Self) Impl {
+        return handleFacadeImpl(Impl, self);
+    }
+
+    pub fn selector(self: Self) Selector(SidebarViewId) {
+        return self.target.selector;
+    }
+
+    pub fn id(self: Self) ?SidebarViewId {
+        return self.impl().id();
+    }
+
+    pub fn refresh(self: Self) !OwnedSidebarViewSnapshot {
+        return self.impl().refresh();
+    }
+
+    pub fn attachSidebar(self: Self) !SidebarViewStream {
+        return self.impl().attachSidebar();
+    }
+
+    pub fn sendSidebarInput(
+        self: Self,
+        bytes: []const u8,
+        mutation: MutationOptions,
+    ) !EmptyMutationResult {
+        return self.impl().sendSidebarInput(bytes, mutation);
+    }
+
+    pub fn resizeSidebar(
+        self: Self,
+        cols: u16,
+        rows: u16,
+        mutation: MutationOptions,
+    ) !SidebarViewMutationResult {
+        return self.impl().resizeSidebar(cols, rows, mutation);
+    }
+
+    pub fn reloadSidebar(
+        self: Self,
+        mutation: MutationOptions,
+    ) !SidebarViewMutationResult {
+        return self.impl().reloadSidebar(mutation);
+    }
+};
 const FakeMode = enum {
     success,
     remote_error,
@@ -11551,6 +12968,79 @@ fn hasFacadeDeclaration(
     return true;
 }
 
+fn methodAllowed(
+    comptime allowed: []const []const u8,
+    comptime method: []const u8,
+) bool {
+    inline for (allowed) |candidate| {
+        if (std.mem.eql(u8, candidate, method)) return true;
+    }
+    return false;
+}
+
+fn expectHandleCapabilities(
+    comptime Facade: type,
+    comptime allowed: []const []const u8,
+) !void {
+    try std.testing.expect(@hasDecl(Facade, "selector"));
+    try std.testing.expect(@hasDecl(Facade, "id"));
+    inline for (std.meta.fields(Operation)) |field| {
+        const operation: Operation = @enumFromInt(field.value);
+        const method = comptime operation.facadeBinding().method;
+        try std.testing.expectEqual(
+            comptime methodAllowed(allowed, method),
+            @hasDecl(Facade, method),
+        );
+    }
+    const conveniences = .{
+        "session",
+        "workspace",
+        "screen",
+        "pane",
+        "tab",
+        "terminal",
+        "browser",
+        "connectedClient",
+        "pairingRequest",
+        "frontendProjection",
+        "sidebarView",
+        "notification",
+        "agent",
+        "clearName",
+        "writeText",
+        "events",
+        "attachTerminal",
+        "attachBrowser",
+        "rendererGrant",
+    };
+    inline for (conveniences) |method| {
+        try std.testing.expectEqual(
+            comptime methodAllowed(allowed, method),
+            @hasDecl(Facade, method),
+        );
+    }
+}
+
+fn expectStreamCapabilities(
+    comptime Stream: type,
+    comptime allowed: []const []const u8,
+) !void {
+    inline for (.{ "deinit", "next", "cancel", "end" }) |method| {
+        try std.testing.expect(@hasDecl(Stream, method));
+    }
+    inline for (.{
+        "resizeTerminalViewer",
+        "releaseTerminalViewer",
+        "resizeBrowserViewer",
+        "releaseBrowserViewer",
+    }) |method| {
+        try std.testing.expectEqual(
+            comptime methodAllowed(allowed, method),
+            @hasDecl(Stream, method),
+        );
+    }
+}
+
 test "opaque IDs and selectors preserve flat scope syntax" {
     const id = try WorkspaceId.parse(
         "ws_0123456789abcdef0123456789abcdef",
@@ -11708,6 +13198,182 @@ test "every catalog operation reaches a typed public facade" {
             ));
         }
     }
+}
+
+test "public facades expose only valid resource and stream capabilities" {
+    @setEvalBranchQuota(200_000);
+    try expectHandleCapabilities(Machine, &.{
+        "session",
+        "refresh",
+        "listSessions",
+        "openSession",
+    });
+    try expectHandleCapabilities(Session, &.{
+        "workspace",
+        "connectedClient",
+        "pairingRequest",
+        "frontendProjection",
+        "sidebarView",
+        "refresh",
+        "listWorkspaces",
+        "listScreens",
+        "listPanes",
+        "listTerminals",
+        "listBrowsers",
+        "listClients",
+        "listPairingRequests",
+        "listNotifications",
+        "listAgents",
+        "createNotification",
+        "reportAgent",
+        "ensureSidebarView",
+        "ping",
+        "fullSnapshot",
+        "resolveCreation",
+        "shutdown",
+        "close",
+        "reloadConfig",
+        "updateTerminalDefaults",
+        "setWindowTitle",
+        "clearWindowTitle",
+        "createWorkspace",
+        "events",
+        "eventsFrom",
+    });
+    try expectHandleCapabilities(Workspace, &.{
+        "screen",
+        "refresh",
+        "listScreens",
+        "listPanes",
+        "listTerminals",
+        "listBrowsers",
+        "close",
+        "rename",
+        "clearName",
+        "moveWorkspace",
+        "focusWorkspace",
+        "applyLayout",
+        "createScreen",
+        "run",
+    });
+    try expectHandleCapabilities(Screen, &.{
+        "pane",
+        "refresh",
+        "listPanes",
+        "listTerminals",
+        "listBrowsers",
+        "close",
+        "rename",
+        "clearName",
+        "focusScreen",
+        "exportLayout",
+        "undoLayout",
+        "createPane",
+    });
+    try expectHandleCapabilities(Pane, &.{
+        "tab",
+        "refresh",
+        "listTabs",
+        "listTerminals",
+        "listBrowsers",
+        "close",
+        "rename",
+        "clearName",
+        "splitPane",
+        "focusPane",
+        "focusDirection",
+        "neighbor",
+        "swapPane",
+        "zoomPane",
+        "setSplitRatio",
+        "setViewportWidth",
+        "run",
+        "createTerminalTab",
+        "createBrowserTab",
+    });
+    try expectHandleCapabilities(Tab, &.{
+        "terminal",
+        "browser",
+        "refresh",
+        "listTerminals",
+        "listBrowsers",
+        "close",
+        "rename",
+        "clearName",
+        "focusTab",
+        "moveTab",
+    });
+    try expectHandleCapabilities(Terminal, &.{
+        "refresh",
+        "close",
+        "readScreen",
+        "readState",
+        "readHistory",
+        "copy",
+        "processInfo",
+        "waitFor",
+        "waitForExit",
+        "clearHistory",
+        "writeText",
+        "writeBytes",
+        "sendKeys",
+        "sendMouse",
+        "setInputFocus",
+        "moveTerminal",
+        "scroll",
+        "attachTerminal",
+        "attachTerminalWith",
+        "rendererGrant",
+        "rendererGrantWith",
+    });
+    try expectHandleCapabilities(Browser, &.{
+        "refresh",
+        "close",
+        "navigate",
+        "browserBack",
+        "browserForward",
+        "reloadBrowser",
+        "activateBrowser",
+        "sendBrowserKey",
+        "sendBrowserText",
+        "sendBrowserMouse",
+        "sendBrowserWheel",
+        "attachBrowser",
+        "attachBrowserWith",
+    });
+    try expectHandleCapabilities(ConnectedClient, &.{
+        "refresh",
+        "updateMetadata",
+        "setCellPixels",
+        "setSizing",
+        "releaseSizing",
+        "detachClient",
+    });
+    try expectHandleCapabilities(PairingRequest, &.{
+        "resolvePairing",
+    });
+    try expectHandleCapabilities(FrontendProjection, &.{
+        "refresh",
+        "putProjection",
+    });
+    try expectHandleCapabilities(SidebarView, &.{
+        "refresh",
+        "attachSidebar",
+        "sendSidebarInput",
+        "resizeSidebar",
+        "reloadSidebar",
+    });
+
+    try expectStreamCapabilities(SessionEventStream, &.{});
+    try expectStreamCapabilities(SidebarViewStream, &.{});
+    try expectStreamCapabilities(TerminalAttachmentStream, &.{
+        "resizeTerminalViewer",
+        "releaseTerminalViewer",
+    });
+    try expectStreamCapabilities(BrowserAttachmentStream, &.{
+        "resizeBrowserViewer",
+        "releaseBrowserViewer",
+    });
 }
 
 test "client metadata preserves omitted set-empty and clear states" {

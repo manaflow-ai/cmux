@@ -57,6 +57,13 @@ so current and name targets serialize a complete machine through tab route.
 Constructing, copying, and discarding a handle performs no I/O. Selector name
 slices are borrowed for the handle lifetime.
 
+Each public facade declares only capabilities valid for that resource.
+`Terminal.navigate`, `Browser.readScreen`, `Machine.close`, and viewer
+controls on non-attachment streams fail at compile time and stay out of
+autocomplete. Notifications and agents are list/create/report resources, so
+the SDK exposes their snapshots and session methods without unusable
+individual handles.
+
 Machine, session, and workspace discovery returns owned typed snapshots:
 
 ```zig
@@ -159,7 +166,8 @@ retryability.
 Attachments use dedicated connections. Resize and release methods live on
 `TerminalAttachmentStream` and `BrowserAttachmentStream`, so connection-local
 viewer state cannot accidentally be changed through the control client.
-Attach options accept a resume cursor and render preferences.
+Session event streams accept a resume cursor. Attachment options configure
+initial read-only state and terminal or browser dimensions.
 
 Catalog errors use the `ResourceErrorDetails` tagged union. For example,
 `selector_ambiguous.candidates` contains typed `ErrorResourceId` values and

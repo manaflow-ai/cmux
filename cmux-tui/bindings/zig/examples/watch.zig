@@ -1,6 +1,30 @@
 const std = @import("std");
 const cmux = @import("cmux_tui");
 
+fn requirePublicDecl(
+    comptime Container: type,
+    comptime name: []const u8,
+) void {
+    if (!@hasDecl(Container, name)) {
+        @compileError(std.fmt.comptimePrint(
+            "{s} must expose {s}",
+            .{ @typeName(Container), name },
+        ));
+    }
+}
+
+fn rejectPublicDecl(
+    comptime Container: type,
+    comptime name: []const u8,
+) void {
+    if (@hasDecl(Container, name)) {
+        @compileError(std.fmt.comptimePrint(
+            "{s} must not expose {s}",
+            .{ @typeName(Container), name },
+        ));
+    }
+}
+
 pub fn main() !void {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
@@ -24,6 +48,50 @@ pub fn main() !void {
 }
 
 test "package consumer imports handwritten root and generated raw module" {
+    comptime {
+        requirePublicDecl(cmux.Machine, "listSessions");
+        rejectPublicDecl(cmux.Machine, "close");
+        rejectPublicDecl(cmux.Machine, "rename");
+        requirePublicDecl(cmux.Session, "createWorkspace");
+        rejectPublicDecl(cmux.Session, "navigate");
+        requirePublicDecl(cmux.Workspace, "run");
+        rejectPublicDecl(cmux.Workspace, "sendKeys");
+        requirePublicDecl(cmux.Screen, "undoLayout");
+        rejectPublicDecl(cmux.Screen, "run");
+        requirePublicDecl(cmux.Pane, "splitPane");
+        rejectPublicDecl(cmux.Pane, "navigate");
+        requirePublicDecl(cmux.Tab, "moveTab");
+        rejectPublicDecl(cmux.Tab, "run");
+        requirePublicDecl(cmux.Terminal, "waitForExit");
+        rejectPublicDecl(cmux.Terminal, "resizeTerminalViewer");
+        rejectPublicDecl(cmux.Terminal, "navigate");
+        requirePublicDecl(cmux.Browser, "navigate");
+        rejectPublicDecl(cmux.Browser, "readScreen");
+        rejectPublicDecl(cmux.PairingRequest, "refresh");
+        requirePublicDecl(
+            cmux.TerminalAttachmentStream,
+            "resizeTerminalViewer",
+        );
+        rejectPublicDecl(
+            cmux.TerminalAttachmentStream,
+            "resizeBrowserViewer",
+        );
+        requirePublicDecl(
+            cmux.BrowserAttachmentStream,
+            "resizeBrowserViewer",
+        );
+        rejectPublicDecl(
+            cmux.BrowserAttachmentStream,
+            "resizeTerminalViewer",
+        );
+        rejectPublicDecl(
+            cmux.SessionEventStream,
+            "resizeTerminalViewer",
+        );
+        rejectPublicDecl(cmux, "Notification");
+        rejectPublicDecl(cmux, "Agent");
+    }
+
     const workspace = try cmux.WorkspaceId.parse(
         "ws_0123456789abcdef0123456789abcdef",
     );
