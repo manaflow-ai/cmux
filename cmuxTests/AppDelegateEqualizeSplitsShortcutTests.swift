@@ -804,7 +804,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
-    func testDefaultWorkspaceTerminalFontSizeDrainScheduleIsOneShotAndCancellable()
+    func testWorkspaceTerminalFontSizeDrainScheduleContractIsOneShotAndCancellable()
         async {
         var firedCount = 0
         let fired = expectation(
@@ -819,21 +819,20 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
         await waitWhileSuspended(for: [fired], timeout: 1)
         completedCancellation()
-        try? await Task<Never, Never>.sleep(
-            nanoseconds: 50_000_000
-        )
+        completedCancellation()
         XCTAssertEqual(firedCount, 1)
 
         var cancelledFireCount = 0
-        let pendingCancellation =
-            WorkspaceTerminalFontSizeCoordinator
-                .scheduleDefaultDrain(after: 0.05) {
-                    cancelledFireCount += 1
-                }
+        // Drive cancellation through the coordinator's injected scheduler
+        // instead of waiting for a real deadline.
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        let pendingCancellation = scheduler.schedule(
+            delay: 0.05
+        ) {
+            cancelledFireCount += 1
+        }
         pendingCancellation()
-        try? await Task<Never, Never>.sleep(
-            nanoseconds: 100_000_000
-        )
+        scheduler.fire(at: 0)
         XCTAssertEqual(cancelledFireCount, 0)
     }
 
