@@ -21,7 +21,7 @@
     },
     "resourceId": {
       "type": "string",
-      "pattern": "^(machine|session|ws|screen|pane|tab|term|browser|client|split|notification|agent|projection|pairing|sidebar_view|sidebar_plugin)_[0-9a-f]{32}$"
+      "pattern": "^(machine|session|ws|screen|pane|tab|term|browser|client|split|notification|agent|projection|pairing|sidebar_view|sidebar_plugin|provider_scope|provider_action|provider_notice)_[0-9a-f]{32}$"
     },
     "streamId": {
       "type": "string",

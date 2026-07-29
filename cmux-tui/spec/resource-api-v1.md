@@ -45,8 +45,12 @@ lowercase hexadecimal entropy:
 | Agent | `agent_` |
 | Stream | `stream_` |
 | Projection | `projection_` |
+| Pairing request | `pairing_` |
 | Sidebar view | `sidebar_view_` |
 | Sidebar plugin | `sidebar_plugin_` |
+| Provider scope | `provider_scope_` |
+| Provider action | `provider_action_` |
+| Provider notice | `provider_notice_` |
 
 IDs are immutable and never reused. A durable session stores IDs with the
 logical resource and restores every ID for every resource that remains alive

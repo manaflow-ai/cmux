@@ -20,6 +20,15 @@
     "$schema": {"const": "./inventory.schema.json"},
     "schema_version": {"const": 1},
     "mux_protocol": {"type": "integer", "minimum": 1},
+    "resource_operations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+      }
+    },
     "profiles": {
       "type": "object",
       "additionalProperties": {"type": "string", "minLength": 1}
