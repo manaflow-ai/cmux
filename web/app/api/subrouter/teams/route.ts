@@ -34,10 +34,10 @@ export async function GET(request: Request): Promise<Response> {
       }));
 
       return jsonResponse({
-        selectedTeamId: teams.some(
-          (team) => team.id === (user.selectedTeamId ?? user.billingTeamId),
+        selectedTeamId: user.selectedTeamId && teams.some(
+          (team) => team.id === user.selectedTeamId,
         )
-          ? user.selectedTeamId ?? user.billingTeamId
+          ? user.selectedTeamId
           : null,
         teams,
       });

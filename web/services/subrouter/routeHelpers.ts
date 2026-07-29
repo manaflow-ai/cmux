@@ -52,7 +52,13 @@ export async function resolveTeam(
     }
     teamId = requested;
   } else {
-    teamId = user.selectedTeamId ?? user.billingTeamId;
+    if (!user.selectedTeamId) {
+      return {
+        ok: false,
+        response: jsonResponse({ error: "team_selection_required" }, 409),
+      };
+    }
+    teamId = user.selectedTeamId;
     if (!subrouterTeamAllowed(teamId)) {
       return {
         ok: false,

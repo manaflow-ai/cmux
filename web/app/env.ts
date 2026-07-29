@@ -207,6 +207,9 @@ export const env = createEnv({
     ),
     SUBROUTER_STACK_AUTH_TIMEOUT_MS: z.string()
       .regex(/^[1-9][0-9]{0,4}$/)
+      .refine((value) => Number(value) <= 30_000, {
+        message: "SUBROUTER_STACK_AUTH_TIMEOUT_MS must not exceed 30000",
+      })
       .optional(),
     // Iroh trust broker. The Services API key deliberately has no TypeScript
     // env entry: only the isolated Rust relay minter may hold it. These values

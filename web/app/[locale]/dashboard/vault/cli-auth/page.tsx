@@ -2,6 +2,7 @@ import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import { pendingCliAuthClientForUserCode } from "@/services/vault/cliAuth";
 import { ApproveForm } from "./approve-form";
 
 export const dynamic = "force-dynamic";
@@ -11,11 +12,17 @@ export default async function VaultCliAuthPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ code?: string; client?: string }>;
+  searchParams: Promise<{ code?: string }>;
 }) {
   const { locale } = await params;
-  const { code, client } = await searchParams;
+  const { code } = await searchParams;
   const t = await getTranslations({ locale, namespace: "vault.cliAuth" });
+  const normalizedCode = typeof code === "string"
+    ? code.trim().toUpperCase()
+    : "";
+  const initialCode = /^[A-Z2-9]{8}$/.test(normalizedCode)
+    ? normalizedCode
+    : "";
 
   if (!isStackConfigured()) {
     redirect("/");
@@ -23,14 +30,16 @@ export default async function VaultCliAuthPage({
   const user = await getStackServerApp().getUser({ or: "return-null" });
   if (!user) {
     const returnPath = new URL(localizedVaultPath(locale, "/dashboard/vault/cli-auth"), "https://cmux.com");
-    if (code) returnPath.searchParams.set("code", code);
-    if (client === "subrouter") {
-      returnPath.searchParams.set("client", client);
-    }
+    if (initialCode) returnPath.searchParams.set("code", initialCode);
     redirect(vaultSignInHref(`${returnPath.pathname}${returnPath.search}`));
   }
 
-  const initialCode = typeof code === "string" ? code.toUpperCase() : "";
+  // The transaction row is the consent authority. Query parameters only carry
+  // the user code, so a copied or modified URL cannot relabel another client
+  // as Subrouter.
+  const client = initialCode
+    ? await pendingCliAuthClientForUserCode(initialCode, new Date())
+    : null;
   const subrouter = client === "subrouter";
 
   return (

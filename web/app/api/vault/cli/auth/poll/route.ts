@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   claimCliAuthTokens,
   drizzleCliAuthRepository,
+  type CliAuthClient,
   type CliAuthTokens,
 } from "../../../../../../services/vault/cliAuth";
 import { withCliAuthApiRoute } from "../../../../../../services/vault/routeHelpers";
@@ -18,9 +19,16 @@ const SESSION_EXPIRES_IN_MS = 90 * 24 * 60 * 60 * 1000;
 // Tokens are minted here, at claim time, for the user recorded at approval.
 // Nothing token-shaped is ever written to the database, and a duplicate
 // approve can no longer mint an orphaned session.
-async function mintStackTokens(userId: string): Promise<CliAuthTokens | null> {
+async function mintStackTokens(
+  userId: string,
+  client: CliAuthClient,
+): Promise<CliAuthTokens | null> {
+  if (client !== "cmux-vault" && client !== "subrouter") return null;
   const user = await getStackServerApp().getUser(userId);
   if (!user) return null;
+  // Stack sessions establish identity only. Every Subrouter route separately
+  // enforces its team allowlist and use/manage permission, while the returned
+  // client binding lets the CLI reject a session minted for another flow.
   const session = await user.createSession({ expiresInMillis: SESSION_EXPIRES_IN_MS });
   const tokens = await session.getTokens();
   if (!tokens.accessToken || !tokens.refreshToken) return null;

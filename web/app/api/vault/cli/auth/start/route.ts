@@ -87,6 +87,7 @@ export async function POST(request: Request): Promise<Response> {
       await db.insert(vaultCliAuthRequests).values({
         deviceCodeHash,
         userCode,
+        client,
         status: "pending",
         createdAt: now,
         expiresAt,
@@ -94,7 +95,6 @@ export async function POST(request: Request): Promise<Response> {
 
       const verification = new URL("/dashboard/vault/cli-auth", request.url);
       verification.searchParams.set("code", userCode);
-      verification.searchParams.set("client", client);
       setSpanAttributes(span, {
         "cmux.vault.result_count": 1,
         "cmux.vault.cli_auth.expires_in_seconds": EXPIRES_IN_SECONDS,

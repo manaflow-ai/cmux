@@ -64,8 +64,10 @@ type VerifyRequestOptions = {
 const DEFAULT_SUBROUTER_STACK_AUTH_TIMEOUT_MS = 10_000;
 const MAX_SUBROUTER_STACK_AUTH_TIMEOUT_MS = 30_000;
 const MAX_CONCURRENT_STACK_AUTHORIZATION_CALLS = 8;
+const MAX_QUEUED_STACK_AUTHORIZATION_CALLS = 32;
 
 let activeStackAuthorizationCalls = 0;
+let timedOutStackAuthorizationCalls = 0;
 const stackAuthorizationWaiters: Array<{
   readonly signal: AbortSignal;
   readonly resolve: (release: () => void) => void;
@@ -190,7 +192,10 @@ async function stackAuthorizationCall<T>(
   try {
     return await waitForStackAuthorization(pending, signal);
   } catch (error) {
-    if (error instanceof SubrouterAuthorizationTimeoutError) throw error;
+    if (error instanceof SubrouterAuthorizationTimeoutError) {
+      markTimedOutStackAuthorizationCall(pending);
+      throw error;
+    }
     throw new SubrouterAuthorizationUnavailableError(
       error instanceof Error ? error.message : "Stack authorization failed",
     );
@@ -205,12 +210,31 @@ function acquireStackAuthorizationSlot(
       "Stack authorization deadline exceeded",
     ));
   }
+  // Stack's SDK does not expose a transport AbortSignal. If every underlying
+  // call has outlived its caller deadline, fail new work immediately until one
+  // settles instead of growing a queue behind an unrecoverable transport.
+  if (
+    timedOutStackAuthorizationCalls >=
+      MAX_CONCURRENT_STACK_AUTHORIZATION_CALLS
+  ) {
+    return Promise.reject(new SubrouterAuthorizationUnavailableError(
+      "Stack authorization circuit is open",
+    ));
+  }
   if (
     activeStackAuthorizationCalls <
       MAX_CONCURRENT_STACK_AUTHORIZATION_CALLS
   ) {
     activeStackAuthorizationCalls += 1;
     return Promise.resolve(releaseStackAuthorizationSlot);
+  }
+  if (
+    stackAuthorizationWaiters.length >=
+      MAX_QUEUED_STACK_AUTHORIZATION_CALLS
+  ) {
+    return Promise.reject(new SubrouterAuthorizationUnavailableError(
+      "Stack authorization queue is full",
+    ));
   }
   return new Promise((resolve, reject) => {
     const waiter = {
@@ -228,6 +252,21 @@ function acquireStackAuthorizationSlot(
     stackAuthorizationWaiters.push(waiter);
     signal.addEventListener("abort", waiter.abort, { once: true });
   });
+}
+
+function markTimedOutStackAuthorizationCall(pending: Promise<unknown>): void {
+  timedOutStackAuthorizationCalls += 1;
+  void pending.then(
+    retireTimedOutStackAuthorizationCall,
+    retireTimedOutStackAuthorizationCall,
+  );
+}
+
+function retireTimedOutStackAuthorizationCall(): void {
+  timedOutStackAuthorizationCalls = Math.max(
+    0,
+    timedOutStackAuthorizationCalls - 1,
+  );
 }
 
 function releaseStackAuthorizationSlot(): void {
@@ -345,14 +384,17 @@ async function authedUserFromStackUser(
   const selectedTeamRaw = user.selectedTeam;
   const selectedTeam = billingTeamFromUnknown(selectedTeamRaw);
   const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
-  // When the selected team is enough, entitlements resolve from it before any
-  // multi-team guard needs a full team list.
-  const needsListedTeams =
-    options.listAllTeams === true ||
-    !selectedTeam ||
-    (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
-  const listedTeamRaw = needsListedTeams && typeof user.listTeams === "function"
+  // Full pagination is reserved for the explicit team-picker route. Other
+  // callers resolve one requested team with Stack's exact-ID search so shared
+  // VM authentication never inherits an unbounded multi-page dependency.
+  const listedTeamRaw = options.listAllTeams === true
     ? await listAllStackTeams(user, options.subrouterAuthorizationSignal)
+    : requestedTeamId && requestedTeamId !== selectedTeam?.id
+    ? await findStackTeam(
+      user,
+      requestedTeamId,
+      options.subrouterAuthorizationSignal,
+    )
     : [];
   const listedTeams = listedTeamRaw
     .map(billingTeamFromUnknown)
@@ -481,6 +523,25 @@ async function listAllStackTeams(
   throw new Error("Stack team pagination exceeded its page limit");
 }
 
+async function findStackTeam(
+  user: StackUserLike,
+  teamId: string,
+  signal: AbortSignal | undefined,
+): Promise<readonly unknown[]> {
+  if (typeof user.listTeams !== "function") return [];
+  const page = await stackAuthorizationCall(
+    () => user.listTeams!({
+      query: teamId,
+      limit: STACK_TEAM_PAGE_SIZE,
+    }),
+    signal,
+  );
+  const match = page.find(
+    (candidate) => billingTeamFromUnknown(candidate)?.id === teamId,
+  );
+  return match ? [match] : [];
+}
+
 async function isAccountDeletionAuthBlocked(user: StackUserLike): Promise<boolean> {
   if (!hasAccountDeletionMetadataFlag(user.clientReadOnlyMetadata)) return false;
   const userIdHash = accountDeletionUserHash(user.id);
@@ -511,7 +572,11 @@ type StackUserLike = {
   readonly clientReadOnlyMetadata?: unknown;
   readonly selectedTeam?: unknown;
   readonly listTeams?: (
-    options?: { readonly cursor?: string; readonly limit?: number },
+    options?: {
+      readonly cursor?: string;
+      readonly limit?: number;
+      readonly query?: string;
+    },
   ) => Promise<readonly unknown[] & { readonly nextCursor?: string | null }>;
   readonly listPermissions?: {
     (
