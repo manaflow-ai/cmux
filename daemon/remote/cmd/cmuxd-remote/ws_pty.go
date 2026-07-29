@@ -171,8 +171,8 @@ const (
 
 type wsPTYSessionInitialPhase uint8
 
-// The initial phase keeps a process that exits during attach startup visible
-// until every caller coalesced onto that generation can observe ready + exit.
+// The initial phase keeps a process that exits during attach startup claimable,
+// but not live, until every coalesced caller can observe ready + exit.
 const (
 	wsPTYSessionInitialActive wsPTYSessionInitialPhase = iota
 	wsPTYSessionAwaitingInitialAttachment
@@ -966,7 +966,10 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 		}
 		if claimedSession != nil {
 			session = claimedSession
-			if h.sessions[sessionKey] != session || session.closed {
+			claimableFinishedSession := ownsInitialClaim &&
+				session.initialPhase == wsPTYSessionFinishedBeforeInitialAttachment
+			if h.sessions[sessionKey] != session ||
+				(session.closed && !claimableFinishedSession) {
 				h.releaseInitialClaimLocked(session)
 				h.mu.Unlock()
 				return nil, nil, nil, fmt.Errorf("persistent PTY session %q closed before attachment completed", sessionID)
@@ -974,11 +977,12 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 			break
 		}
 		session = h.sessions[sessionKey]
+		if session != nil &&
+			session.initialPhase == wsPTYSessionFinishedBeforeInitialAttachment {
+			h.mu.Unlock()
+			return nil, nil, nil, fmt.Errorf("persistent PTY session %q is no longer running", sessionID)
+		}
 		if session != nil && !session.closed {
-			if session.initialPhase == wsPTYSessionFinishedBeforeInitialAttachment {
-				h.mu.Unlock()
-				return nil, nil, nil, fmt.Errorf("persistent PTY session %q is no longer running", sessionID)
-			}
 			if reservationReady != nil {
 				reservationReady()
 			}
@@ -1841,7 +1845,13 @@ func (session *wsPTYSession) ptyFileSnapshot() *os.File {
 func (h *wsPTYHub) activeSessionCount() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return len(h.sessions)
+	count := 0
+	for _, session := range h.sessions {
+		if session != nil && !session.closed {
+			count++
+		}
+	}
+	return count
 }
 
 func (h *wsPTYHub) maxScrollbackBytes() int {
@@ -1886,11 +1896,11 @@ func (h *wsPTYHub) finishSession(session *wsPTYSession) {
 	h.mu.Lock()
 	if session.initialPhase == wsPTYSessionAwaitingInitialAttachment {
 		session.initialPhase = wsPTYSessionFinishedBeforeInitialAttachment
+		session.closed = true
+		h.cancelIdleReapLocked(session)
 		close(session.done)
 		if session.initialClaims == 0 && h.sessions[session.key] == session {
 			delete(h.sessions, session.key)
-			h.cancelIdleReapLocked(session)
-			session.closed = true
 		}
 		h.mu.Unlock()
 		return
