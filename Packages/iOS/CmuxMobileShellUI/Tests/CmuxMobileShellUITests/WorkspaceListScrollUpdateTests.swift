@@ -109,6 +109,93 @@ import UIKit
         )
     }
 
+    @Test func coordinatorKeepsGroupHeaderWorkspaceAndGroupActionsAvailable() {
+        let capabilities = MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: true,
+            supportsWorkspaceMetadata: true,
+            supportsReadStateActions: true,
+            supportsCloseActions: true,
+            supportsMoveActions: true,
+            supportsGroupActions: true,
+            supportsGroupCreate: true
+        )
+        let group = MobileWorkspaceGroupPreview(
+            id: "group-1",
+            name: "Release",
+            anchorWorkspaceID: "workspace-1"
+        )
+        let initial = configuration(
+            workspaceIDs: ["workspace-1"],
+            groups: [group],
+            items: [.groupHeader(group.id)],
+            actionCapabilities: capabilities,
+            requestWorkspaceClose: { _ in },
+            closeWorkspace: { _ in },
+            setUnread: { _, _ in },
+            setPinned: { _, _ in },
+            renameRequest: { _ in },
+            customizeRequest: { _ in },
+            createWorkspaceInGroup: { _ in },
+            renameWorkspaceGroup: { _, _ in },
+            setGroupPinned: { _, _ in },
+            ungroupWorkspaceGroup: { _ in },
+            deleteWorkspaceGroup: { _ in }
+        )
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+        let indexPath = IndexPath(row: 0, section: 0)
+
+        let dataSourceAllowsEditing =
+            tableView.dataSource?.tableView?(tableView, canEditRowAt: indexPath) ?? true
+        #expect(dataSourceAllowsEditing)
+        #expect(
+            coordinator.tableView(
+                tableView,
+                leadingSwipeActionsConfigurationForRowAt: indexPath
+            ) != nil
+        )
+        #expect(
+            coordinator.tableView(
+                tableView,
+                trailingSwipeActionsConfigurationForRowAt: indexPath
+            ) != nil
+        )
+        #expect(
+            coordinator.tableView(
+                tableView,
+                contextMenuConfigurationForRowAt: indexPath,
+                point: .zero
+            ) != nil
+        )
+    }
+
+    @Test func workspaceContextMenuKeepsRenameAlongsideCustomize() {
+        let capabilities = MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: true,
+            supportsWorkspaceMetadata: true,
+            supportsReadStateActions: false,
+            supportsCloseActions: false,
+            supportsMoveActions: false,
+            supportsGroupActions: false,
+            supportsGroupCreate: false
+        )
+        let initial = configuration(
+            workspaceIDs: ["workspace-1"],
+            actionCapabilities: capabilities,
+            renameRequest: { _ in },
+            customizeRequest: { _ in }
+        )
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let workspace = initial.workspacesByID[MobileWorkspacePreview.ID(rawValue: "workspace-1")]!
+
+        let identifiers = coordinator.contextMenuActions(for: workspace)
+            .compactMap(\.accessibilityIdentifier)
+
+        #expect(identifiers.contains("MobileWorkspaceCustomizeButton-workspace-1"))
+        #expect(identifiers.contains("MobileWorkspaceRenameButton-workspace-1"))
+    }
+
     private func makeTableView() -> WorkspaceListUITableView {
         WorkspaceListUITableView(
             frame: CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -117,13 +204,20 @@ import UIKit
 
     private func configuration(
         workspaceIDs: [String],
+        groups: [MobileWorkspaceGroupPreview] = [],
+        items: [WorkspaceListTableItem]? = nil,
         actionCapabilities: MobileWorkspaceActionCapabilities = .none,
         requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         renameRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
-        customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil
+        customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
+        createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
+        renameWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)? = nil,
+        setGroupPinned: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? = nil,
+        ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
+        deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     ) -> WorkspaceListTable {
         let workspaces = workspaceIDs.map { rawID in
             var workspace = MobileWorkspacePreview(
@@ -135,9 +229,9 @@ import UIKit
             return workspace
         }
         return WorkspaceListTable(
-            items: workspaces.map { .workspace($0.id, indented: false) },
+            items: items ?? workspaces.map { .workspace($0.id, indented: false) },
             workspacesByID: Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) }),
-            groupsByID: [:],
+            groupsByID: Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) }),
             groupHasUnreadByID: [:],
             filter: .all,
             selectedWorkspaceID: nil,
@@ -166,11 +260,11 @@ import UIKit
             setPinned: setPinned,
             renameRequest: renameRequest,
             customizeRequest: customizeRequest,
-            createWorkspaceInGroup: nil,
-            renameWorkspaceGroup: nil,
-            setGroupPinned: nil,
-            ungroupWorkspaceGroup: nil,
-            deleteWorkspaceGroup: nil,
+            createWorkspaceInGroup: createWorkspaceInGroup,
+            renameWorkspaceGroup: renameWorkspaceGroup,
+            setGroupPinned: setGroupPinned,
+            ungroupWorkspaceGroup: ungroupWorkspaceGroup,
+            deleteWorkspaceGroup: deleteWorkspaceGroup,
             toggleGroupCollapsed: nil,
             showAll: {},
             retryConnectionRecovery: nil,
