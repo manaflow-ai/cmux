@@ -2834,10 +2834,20 @@ impl Surface {
     }
 
     pub fn browser_wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
+        self.browser_wheel_2d(x, y, 0.0, delta_y)
+    }
+
+    pub fn browser_wheel_2d(
+        &self,
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+    ) -> anyhow::Result<()> {
         let Some(browser) = self.as_browser() else {
             anyhow::bail!("PTY surface is not a browser surface");
         };
-        browser.wheel(x, y, delta_y)
+        browser.wheel_2d(x, y, delta_x, delta_y)
     }
 
     pub fn browser_navigate(&self, url: &str) -> anyhow::Result<()> {

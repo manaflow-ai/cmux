@@ -165,6 +165,7 @@ enum BrowserCommand {
     Wheel {
         x: f64,
         y: f64,
+        delta_x: f64,
         delta_y: f64,
     },
     Key {
@@ -1032,7 +1033,9 @@ fn run_browser_worker_command(
             BrowserCommand::Mouse { event_type, x, y, button, click_count } => {
                 browser.mouse_event_blocking(&event_type, x, y, button.as_deref(), click_count)
             }
-            BrowserCommand::Wheel { x, y, delta_y } => browser.wheel_blocking(x, y, delta_y),
+            BrowserCommand::Wheel { x, y, delta_x, delta_y } => {
+                browser.wheel_blocking(x, y, delta_x, delta_y)
+            }
             BrowserCommand::Key {
                 event_type,
                 key,
@@ -1884,15 +1887,20 @@ impl BrowserSurface {
     }
 
     pub fn wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
-        self.enqueue_bounded(BrowserCommand::Wheel { x, y, delta_y })
+        self.wheel_2d(x, y, 0.0, delta_y)
     }
 
-    fn wheel_blocking(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
+    pub fn wheel_2d(&self, x: f64, y: f64, delta_x: f64, delta_y: f64) -> anyhow::Result<()> {
+        self.enqueue_bounded(BrowserCommand::Wheel { x, y, delta_x, delta_y })
+    }
+
+    fn wheel_blocking(&self, x: f64, y: f64, delta_x: f64, delta_y: f64) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         self.maybe_nudge_stalled_external(&session);
         let (x, y) = self.scale_input_point(x, y);
+        let delta_x = self.scale_delta(delta_x);
         let delta_y = self.scale_delta(delta_y);
-        session.runtime.client.dispatch_wheel(&session.session_id, x, y, delta_y)
+        session.runtime.client.dispatch_wheel(&session.session_id, x, y, delta_x, delta_y)
     }
 
     pub fn key_event(
