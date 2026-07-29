@@ -108,6 +108,20 @@ def mapping_keys(text: str, indent: int) -> tuple[str, ...]:
     return tuple(keys)
 
 
+def scalar_mapping(text: str, indent: int) -> dict[str, str]:
+    values = {}
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if len(line) - len(line.lstrip()) != indent:
+            continue
+        key, separator, value = line.strip().partition(":")
+        assert separator and value.strip(), f"invalid scalar mapping: {line}"
+        assert key not in values, f"duplicate scalar key: {key}"
+        values[key] = value.strip()
+    return values
+
+
 def test_literal_block_accepts_whitespace_only_lines() -> None:
     text = "  script: |\n    first\n  \n    second\nnext:\n"
 
