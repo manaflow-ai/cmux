@@ -4175,8 +4175,9 @@ mod unix {
                 command: vec![
                     "/bin/sh".into(),
                     "-c".into(),
-                    "printf '%s' \"${CMUX_TUI_LAUNCHER_COMMAND-unset}\" > \
-                     \"$CMUX_TUI_TEST_RESULT\"; exec /bin/sleep 60"
+                    "result=\"$CMUX_TUI_TEST_RESULT\"; \
+                     printf '%s' \"${CMUX_TUI_LAUNCHER_COMMAND-unset}\" > \"$result.tmp\"; \
+                     mv \"$result.tmp\" \"$result\"; exec /bin/sleep 60"
                         .into(),
                 ],
                 extra_env: vec![(
