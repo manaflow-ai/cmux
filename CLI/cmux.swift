@@ -1842,8 +1842,8 @@ final class ClaudeHookSessionStore {
                     return nil
                 }
                 record = existing
-            } else if let normalizedSessionId,
-                      let existing = state.sessions[normalizedSessionId] {
+            } else if let normalizedSessionId {
+                guard let existing = state.sessions[normalizedSessionId] else { return nil }
                 record = existing
             } else {
                 guard let fallback = fallbackRecord(
