@@ -345,7 +345,7 @@ fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
 
     let version = Command::new(bin()).arg("--version").output().unwrap();
     assert_success(&version);
-    assert!(String::from_utf8(version.stdout).unwrap().starts_with("cmux-tui "));
+    assert!(String::from_utf8(version.stdout).unwrap().starts_with("cmux "));
 }
 
 #[cfg(unix)]

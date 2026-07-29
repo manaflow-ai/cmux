@@ -7,7 +7,7 @@ The machine agent exposes one existing local cmux session to an authenticated cm
 The implemented entrypoint is:
 
 ```text
-cmux-tui machine-agent [--session <name>] [--socket <path>]
+cmux machine-agent [--session <name>] [--socket <path>]
   [--state <path>] [--cloud-host <host>] [--cloud-user <user>]
   [--cloud-port <port>] [--cloud-identity <path>]
 ```

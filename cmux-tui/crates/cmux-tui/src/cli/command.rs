@@ -2128,7 +2128,7 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
 pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthorityPlan) -> i32 {
     let output = global.output;
     let Some(socket) = global.socket else {
-        eprintln!("cmux-tui: provider authority install requires --socket");
+        eprintln!("cmux: provider authority install requires --socket");
         return 2;
     };
     #[cfg(target_os = "linux")]

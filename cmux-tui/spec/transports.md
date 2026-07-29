@@ -118,11 +118,11 @@ vNext applies a 4,194,304-byte client-to-server UTF-8 message limit on every tra
 | status | implemented client transport primitive |
 | since | protocol 9 client |
 
-`cmux-tui relay` copies bytes between stdin/stdout and one existing local Unix session socket:
+`cmux relay` copies bytes between stdin/stdout and one existing local Unix session socket:
 
 ```text
-cmux-tui relay --session main
-cmux-tui relay --socket /absolute/path/to/session.sock
+cmux relay --session main
+cmux relay --socket /absolute/path/to/session.sock
 ```
 
 Relay does not start a mux server, render a TUI, authenticate a caller, or interpret command payloads. Its stdout contains only server protocol bytes. When stdin is a terminal because a provider allocated a PTY, relay enables raw terminal mode for its lifetime to prevent echo and newline conversion. Providers should use a pipe when possible. When relay stdin reaches EOF, relay half-closes the Unix socket write side and continues copying server output. The server stops accepting requests on that connection, completes every parsed request, and then closes the response stream. Requests for one surface remain ordered, and an active `clear-history` also blocks later lifecycle commands. Requests for unrelated surfaces may complete first, so clients must correlate responses by request id.
@@ -151,8 +151,8 @@ The server classifies relay traffic as Unix because relay terminates at the Unix
 WebSocket is opt-in and can run alongside either the local TUI or `--headless`:
 
 ```text
-cmux-tui --ws 127.0.0.1:7681
-cmux-tui --headless --ws 127.0.0.1:7681
+cmux --ws 127.0.0.1:7681
+cmux --headless --ws 127.0.0.1:7681
 ```
 
 The equivalent config is:
@@ -233,7 +233,7 @@ vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, ech
 HTTP is opt-in. The server binds localhost by default when enabled:
 
 ```text
-cmux-tui --http 127.0.0.1:0
+cmux --http 127.0.0.1:0
 ```
 
 The implementation must not bind a non-loopback address unless the user explicitly supplies one. HTTP is disabled unless a bearer token exists or the user passes `--http-insecure-localhost`.

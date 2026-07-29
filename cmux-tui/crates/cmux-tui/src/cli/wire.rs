@@ -16,11 +16,11 @@ const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
-        eprintln!("cmux-tui: streams require --jsonl, --quiet, or human output");
+        eprintln!("cmux: streams require --jsonl, --quiet, or human output");
         return 2;
     }
     let Some(params) = plan.params.as_object_mut() else {
-        eprintln!("cmux-tui: request params are not an object");
+        eprintln!("cmux: request params are not an object");
         return 2;
     };
     if let Some(machine) = &global.machine
@@ -36,18 +36,18 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let request = match request_value(&plan) {
         Ok(request) => request,
         Err(error) => {
-            eprintln!("cmux-tui: {error}");
+            eprintln!("cmux: {error}");
             return 2;
         }
     };
     let encoded = match serde_json::to_vec(&request) {
         Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => encoded,
         Ok(_) => {
-            eprintln!("cmux-tui: request exceeds the 4 MiB protocol limit");
+            eprintln!("cmux: request exceeds the 4 MiB protocol limit");
             return 2;
         }
         Err(error) => {
-            eprintln!("cmux-tui: cannot encode request: {error}");
+            eprintln!("cmux: cannot encode request: {error}");
             return 2;
         }
     };

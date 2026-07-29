@@ -22,6 +22,8 @@ fn root_help_is_noun_first_and_does_not_publish_the_old_flat_api() {
     assert!(output.stderr.is_empty(), "help wrote diagnostics: {}", stderr(&output));
 
     let help = stdout(&output);
+    assert!(help.starts_with("cmux - "), "{help}");
+    assert!(!help.contains("cmux-tui"), "{help}");
     for scope in [
         "machine",
         "session",
@@ -83,6 +85,7 @@ fn every_public_scope_has_specific_help_instead_of_falling_back_to_root_help() {
         assert_success(&output);
         assert!(output.stderr.is_empty(), "{path:?}: {}", stderr(&output));
         let help = stdout(&output);
+        assert!(!help.contains("cmux-tui"), "{path:?}: {help}");
         for needle in required {
             assert!(help.contains(needle), "{path:?} help is missing {needle:?}:\n{help}");
         }
@@ -91,6 +94,30 @@ fn every_public_scope_has_specific_help_instead_of_falling_back_to_root_help() {
             "{path:?} returned unrelated help instead of scope-specific help:\n{help}"
         );
     }
+}
+
+#[test]
+fn usage_errors_use_the_public_command_name() {
+    let output = local_cli(&["unknown-scope"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let diagnostic = stderr(&output);
+    assert!(diagnostic.starts_with("cmux: "), "{diagnostic}");
+    assert!(!diagnostic.contains("cmux-tui"), "{diagnostic}");
+}
+
+#[test]
+fn startup_help_and_version_use_the_public_command_name() {
+    let help = local_cli(&["help", "start"]);
+    assert_success(&help);
+    let help = stdout(&help);
+    assert!(help.starts_with("cmux - "), "{help}");
+    assert!(!help.contains("cmux-tui"), "{help}");
+
+    let version = local_cli(&["--version"]);
+    assert_success(&version);
+    let version = stdout(&version);
+    assert!(version.starts_with("cmux "), "{version}");
 }
 
 #[test]

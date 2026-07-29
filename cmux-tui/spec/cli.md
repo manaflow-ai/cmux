@@ -1,6 +1,6 @@
 # Public CLI
 
-`cmux-tui` exposes `cmux.protocol/1` as a noun-first CLI. The public command
+`cmux` exposes `cmux.protocol/1` as a noun-first CLI. The public command
 tree uses the same resource hierarchy and operation catalog as the handwritten
 SDKs. The private protocol-v10 command set is available only through the
 explicit `raw command` escape.
@@ -11,10 +11,10 @@ These modes start or connect a TUI process. They do not send a public resource
 request:
 
 ```text
-cmux-tui [START OPTIONS]
-cmux-tui attach [START OPTIONS]
-cmux-tui relay [ROUTING OPTIONS]
-cmux-tui machine-agent [OPTIONS]
+cmux [START OPTIONS]
+cmux attach [START OPTIONS]
+cmux relay [ROUTING OPTIONS]
+cmux machine-agent [OPTIONS]
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
@@ -24,7 +24,7 @@ complete session TUI.
 ## Public grammar
 
 ```text
-cmux-tui [GLOBAL OPTIONS] <resource> <action> [OPTIONS]
+cmux [GLOBAL OPTIONS] <resource> <action> [OPTIONS]
 ```
 
 The public resource roots are:
@@ -39,15 +39,15 @@ Structural resources may be addressed directly by opaque ID or through their
 parents:
 
 ```text
-cmux-tui pane pane_… show
-cmux-tui workspace ws_… screen screen_… pane pane_… show
+cmux pane pane_… show
+cmux workspace ws_… screen screen_… pane pane_… show
 ```
 
 Both paths send `pane.get`. A direct opaque target ID may omit structural
 ancestors. A name or `current` target requires its complete parent chain. Every
 supplied ancestor is checked for containment before the operation runs.
 
-Run `cmux-tui <resource> --help` for its exact paths and flags. Parser tests
+Run `cmux <resource> --help` for its exact paths and flags. Parser tests
 map every operational one-shot command and parameter in
 [`resource-operations-v1.json`](resource-operations-v1.json) to a public path.
 Sensitive renderer grants and connection-owned stream/viewer controls remain
@@ -120,14 +120,14 @@ Resolve an interrupted creation with
 `workspace run` and `pane run` preserve exact argument arrays after `--`:
 
 ```bash
-cmux-tui workspace current run -- cargo test --workspace cmux-tui
-cmux-tui pane current run -- sh -lc 'printf "%s\n" ready'
+cmux workspace current run -- cargo test --workspace cmux-tui
+cmux pane current run -- sh -lc 'printf "%s\n" ready'
 ```
 
 The explicit shell form runs through the server platform's default shell:
 
 ```bash
-cmux-tui workspace current run shell 'cargo test && printf ready'
+cmux workspace current run shell 'cargo test && printf ready'
 ```
 
 The client never reads or expands `$SHELL`.
@@ -230,10 +230,10 @@ not a transported resource operation or cross-machine discovery API.
 ## Raw access
 
 ```text
-cmux-tui raw operation <dotted.name> [--params-json <object>]
+cmux raw operation <dotted.name> [--params-json <object>]
   [--mutation --idempotency-key <value>] [--stream]
 
-cmux-tui raw command --request-json <private-protocol-object>
+cmux raw command --request-json <private-protocol-object>
 ```
 
 `raw operation` sends a generic `cmux.protocol/1` request. Known operations

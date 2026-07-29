@@ -93,7 +93,7 @@ $XDG_DATA_HOME/cmux/mux-plugins/<name>
 ```
 
 `<name>` is either `[plugin].name` from `cmux-plugin.toml` or the
-`cmux-tui plugin install --name <override>` value. Names must match
+`cmux sidebar plugin install --name <override>` value. Names must match
 `[a-z0-9-_]+`; path traversal and mixed-case names are rejected. Install clones
 to a temporary directory first, validates the manifest, runs `[build].command`
 when present, verifies the resolved `[run].command[0]` exists and is
@@ -101,4 +101,4 @@ executable, then moves the directory into place. Existing installs are refused
 unless `--force` is supplied.
 
 Relative manifest run commands are resolved to absolute paths under the plugin
-directory before `plugin use` writes the runnable command into the cmux-tui config.
+directory before `sidebar plugin use` writes the runnable command into the cmux-tui config.

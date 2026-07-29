@@ -46,20 +46,20 @@ Pane layout stays tiled by default. Press `Ctrl-b g` to append a terminal to the
 The public control CLI is noun-first:
 
 ```bash
-cmux-tui workspace create --name api
-cmux-tui workspace current run -- cargo test
-cmux-tui terminal term_0123456789abcdef0123456789abcdef screen read
-cmux-tui session current events --jsonl
+cmux workspace create --name api
+cmux workspace current run -- cargo test
+cmux terminal term_0123456789abcdef0123456789abcdef screen read
+cmux session current events --jsonl
 ```
 
 Resource IDs are opaque typed strings. Selectors also accept `current` or an exact name. Duplicate names return `selector.ambiguous` with every candidate ID; use an ID to choose one. Prefix a reserved or ID-shaped name with `name:`.
 
-Packaged builds can run as `npx cmux`. The optional machine rail lets that local client switch among the current session, other Unix sockets, and sessions reached through SSH. It is disabled by default and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. `npx cmux --cloud` composes those local targets with the Cloud catalog and enables temporary machine connections without sending local SSH details to Cloud. The client uses noninteractive SSH with strict host-key checking and the remote `cmux-tui relay --session <name>` transport primitive, so the remote headless session, trusted host key, authentication key, and binary must already exist. See [Machines and remote sessions](docs/machines.md).
+Packaged builds can run as `npx cmux`. The optional machine rail lets that local client switch among the current session, other Unix sockets, and sessions reached through SSH. It is disabled by default and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. `npx cmux --cloud` composes those local targets with the Cloud catalog and enables temporary machine connections without sending local SSH details to Cloud. The client uses noninteractive SSH with strict host-key checking and the remote `cmux relay --session <name>` transport primitive, so the remote headless session, trusted host key, authentication key, and binary must already exist. See [Machines and remote sessions](docs/machines.md).
 
 ```bash
 npx cmux
 npx cmux machine-agent --session agents
-ssh -T dev@buildbox cmux-tui relay --session agents
+ssh -T dev@buildbox cmux relay --session agents
 ```
 
 The Unix-only `machine-agent` shares an existing local session through one outbound SSH registration with cmux.cloud. It prints a one-time pairing code and opens no listener. The final command carries raw JSON-lines protocol traffic and is normally started by the machine connector, not used as an interactive TUI.

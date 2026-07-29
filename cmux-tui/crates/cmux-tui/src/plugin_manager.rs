@@ -141,7 +141,7 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
     reject_plugin_flags(options, true, true, false)?;
     if positionals.len() != 2 {
         return Err(ManagerError::Usage(
-            "usage: cmux-tui sidebar plugin install <git-url> [--name <name>] [--force]"
+            "usage: cmux sidebar plugin install <git-url> [--name <name>] [--force]"
                 .to_string(),
         ));
     }
@@ -209,7 +209,7 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
 fn list_command(positionals: &[String], options: &CliOptions) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, false, false, false)?;
     if positionals.len() != 1 {
-        return Err(ManagerError::Usage("usage: cmux-tui sidebar plugin list".to_string()));
+        return Err(ManagerError::Usage("usage: cmux sidebar plugin list".to_string()));
     }
     let plugins = installed_plugins()?;
     Ok(Value::Array(plugins.iter().map(plugin_json).collect()))
@@ -222,7 +222,7 @@ fn use_command(positionals: &[String], options: &CliOptions) -> Result<Value, Ma
         (2, false) => {}
         _ => {
             return Err(ManagerError::Usage(
-                "usage: cmux-tui sidebar plugin use <name-or-id> | cmux-tui sidebar plugin use --builtin"
+                "usage: cmux sidebar plugin use <name-or-id> | cmux sidebar plugin use --builtin"
                     .to_string(),
             ));
         }
@@ -243,7 +243,7 @@ fn update_command(positionals: &[String], options: &CliOptions) -> Result<Value,
     reject_plugin_flags(options, false, false, false)?;
     if positionals.len() != 2 {
         return Err(ManagerError::Usage(
-            "usage: cmux-tui sidebar plugin update <name-or-id>".to_string(),
+            "usage: cmux sidebar plugin update <name-or-id>".to_string(),
         ));
     }
     let mut plugin = resolve_installed_plugin(&positionals[1])?;
@@ -266,7 +266,7 @@ fn remove_command(positionals: &[String], options: &CliOptions) -> Result<Value,
     reject_plugin_flags(options, false, false, false)?;
     if positionals.len() != 2 {
         return Err(ManagerError::Usage(
-            "usage: cmux-tui sidebar plugin remove <name-or-id>".to_string(),
+            "usage: cmux sidebar plugin remove <name-or-id>".to_string(),
         ));
     }
     let installed = resolve_installed_plugin(&positionals[1])?;

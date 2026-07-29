@@ -23,11 +23,11 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     let encoded = match serde_json::to_vec(&plan.request) {
         Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => encoded,
         Ok(_) => {
-            eprintln!("cmux-tui: raw request exceeds the 4 MiB protocol limit");
+            eprintln!("cmux: raw request exceeds the 4 MiB protocol limit");
             return 2;
         }
         Err(error) => {
-            eprintln!("cmux-tui: cannot encode raw request: {error}");
+            eprintln!("cmux: cannot encode raw request: {error}");
             return 2;
         }
     };

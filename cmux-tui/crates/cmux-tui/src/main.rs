@@ -246,14 +246,14 @@ fn harden_provider_secret_process() -> io::Result<()> {
 }
 
 const USAGE: &str = "\
-cmux-tui - terminal multiplexer and resource client
+cmux - terminal multiplexer and resource client
 
 USAGE
-  cmux-tui [OPTIONS]           Start a session
-  cmux-tui attach [OPTIONS]    Attach to a session
-  cmux-tui relay [OPTIONS]     Relay protocol bytes over stdio
+  cmux [OPTIONS]           Start a session
+  cmux attach [OPTIONS]    Attach to a session
+  cmux relay [OPTIONS]     Relay protocol bytes over stdio
   {machine_agent_usage}
-  cmux-tui <scope> --help      Discover resource commands
+  cmux <scope> --help      Discover resource commands
 
 START OPTIONS
   --session <name>   Session name (default: main). Determines the socket path.
@@ -275,7 +275,7 @@ START OPTIONS
   --ws-insecure-bind Allow a non-loopback WebSocket bind (no TLS; use a proxy).
   --term <value>     TERM for child shells (default: xterm-256color).
   -h, --help         Show this help.
-  -V, --version      Print the cmux-tui version.
+  -V, --version      Print the cmux version.
 ";
 
 fn usage_for(catalog: &localization::Catalog) -> String {
@@ -439,7 +439,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 std::process::exit(0);
             }
             "-V" | "--version" => {
-                println!("cmux-tui {}", version_string());
+                println!("cmux {}", version_string());
                 std::process::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
@@ -1224,7 +1224,7 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
 }
 
 fn usage_exit(msg: &str) -> ! {
-    eprintln!("cmux-tui: {msg}\n\n{}", usage());
+    eprintln!("cmux: {msg}\n\n{}", usage());
     std::process::exit(2);
 }
 
@@ -1605,7 +1605,8 @@ mod tests {
         let english = localization::catalog_for_locale("en_US.UTF-8");
         let usage = usage_for_platform(english, false);
         assert!(!usage.contains("machine-agent"));
-        assert!(usage.contains("cmux-tui relay"));
+        assert!(usage.contains("cmux relay"));
+        assert!(!usage.contains("cmux-tui"));
         assert!(!usage.lines().any(|line| !line.is_empty() && line.trim().is_empty()));
     }
 
@@ -1619,12 +1620,14 @@ mod tests {
     #[test]
     fn startup_help_stays_focused_on_process_modes() {
         let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
-        assert!(english.contains("cmux-tui <scope> --help"));
+        assert!(english.contains("cmux <scope> --help"));
+        assert!(!english.contains("cmux-tui"));
         assert!(!english.contains("KEYS"));
         assert!(!english.contains("CLI VERBS"));
 
         let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
-        assert!(japanese.contains("cmux-tui <scope> --help"));
+        assert!(japanese.contains("cmux <scope> --help"));
+        assert!(!japanese.contains("cmux-tui"));
         assert!(!japanese.contains("KEYS"));
     }
 

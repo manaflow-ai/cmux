@@ -42,9 +42,9 @@ The static connector validates the selected server through the normal protocol-v
 Start the client with one provider connector:
 
 ```text
-cmux-tui --machine-provider <socket>
-cmux-tui --machine-provider-command <program> [arg ...] --
-cmux-tui --cloud [--cloud-host <host>] [--cloud-user <user>]
+cmux --machine-provider <socket>
+cmux --machine-provider-command <program> [arg ...] --
+cmux --cloud [--cloud-host <host>] [--cloud-user <user>]
                    [--cloud-port <port>] [--cloud-identity <path>]
 ```
 
@@ -120,6 +120,6 @@ Control requests time out after 30 seconds. Machine open may wait up to five min
 
 On Linux, a mux with `CMUX_PROVIDER_WORKSPACE_AUTHORITY` must set `PR_SET_DUMPABLE=0` before retaining the authority, overwrite the value in the original environment block, and unset the variable before spawning terminals or helpers. Startup fails closed when the non-dumpable state cannot be established. This blocks same-UID host-workspace shells from reading the authority through `/proc/<pid>/environ`, `/proc/<pid>/mem`, or ptrace. The VM's root user remains trusted and can replace or inspect the mux process.
 
-A cloud implementation may authenticate at the SSH edge, project a team-scoped catalog, create or wake a VM, and proxy `cmux-tui relay` from that VM. The app must receive only descriptors, capabilities, action results, and an opened message transport. Cloud credentials, billing decisions, and provider API objects must not enter `App`, `RemoteSession`, or the shared rail renderer.
+A cloud implementation may authenticate at the SSH edge, project a team-scoped catalog, create or wake a VM, and proxy `cmux relay` from that VM. The app must receive only descriptors, capabilities, action results, and an opened message transport. Cloud credentials, billing decisions, and provider API objects must not enter `App`, `RemoteSession`, or the shared rail renderer.
 
 V1 lets a provider withdraw a machine, change status, revoke an open connection, and use capability checks to hide unsupported actions such as `new machine`. User-owned machines and cloud VMs use the same descriptor and open boundary. The reference client preserves process-local keys across snapshots by reconciling provider-stable ids.
