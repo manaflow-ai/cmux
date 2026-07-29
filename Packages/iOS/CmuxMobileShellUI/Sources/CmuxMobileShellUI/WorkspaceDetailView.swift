@@ -102,27 +102,32 @@ struct WorkspaceDetailView: View {
     #endif
     var body: some View {
         #if os(iOS)
-        if let layout = workspace.layout {
-            PaneZoomNavigationStack(presentation: $paneZoomPresentation) {
-                paneMapRoot(layout: layout)
-                    .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-                    .navigationTitle(systemNavigationTitle)
-                    .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
-                    .toolbar { workspaceDetailToolbar(mode: .paneMap) }
-                    .navigationBarBackButtonHidden(true)
-            } terminal: {
-                terminalWorkspaceEndpoint
-                    .navigationBarBackButtonHidden(true)
-                    .navigationTransition(
-                        .zoom(
-                            sourceID: paneZoomSourceSurfaceID,
-                            in: paneZoomNamespace
+        Group {
+            if let layout = workspace.layout {
+                PaneZoomNavigationStack(presentation: $paneZoomPresentation) {
+                    paneMapRoot(layout: layout)
+                        .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+                        .navigationTitle(systemNavigationTitle)
+                        .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+                        .toolbar { workspaceDetailToolbar(mode: .paneMap) }
+                        .navigationBarBackButtonHidden(true)
+                } terminal: {
+                    terminalWorkspaceEndpoint
+                        .navigationBarBackButtonHidden(true)
+                        .navigationTransition(
+                            .zoom(
+                                sourceID: paneZoomSourceSurfaceID,
+                                in: paneZoomNamespace
+                            )
                         )
-                    )
+                }
+            } else {
+                terminalWorkspaceEndpoint
             }
-        } else {
-            terminalWorkspaceEndpoint
+        }
+        .onChange(of: workspace.layout != nil) { _, hasLayout in
+            paneZoomPresentation.layoutAvailabilityDidChange(hasLayout: hasLayout)
         }
         #else
         Group { detailSurfaceContent }
@@ -177,11 +182,6 @@ struct WorkspaceDetailView: View {
             }
             .onChange(of: store.supportsChatArtifactGallery) { _, _ in
                 visibleArtifactCount = 0
-            }
-            .onChange(of: workspace.layout == nil) { _, layoutIsMissing in
-                if layoutIsMissing {
-                    paneZoomPresentation.presentationDidChange(isTerminalPresented: true)
-                }
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,

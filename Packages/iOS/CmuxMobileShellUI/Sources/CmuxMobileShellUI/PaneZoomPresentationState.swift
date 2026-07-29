@@ -35,6 +35,11 @@ struct PaneZoomPresentationState: Equatable {
         navigationPath = isTerminalPresented ? [.terminal] : []
     }
 
+    mutating func layoutAvailabilityDidChange(hasLayout: Bool) {
+        guard !hasLayout else { return }
+        presentationDidChange(isTerminalPresented: true)
+    }
+
     mutating func navigationPathDidChange(_ path: [Endpoint]) {
         navigationPath = path.last == .terminal ? [.terminal] : []
     }
