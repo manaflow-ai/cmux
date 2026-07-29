@@ -144,6 +144,182 @@ import Testing
         #expect(foregroundStillWarm != nil)
     }
 
+    @Test func promotionDoesNotOverwriteWorkspaceEventWithEarlierSnapshot() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "promotion-freshness",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-b",
+            displayName: "Studio B",
+            routes: [route],
+            instanceTag: "feature-b",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date()
+        )
+        let targetRouter = LivenessHostRouter()
+        await targetRouter.setHostIdentity(
+            deviceID: "mac-b",
+            instanceTag: "feature-b",
+            displayName: "Studio B"
+        )
+        await targetRouter.scriptWorkspaceListTitles([
+            "Preflight Snapshot",
+            "Stale Promotion Snapshot",
+            "Event Fresh Snapshot",
+        ])
+        await targetRouter.holdWorkspaceListRequest(number: 2)
+        let targetTransportBox = TransportBox()
+        let targetRuntime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: targetRouter,
+                box: targetTransportBox
+            ),
+            now: { Date() }
+        )
+        let oldRuntime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let targetTicket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "mac-b",
+            macDisplayName: "Studio B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let oldTicket = try CmxAttachTicket(
+            workspaceID: "old-workspace",
+            terminalID: "old-terminal",
+            macDeviceID: "mac-a",
+            macDisplayName: "Studio A",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let targetClient = MobileCoreRPCClient(
+            runtime: targetRuntime,
+            route: route,
+            ticket: targetTicket,
+            allowsStackAuthFallback: true
+        )
+        let oldClient = MobileCoreRPCClient(
+            runtime: oldRuntime,
+            route: route,
+            ticket: oldTicket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(
+            runtime: targetRuntime,
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            reachability: AlwaysOnlineReachability()
+        )
+        shell.remoteClient = oldClient
+        shell.activeTicket = oldTicket
+        shell.activeRoute = route
+        shell.activeMacInstanceTag = "feature-a"
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.connections["mac-a"] = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: oldTicket,
+            route: route,
+            client: oldClient,
+            generation: shell.connectionGeneration,
+            displayName: "Studio A",
+            instanceTag: "feature-a",
+            supportedHostCapabilities: ["terminal.render_grid.v1"],
+            actionCapabilities: .none
+        )
+        shell.workspacesByMac["mac-a"] = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            displayName: "Studio A",
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: .init(rawValue: "old-workspace"),
+                    macDeviceID: "mac-a",
+                    name: "Old Workspace",
+                    terminals: []
+                ),
+            ],
+            status: .connected
+        )
+        shell.workspacesByMac["mac-b"] = MacWorkspaceState(
+            macDeviceID: "mac-b",
+            displayName: "Studio B",
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: .init(rawValue: "live-workspace"),
+                    macDeviceID: "mac-b",
+                    name: "Control Snapshot",
+                    terminals: []
+                ),
+            ],
+            status: .connected
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: targetClient,
+            route: route,
+            ticket: targetTicket,
+            storedInstanceTag: "feature-b",
+            authenticatedInstanceTag: "feature-b",
+            supportedHostCapabilities: ["terminal.render_grid.v1"],
+            actionCapabilities: .none
+        )
+
+        let switchTask = Task { @MainActor in
+            await shell.switchToMac(
+                macDeviceID: "mac-b",
+                instanceTag: "feature-b"
+            )
+        }
+        #expect(await targetRouter.waitForCount(
+            of: "workspace.list",
+            atLeast: 2
+        ))
+        #expect(try await pollUntil {
+            await targetRouter.heldRequestCount() == 1
+        })
+        let targetTransport = try #require(targetTransportBox.get())
+        await targetTransport.deliver(
+            try promotionWorkspaceUpdatedEventFrame()
+        )
+        #expect(await targetRouter.waitForCount(
+            of: "mobile.workspace.list",
+            atLeast: 1
+        ))
+
+        await targetRouter.releaseAllHeld()
+        #expect(await switchTask.value)
+        #expect(try await pollUntil {
+            shell.workspacesByMac["mac-b"]?.workspaces.first?.name
+                == "Event Fresh Snapshot"
+        })
+        #expect(shell.workspacesByMac["mac-b"]?.workspaces.first?.name
+            != "Stale Promotion Snapshot")
+        await targetClient.disconnect()
+    }
+
     @Test func promotionRetiresAnonymousUnregisteredForegroundClient() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -463,4 +639,15 @@ import Testing
         #expect(shell.workspacesByMac["mac-b"]?.status == .unavailable)
         #expect(shell.workspacesByMac["mac-b"]?.workspaces.isEmpty == true)
     }
+}
+
+private func promotionWorkspaceUpdatedEventFrame() throws -> Data {
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": "workspace.updated",
+        "payload": [String: Any](),
+    ]
+    return try MobileSyncFrameCodec.encodeFrame(
+        JSONSerialization.data(withJSONObject: envelope)
+    )
 }

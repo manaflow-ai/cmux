@@ -14,3 +14,27 @@ struct SecondaryClientHandle {
     let supportedHostCapabilities: Set<String>
     let actionCapabilities: MobileWorkspaceActionCapabilities
 }
+
+/// Whether a background control connection can be retried without a new
+/// authority or route edge.
+enum SecondaryClientAttempt {
+    case connected(SecondaryClientHandle)
+    /// The route was authorized and compatible, but the network exchange failed.
+    case transientFailure
+    /// The saved route, authenticated identity, or host response is incompatible.
+    case permanentFailure
+}
+
+enum SecondaryHostStatusAttempt {
+    case received(MobileHostStatusResponse)
+    case transientFailure
+    case permanentFailure
+}
+
+enum SecondaryMacEstablishmentOutcome {
+    case connected
+    case transientFailure
+    case permanentFailure
+    /// Scope or ownership changed while the attempt was in flight.
+    case superseded
+}

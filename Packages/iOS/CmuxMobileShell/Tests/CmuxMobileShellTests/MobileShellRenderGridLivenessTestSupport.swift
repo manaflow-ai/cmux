@@ -60,6 +60,7 @@ actor LivenessHostRouter {
     private var macInstanceTag: String? = "default"
     private var macDisplayName: String? = "Test Mac"
     private var workspaceListResponseHook: (@Sendable () -> Void)?
+    private var workspaceListTitles: [String] = []
     /// FIFO of scripted `mobile.sync.fetch` results (state sync v2 tests).
     private var syncFetchResults: [[String: Any]] = []
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
@@ -252,6 +253,10 @@ actor LivenessHostRouter {
         heldWorkspaceListRequestNumbers.insert(number)
     }
 
+    func scriptWorkspaceListTitles(_ titles: [String]) {
+        workspaceListTitles.append(contentsOf: titles)
+    }
+
     /// Hold the next workspace-list responses relative to requests already seen.
     func holdNextWorkspaceListRequests(count: Int = 1) {
         guard count > 0 else { return }
@@ -330,6 +335,9 @@ actor LivenessHostRouter {
             return try? Self.resultFrame(id: id, result: ["ticket": Self.attachTicketObject()])
         case "workspace.list", "mobile.workspace.list":
             workspaceListRequestCount += 1
+            let workspaceTitle = workspaceListTitles.isEmpty
+                ? "Live Workspace"
+                : workspaceListTitles.removeFirst()
             if heldWorkspaceListRequestNumbers.contains(workspaceListRequestCount) {
                 await park()
             }
@@ -338,7 +346,7 @@ actor LivenessHostRouter {
                 "workspaces": [
                     [
                         "id": "live-workspace",
-                        "title": "Live Workspace",
+                        "title": workspaceTitle,
                         "current_directory": "/Users/test/project",
                         "is_selected": true,
                         "terminals": [

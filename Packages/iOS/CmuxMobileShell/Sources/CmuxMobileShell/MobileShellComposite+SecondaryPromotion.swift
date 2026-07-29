@@ -120,9 +120,9 @@ extension MobileShellComposite {
             }
             return false
         }
-        guard let previews = await fetchSecondaryWorkspaces(
+        guard await fetchSecondaryWorkspaces(
                   on: sub.client, macDeviceID: macID
-              ),
+              ) != nil,
               secondaryMacSubscriptions[macID] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID),
               let refreshed = try? await pairedMacStore.loadAll(
@@ -276,21 +276,52 @@ extension MobileShellComposite {
             statusMacAppVersion: nil,
             macDeviceID: macID
         )
-        workspacesByMac[macID] = MacWorkspaceState(
-            macDeviceID: macID,
-            displayName: displayName,
-            workspaces: previews,
-            status: .connected,
-            actionCapabilities: sub.actionCapabilities
+        activeRoute = sub.route
+        connectionState = .connected
+        markMacConnectionHealthy()
+        // Establish the foreground listener before fetching the snapshot that
+        // focus will publish. This closes the control-unsubscribe/terminal-
+        // subscribe gap for legacy Macs that have no state-sync cursor repair.
+        let subscriptionReadiness =
+            MobileTerminalEventSubscriptionReadiness()
+        startTerminalRefreshPolling(
+            subscriptionReadiness: subscriptionReadiness
         )
+        let foregroundEventsReady = await subscriptionReadiness.wait()
+        guard isCurrentMacSwitchAttempt(switchAttemptID),
+              remoteClient === sub.client,
+              foregroundMacDeviceID == macID else {
+            return false
+        }
+        if foregroundEventsReady {
+            let snapshotEventGeneration = workspaceListEventGeneration
+            let authoritativePreviews = await fetchSecondaryWorkspaces(
+                on: sub.client,
+                macDeviceID: macID
+            )
+            guard isCurrentMacSwitchAttempt(switchAttemptID),
+                  remoteClient === sub.client,
+                  foregroundMacDeviceID == macID else {
+                return false
+            }
+            // A workspace event that raced the fetch already owns a fresh
+            // foreground refetch. Never overwrite its result with this older
+            // response.
+            if workspaceListEventGeneration == snapshotEventGeneration,
+               let authoritativePreviews {
+                workspacesByMac[macID] = MacWorkspaceState(
+                    macDeviceID: macID,
+                    displayName: displayName,
+                    workspaces: authoritativePreviews,
+                    status: .connected,
+                    actionCapabilities: sub.actionCapabilities
+                )
+            }
+        }
         selectWorkspaceOnCurrentForegroundMac()
         // The old foreground snapshot remains live through its new control
         // connection, so `dropStalePreviousForeground` keeps it in the aggregate.
         dropStalePreviousForeground(previousForegroundKey)
-        activeRoute = sub.route
-        connectionState = .connected
-        markMacConnectionHealthy()
-        startTerminalRefreshPolling()
         scheduleForegroundNotificationFeedRefresh(client: sub.client)
         syncSelectedTerminalForWorkspace()
         enqueueActivePairedMacWrite(

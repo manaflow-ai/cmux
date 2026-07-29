@@ -136,6 +136,145 @@ import Testing
         #expect(state.schedule() == .seconds(2))
     }
 
+    @Test func permanentIdentityMismatchDoesNotSchedulePoolRetry() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "permanent-mismatch",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-permanent",
+            displayName: "Permanent Mac",
+            routes: [route],
+            instanceTag: "expected-tag",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "different-mac",
+            instanceTag: "different-tag",
+            displayName: "Different Mac"
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        shell.applyPresenceUpdate(
+            Self.snapshot([
+                Self.instance(
+                    deviceID: "mac-permanent",
+                    tag: "expected-tag",
+                    online: true
+                ),
+            ]),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+
+        #expect(await router.waitForCount(
+            of: "mobile.host.status",
+            atLeast: 1
+        ))
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        #expect(shell.secondaryMacSubscriptions["mac-permanent"] == nil)
+        #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
+    }
+
+    @Test func transientTransportFailureStillSchedulesPoolRetry() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "transient-transport",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-transient",
+            displayName: "Transient Mac",
+            routes: [route],
+            instanceTag: "transient-tag",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let attempts = PoolTransportAttemptCounter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: FailingPoolTransportFactory(
+                attempts: attempts
+            ),
+            now: { Date() }
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        shell.applyPresenceUpdate(
+            Self.snapshot([
+                Self.instance(
+                    deviceID: "mac-transient",
+                    tag: "transient-tag",
+                    online: true
+                ),
+            ]),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+
+        #expect(try await pollUntil {
+            attempts.count > 0
+        })
+        #expect(try await pollUntil {
+            shell.secondaryRetryBackoffIsScheduledForTesting()
+        })
+        #expect(shell.secondaryMacSubscriptions["mac-transient"] == nil)
+    }
+
     @Test func controlEventTaskDoesNotRetainShellStore() throws {
         let router = LivenessHostRouter()
         let runtime = LivenessTestRuntime(
@@ -708,6 +847,95 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func keepaliveSkipsAnotherMacsInitialActivation() async throws {
+        let clock = ControlPoolManualClock()
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "single-flight-activation",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        func subscription(_ macDeviceID: String) throws
+            -> SecondaryMacSubscription {
+            let ticket = try CmxAttachTicket(
+                workspaceID: "",
+                terminalID: nil,
+                macDeviceID: macDeviceID,
+                macDisplayName: macDeviceID,
+                routes: [route],
+                expiresAt: Date().addingTimeInterval(3_600)
+            )
+            return SecondaryMacSubscription(
+                macDeviceID: macDeviceID,
+                client: MobileCoreRPCClient(
+                    runtime: runtime,
+                    route: route,
+                    ticket: ticket,
+                    allowsStackAuthFallback: true
+                ),
+                route: route,
+                ticket: ticket,
+                supportedHostCapabilities: [],
+                actionCapabilities: .none
+            )
+        }
+        let first = try subscription("mac-a")
+        let second = try subscription("mac-b")
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            controlPlaneSchedulingClock: clock
+        )
+        shell.secondaryMacSubscriptions["mac-a"] = first
+        shell.startSecondaryEventConsumer(first, displayName: "Mac A")
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 1
+        ))
+        #expect(try await pollUntil {
+            first.hasActivatedControlStream && clock.sleeperCount == 1
+        })
+
+        await router.holdSubscribeRequest(number: 2)
+        shell.secondaryMacSubscriptions["mac-b"] = second
+        shell.startSecondaryEventConsumer(second, displayName: "Mac B")
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 2
+        ))
+        #expect(try await pollUntil {
+            await router.heldRequestCount() == 1
+        })
+
+        clock.advance(by: .seconds(20))
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 3
+        ))
+        #expect(!second.hasActivatedControlStream)
+        #expect(await router.count(of: "mobile.events.subscribe") == 3)
+
+        await router.releaseAllHeld()
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions["mac-b"] == nil
+        })
+        #expect(await router.count(of: "mobile.events.subscribe") == 3)
+
+        first.detachKeepingClient()
+        second.detachKeepingClient()
+        shell.secondaryMacSubscriptions["mac-a"] = nil
+        shell.secondaryMacSubscriptions["mac-b"] = nil
+        await first.client.disconnect()
+        await second.client.disconnect()
+    }
+
     @Test func freshSwitchStagesMetadataAndReplacesTargetControlOwner() async throws {
         let router = LivenessHostRouter()
         await router.setHostIdentity(
@@ -1158,6 +1386,30 @@ import Testing
 private struct IdlePresence: PresenceSubscribing {
     func subscribe() async throws -> AsyncThrowingStream<PresenceUpdate, any Error> {
         AsyncThrowingStream { _ in }
+    }
+}
+
+private final class PoolTransportAttemptCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    var count: Int {
+        lock.withLock { value }
+    }
+
+    func increment() {
+        lock.withLock { value += 1 }
+    }
+}
+
+private struct FailingPoolTransportFactory: CmxByteTransportFactory {
+    let attempts: PoolTransportAttemptCounter
+
+    func makeTransport(
+        for route: CmxAttachRoute
+    ) throws -> any CmxByteTransport {
+        attempts.increment()
+        throw MobileShellConnectionError.connectionClosed
     }
 }
 

@@ -3,6 +3,33 @@ import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 
+/// One-shot acknowledgement used by focus promotion to wait until the
+/// foreground event listener exists locally and its server registration has
+/// been acknowledged.
+actor MobileTerminalEventSubscriptionReadiness {
+    private var result: Bool?
+    private var waiters: [CheckedContinuation<Bool, Never>] = []
+
+    func wait() async -> Bool {
+        if let result {
+            return result
+        }
+        return await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func resolve(_ value: Bool) {
+        guard result == nil else { return }
+        result = value
+        let pending = waiters
+        waiters = []
+        for waiter in pending {
+            waiter.resume(returning: value)
+        }
+    }
+}
+
 /// One non-focused Mac's persistent control connection plus its event consumer.
 @MainActor
 final class SecondaryMacSubscription {
@@ -36,6 +63,9 @@ final class SecondaryMacSubscription {
     /// Set before promotion waits on any RPC. Keepalive reassertions skip this
     /// subscription until it either becomes focused or promotion is abandoned.
     var isTransitioningToFocus = false
+    /// Keepalive ticks skip a newly inserted subscription until its consumer's
+    /// first server-side activation has completed.
+    var hasActivatedControlStream = false
     /// Records an event consumer ending while promotion owns the subscription.
     /// If promotion is then abandoned before focus commits, the dead control
     /// connection is torn down instead of being returned to the pool.
