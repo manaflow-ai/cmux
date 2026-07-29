@@ -32,9 +32,7 @@ use crate::resource::{
     ContentPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId, SplitPublicId,
     TabResourceIdentity, WorkspacePublicId,
 };
-use crate::resource_mutation::{
-    StatePatch, diff_resource_projection, ensure_split_public_ids, project_resource_state,
-};
+use crate::resource_mutation::{ResourceMutationMetrics, ResourceMutationPlan};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_runtime::TerminalHostIdentity;
@@ -43,8 +41,8 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryCommit, RegistryLayoutNode, RegistrySnapshot,
     RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace, ResourceChange,
-    ResourcePatchCommit, ResourceTopologySnapshot, TerminalLifecycle, TerminalRegistrySnapshot,
-    WorkspaceMutation, WorkspaceRegistry,
+    ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot, TerminalLifecycle,
+    TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -931,6 +929,8 @@ pub struct Mux {
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    resource_mutation_metrics: Mutex<Option<ResourceMutationMetrics>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -1150,6 +1150,8 @@ impl Mux {
             terminal_create_after_workspace_reservation: Mutex::new(None),
             #[cfg(test)]
             viewport_split_after_spawn: Mutex::new(None),
+            #[cfg(test)]
+            resource_mutation_metrics: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -2202,48 +2204,37 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn commit_resource_state_mutation(
+    fn commit_resource_mutation_plan(
         &self,
         mutation: &WorkspaceMutation,
         operation: &str,
         fingerprint: &Value,
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
-        prepare: impl FnOnce(&mut State) -> anyhow::Result<(Value, Value, Option<ResourceChange>)>,
+        prepare: impl FnOnce(&mut State, &WorkspaceRegistry) -> anyhow::Result<ResourceMutationPlan>,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(replay) = registry.replay_resource_patch(mutation, operation, fingerprint)? {
             return Ok(replay);
         }
 
-        let current_workspaces = registry.snapshot()?;
-        let current_topology = registry.resource_topology_snapshot()?;
         let mut state = self.state.lock().unwrap();
-        let mut state_patch = StatePatch::prepare(&state);
-        let (result, deltas, force_if_unchanged) = prepare(state_patch.state_mut())?;
-        Self::rebuild_split_screen_index(state_patch.state_mut());
-        ensure_split_public_ids(state_patch.state_mut())?;
-        let desired = project_resource_state(state_patch.state(), &self.session, &registry)?;
-        let patch = diff_resource_projection(
-            &current_workspaces,
-            &current_topology,
-            &desired,
-            &registry,
-            force_if_unchanged,
-        )?;
+        let plan = prepare(&mut state, &registry)?;
+        #[cfg(test)]
+        {
+            *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
+        }
         let commit = registry.commit_resource_patch(
             mutation,
             operation,
             fingerprint,
             expected_generation,
             expected_revision,
-            &patch,
-            &result,
-            &deltas,
+            &plan.patch,
+            &plan.result,
+            &plan.deltas,
         )?;
-        if !commit.replayed {
-            state_patch.apply(&mut state, commit.revision);
-        }
+        plan.apply(&mut state, &commit);
         let generation = registry.generation().to_string();
         drop(state);
         drop(registry);
@@ -2271,7 +2262,7 @@ impl Mux {
                 "workspace key must be a lowercase UUID"
             );
         }
-        let workspace = self.next_id();
+        let workspace_slot = self.next_id();
         let public_id = WorkspacePublicId::random()?;
         let generated_key = Self::new_workspace_key()?;
         let fingerprint = serde_json::json!({
@@ -2280,13 +2271,13 @@ impl Mux {
             "requested_key": requested_key,
             "initial_content": "empty",
         });
-        self.commit_resource_state_mutation(
+        self.commit_resource_mutation_plan(
             mutation,
             "workspace.create",
             &fingerprint,
             expected_generation,
             expected_revision,
-            move |state| {
+            move |state, _registry| {
                 anyhow::ensure!(
                     state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
                     "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
@@ -2298,31 +2289,258 @@ impl Mux {
                 );
                 let name = name.clone().unwrap_or_else(|| Self::default_workspace_name(state));
                 let index = state.workspaces.len();
-                state.push_workspace(Workspace {
-                    id: workspace,
+                let workspace = Workspace {
+                    id: workspace_slot,
                     public_id: public_id.clone(),
                     key: key.clone(),
                     name: name.clone(),
                     screens: Vec::new(),
                     active_screen: 0,
+                };
+                let mut order = Vec::with_capacity(index + 1);
+                order.extend(state.workspaces.iter().map(|workspace| workspace.public_id.clone()));
+                order.push(public_id.clone());
+                state.workspaces.reserve(1);
+                state.workspace_index_by_id.reserve(1);
+                state.workspace_id_by_key.reserve(1);
+                state.resource_indexes.workspaces.reserve(1);
+                state.resource_indexes.workspace_ids.reserve(1);
+                let result = serde_json::json!({
+                    "workspace": public_id.as_str(),
+                    "key": key,
+                    "name": name,
+                    "index": index,
                 });
-                state.active_workspace = index;
-                state.workspace_revision = state.workspace_revision.saturating_add(1);
-                Ok((
-                    serde_json::json!({
-                        "workspace": public_id.as_str(),
-                        "workspace_slot": workspace,
-                        "key": key,
-                        "name": name,
-                        "index": index,
-                    }),
-                    serde_json::json!([{
-                        "kind": "workspace.created",
-                        "workspace": public_id.as_str(),
-                        "index": index,
-                    }]),
-                    None,
-                ))
+                let deltas = serde_json::json!([{
+                    "kind": "workspace.created",
+                    "workspace": public_id.as_str(),
+                    "index": index,
+                }]);
+                Ok(ResourceMutationPlan::new(
+                    ResourcePatch {
+                        changes: vec![
+                            ResourceChange::UpsertWorkspace {
+                                workspace: RegistryWorkspace {
+                                    id: workspace.id,
+                                    public_id: public_id.clone(),
+                                    key: key.clone(),
+                                    name: name.clone(),
+                                    group_key: self.session.clone(),
+                                },
+                                position: index,
+                                active_screen: None,
+                            },
+                            ResourceChange::SetWorkspaceOrder { workspace_ids: order },
+                            ResourceChange::SetActiveWorkspace {
+                                workspace_id: Some(public_id.clone()),
+                            },
+                        ],
+                    },
+                    result,
+                    deltas,
+                    move |state| {
+                        state.push_workspace(workspace);
+                        state.active_workspace = index;
+                        state.workspace_revision = state.workspace_revision.saturating_add(1);
+                    },
+                )
+                .with_metrics(ResourceMutationMetrics {
+                    touched_resources: 1,
+                    order_entries: index + 1,
+                    terminal_queries: 0,
+                    changed_rows: index + 3,
+                }))
+            },
+        )
+    }
+
+    pub(crate) fn resource_rename_workspace(
+        &self,
+        workspace_id: &WorkspacePublicId,
+        name: String,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        Self::validate_workspace_name(&name)?;
+        let fingerprint = serde_json::json!({
+            "operation": "workspace.rename",
+            "workspace": workspace_id.as_str(),
+            "name": name,
+        });
+        let target = workspace_id.clone();
+        self.commit_resource_mutation_plan(
+            mutation,
+            "workspace.rename",
+            &fingerprint,
+            expected_generation,
+            expected_revision,
+            move |state, _registry| {
+                let slot = *state
+                    .resource_indexes
+                    .workspaces
+                    .get(&target)
+                    .with_context(|| format!("unknown workspace {target}"))?;
+                let index = state
+                    .workspace_index(slot)
+                    .with_context(|| format!("workspace {target} has no live slot"))?;
+                let workspace = &state.workspaces[index];
+                let changed = workspace.name != name;
+                let active_screen = workspace
+                    .screens
+                    .get(workspace.active_screen)
+                    .map(|screen| screen.public_id.clone());
+                let durable = RegistryWorkspace {
+                    id: workspace.id,
+                    public_id: workspace.public_id.clone(),
+                    key: workspace.key.clone(),
+                    name: name.clone(),
+                    group_key: self.session.clone(),
+                };
+                let result = serde_json::json!({
+                    "workspace": target.as_str(),
+                    "name": name,
+                    "changed": changed,
+                });
+                let deltas = serde_json::json!([{
+                    "kind": "workspace.renamed",
+                    "workspace": target.as_str(),
+                    "name": name,
+                    "changed": changed,
+                }]);
+                Ok(ResourceMutationPlan::new(
+                    ResourcePatch {
+                        changes: vec![ResourceChange::UpsertWorkspace {
+                            workspace: durable,
+                            position: index,
+                            active_screen,
+                        }],
+                    },
+                    result,
+                    deltas,
+                    move |state| {
+                        state.workspaces[index].name = name;
+                        state.workspace_revision = state.workspace_revision.saturating_add(1);
+                    },
+                )
+                .with_metrics(ResourceMutationMetrics {
+                    touched_resources: 1,
+                    order_entries: 0,
+                    terminal_queries: 0,
+                    changed_rows: 1,
+                }))
+            },
+        )
+    }
+
+    pub(crate) fn resource_move_workspace(
+        &self,
+        workspace_id: &WorkspacePublicId,
+        index: usize,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let fingerprint = serde_json::json!({
+            "operation": "workspace.move",
+            "workspace": workspace_id.as_str(),
+            "index": index,
+        });
+        let target = workspace_id.clone();
+        self.commit_resource_mutation_plan(
+            mutation,
+            "workspace.move",
+            &fingerprint,
+            expected_generation,
+            expected_revision,
+            move |state, _registry| {
+                let slot = *state
+                    .resource_indexes
+                    .workspaces
+                    .get(&target)
+                    .with_context(|| format!("unknown workspace {target}"))?;
+                let old_index = state
+                    .workspace_index(slot)
+                    .with_context(|| format!("workspace {target} has no live slot"))?;
+                let new_index = index.min(state.workspaces.len().saturating_sub(1));
+                let changed = new_index != old_index;
+                let active_slot =
+                    state.workspaces.get(state.active_workspace).map(|workspace| workspace.id);
+                let mut order = state
+                    .workspaces
+                    .iter()
+                    .map(|workspace| workspace.public_id.clone())
+                    .collect::<Vec<_>>();
+                if changed {
+                    let moved = order.remove(old_index);
+                    order.insert(new_index, moved);
+                }
+                let changes = if changed {
+                    vec![ResourceChange::SetWorkspaceOrder { workspace_ids: order.clone() }]
+                } else {
+                    let workspace = &state.workspaces[old_index];
+                    vec![ResourceChange::UpsertWorkspace {
+                        workspace: RegistryWorkspace {
+                            id: workspace.id,
+                            public_id: workspace.public_id.clone(),
+                            key: workspace.key.clone(),
+                            name: workspace.name.clone(),
+                            group_key: self.session.clone(),
+                        },
+                        position: old_index,
+                        active_screen: workspace
+                            .screens
+                            .get(workspace.active_screen)
+                            .map(|screen| screen.public_id.clone()),
+                    }]
+                };
+                let result = serde_json::json!({
+                    "workspace": target.as_str(),
+                    "index": new_index,
+                    "changed": changed,
+                });
+                let deltas = serde_json::json!([{
+                    "kind": "workspace.moved",
+                    "workspace": target.as_str(),
+                    "index": new_index,
+                    "changed": changed,
+                }]);
+                let order_entries = usize::from(changed) * order.len();
+                Ok(ResourceMutationPlan::new(
+                    ResourcePatch { changes },
+                    result,
+                    deltas,
+                    move |state| {
+                        if changed {
+                            state.move_workspace(old_index, new_index);
+                            for (workspace_index, _, _) in state.split_screens.values_mut() {
+                                *workspace_index = if *workspace_index == old_index {
+                                    new_index
+                                } else if old_index < new_index
+                                    && (old_index + 1..=new_index).contains(workspace_index)
+                                {
+                                    workspace_index.saturating_sub(1)
+                                } else if new_index < old_index
+                                    && (new_index..old_index).contains(workspace_index)
+                                {
+                                    workspace_index.saturating_add(1)
+                                } else {
+                                    *workspace_index
+                                };
+                            }
+                            state.active_workspace = active_slot
+                                .and_then(|slot| state.workspace_index(slot))
+                                .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+                        }
+                        state.workspace_revision = state.workspace_revision.saturating_add(1);
+                    },
+                )
+                .with_metrics(ResourceMutationMetrics {
+                    touched_resources: 1,
+                    order_entries,
+                    terminal_queries: 0,
+                    changed_rows: if changed { order.len() } else { 1 },
+                }))
             },
         )
     }
@@ -3624,6 +3842,14 @@ impl Mux {
     #[cfg(test)]
     fn set_terminal_move_before_projection(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
         *self.terminal_move_before_projection.lock().unwrap() = hook;
+    }
+
+    #[cfg(test)]
+    fn last_resource_mutation_metrics(&self) -> ResourceMutationMetrics {
+        self.resource_mutation_metrics
+            .lock()
+            .unwrap()
+            .expect("resource mutation did not record metrics")
     }
 
     #[cfg(all(test, unix))]
@@ -10021,6 +10247,145 @@ mod tests {
             assert_eq!(state.workspaces.len(), 1);
             assert_eq!(state.workspaces[0].name, "One");
         });
+    }
+
+    #[test]
+    fn resource_results_never_expose_numeric_workspace_slots() {
+        let mux = test_mux();
+        let result = mux
+            .resource_create_empty_workspace(
+                Some("Public".into()),
+                None,
+                None,
+                Some(0),
+                &WorkspaceMutation::new("public-only", "test").unwrap(),
+            )
+            .unwrap()
+            .result;
+        let object = result.as_object().unwrap();
+        assert_eq!(
+            object.keys().map(String::as_str).collect::<HashSet<_>>(),
+            HashSet::from(["workspace", "key", "name", "index"])
+        );
+        assert!(WorkspacePublicId::parse(object["workspace"].as_str().unwrap()).is_ok());
+        let encoded = serde_json::to_string(&result).unwrap();
+        assert!(!encoded.contains("slot"));
+        assert!(!encoded.contains("numeric"));
+    }
+
+    #[test]
+    fn resource_large_workspace_mutations_are_targeted_and_query_bounded() {
+        const WORKSPACE_COUNT: usize = 1_000;
+        let mux = test_mux();
+        let mut durable = Vec::with_capacity(WORKSPACE_COUNT);
+        let mut memory = Vec::with_capacity(WORKSPACE_COUNT);
+        let mut order = Vec::with_capacity(WORKSPACE_COUNT);
+        for index in 0..WORKSPACE_COUNT {
+            let public_id = restore_workspace_id(index as u128 + 1);
+            let key = format!("00000000-0000-4000-8000-{index:012x}");
+            let slot = mux.next_id();
+            let name = format!("Workspace {}", index + 1);
+            durable.push(ResourceChange::UpsertWorkspace {
+                workspace: RegistryWorkspace {
+                    id: slot,
+                    public_id: public_id.clone(),
+                    key: key.clone(),
+                    name: name.clone(),
+                    group_key: mux.session.clone(),
+                },
+                position: index,
+                active_screen: None,
+            });
+            memory.push(Workspace {
+                id: slot,
+                public_id: public_id.clone(),
+                key,
+                name,
+                screens: Vec::new(),
+                active_screen: 0,
+            });
+            order.push(public_id);
+        }
+        durable.push(ResourceChange::SetWorkspaceOrder { workspace_ids: order.clone() });
+        durable.push(ResourceChange::SetActiveWorkspace { workspace_id: order.first().cloned() });
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            let commit = registry
+                .commit_resource_patch(
+                    &WorkspaceMutation::new("seed-thousand", "test").unwrap(),
+                    "session.seed",
+                    &serde_json::json!({"count":WORKSPACE_COUNT}),
+                    None,
+                    Some(0),
+                    &ResourcePatch { changes: durable },
+                    &serde_json::json!({"count":WORKSPACE_COUNT}),
+                    &serde_json::json!([{"kind":"session.seeded"}]),
+                )
+                .unwrap();
+            let mut state = mux.state.lock().unwrap();
+            state.workspaces.reserve(WORKSPACE_COUNT);
+            state.workspace_index_by_id.reserve(WORKSPACE_COUNT);
+            state.workspace_id_by_key.reserve(WORKSPACE_COUNT);
+            state.resource_indexes.workspaces.reserve(WORKSPACE_COUNT);
+            state.resource_indexes.workspace_ids.reserve(WORKSPACE_COUNT);
+            for workspace in memory {
+                state.push_workspace(workspace);
+            }
+            state.active_workspace = 0;
+            state.resource_revision = commit.revision;
+        }
+
+        let target = order[499].clone();
+        let renamed = mux
+            .resource_rename_workspace(
+                &target,
+                "Renamed".into(),
+                None,
+                Some(1),
+                &WorkspaceMutation::new("rename-thousand", "test").unwrap(),
+            )
+            .unwrap();
+        assert_eq!(renamed.revision, 2);
+        assert_eq!(
+            mux.last_resource_mutation_metrics(),
+            ResourceMutationMetrics {
+                touched_resources: 1,
+                order_entries: 0,
+                terminal_queries: 0,
+                changed_rows: 1,
+            }
+        );
+        mux.with_state(|state| {
+            assert_eq!(state.workspace_by_public_id(&target).unwrap().name, "Renamed");
+        });
+
+        let moved = mux
+            .resource_move_workspace(
+                &target,
+                WORKSPACE_COUNT - 1,
+                None,
+                Some(2),
+                &WorkspaceMutation::new("move-thousand", "test").unwrap(),
+            )
+            .unwrap();
+        assert_eq!(moved.revision, 3);
+        assert_eq!(
+            mux.last_resource_mutation_metrics(),
+            ResourceMutationMetrics {
+                touched_resources: 1,
+                order_entries: WORKSPACE_COUNT,
+                terminal_queries: 0,
+                changed_rows: WORKSPACE_COUNT,
+            }
+        );
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.last().unwrap().public_id, target);
+            assert_eq!(state.workspaces.len(), WORKSPACE_COUNT);
+        });
+        let registry = mux.workspace_registry.lock().unwrap().snapshot().unwrap();
+        assert_eq!(registry.resource_revision, 3);
+        assert_eq!(registry.workspaces.last().unwrap().public_id, target);
+        assert_eq!(registry.workspaces.last().unwrap().name, "Renamed");
     }
 
     #[test]

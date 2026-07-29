@@ -1104,7 +1104,7 @@ impl ResourceJournal {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct PublicSlotIndexes {
     pub workspaces: HashMap<WorkspacePublicId, crate::WorkspaceId>,
     pub screens: HashMap<ScreenPublicId, crate::ScreenId>,
