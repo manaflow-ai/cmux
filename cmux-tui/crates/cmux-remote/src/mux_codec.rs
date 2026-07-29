@@ -63,24 +63,53 @@ fn encode_part(message: u64, part: u32, parts: u32, payload: &[u8]) -> Bytes {
 }
 
 #[derive(Default)]
-pub(crate) struct MuxLineAssembler {
-    lines: HashMap<u64, PartialLine>,
+pub(crate) struct MuxLineAssembler<R = ()> {
+    lines: HashMap<u64, PartialLine<R>>,
     bytes: usize,
 }
 
-struct PartialLine {
+struct PartialLine<R> {
     lane: Lane,
     parts: Vec<Option<Bytes>>,
+    retained: Vec<R>,
     received: usize,
     bytes: usize,
 }
 
-impl MuxLineAssembler {
+pub(crate) struct AssembledMuxLine<R> {
+    lane: Lane,
+    payload: Bytes,
+    _retained: Vec<R>,
+}
+
+impl<R> AssembledMuxLine<R> {
+    pub(crate) fn lane(&self) -> Lane {
+        self.lane
+    }
+
+    pub(crate) fn payload(&self) -> &Bytes {
+        &self.payload
+    }
+}
+
+#[cfg(test)]
+impl MuxLineAssembler<()> {
     pub(crate) fn push(
         &mut self,
         lane: Lane,
         packet: Bytes,
     ) -> Result<Option<(Lane, Bytes)>, MuxCodecError> {
+        self.push_retaining(lane, packet, ()).map(|line| line.map(|line| (line.lane, line.payload)))
+    }
+}
+
+impl<R> MuxLineAssembler<R> {
+    pub(crate) fn push_retaining(
+        &mut self,
+        lane: Lane,
+        packet: Bytes,
+        retained: R,
+    ) -> Result<Option<AssembledMuxLine<R>>, MuxCodecError> {
         if packet.len() < HEADER_BYTES || packet[..4] != MAGIC {
             return Err(MuxCodecError::InvalidPacket);
         }
@@ -96,7 +125,13 @@ impl MuxLineAssembler {
             }
             self.lines.insert(
                 message,
-                PartialLine { lane, parts: vec![None; parts as usize], received: 0, bytes: 0 },
+                PartialLine {
+                    lane,
+                    parts: vec![None; parts as usize],
+                    retained: Vec::with_capacity(parts as usize),
+                    received: 0,
+                    bytes: 0,
+                },
             );
         }
         let line = self.lines.get_mut(&message).expect("line was inserted");
@@ -116,6 +151,7 @@ impl MuxLineAssembler {
         line.received += 1;
         self.bytes += payload.len();
         line.parts[part as usize] = Some(payload);
+        line.retained.push(retained);
         if line.received != line.parts.len() {
             return Ok(None);
         }
@@ -125,7 +161,11 @@ impl MuxLineAssembler {
         for part in line.parts {
             joined.extend_from_slice(&part.expect("all parts received"));
         }
-        Ok(Some((line.lane, joined.freeze())))
+        Ok(Some(AssembledMuxLine {
+            lane: line.lane,
+            payload: joined.freeze(),
+            _retained: line.retained,
+        }))
     }
 }
 

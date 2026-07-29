@@ -336,18 +336,20 @@ where
         }
     };
     let download = async move {
-        let mut assembler = crate::mux_codec::MuxLineAssembler::default();
+        let mut assembler =
+            crate::mux_codec::MuxLineAssembler::<Option<crate::service::StreamBudget>>::default();
         loop {
             let chunk = if let Some(chunk) = initial.pop_front() {
                 Some(chunk)
             } else {
                 remote.receive().await?
             };
-            let Some(chunk) = chunk else { break };
-            if !chunk.payload.is_empty()
-                && let Some((_, line)) = assembler.push(chunk.lane, chunk.payload)?
-            {
-                local_writer.write_all(&line).await?;
+            let Some(mut chunk) = chunk else { break };
+            if !chunk.payload.is_empty() {
+                let budget = chunk.take_budget();
+                if let Some(line) = assembler.push_retaining(chunk.lane, chunk.payload, budget)? {
+                    local_writer.write_all(line.payload()).await?;
+                }
             }
             if chunk.finished || chunk.reset {
                 break;

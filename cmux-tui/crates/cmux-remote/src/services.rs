@@ -1104,15 +1104,20 @@ where
         }
     };
     let download = async move {
-        let mut assembler = crate::mux_codec::MuxLineAssembler::default();
-        while let Some(chunk) = remote.receive().await? {
+        let mut assembler = crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::default();
+        while let Some(mut chunk) = remote.receive().await? {
             if !chunk.payload.is_empty() {
                 if let Some(input) = crate::mux_input::decode_packet(&chunk.payload)? {
                     tracker.suppress_response(input.request);
                     local_writer.write_all(&input.into_local_line()?).await?;
-                } else if let Some((lane, line)) = assembler.push(chunk.lane, chunk.payload)? {
-                    tracker.observe_request(&line, lane);
-                    local_writer.write_all(&line).await?;
+                } else {
+                    let budget = chunk.take_budget();
+                    if let Some(line) =
+                        assembler.push_retaining(chunk.lane, chunk.payload, budget)?
+                    {
+                        tracker.observe_request(line.payload(), line.lane());
+                        local_writer.write_all(line.payload()).await?;
+                    }
                 }
             }
             if chunk.finished || chunk.reset {
