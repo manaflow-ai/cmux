@@ -386,7 +386,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
         XCTAssertFalse(first.timedOut, first.stderr)
-        XCTAssertEqual(first.status, SSHPTYAttachExitCode.retryableTransient.rawValue, first.stderr)
+        XCTAssertEqual(first.status, 251, first.stderr)
         let firstMethods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertFalse(
             firstMethods.contains("workspace.remote.pty_attach_end"),

@@ -1,17 +1,68 @@
+import Foundation
 import Testing
 @testable import CmuxFoundation
 
 @Suite("SSH PTY attach exit code")
 struct SSHPTYAttachExitCodeTests {
-    @Test("structured daemon capacity is retryable")
-    func structuredUnavailableIsRetryable() {
-        #expect(
-            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
-                code: "unavailable",
-                message: "remote PTY attach failed"
-            ) == .retryableTransient
+    @Test("structured daemon capacity retries without requesting authentication")
+    func structuredUnavailableRetriesWithoutAuthentication() {
+        let classified = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+            code: "unavailable",
+            message: "remote PTY attach failed"
         )
+
+        #expect(classified.rawValue == 251)
+        #expect(classified.isWrapperRetryable)
         #expect(SSHPTYAttachExitCode.retryableTransient.rawValue == 255)
+    }
+
+    @Test("capacity retries keep authentication ownership idle")
+    func capacityRetryDoesNotReauthenticate() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-pty-capacity-\(UUID().uuidString)", isDirectory: true)
+        let attach = root.appendingPathComponent("attach")
+        let sleep = root.appendingPathComponent("sleep")
+        let attempts = root.appendingPathComponent("attempts")
+        let authAttempts = root.appendingPathComponent("auth-attempts")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try Self.writeExecutable(
+            attach,
+            """
+            #!/bin/sh
+            count=$(cat "$CMUX_TEST_ATTEMPTS" 2>/dev/null || printf 0)
+            count=$((count + 1))
+            printf '%s' "$count" > "$CMUX_TEST_ATTEMPTS"
+            if [ "$count" -eq 1 ]; then exit 251; fi
+            exit 1
+            """
+        )
+        try Self.writeExecutable(sleep, "#!/bin/sh\nexit 0")
+
+        let retryScript = ([
+            "cmux_ssh_attach_foreground_auth() { printf x >> \"$CMUX_TEST_AUTH_ATTEMPTS\"; }",
+        ] + SSHPTYAttachExitCode.retryLoopLines(
+            command: Self.shellQuote(attach.path),
+            reauthenticates: true
+        )).joined(separator: "\n")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", retryScript]
+        process.environment = [
+            "PATH": "\(root.path):/usr/bin:/bin",
+            "CMUX_TEST_ATTEMPTS": attempts.path,
+            "CMUX_TEST_AUTH_ATTEMPTS": authAttempts.path,
+            "CMUX_SSH_RECONNECT_DELAY_SECONDS": "1",
+            "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "1",
+        ]
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 1)
+        #expect(try String(contentsOf: attempts, encoding: .utf8) == "2")
+        #expect(!fileManager.fileExists(atPath: authAttempts.path))
     }
 
     @Test("lifecycle codes retain precedence over transient-looking messages")
@@ -38,5 +89,14 @@ struct SSHPTYAttachExitCodeTests {
                 message: "remote PTY attach failed"
             ) == .fatal
         )
+    }
+
+    private static func writeExecutable(_ url: URL, _ source: String) throws {
+        try source.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 }

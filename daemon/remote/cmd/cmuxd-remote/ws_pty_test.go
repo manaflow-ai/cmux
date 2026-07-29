@@ -723,6 +723,98 @@ func TestAttachRPCBoundsStalledSessionStartOwners(t *testing.T) {
 	}
 }
 
+func TestAttachRPCBoundsStalledSessionStartWaitersPerHub(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	const waiterLimit = 64
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			close(releaseStart)
+		}
+	})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return nil, nil, errors.New("test PTY start released")
+	}
+
+	results := make(chan error, waiterLimit+1)
+	attach := func(ctx context.Context, attachmentID string) {
+		go func() {
+			_, _, _, err := hub.attachRPC(
+				ctx,
+				"bounded-waiters",
+				attachmentID,
+				80,
+				24,
+				"sleep 30",
+				"",
+				false,
+				false,
+			)
+			results <- err
+		}()
+	}
+	attach(context.Background(), "owner")
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PTY start owner did not enter allocation")
+	}
+
+	for i := 0; i < waiterLimit; i++ {
+		waiterJoined := make(chan struct{}, 1)
+		attach(
+			doneObservedContext{Context: context.Background(), observed: waiterJoined},
+			"waiter-"+strconv.Itoa(i),
+		)
+		select {
+		case <-waiterJoined:
+		case <-time.After(time.Second):
+			t.Fatalf("PTY start waiter %d did not join", i+1)
+		}
+	}
+
+	excessResult := make(chan rpcResponse, 1)
+	server := &rpcServer{ptyHub: hub}
+	go func() {
+		excessResult <- server.handleRequest(rpcRequest{
+			ID:     1,
+			Method: "pty.attach",
+			Params: map[string]any{
+				"session_id":              "bounded-waiters",
+				"attachment_id":           "excess",
+				"client_attachment_token": "token",
+				"cols":                    80,
+				"rows":                    24,
+				"command":                 "sleep 30",
+			},
+		})
+	}()
+	select {
+	case response := <-excessResult:
+		if response.Error == nil || response.Error.Code != "unavailable" {
+			t.Fatalf("excess PTY start waiter response = %+v, want unavailable error", response)
+		}
+		const wantMessage = "too many PTY session starts are already being awaited"
+		if response.Error.Message != wantMessage {
+			t.Fatalf("excess PTY start waiter message = %q, want %q", response.Error.Message, wantMessage)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("excess PTY start waiter blocked instead of failing immediately")
+	}
+
+	released = true
+	close(releaseStart)
+	for i := 0; i < waiterLimit+1; i++ {
+		<-results
+	}
+}
+
 func TestCloseAllDoesNotWaitForStalledSessionStart(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
 	t.Cleanup(hub.closeAll)
