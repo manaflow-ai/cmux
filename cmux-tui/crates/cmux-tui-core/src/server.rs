@@ -84,6 +84,8 @@ pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
 pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
+#[cfg(unix)]
+static SOCKET_CLEANUP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
     let mut capabilities = vec![
@@ -2645,8 +2647,132 @@ pub fn connect_existing_until(
     }
 }
 
+/// Identity-coupled ownership of one published local server socket.
+///
+/// Cleanup removes only the socket inode created by the matching successful
+/// publication. A failed bind or a later replacement at the same path remains
+/// outside this owner's authority.
+pub struct PublishedSocket {
+    path: PathBuf,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+}
+
+impl PublishedSocket {
+    /// Claim a socket path immediately after a successful bind.
+    pub fn claim(path: PathBuf) -> std::io::Result<Self> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+            let metadata = std::fs::symlink_metadata(&path)?;
+            if !metadata.file_type().is_socket() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "published server path is not a socket",
+                ));
+            }
+            Ok(Self { path, device: metadata.dev(), inode: metadata.ino() })
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(Self { path })
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Remove this publication without unlinking a path reused by another server.
+    pub fn cleanup(self) {
+        #[cfg(unix)]
+        {
+            let _ = self.cleanup_unix();
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    #[cfg(unix)]
+    fn matches(&self, path: &Path) -> std::io::Result<bool> {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+        let metadata = std::fs::symlink_metadata(path)?;
+        Ok(metadata.file_type().is_socket()
+            && metadata.dev() == self.device
+            && metadata.ino() == self.inode)
+    }
+
+    #[cfg(unix)]
+    fn cleanup_unix(&self) -> std::io::Result<()> {
+        match self.matches(&self.path) {
+            Ok(true) => {}
+            Ok(false) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        }
+
+        let parent = self.path.parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "published server socket has no parent directory",
+            )
+        })?;
+        let file_name =
+            self.path.file_name().map(|name| name.to_string_lossy()).unwrap_or_default();
+        let quarantine_dir = loop {
+            let sequence = SOCKET_CLEANUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let candidate =
+                parent.join(format!(".{file_name}.cleanup-{}-{sequence:x}", std::process::id()));
+            match std::fs::create_dir(&candidate) {
+                Ok(()) => {
+                    if let Err(error) = platform::restrict_directory(&candidate) {
+                        let _ = std::fs::remove_dir(&candidate);
+                        return Err(error);
+                    }
+                    break candidate;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error),
+            }
+        };
+        let quarantined = quarantine_dir.join("socket");
+        if let Err(error) = std::fs::rename(&self.path, &quarantined) {
+            let _ = std::fs::remove_dir(&quarantine_dir);
+            return if error.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(error) };
+        }
+
+        match self.matches(&quarantined) {
+            Ok(true) => {
+                let removed = std::fs::remove_file(&quarantined);
+                let _ = std::fs::remove_dir(&quarantine_dir);
+                removed
+            }
+            Ok(false) | Err(_) => {
+                // A replacement won the race between the public identity
+                // check and rename. Restore it without overwriting any newer
+                // publication that may already occupy the public path.
+                std::fs::hard_link(&quarantined, &self.path)?;
+                std::fs::remove_file(&quarantined)?;
+                std::fs::remove_dir(&quarantine_dir)
+            }
+        }
+    }
+}
+
 /// Bind the socket and serve connections on background threads.
 pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    let published = serve_owned(mux, path)?;
+    Ok(published.path().to_path_buf())
+}
+
+/// Bind the socket and return its exact publication ownership.
+pub fn serve_owned(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PublishedSocket> {
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -2668,10 +2794,21 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
         }
     }
     let listener = transport::listen(&path)?;
-    platform::restrict_file(&path)?;
+    let published = match PublishedSocket::claim(path.clone()) {
+        Ok(published) => published,
+        Err(error) => {
+            // The listener drops here. Leave the path for the next liveness
+            // probe rather than unlinking without a captured socket identity.
+            return Err(error.into());
+        }
+    };
+    if let Err(error) = platform::restrict_file(&path) {
+        published.cleanup();
+        return Err(error.into());
+    }
     let active_connections = Arc::new(AtomicU64::new(0));
 
-    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+    if let Err(error) = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         loop {
             let Ok(stream) = listener.accept() else { continue };
             let Some(permit) = claim_connection(&active_connections) else { continue };
@@ -2680,8 +2817,11 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
                 handle_connection_with_permit(mux, stream, Some(permit));
             });
         }
-    })?;
-    Ok(path)
+    }) {
+        published.cleanup();
+        return Err(error.into());
+    }
+    Ok(published)
 }
 
 /// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.

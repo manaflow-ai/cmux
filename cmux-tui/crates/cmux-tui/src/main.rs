@@ -1039,7 +1039,7 @@ impl ServerShutdownCleanup {
 }
 
 struct ServerProcessShutdownGuard {
-    socket_path: PathBuf,
+    published_socket: Arc<std::sync::Mutex<Option<cmux_tui_core::server::PublishedSocket>>>,
     shutdown_watch: cmux_tui_core::ShutdownRequestWatch,
     cleanup: Arc<ServerShutdownCleanup>,
     completion: Option<std::sync::mpsc::Sender<()>>,
@@ -1047,7 +1047,7 @@ struct ServerProcessShutdownGuard {
 }
 
 impl ServerProcessShutdownGuard {
-    fn start(mux: &Arc<Mux>, socket_path: PathBuf) -> io::Result<Self> {
+    fn start(mux: &Arc<Mux>) -> io::Result<Self> {
         #[cfg(debug_assertions)]
         if let Some(marker) = std::env::var_os("CMUX_TUI_TEST_WATCHDOG_START_FAILURE") {
             std::fs::write(marker, b"starting")?;
@@ -1056,7 +1056,8 @@ impl ServerProcessShutdownGuard {
         }
         let shutdown_watch = mux.watch_shutdown_request();
         let worker_watch = shutdown_watch.clone();
-        let worker_socket_path = socket_path.clone();
+        let published_socket = Arc::new(std::sync::Mutex::new(None));
+        let worker_published_socket = published_socket.clone();
         let cleanup = Arc::new(ServerShutdownCleanup::new(mux.clone()));
         let worker_cleanup = cleanup.clone();
         let (completion, completed) = std::sync::mpsc::channel();
@@ -1078,18 +1079,32 @@ impl ServerProcessShutdownGuard {
                     // Cleanup already proved that no external ownership
                     // remains. The frontend alone is stuck, so the old
                     // process can now release its control socket.
-                    cmux_tui_core::server::cleanup(&worker_socket_path);
+                    cleanup_published_socket(&worker_published_socket);
                     std::process::exit(0);
                 }
             },
         )?;
         Ok(Self {
-            socket_path,
+            published_socket,
             shutdown_watch,
             cleanup,
             completion: Some(completion),
             worker: Some(worker),
         })
+    }
+
+    fn publish_socket(&self, published: cmux_tui_core::server::PublishedSocket) -> io::Result<()> {
+        let mut slot =
+            self.published_socket.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if slot.is_some() {
+            published.cleanup();
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "server socket ownership is already published",
+            ));
+        }
+        *slot = Some(published);
+        Ok(())
     }
 
     fn shutdown(&self) {
@@ -1105,7 +1120,7 @@ impl ServerProcessShutdownGuard {
             return;
         }
         let Some(completion) = self.completion.take() else { return };
-        cmux_tui_core::server::cleanup(&self.socket_path);
+        cleanup_published_socket(&self.published_socket);
         let _ = completion.send(());
         self.shutdown_watch.cancel();
         if let Some(worker) = self.worker.take() {
@@ -1117,6 +1132,16 @@ impl ServerProcessShutdownGuard {
 impl Drop for ServerProcessShutdownGuard {
     fn drop(&mut self) {
         self.finish();
+    }
+}
+
+fn cleanup_published_socket(
+    published_socket: &std::sync::Mutex<Option<cmux_tui_core::server::PublishedSocket>>,
+) {
+    let published =
+        published_socket.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    if let Some(published) = published {
+        published.cleanup();
     }
 }
 
@@ -1231,7 +1256,7 @@ fn run_server(
     // Ghostty's config before any protocol client can create a surface.
     mux.set_default_colors(config.terminal_defaults);
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
-    let server_process = ServerProcessShutdownGuard::start(&mux, socket_path.clone())?;
+    let server_process = ServerProcessShutdownGuard::start(&mux)?;
     #[cfg(target_os = "linux")]
     let _provider_management = match provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
@@ -1277,13 +1302,25 @@ fn run_server(
     if let Some(server) = &websocket_server {
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
-    if let Err(error) = cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone())) {
+    let published_socket =
+        match cmux_tui_core::server::serve_owned(mux.clone(), Some(socket_path.clone())) {
+            Ok(published) => published,
+            Err(error) => {
+                drop(websocket_server);
+                #[cfg(target_os = "linux")]
+                drop(_provider_management);
+                server_process.shutdown();
+                server_process.complete();
+                return Err(error);
+            }
+        };
+    if let Err(error) = server_process.publish_socket(published_socket) {
         drop(websocket_server);
         #[cfg(target_os = "linux")]
         drop(_provider_management);
         server_process.shutdown();
         server_process.complete();
-        return Err(error);
+        return Err(error.into());
     }
 
     #[cfg(debug_assertions)]
@@ -1590,7 +1627,7 @@ mod tests {
         let socket_path = socket_dir.join("server.sock");
         let existing = UnixListener::bind(&socket_path).unwrap();
         let mux = Mux::new("server-publication-test", SurfaceOptions::default());
-        let guard = ServerProcessShutdownGuard::start(&mux, socket_path.clone()).unwrap();
+        let guard = ServerProcessShutdownGuard::start(&mux).unwrap();
 
         assert!(cmux_tui_core::server::serve(mux, Some(socket_path.clone())).is_err());
         guard.shutdown();
@@ -1614,6 +1651,7 @@ mod tests {
         let socket_path =
             std::env::temp_dir().join(format!("cg-{}-{suffix:x}.sock", std::process::id()));
         let original = UnixListener::bind(&socket_path).unwrap();
+        let published = cmux_tui_core::server::PublishedSocket::claim(socket_path.clone()).unwrap();
         let mux = Mux::new("server-guard-test", SurfaceOptions::default());
         let shutdown_watch = mux.watch_shutdown_request();
         let cleanup = Arc::new(ServerShutdownCleanup::new(mux));
@@ -1621,7 +1659,7 @@ mod tests {
         let (completion, completed) = std::sync::mpsc::channel();
         let worker = std::thread::spawn(move || completed.recv().unwrap());
         let guard = ServerProcessShutdownGuard {
-            socket_path: socket_path.clone(),
+            published_socket: Arc::new(std::sync::Mutex::new(Some(published))),
             shutdown_watch,
             cleanup,
             completion: Some(completion),
@@ -1650,6 +1688,7 @@ mod tests {
         let socket_path = std::env::temp_dir()
             .join(format!("cg-incomplete-{}-{suffix:x}.sock", std::process::id()));
         let listener = UnixListener::bind(&socket_path).unwrap();
+        let published = cmux_tui_core::server::PublishedSocket::claim(socket_path.clone()).unwrap();
         let mux = Mux::new("incomplete-server-guard-test", SurfaceOptions::default());
         let shutdown_watch = mux.watch_shutdown_request();
         let cleanup = Arc::new(ServerShutdownCleanup::new(mux));
@@ -1658,7 +1697,7 @@ mod tests {
             let _ = completed.recv();
         });
         let guard = ServerProcessShutdownGuard {
-            socket_path: socket_path.clone(),
+            published_socket: Arc::new(std::sync::Mutex::new(Some(published))),
             shutdown_watch,
             cleanup,
             completion: Some(completion),
