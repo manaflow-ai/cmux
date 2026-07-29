@@ -236,6 +236,31 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func openCodeTransferRetentionPagesPastExcludedToolRows() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let database = fixture.appendingPathComponent("opencode-tool-heavy.db")
+        try createOpenCodeToolHeavyDatabase(at: database)
+
+        let turns = try await SessionTranscriptLoader.load(source: .init(
+            agent: .opencode,
+            sessionId: "tool-heavy-session",
+            fileURL: nil,
+            openCodeDatabasePath: database.path,
+            retention: .transferOpeningUserAndLatest(
+                turnLimit: 2,
+                textByteLimit: 32 * 1_024
+            )
+        ))
+
+        #expect(turns.map(\.text) == [
+            "OpenCode opening request",
+            "LATEST-OPENCODE-DIALOGUE",
+        ])
+        #expect(!turns.contains { $0.role == .tool })
+    }
+
+    @Test
     func openCodeTargetUsesPromptFlag() throws {
         let command = try #require(
             AgentConversationForkRequest.TargetHarness.opencode.startupCommand(
@@ -659,6 +684,36 @@ struct AgentConversationCrossHarnessForkTests {
             "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);",
             "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, time_created INTEGER, data TEXT);",
         ] + messages + parts).joined(separator: "\n")
+        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+            throw OpenCodeFixtureError.sqlite
+        }
+    }
+
+    private func createOpenCodeToolHeavyDatabase(at url: URL) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            throw OpenCodeFixtureError.sqlite
+        }
+        defer { sqlite3_close(database) }
+        let toolParts = (0..<600).map { index in
+            """
+            INSERT INTO part VALUES (
+              'tool-\(index)',
+              'm3',
+              \(index + 3),
+              '{"type":"tool","tool":"Read","state":{"output":"excluded-\(index)"}}'
+            );
+            """
+        }
+        let sql = ([
+            "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);",
+            "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, time_created INTEGER, data TEXT);",
+            #"INSERT INTO message VALUES ('m1', 'tool-heavy-session', 1, '{"role":"user"}');"#,
+            #"INSERT INTO message VALUES ('m2', 'tool-heavy-session', 2, '{"role":"assistant"}');"#,
+            #"INSERT INTO message VALUES ('m3', 'tool-heavy-session', 3, '{"role":"assistant"}');"#,
+            #"INSERT INTO part VALUES ('p1', 'm1', 1, '{"type":"text","text":"OpenCode opening request"}');"#,
+            #"INSERT INTO part VALUES ('p2', 'm2', 2, '{"type":"text","text":"LATEST-OPENCODE-DIALOGUE"}');"#,
+        ] + toolParts).joined(separator: "\n")
         guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
             throw OpenCodeFixtureError.sqlite
         }

@@ -720,6 +720,28 @@ def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
     assert block.index(step) < block.index("- name: Run unit tests")
 
 
+def test_conversation_transfer_suites_are_nontolerant_ci_gates() -> None:
+    app_host_block = workflow_job_block("app-host-unit-tests")
+    focused_step = "Run conversation transfer regressions"
+    focused_suites = [
+        "AgentConversationCrossHarnessForkTests",
+        "AgentConversationTransferSourceTests",
+        "SessionIndexJSONLReaderTests",
+    ]
+
+    assert focused_step in app_host_block
+    focused_block = app_host_block[
+        app_host_block.index(focused_step):app_host_block.index(
+            "- name: Run agent chat transcript lifecycle regressions"
+        )
+    ]
+    for suite in focused_suites:
+        assert f"-only-testing:\"cmuxTests/$suite\"" in focused_block
+
+    package_block = workflow_job_block("swift-package-tests")
+    assert "\n            CmuxConversationTransfer\n" in package_block
+
+
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:
     block = workflow_job_block("agent-session-web-resources")
 
