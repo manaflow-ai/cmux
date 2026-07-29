@@ -187,29 +187,6 @@ public final class Client implements AutoCloseable {
         return new Machine(this, selector);
     }
 
-    public ProviderScope providerScope(Selector<Ids.ProviderScopeId> selector) {
-        return new ProviderScope(this, selector);
-    }
-
-    public List<ProviderScope> listProviderScopes(Options.Read options) {
-        Object result = requestValue(
-            Operations.PROVIDER_SCOPE_LIST,
-            copy(options == null ? Map.of() : options.extra()),
-            null
-        );
-        List<ProviderScope> scopes = new ArrayList<>();
-        for (Object value : listPayload(result, "provider scopes")) {
-            Snapshots.ProviderScopeSnapshot decoded = decodeProviderScope(value);
-            scopes.add(new ProviderScope(
-                this,
-                Selector.current(),
-                Selector.id(decoded.id()),
-                decoded
-            ));
-        }
-        return List.copyOf(scopes);
-    }
-
     public List<Machine> listMachines(Options.Read options) {
         Object result = requestValue(
             Operations.MACHINE_LIST,
@@ -233,16 +210,6 @@ public final class Client implements AutoCloseable {
                 .map(name::equals)
                 .orElse(false))
             .toList();
-    }
-
-    public MutationResult<Machine> createMachine(Options.MachineCreate options) {
-        return providerScope(Selector.current()).createMachine(options);
-    }
-
-    public MutationResult<Machine> connectExternalMachine(
-        Options.MachineConnectExternal options
-    ) {
-        return providerScope(Selector.current()).connectExternalMachine(options);
     }
 
     Map<String, Object> request(
@@ -641,6 +608,49 @@ public final class Client implements AutoCloseable {
         );
     }
 
+    static ConfirmationRequiredDetails decodeConfirmationRequiredDetails(
+        Object value
+    ) {
+        Map<String, Object> details = Wire.object(
+            value,
+            "confirmation required details"
+        );
+        requireExactFields(
+            details,
+            "confirmation required details",
+            "confirmation_token",
+            Wire.REVISION,
+            "closes_panes"
+        );
+        for (String required : List.of(
+                "confirmation_token",
+                Wire.REVISION,
+                "closes_panes"
+            )) {
+            if (!details.containsKey(required)) {
+                throw new ProtocolError(
+                    "confirmation required details omitted " + required
+                );
+            }
+        }
+        List<Ids.PaneId> panes = Wire.array(
+            details.get("closes_panes"),
+            "confirmation closes_panes"
+        ).stream()
+            .map(item -> new Ids.PaneId(
+                Wire.string(item, "confirmation pane id")
+            ))
+            .toList();
+        return new ConfirmationRequiredDetails(
+            Wire.string(
+                details.get("confirmation_token"),
+                "confirmation token"
+            ),
+            Wire.decimal(details.get(Wire.REVISION), "confirmation revision"),
+            panes
+        );
+    }
+
     static Map<String, Object> copy(Map<String, Object> value) {
         return new LinkedHashMap<>(value == null ? Map.of() : value);
     }
@@ -834,11 +844,6 @@ public final class Client implements AutoCloseable {
             Wire.string(fields.get("origin"), "machine origin"),
             Wire.string(fields.get("status"), "machine status"),
             Wire.bool(fields.get("connectable"), "machine connectable"),
-            optionalExactId(
-                fields,
-                "provider_scope_id",
-                Ids.ProviderScopeId::new
-            ),
             Wire.bool(fields.get("deleted"), "machine deleted"),
             Wire.bool(fields.get("recoverable"), "machine recoverable"),
             snapshotExtra(
@@ -848,7 +853,6 @@ public final class Client implements AutoCloseable {
                 "origin",
                 "status",
                 "connectable",
-                "provider_scope_id",
                 "deleted",
                 "recoverable"
             )
@@ -978,6 +982,42 @@ public final class Client implements AutoCloseable {
 
     static Snapshots.TerminalSnapshot decodeTerminal(Object value) {
         Map<String, Object> fields = Wire.object(value, "terminal snapshot");
+        Snapshots.TerminalLifecycle lifecycle;
+        try {
+            lifecycle = Snapshots.TerminalLifecycle.valueOf(
+                Wire.string(
+                    fields.get("lifecycle"),
+                    "terminal lifecycle"
+                ).toUpperCase(java.util.Locale.ROOT)
+            );
+        } catch (IllegalArgumentException error) {
+            throw new ProtocolError(
+                "terminal lifecycle is unrecognized",
+                error
+            );
+        }
+        Optional<Snapshots.TerminalExit> exit = Optional.empty();
+        if (fields.containsKey("exit")) {
+            Map<String, Object> rawExit = Wire.object(
+                fields.get("exit"),
+                "terminal exit"
+            );
+            requireExactFields(
+                rawExit,
+                "terminal exit",
+                "outcome",
+                "exited_at",
+                Wire.REVISION
+            );
+            exit = Optional.of(new Snapshots.TerminalExit(
+                decodeTerminalExitOutcome(rawExit.get("outcome")),
+                Wire.decimal(rawExit.get("exited_at"), "terminal exited_at"),
+                Wire.decimal(
+                    rawExit.get(Wire.REVISION),
+                    "terminal exit revision"
+                )
+            ));
+        }
         return new Snapshots.TerminalSnapshot(
             new Ids.TerminalId(Wire.string(fields.get("id"), "terminal id")),
             requiredExactId(fields, "tab_id", Ids.TabId::new),
@@ -986,6 +1026,8 @@ public final class Client implements AutoCloseable {
             positiveUint16(fields, Wire.COLS),
             positiveUint16(fields, Wire.ROWS),
             Wire.bool(fields.get("running"), "terminal running"),
+            lifecycle,
+            exit,
             snapshotExtra(
                 fields,
                 "id",
@@ -994,7 +1036,9 @@ public final class Client implements AutoCloseable {
                 Wire.CWD,
                 Wire.COLS,
                 Wire.ROWS,
-                "running"
+                "running",
+                "lifecycle",
+                "exit"
             )
         );
     }
@@ -1205,111 +1249,6 @@ public final class Client implements AutoCloseable {
                 Wire.COLS,
                 Wire.ROWS,
                 "running"
-            )
-        );
-    }
-
-    static Snapshots.ProviderScopeSnapshot decodeProviderScope(Object value) {
-        Map<String, Object> fields = Wire.object(value, "provider scope snapshot");
-        return new Snapshots.ProviderScopeSnapshot(
-            new Ids.ProviderScopeId(
-                Wire.string(fields.get("id"), "provider scope id")
-            ),
-            Wire.string(fields.get(Wire.NAME), "provider scope name"),
-            Wire.string(fields.get(Wire.KIND), "provider scope kind"),
-            Wire.bool(fields.get("can_admin"), "provider scope can_admin"),
-            Wire.bool(fields.get("selected"), "provider scope selected"),
-            snapshotExtra(
-                fields,
-                "id",
-                Wire.NAME,
-                Wire.KIND,
-                "can_admin",
-                "selected"
-            )
-        );
-    }
-
-    static Snapshots.ProviderActionSnapshot decodeProviderAction(Object value) {
-        Map<String, Object> fields = Wire.object(value, "provider action snapshot");
-        return new Snapshots.ProviderActionSnapshot(
-            new Ids.ProviderActionId(
-                Wire.string(fields.get("id"), "provider action id")
-            ),
-            requiredExactId(
-                fields,
-                "provider_scope_id",
-                Ids.ProviderScopeId::new
-            ),
-            Wire.string(fields.get(Wire.NAME), "provider action name"),
-            Wire.string(fields.get(Wire.TITLE), "provider action title"),
-            Wire.bool(fields.get(Wire.ENABLED), "provider action enabled"),
-            Wire.string(fields.get("target"), "provider action target"),
-            Wire.bool(fields.get("destructive"), "provider action destructive"),
-            Wire.array(fields.get("fields"), "provider action fields").stream()
-                .map(Client::decodeProviderActionField)
-                .toList(),
-            snapshotExtra(
-                fields,
-                "id",
-                "provider_scope_id",
-                Wire.NAME,
-                Wire.TITLE,
-                Wire.ENABLED,
-                "target",
-                "destructive",
-                "fields"
-            )
-        );
-    }
-
-    private static Snapshots.ProviderActionField decodeProviderActionField(
-        Object value
-    ) {
-        Map<String, Object> fields = Wire.object(value, "provider action field");
-        requireExactFields(
-            fields,
-            "provider action field",
-            "id",
-            Wire.LABEL,
-            Wire.KIND,
-            "required",
-            "max_length",
-            "minimum",
-            "maximum",
-            "placeholder"
-        );
-        return new Snapshots.ProviderActionField(
-            Wire.string(fields.get("id"), "provider action field id"),
-            Wire.string(fields.get(Wire.LABEL), "provider action field label"),
-            Wire.string(fields.get(Wire.KIND), "provider action field kind"),
-            Wire.bool(fields.get("required"), "provider action field required"),
-            optionalUint32(fields, "max_length"),
-            optionalInteger(fields, "minimum"),
-            optionalInteger(fields, "maximum"),
-            optionalString(fields, "placeholder")
-        );
-    }
-
-    static Snapshots.ProviderNoticeSnapshot decodeProviderNotice(Object value) {
-        Map<String, Object> fields = Wire.object(value, "provider notice snapshot");
-        return new Snapshots.ProviderNoticeSnapshot(
-            new Ids.ProviderNoticeId(
-                Wire.string(fields.get("id"), "provider notice id")
-            ),
-            requiredExactId(
-                fields,
-                "provider_scope_id",
-                Ids.ProviderScopeId::new
-            ),
-            Wire.string(fields.get(Wire.LEVEL), "provider notice level"),
-            Wire.string(fields.get("message"), "provider notice message"),
-            snapshotExtra(
-                fields,
-                "id",
-                "provider_scope_id",
-                Wire.LEVEL,
-                "message"
             )
         );
     }
@@ -1561,9 +1500,6 @@ public final class Client implements AutoCloseable {
             case PAIRING_REQUEST -> new Ids.PairingRequestId(text);
             case FRONTEND_PROJECTION -> new Ids.ProjectionId(text);
             case SIDEBAR_VIEW -> new Ids.SidebarViewId(text);
-            case PROVIDER_SCOPE -> new Ids.ProviderScopeId(text);
-            case PROVIDER_ACTION -> new Ids.ProviderActionId(text);
-            case PROVIDER_NOTICE -> new Ids.ProviderNoticeId(text);
         };
     }
 
@@ -1586,9 +1522,6 @@ public final class Client implements AutoCloseable {
             case PAIRING_REQUEST -> decodePairingRequest(value);
             case FRONTEND_PROJECTION -> decodeFrontendProjection(value);
             case SIDEBAR_VIEW -> decodeSidebarView(value);
-            case PROVIDER_SCOPE -> decodeProviderScope(value);
-            case PROVIDER_ACTION -> decodeProviderAction(value);
-            case PROVIDER_NOTICE -> decodeProviderNotice(value);
         };
     }
 

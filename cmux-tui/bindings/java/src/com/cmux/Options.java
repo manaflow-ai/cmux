@@ -1,5 +1,6 @@
 package com.cmux;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -79,37 +80,6 @@ public final class Options {
         public Object toWire() { return value.orElse(null); }
     }
 
-    public record MachineCreate(Mutation mutation) {
-        public MachineCreate {
-            mutation = mut(mutation);
-        }
-    }
-    public record MachineRename(
-        Mutation mutation,
-        String name,
-        boolean confirmClose
-    ) {
-        public MachineRename {
-            mutation = mut(mutation);
-            Objects.requireNonNull(name, "name");
-        }
-
-        public MachineRename(Mutation mutation, String name) {
-            this(mutation, name, false);
-        }
-    }
-    public record MachineDelete(Mutation mutation) {
-        public MachineDelete { mutation = mut(mutation); }
-    }
-    public record MachineConnectExternal(
-        Mutation mutation,
-        ExternalMachineSpecifier specifier
-    ) {
-        public MachineConnectExternal {
-            mutation = mut(mutation);
-            Objects.requireNonNull(specifier, "specifier");
-        }
-    }
     public record SessionOpen(Mutation mutation) {
         public SessionOpen { mutation = mut(mutation); }
     }
@@ -267,8 +237,44 @@ public final class Options {
     public record TabRename(Mutation mutation, String name) {
         public TabRename { mutation = mut(mutation); Objects.requireNonNull(name, "name"); }
     }
-    public record LayoutUndo(Mutation mutation, boolean confirm) {
-        public LayoutUndo { mutation = mut(mutation); }
+    public record LayoutUndo(
+        Mutation mutation,
+        boolean confirmClose,
+        Optional<String> confirmationToken
+    ) {
+        public LayoutUndo {
+            mutation = mut(mutation);
+            confirmationToken = opt(confirmationToken);
+            confirmationToken.ifPresent(token -> {
+                int bytes = token.getBytes(StandardCharsets.UTF_8).length;
+                if (bytes < 1 || bytes > 128) {
+                    throw new IllegalArgumentException(
+                        "confirmationToken must contain 1 to 128 UTF-8 bytes"
+                    );
+                }
+            });
+            if (confirmClose && confirmationToken.isEmpty()) {
+                throw new IllegalArgumentException(
+                    "confirmationToken is required when confirmClose is true"
+                );
+            }
+        }
+
+        public LayoutUndo(Mutation mutation, boolean confirmClose) {
+            this(mutation, confirmClose, Optional.empty());
+        }
+
+        public static LayoutUndo preview(Mutation mutation) {
+            return new LayoutUndo(mutation, false, Optional.empty());
+        }
+
+        public static LayoutUndo confirmed(Mutation mutation, String token) {
+            return new LayoutUndo(
+                mutation,
+                true,
+                Optional.of(Objects.requireNonNull(token, "token"))
+            );
+        }
     }
     public record PaneCreate(
         Mutation mutation,
@@ -518,49 +524,6 @@ public final class Options {
     public record SidebarResize(Mutation mutation, int columns, int rows) {
         public SidebarResize { mutation = mut(mutation); nonnegative(columns, "columns"); nonnegative(rows, "rows"); }
     }
-    public record ProviderInvoke(Mutation mutation, Map<String, Object> parameters) {
-        public ProviderInvoke {
-            mutation = mut(mutation);
-            parameters = copy(parameters);
-        }
-    }
-    public record ProviderNotices(Stream stream, Optional<Cursor> cursor) {
-        public ProviderNotices { stream = Options.stream(stream); cursor = opt(cursor); }
-    }
-    public record ProviderWorkspace(
-        Mutation mutation,
-        Selector<Ids.WorkspaceId> workspace,
-        boolean managed
-    ) {
-        public ProviderWorkspace {
-            mutation = mut(mutation);
-            Objects.requireNonNull(workspace, "workspace");
-        }
-    }
-    public record ProviderWorkspaceRename(
-        Mutation mutation,
-        Selector<Ids.WorkspaceId> workspace,
-        NullableString name
-    ) {
-        public ProviderWorkspaceRename {
-            mutation = mut(mutation);
-            Objects.requireNonNull(workspace, "workspace");
-            Objects.requireNonNull(name, "name");
-            if (!name.present()) {
-                throw new IllegalArgumentException("name must be present");
-            }
-        }
-    }
-    public record ProviderWorkspaceClose(
-        Mutation mutation,
-        Selector<Ids.WorkspaceId> workspace
-    ) {
-        public ProviderWorkspaceClose {
-            mutation = mut(mutation);
-            Objects.requireNonNull(workspace, "workspace");
-        }
-    }
-
     private Options() {}
 
     private static Mutation mut(Mutation value) { return value == null ? Mutation.defaults() : value; }

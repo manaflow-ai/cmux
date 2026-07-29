@@ -73,10 +73,7 @@ public sealed interface ResourceChange permits
         AGENT,
         PAIRING_REQUEST,
         FRONTEND_PROJECTION,
-        SIDEBAR_VIEW,
-        PROVIDER_SCOPE,
-        PROVIDER_ACTION,
-        PROVIDER_NOTICE;
+        SIDEBAR_VIEW;
 
         public String toWire() {
             return name().toLowerCase(java.util.Locale.ROOT);
@@ -100,9 +97,6 @@ public sealed interface ResourceChange permits
                 case FRONTEND_PROJECTION ->
                     Snapshots.FrontendProjectionSnapshot.class;
                 case SIDEBAR_VIEW -> Snapshots.SidebarViewSnapshot.class;
-                case PROVIDER_SCOPE -> Snapshots.ProviderScopeSnapshot.class;
-                case PROVIDER_ACTION -> Snapshots.ProviderActionSnapshot.class;
-                case PROVIDER_NOTICE -> Snapshots.ProviderNoticeSnapshot.class;
             };
             if (!expected.isInstance(value)) {
                 throw new IllegalArgumentException(
@@ -127,9 +121,6 @@ public sealed interface ResourceChange permits
                 case PAIRING_REQUEST -> Ids.PairingRequestId.class;
                 case FRONTEND_PROJECTION -> Ids.ProjectionId.class;
                 case SIDEBAR_VIEW -> Ids.SidebarViewId.class;
-                case PROVIDER_SCOPE -> Ids.ProviderScopeId.class;
-                case PROVIDER_ACTION -> Ids.ProviderActionId.class;
-                case PROVIDER_NOTICE -> Ids.ProviderNoticeId.class;
             };
             if (!expected.isInstance(id)) {
                 throw new IllegalArgumentException(

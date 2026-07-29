@@ -7,7 +7,7 @@ public final class Ids {
     public sealed interface Id permits MachineId, SessionId, WorkspaceId, ScreenId,
             PaneId, TabId, TerminalId, BrowserId, ConnectedClientId, SplitId,
             NotificationId, AgentId, StreamId, ProjectionId, PairingRequestId,
-            SidebarViewId, ProviderScopeId, ProviderActionId, ProviderNoticeId {
+            SidebarViewId {
         String value();
     }
 
@@ -59,16 +59,6 @@ public final class Ids {
     public record SidebarViewId(String value) implements Id {
         public SidebarViewId { value = validate(value, "sidebar_view"); }
     }
-    public record ProviderScopeId(String value) implements Id {
-        public ProviderScopeId { value = validate(value, "provider_scope"); }
-    }
-    public record ProviderActionId(String value) implements Id {
-        public ProviderActionId { value = validate(value, "provider_action"); }
-    }
-    public record ProviderNoticeId(String value) implements Id {
-        public ProviderNoticeId { value = validate(value, "provider_notice"); }
-    }
-
     private Ids() {}
 
     private static String validate(String value, String prefix) {

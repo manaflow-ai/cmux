@@ -3,7 +3,7 @@
 This dependency-free Java 17 SDK exposes the `cmux.protocol/1` resource API.
 Typed handles cover machines, sessions, workspaces, screens, panes, tabs,
 terminals, browsers, connected clients, pairing requests, projections,
-notifications, agents, sidebar views, and providers.
+notifications, agents, and sidebar views.
 
 The legacy protocol-v10 API remains available under `com.cmux.raw`.
 
@@ -76,9 +76,14 @@ variants. Open stream unions preserve an unrecognized variant as an immutable
 `Terminal.waitExit(...)` waits for process lifecycle state. It is separate
 from `Terminal.waitFor(...)`, which matches terminal text.
 
+`Screen.undoLayout(...)` requires the preview's confirmation token when
+`confirmClose` is true. A `confirmation.required` error exposes typed
+`ConfirmationRequiredDetails` through
+`ResourceError.confirmationRequiredDetails()`.
+
 `Decimal` preserves the full unsigned 64-bit range as a canonical JSON string.
-`Secret`, `ProviderCredential`, and `RendererGrant` redact credential material
-from normal string formatting.
+`Secret` and `RendererGrant` redact credential material from normal string
+formatting.
 
 `Client.Builder.transport(...)` accepts an injected transport for WebSockets,
 non-Unix platforms, and tests. Without one, the SDK connects to the discovered

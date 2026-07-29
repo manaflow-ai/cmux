@@ -2,6 +2,7 @@ package com.cmux;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Structured server error with forward-compatible details. */
 @SuppressWarnings("serial")
@@ -10,6 +11,8 @@ public final class ResourceError extends RuntimeException {
     private final String code;
     private final Map<String, Object> details;
     private final boolean retryable;
+    private final Optional<ConfirmationRequiredDetails>
+        confirmationRequiredDetails;
 
     public ResourceError(
         String code,
@@ -21,6 +24,9 @@ public final class ResourceError extends RuntimeException {
         this.code = Objects.requireNonNull(code, "code");
         this.details = JsonValue.immutableObject(details, "error details");
         this.retryable = retryable;
+        this.confirmationRequiredDetails = code.equals("confirmation.required")
+            ? Optional.of(Client.decodeConfirmationRequiredDetails(this.details))
+            : Optional.empty();
     }
 
     public String code() {
@@ -33,6 +39,10 @@ public final class ResourceError extends RuntimeException {
 
     public boolean retryable() {
         return retryable;
+    }
+
+    public Optional<ConfirmationRequiredDetails> confirmationRequiredDetails() {
+        return confirmationRequiredDetails;
     }
 
     @Override

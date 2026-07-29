@@ -15,7 +15,4 @@ public sealed interface ResourceEntitySnapshot permits
         Snapshots.AgentSnapshot,
         Snapshots.PairingRequestSnapshot,
         Snapshots.FrontendProjectionSnapshot,
-        Snapshots.SidebarViewSnapshot,
-        Snapshots.ProviderScopeSnapshot,
-        Snapshots.ProviderActionSnapshot,
-        Snapshots.ProviderNoticeSnapshot {}
+        Snapshots.SidebarViewSnapshot {}

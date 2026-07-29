@@ -4,12 +4,6 @@ package com.cmux.internal;
 public enum Operations {
     MACHINE_LIST("machine.list", Class.READ),
     MACHINE_GET("machine.get", Class.READ),
-    MACHINE_CREATE("machine.create", Class.MUTATION),
-    MACHINE_RENAME("machine.rename", Class.MUTATION),
-    MACHINE_DELETE("machine.delete", Class.MUTATION),
-    MACHINE_RESTORE("machine.restore", Class.MUTATION),
-    MACHINE_PURGE("machine.purge", Class.MUTATION),
-    MACHINE_CONNECT_EXTERNAL("machine.connect_external", Class.MUTATION),
     SESSION_LIST("session.list", Class.READ),
     SESSION_OPEN("session.open", Class.MUTATION),
     SESSION_GET("session.get", Class.READ),
@@ -118,13 +112,6 @@ public enum Operations {
     SIDEBAR_VIEW_INPUT("sidebar_view.input", Class.MUTATION),
     SIDEBAR_VIEW_RESIZE("sidebar_view.resize", Class.MUTATION),
     SIDEBAR_VIEW_RELOAD("sidebar_view.reload", Class.MUTATION),
-    PROVIDER_SCOPE_LIST("provider_scope.list", Class.READ),
-    PROVIDER_ACTION_INVOKE("provider_action.invoke", Class.MUTATION),
-    PROVIDER_NOTICE_ACKNOWLEDGE("provider_notice.acknowledge", Class.CONNECTION_CONTROL),
-    PROVIDER_NOTICE_EVENTS("provider_notice.events", Class.STREAM_OPEN),
-    PROVIDER_WORKSPACE_MARK("provider_workspace.mark", Class.MUTATION),
-    PROVIDER_WORKSPACE_RENAME("provider_workspace.rename", Class.MUTATION),
-    PROVIDER_WORKSPACE_CLOSE("provider_workspace.close", Class.MUTATION),
     STREAM_CANCEL("stream.cancel", Class.CONNECTION_CONTROL);
 
     public enum Class {

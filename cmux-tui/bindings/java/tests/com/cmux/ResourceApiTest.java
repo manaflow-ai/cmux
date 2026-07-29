@@ -22,6 +22,7 @@ public final class ResourceApiTest {
         exactCommandAndRouting();
         nullableMetadata();
         strictTypedModels();
+        layoutUndoUsesTypedConfirmation();
         creationResolutionAndWaitExitStaySeparate();
         typedStream();
         streamCancellationPreservesRouteAndEnd();
@@ -57,8 +58,6 @@ public final class ResourceApiTest {
 
     private static void sensitiveValuesAreRedacted() {
         Secret token = new Secret("renderer-secret");
-        ProviderCredential credential =
-            new ProviderCredential("password", new Secret("provider-secret"));
         RendererGrant grant = new RendererGrant(
             "wss://renderer.invalid",
             new Ids.TerminalId("term_" + HEX),
@@ -68,24 +67,10 @@ public final class ResourceApiTest {
         );
         require(!token.toString().contains("renderer-secret"), "secret redaction");
         require(
-            !credential.toString().contains("provider-secret"),
-            "credential redaction"
-        );
-        require(
             !grant.toString().contains("renderer-secret"),
             "renderer grant redaction"
         );
         require(token.reveal().equals("renderer-secret"), "explicit reveal");
-        ExternalMachineSpecifier specifier =
-            new ExternalMachineSpecifier("provider://machine-secret");
-        require(
-            !specifier.toString().contains("machine-secret"),
-            "machine specifier redaction"
-        );
-        require(
-            specifier.reveal().equals("provider://machine-secret"),
-            "explicit machine specifier reveal"
-        );
     }
 
     private static void exactCommandAndRouting() {
@@ -222,6 +207,40 @@ public final class ResourceApiTest {
                     .equals("tab_" + HEX),
             "layout result is recursively typed"
         );
+
+        Snapshots.TerminalSnapshot terminal = Client.decodeTerminal(Map.of(
+            "id", "term_" + HEX,
+            "tab_id", "tab_" + HEX,
+            "title", "done",
+            "cols", 80,
+            "rows", 24,
+            "running", false,
+            "lifecycle", "exited",
+            "exit", Map.of(
+                "outcome", Map.of("kind", "exit", "code", 0),
+                "exited_at", "10",
+                "revision", "11"
+            )
+        ));
+        require(
+            terminal.lifecycle() ==
+                    Snapshots.TerminalLifecycle.EXITED &&
+                terminal.exit().orElseThrow().outcome() instanceof
+                    Results.TerminalExitCode,
+            "terminal snapshot exposes typed lifecycle and exit"
+        );
+        expect(
+            IllegalArgumentException.class,
+            () -> Client.decodeTerminal(Map.of(
+                "id", "term_" + HEX,
+                "tab_id", "tab_" + HEX,
+                "title", "bad",
+                "cols", 80,
+                "rows", 24,
+                "running", true,
+                "lifecycle", "launching"
+            ))
+        );
     }
 
     private static void creationResolutionAndWaitExitStaySeparate() {
@@ -264,6 +283,65 @@ public final class ResourceApiTest {
                 transport.lastSent().get("operation")
                     .equals("terminal.wait_exit"),
                 "terminal wait-exit remains separate from text matching"
+            );
+        }
+    }
+
+    private static void layoutUndoUsesTypedConfirmation() {
+        expect(
+            IllegalArgumentException.class,
+            () -> new Options.LayoutUndo(
+                Options.Mutation.defaults(),
+                true,
+                Optional.empty()
+            )
+        );
+        expect(
+            IllegalArgumentException.class,
+            () -> Options.LayoutUndo.confirmed(
+                Options.Mutation.defaults(),
+                "x".repeat(129)
+            )
+        );
+
+        FakeTransport transport = new FakeTransport();
+        try (Client client = client(transport)) {
+            ResourceError error = expect(
+                ResourceError.class,
+                () -> client.machine(Selector.current())
+                    .session(Selector.current())
+                    .workspace(Selector.current())
+                    .screen(Selector.current())
+                    .undoLayout(Options.LayoutUndo.confirmed(
+                        Options.Mutation.defaults().expecting(Decimal.parse("8")),
+                        "confirm-8"
+                    ))
+            );
+            ConfirmationRequiredDetails details =
+                error.confirmationRequiredDetails().orElseThrow();
+            require(
+                details.confirmationToken().equals("confirm-9") &&
+                    details.revision().equals(Decimal.parse("9")) &&
+                    details.closesPanes().equals(List.of(
+                        new Ids.PaneId("pane_" + HEX)
+                    )),
+                "confirmation.required details are typed"
+            );
+
+            Map<String, Object> params = object(
+                transport.lastSent().get("params")
+            );
+            require(
+                params.get("confirm_close").equals(true),
+                "confirmed undo sets confirm_close"
+            );
+            require(
+                params.get("confirmation_token").equals("confirm-8"),
+                "confirmed undo sends the exact token"
+            );
+            require(
+                params.get("expected_revision").equals("8"),
+                "confirmed undo sends the preview revision"
             );
         }
     }
@@ -490,6 +568,24 @@ public final class ResourceApiTest {
                             "idempotency_key", "idem-test",
                             "operation", "browser.navigate",
                             "recovery", "inspect_state_then_retry_with_new_key"
+                        ),
+                        "retryable", false
+                    )
+                ));
+                return;
+            }
+            if (operation.equals("screen.layout.undo")) {
+                inbound.add(response(
+                    id,
+                    false,
+                    Map.of(),
+                    Map.of(
+                        "code", "confirmation.required",
+                        "message", "undo closes panes",
+                        "details", Map.of(
+                            "confirmation_token", "confirm-9",
+                            "revision", "9",
+                            "closes_panes", List.of("pane_" + HEX)
                         ),
                         "retryable", false
                     )

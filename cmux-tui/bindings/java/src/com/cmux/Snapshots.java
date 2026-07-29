@@ -13,7 +13,6 @@ public final class Snapshots {
         String origin,
         String status,
         boolean connectable,
-        Optional<Ids.ProviderScopeId> providerScopeId,
         boolean deleted,
         boolean recoverable,
         Map<String, Object> extra
@@ -21,7 +20,7 @@ public final class Snapshots {
         public MachineSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(name, "name");
-            oneOf(origin, "origin", "local", "external");
+            oneOf(origin, "origin", "local");
             oneOf(
                 status,
                 "status",
@@ -31,7 +30,6 @@ public final class Snapshots {
                 "stopped",
                 "unavailable"
             );
-            providerScopeId = opt(providerScopeId);
             extra = copy(extra);
         }
     }
@@ -140,6 +138,24 @@ public final class Snapshots {
         }
     }
 
+    public enum TerminalLifecycle {
+        LAUNCHING,
+        RUNNING,
+        EXITED
+    }
+
+    public record TerminalExit(
+        Results.TerminalExitOutcome outcome,
+        Decimal exitedAt,
+        Decimal revision
+    ) {
+        public TerminalExit {
+            Objects.requireNonNull(outcome, "outcome");
+            Objects.requireNonNull(exitedAt, "exitedAt");
+            Objects.requireNonNull(revision, "revision");
+        }
+    }
+
     public record TerminalSnapshot(
         Ids.TerminalId id,
         Ids.TabId tabId,
@@ -148,6 +164,8 @@ public final class Snapshots {
         int cols,
         int rows,
         boolean running,
+        TerminalLifecycle lifecycle,
+        Optional<TerminalExit> exit,
         Map<String, Object> extra
     ) implements ResourceEntitySnapshot {
         public TerminalSnapshot {
@@ -157,6 +175,19 @@ public final class Snapshots {
             cwd = opt(cwd);
             positiveUint16(cols, "cols");
             positiveUint16(rows, "rows");
+            Objects.requireNonNull(lifecycle, "lifecycle");
+            exit = opt(exit);
+            if (running != (lifecycle == TerminalLifecycle.RUNNING)) {
+                throw new IllegalArgumentException(
+                    "running must match the running lifecycle"
+                );
+            }
+            if (exit.isPresent() !=
+                    (lifecycle == TerminalLifecycle.EXITED)) {
+                throw new IllegalArgumentException(
+                    "exit must be present exactly for the exited lifecycle"
+                );
+            }
             extra = copy(extra);
         }
     }
@@ -338,97 +369,6 @@ public final class Snapshots {
             Objects.requireNonNull(sessionId, "sessionId");
             positiveUint16(columns, "columns");
             positiveUint16(rows, "rows");
-            extra = copy(extra);
-        }
-    }
-
-    public record ProviderScopeSnapshot(
-        Ids.ProviderScopeId id,
-        String name,
-        String kind,
-        boolean canAdmin,
-        boolean selected,
-        Map<String, Object> extra
-    ) implements ResourceEntitySnapshot {
-        public ProviderScopeSnapshot {
-            Objects.requireNonNull(id, "id");
-            Objects.requireNonNull(name, "name");
-            oneOf(kind, "kind", "personal", "team");
-            extra = copy(extra);
-        }
-    }
-
-    public record ProviderActionSnapshot(
-        Ids.ProviderActionId id,
-        Ids.ProviderScopeId providerScopeId,
-        String name,
-        String title,
-        boolean enabled,
-        String target,
-        boolean destructive,
-        List<ProviderActionField> fields,
-        Map<String, Object> extra
-    ) implements ResourceEntitySnapshot {
-        public ProviderActionSnapshot {
-            Objects.requireNonNull(id, "id");
-            Objects.requireNonNull(providerScopeId, "providerScopeId");
-            Objects.requireNonNull(name, "name");
-            Objects.requireNonNull(title, "title");
-            oneOf(
-                target,
-                "target",
-                "scope",
-                "selected_machine",
-                "selected_workspace"
-            );
-            fields = List.copyOf(fields);
-            extra = copy(extra);
-        }
-    }
-
-    public record ProviderActionField(
-        String id,
-        String label,
-        String kind,
-        boolean required,
-        Optional<Long> maxLength,
-        Optional<Integer> minimum,
-        Optional<Integer> maximum,
-        Optional<String> placeholder
-    ) {
-        public ProviderActionField {
-            Objects.requireNonNull(id, "id");
-            if (id.isEmpty()) {
-                throw new IllegalArgumentException("provider action field id must not be empty");
-            }
-            Objects.requireNonNull(label, "label");
-            oneOf(kind, "kind", "text", "email", "integer");
-            maxLength = opt(maxLength);
-            minimum = opt(minimum);
-            maximum = opt(maximum);
-            placeholder = opt(placeholder);
-            maxLength.ifPresent(value -> positive(value, "maxLength"));
-            if (minimum.isPresent() && maximum.isPresent() &&
-                    minimum.get() > maximum.get()) {
-                throw new IllegalArgumentException(
-                    "provider action field minimum must not exceed maximum"
-                );
-            }
-        }
-    }
-
-    public record ProviderNoticeSnapshot(
-        Ids.ProviderNoticeId id,
-        Ids.ProviderScopeId providerScopeId,
-        String level,
-        String message,
-        Map<String, Object> extra
-    ) implements ResourceEntitySnapshot {
-        public ProviderNoticeSnapshot {
-            Objects.requireNonNull(id, "id");
-            Objects.requireNonNull(providerScopeId, "providerScopeId");
-            oneOf(level, "level", "info", "warning", "error");
-            Objects.requireNonNull(message, "message");
             extra = copy(extra);
         }
     }

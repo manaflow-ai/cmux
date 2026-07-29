@@ -46,61 +46,8 @@ public final class Machine {
         return snapshot;
     }
 
-    public MutationResult<Snapshots.MachineSnapshot> rename(Options.MachineRename options) {
-        Map<String, Object> params = route.params();
-        params.put(Wire.NAME, options.name());
-        if (options.confirmClose()) {
-            params.put("confirm_close", true);
-        }
-        Client.MutationResponse response = client.mutation(
-            Operations.MACHINE_RENAME, params, options.mutation()
-        );
-        snapshot = Client.decodeMachine(
-            Client.resourcePayload(response.result(), Wire.MACHINE)
-        );
-        return response.parts().withValue(snapshot);
-    }
-
-    public MutationResult<Snapshots.MachineSnapshot> delete(Options.MachineDelete options) {
-        Map<String, Object> params = route.params();
-        Client.MutationResponse response = client.mutation(
-            Operations.MACHINE_DELETE, params, options.mutation()
-        );
-        snapshot = Client.decodeMachine(
-            Client.resourcePayload(response.result(), Wire.MACHINE)
-        );
-        return response.parts().withValue(snapshot);
-    }
-
-    public MutationResult<Snapshots.MachineSnapshot> restore(Options.Mutation options) {
-        Client.MutationResponse response = client.mutation(
-            Operations.MACHINE_RESTORE, route.params(), options
-        );
-        snapshot = Client.decodeMachine(
-            Client.resourcePayload(response.result(), Wire.MACHINE)
-        );
-        return response.parts().withValue(snapshot);
-    }
-
-    public MutationResult<EmptyResult> purge(Options.Mutation options) {
-        Client.MutationResponse response = client.mutation(
-            Operations.MACHINE_PURGE, route.params(), options
-        );
-        return response.parts().withValue(
-            Client.decodeEmptyMutation(response.result())
-        );
-    }
-
     public Session session(Selector<Ids.SessionId> session) {
         return new Session(client, route.session(session));
-    }
-
-    public ProviderScope providerScope(Selector<Ids.ProviderScopeId> scope) {
-        return new ProviderScope(client, selector, scope, null);
-    }
-
-    public List<ProviderScope> listProviderScopes(Options.Read options) {
-        return client.listProviderScopes(options);
     }
 
     public List<Session> listSessions(Options.Read options) {

@@ -3,7 +3,6 @@ package com.cmux.internal;
 import com.cmux.Command;
 import com.cmux.Decimal;
 import com.cmux.Ids;
-import com.cmux.ProviderCredential;
 import com.cmux.Secret;
 import com.cmux.Selector;
 import com.cmux.raw.Json;
@@ -34,7 +33,6 @@ public final class Wire {
     public static final String NAME = "name";
     public static final String KIND = "kind";
     public static final String FORCE = "force";
-    public static final String PROVIDER = "provider";
     public static final String CONNECTION = "connection";
     public static final String INITIAL_CONTENT = "initial_content";
     public static final String CWD = "cwd";
@@ -148,12 +146,6 @@ public final class Wire {
         }
         if (value instanceof Secret secret) {
             return secret.reveal();
-        }
-        if (value instanceof ProviderCredential credential) {
-            return Map.of(
-                NAME, credential.name(),
-                VALUE, credential.value().reveal()
-            );
         }
         if (value instanceof Command command) {
             return encode(command.toWire());

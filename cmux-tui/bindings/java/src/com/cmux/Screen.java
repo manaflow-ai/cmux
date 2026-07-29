@@ -71,12 +71,22 @@ public final class Screen {
     }
 
     public MutationResult<Snapshots.ScreenSnapshot> undoLayout(
-        Options.Mutation options
+        Options.LayoutUndo options
     ) {
+        Map<String, Object> params = withExtra(
+            route.params(),
+            options.mutation().extra()
+        );
+        if (options.confirmClose()) {
+            params.put("confirm_close", true);
+        }
+        options.confirmationToken().ifPresent(
+            token -> params.put("confirmation_token", token)
+        );
         return mutateSnapshot(
             Operations.SCREEN_LAYOUT_UNDO,
-            withExtra(route.params(), options.extra()),
-            options
+            params,
+            options.mutation()
         );
     }
 
