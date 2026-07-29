@@ -236,10 +236,14 @@ fn create_workspace(
         return dispatch_exact_topology_mutation(mux, ResourceOperation::WorkspaceCreate, request);
     }
     let mutation = mutation(&request.envelope)?;
+    let correlation_key =
+        request.fields.get("correlation_key").and_then(Value::as_str).unwrap_or(&mutation.id);
     let commit = mux
         .resource_create_empty_workspace_selected(
             request.selectors,
             optional_string(&request.fields, "name")?,
+            correlation_key,
+            expected_revision(&request.fields)?,
             &mutation,
         )
         .map_err(resource_operation_error)?;

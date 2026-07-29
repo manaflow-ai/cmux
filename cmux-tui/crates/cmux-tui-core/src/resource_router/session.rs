@@ -3,14 +3,18 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use super::effects::{self, EffectPreparation};
-use super::{ParsedResourceRequest, expected_revision, mutation_result, validation_error};
+use super::{
+    ParsedResourceRequest, expected_revision, mutation_result, required_string,
+    resource_operation_error, validation_error,
+};
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::{DefaultColors, Mux, MuxEvent, ResourceTarget, Rgb, WorkspaceMutation};
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
-        ResourceOperation::SessionReloadConfig
+        ResourceOperation::SessionCreationResolve
+            | ResourceOperation::SessionReloadConfig
             | ResourceOperation::SessionShutdown
             | ResourceOperation::SessionTerminalDefaultsUpdate
             | ResourceOperation::SessionWindowTitleSet
@@ -23,6 +27,12 @@ pub(super) fn dispatch(
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     debug_assert!(handles(request.envelope.operation));
+    if request.envelope.operation == ResourceOperation::SessionCreationResolve {
+        mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
+        return mux
+            .resource_creation_resolution(required_string(&request.fields, "correlation_key")?)
+            .map_err(resource_operation_error);
+    }
     if request.envelope.operation == ResourceOperation::SessionTerminalDefaultsUpdate {
         return update_terminal_defaults(mux, request);
     }
@@ -247,5 +257,38 @@ mod tests {
         .unwrap();
         assert_eq!(replay["replayed"], true);
         assert!(events.recv_timeout(std::time::Duration::from_millis(10)).is_err());
+    }
+
+    #[test]
+    fn creation_resolve_returns_unknown_and_typed_validation_states() {
+        let mux = Mux::new_for_test("creation-resolve", SurfaceOptions::default());
+        let unknown = dispatch(
+            &mux,
+            request(
+                ResourceOperation::SessionCreationResolve,
+                "unused",
+                json!({"correlation_key":"unknown-correlation"}),
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            unknown,
+            json!({
+                "correlation_key":"unknown-correlation",
+                "state":"not_applied",
+                "recovery":"retry_new_idempotency_key",
+            })
+        );
+        let error = dispatch(
+            &mux,
+            request(
+                ResourceOperation::SessionCreationResolve,
+                "unused",
+                json!({"correlation_key":""}),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "validation.invalid");
+        assert_eq!(error.details["field"], "correlation_key");
     }
 }

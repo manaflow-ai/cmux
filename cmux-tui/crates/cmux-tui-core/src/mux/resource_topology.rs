@@ -7,12 +7,13 @@ use serde_json::{Map, Value, json};
 use super::*;
 use crate::model::{LayoutColumn, ScreenLayoutSnapshot};
 use crate::resource::{
-    ContentPublicId, PanePublicId, ResourceError, ResourceOperation, ScreenPublicId, SplitPublicId,
-    TabPublicId, WorkspacePublicId,
+    BrowserPublicId, ContentPublicId, PanePublicId, ResourceError, ResourceOperation,
+    ScreenPublicId, SplitPublicId, TabPublicId, TabResourceIdentity, WorkspacePublicId,
 };
 use crate::resource_mutation::ResourceMutationPlan;
 use crate::workspace_registry::{
-    RegistryPane, RegistryScreen, RegistryViewportColumn, ResourcePatchCommit,
+    RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceCreationPreparation,
+    ResourceCreationRecovery, ResourcePatchCommit, TerminalLifecycle,
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 
@@ -35,121 +36,204 @@ impl Mux {
         }))
     }
 
+    pub(crate) fn resource_creation_resolution(
+        self: &Arc<Self>,
+        correlation_key: &str,
+    ) -> anyhow::Result<Value> {
+        self.reconcile_interrupted_resource_creation(correlation_key)?;
+        self.workspace_registry.lock().unwrap().resolve_resource_creation(correlation_key)
+    }
+
+    pub(super) fn reconcile_interrupted_resource_creations(&self) -> anyhow::Result<()> {
+        let recoveries =
+            self.workspace_registry.lock().unwrap().interrupted_resource_creation_recoveries()?;
+        for recovery in recoveries {
+            let _ = self.settle_resource_creation(recovery, None)?;
+        }
+        Ok(())
+    }
+
+    fn reconcile_interrupted_resource_creation(&self, correlation_key: &str) -> anyhow::Result<()> {
+        let recovery =
+            self.workspace_registry.lock().unwrap().resource_creation_recovery(correlation_key)?;
+        if let Some(recovery) = recovery.filter(|recovery| recovery.interrupted) {
+            let _ = self.settle_resource_creation(recovery, None)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn resource_create_empty_workspace_selected(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
         name: Option<String>,
+        correlation_key: &str,
+        expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let fingerprint = json!({
             "operation":"workspace.create",
-            "selectors":selectors,
+            "selectors":&selectors,
             "fields":{
                 "initial_content":"empty",
-                "name":name,
+                "name":&name,
             },
         });
-        self.commit_resource_mutation_plan(
+        if let Some(name) = name.as_deref() {
+            Self::validate_workspace_name(name)?;
+        }
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
+            .map_err(anyhow::Error::new)?;
+        let reserved_name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
+        let proposed_intent = json!({
+            "workspace_public_id":WorkspacePublicId::random()?,
+            "workspace_key":Self::new_workspace_key()?,
+            "name":reserved_name,
+        });
+        let preparation = registry.prepare_resource_creation(
+            correlation_key,
+            &mutation.id,
+            "workspace.create",
+            &fingerprint,
+            &proposed_intent,
+            false,
+            None,
+            expected_revision,
+        )?;
+        let intent = match preparation {
+            ResourceCreationPreparation::Created { created_path, revision, .. } => {
+                let workspace = created_path["workspace_id"]
+                    .as_str()
+                    .context("stored workspace creation omitted its workspace id")?;
+                return Ok(ResourcePatchCommit {
+                    revision,
+                    result: json!({"workspace":workspace}),
+                    replayed: true,
+                });
+            }
+            ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                return Err(anyhow::Error::new(resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                )));
+            }
+            ResourceCreationPreparation::Failed { error, .. } => {
+                return Err(anyhow::Error::new(error));
+            }
+            ResourceCreationPreparation::Execute { intent, .. } => intent,
+        };
+        anyhow::ensure!(
+            state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
+            "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
+        );
+        let workspace_slot = self.next_id();
+        let public_id = WorkspacePublicId::parse(
+            intent["workspace_public_id"]
+                .as_str()
+                .context("stored workspace creation omitted its public id")?
+                .to_string(),
+        )?;
+        let key = intent["workspace_key"]
+            .as_str()
+            .context("stored workspace creation omitted its key")?
+            .to_string();
+        let name = intent["name"]
+            .as_str()
+            .context("stored workspace creation omitted its name")?
+            .to_string();
+        let index = state.workspaces.len();
+        let workspace = Workspace {
+            id: workspace_slot,
+            public_id: public_id.clone(),
+            key: key.clone(),
+            name: name.clone(),
+            screens: Vec::new(),
+            active_screen: 0,
+        };
+        let mut order = Vec::with_capacity(index + 1);
+        order.extend(state.workspaces.iter().map(|workspace| workspace.public_id.clone()));
+        order.push(public_id.clone());
+        state.workspaces.reserve(1);
+        state.workspace_index_by_id.reserve(1);
+        state.workspace_id_by_key.reserve(1);
+        state.resource_indexes.workspaces.reserve(1);
+        state.resource_indexes.workspace_ids.reserve(1);
+        let mut deltas = Vec::with_capacity(2);
+        if let Some(previous) = state.workspaces.get(state.active_workspace) {
+            deltas.push(workspace_resource_upsert(
+                0,
+                registry.session_id().as_str(),
+                &previous.public_id,
+                &previous.name,
+                state.active_workspace,
+                false,
+            ));
+        }
+        deltas.push(workspace_resource_upsert(
+            deltas.len(),
+            registry.session_id().as_str(),
+            &public_id,
+            &name,
+            index,
+            true,
+        ));
+        let created_path = json!({"kind":"workspace","workspace_id":public_id});
+        let plan = ResourceMutationPlan::new(
+            ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertWorkspace {
+                        workspace: RegistryWorkspace {
+                            id: workspace.id,
+                            public_id: public_id.clone(),
+                            key: key.clone(),
+                            name: name.clone(),
+                            group_key: self.session.clone(),
+                        },
+                        position: index,
+                        active_screen: None,
+                    },
+                    ResourceChange::SetWorkspaceOrder { workspace_ids: order },
+                    ResourceChange::SetActiveWorkspace { workspace_id: Some(public_id.clone()) },
+                ],
+            },
+            json!({
+                "workspace":public_id,
+                "name":name,
+                "index":index,
+            }),
+            Value::Array(deltas),
+            move |state| {
+                state.push_workspace(workspace);
+                state.active_workspace = index;
+                state.workspace_revision = state.workspace_revision.saturating_add(1);
+            },
+        )
+        .with_metrics(ResourceMutationMetrics {
+            touched_resources: 1,
+            order_entries: index + 1,
+            terminal_queries: 0,
+            changed_rows: index + 3,
+        });
+        #[cfg(test)]
+        {
+            *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
+        }
+        let commit = registry.commit_resource_creation_patch(
+            correlation_key,
             mutation,
             "workspace.create",
             &fingerprint,
-            None,
-            None,
-            move |state, registry| {
-                self.resolve_resource_path_in_state(
-                    state,
-                    registry,
-                    ResourceTarget::Session,
-                    &selectors,
-                )
-                .map_err(anyhow::Error::new)?;
-                if let Some(name) = name.as_deref() {
-                    Self::validate_workspace_name(name)?;
-                }
-                anyhow::ensure!(
-                    state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                    "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
-                );
-                let workspace_slot = self.next_id();
-                let public_id = WorkspacePublicId::random()?;
-                let key = Self::new_workspace_key()?;
-                let name = name.clone().unwrap_or_else(|| Self::default_workspace_name(state));
-                let index = state.workspaces.len();
-                let workspace = Workspace {
-                    id: workspace_slot,
-                    public_id: public_id.clone(),
-                    key: key.clone(),
-                    name: name.clone(),
-                    screens: Vec::new(),
-                    active_screen: 0,
-                };
-                let mut order = Vec::with_capacity(index + 1);
-                order.extend(state.workspaces.iter().map(|workspace| workspace.public_id.clone()));
-                order.push(public_id.clone());
-                state.workspaces.reserve(1);
-                state.workspace_index_by_id.reserve(1);
-                state.workspace_id_by_key.reserve(1);
-                state.resource_indexes.workspaces.reserve(1);
-                state.resource_indexes.workspace_ids.reserve(1);
-                let mut deltas = Vec::with_capacity(2);
-                if let Some(previous) = state.workspaces.get(state.active_workspace) {
-                    deltas.push(workspace_resource_upsert(
-                        0,
-                        registry.session_id().as_str(),
-                        &previous.public_id,
-                        &previous.name,
-                        state.active_workspace,
-                        false,
-                    ));
-                }
-                deltas.push(workspace_resource_upsert(
-                    deltas.len(),
-                    registry.session_id().as_str(),
-                    &public_id,
-                    &name,
-                    index,
-                    true,
-                ));
-                Ok(ResourceMutationPlan::new(
-                    ResourcePatch {
-                        changes: vec![
-                            ResourceChange::UpsertWorkspace {
-                                workspace: RegistryWorkspace {
-                                    id: workspace.id,
-                                    public_id: public_id.clone(),
-                                    key: key.clone(),
-                                    name: name.clone(),
-                                    group_key: self.session.clone(),
-                                },
-                                position: index,
-                                active_screen: None,
-                            },
-                            ResourceChange::SetWorkspaceOrder { workspace_ids: order },
-                            ResourceChange::SetActiveWorkspace {
-                                workspace_id: Some(public_id.clone()),
-                            },
-                        ],
-                    },
-                    json!({
-                        "workspace":public_id,
-                        "name":name,
-                        "index":index,
-                    }),
-                    Value::Array(deltas),
-                    move |state| {
-                        state.push_workspace(workspace);
-                        state.active_workspace = index;
-                        state.workspace_revision = state.workspace_revision.saturating_add(1);
-                    },
-                )
-                .with_metrics(ResourceMutationMetrics {
-                    touched_resources: 1,
-                    order_entries: index + 1,
-                    terminal_queries: 0,
-                    changed_rows: index + 3,
-                }))
-            },
-        )
+            &plan.patch,
+            &plan.result,
+            &created_path,
+            &plan.deltas,
+        )?;
+        plan.apply(&mut state, &commit);
+        drop(state);
+        drop(registry);
+        self.publish_resource_event();
+        Ok(commit)
     }
 
     pub(crate) fn resource_pane_neighbor_selected(
@@ -190,10 +274,15 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        let fingerprint_fields = if is_created_path_operation(operation) {
+            semantic_creation_fields(&fields)
+        } else {
+            fields.clone()
+        };
         let fingerprint = json!({
             "operation": operation_name(operation),
             "selectors": selectors,
-            "fields": fields,
+            "fields": fingerprint_fields,
         });
         let commit = match operation {
             ResourceOperation::WorkspaceFocus => {
@@ -1462,6 +1551,16 @@ impl Mux {
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        if is_created_path_operation(operation) {
+            return self.resource_correlated_creation_operation(
+                operation,
+                selectors,
+                fields,
+                expected_revision,
+                mutation,
+                fingerprint,
+            );
+        }
         let operation_name = operation_name(operation);
         let preparation = {
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -1547,6 +1646,310 @@ impl Mux {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn resource_correlated_creation_operation(
+        self: &Arc<Self>,
+        operation: ResourceOperation,
+        selectors: ResourceSelectors,
+        fields: Map<String, Value>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        debug_assert!(is_created_path_operation(operation));
+        let operation_name = operation_name(operation);
+        let correlation_key =
+            fields.get("correlation_key").and_then(Value::as_str).unwrap_or(&mutation.id);
+        self.reconcile_interrupted_resource_creation(correlation_key)?;
+        let effect_fields = semantic_creation_fields(&fields);
+        let preparation = {
+            let mut registry = self.workspace_registry.lock().unwrap();
+            if let Some(preparation) = registry.lookup_resource_creation(
+                correlation_key,
+                &mutation.id,
+                &operation_name,
+                fingerprint,
+                true,
+            )? {
+                preparation
+            } else {
+                let mut state = self.state.lock().unwrap();
+                let intent = self.resource_topology_effect_intent(
+                    operation,
+                    &selectors,
+                    &effect_fields,
+                    &mut state,
+                    &registry,
+                )?;
+                registry.prepare_resource_creation(
+                    correlation_key,
+                    &mutation.id,
+                    &operation_name,
+                    fingerprint,
+                    &intent,
+                    true,
+                    None,
+                    expected_revision,
+                )?
+            }
+        };
+        match preparation {
+            ResourceCreationPreparation::Created { created_path, revision, .. } => {
+                Ok(ResourcePatchCommit { revision, result: created_path, replayed: true })
+            }
+            ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                Err(anyhow::Error::new(resource_effect_indeterminate(&idempotency_key, &operation)))
+            }
+            ResourceCreationPreparation::Failed { error, .. } => Err(anyhow::Error::new(error)),
+            ResourceCreationPreparation::Execute { idempotency_key, .. } => {
+                let intent = self.mark_resource_effect_executing(
+                    &idempotency_key,
+                    &operation_name,
+                    fingerprint,
+                )?;
+                let recovery = self
+                    .workspace_registry
+                    .lock()
+                    .unwrap()
+                    .resource_creation_recovery(correlation_key)?
+                    .context("executing resource creation omitted its recovery record")?;
+                let result = match self.execute_resource_topology_effect(operation, &intent) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        #[cfg(test)]
+                        eprintln!("correlated resource creation failed: {error:#}");
+                        let failure = resource_creation_failure(&recovery, &error);
+                        return creation_settlement_result(
+                            self.settle_resource_creation(recovery, Some(failure))?,
+                            &idempotency_key,
+                            &operation_name,
+                        );
+                    }
+                };
+                let projection = match self.resource_effect_projection() {
+                    Ok(projection) => projection,
+                    Err(error) => {
+                        #[cfg(test)]
+                        eprintln!("correlated resource creation projection failed: {error:#}");
+                        let failure = resource_creation_failure(&recovery, &error);
+                        return creation_settlement_result(
+                            self.settle_resource_creation(recovery, Some(failure))?,
+                            &idempotency_key,
+                            &operation_name,
+                        );
+                    }
+                };
+                match self.commit_resource_effect_patch(
+                    &idempotency_key,
+                    &operation_name,
+                    fingerprint,
+                    &projection.patch,
+                    &result,
+                    &projection.changes,
+                ) {
+                    Ok(commit) => Ok(commit),
+                    Err(error) => {
+                        #[cfg(test)]
+                        eprintln!("correlated resource creation commit failed: {error:#}");
+                        let failure = resource_creation_failure(&recovery, &error);
+                        creation_settlement_result(
+                            self.settle_resource_creation(recovery, Some(failure))?,
+                            &idempotency_key,
+                            &operation_name,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fn settle_resource_creation(
+        &self,
+        recovery: ResourceCreationRecovery,
+        failure: Option<ResourceError>,
+    ) -> anyhow::Result<ResourceCreationSettlement> {
+        match self.resource_creation_evidence(&recovery)? {
+            ResourceCreationEvidence::Created(created_path) => {
+                let projection = match self.resource_effect_projection() {
+                    Ok(projection) => projection,
+                    Err(_) => {
+                        if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
+                            return Ok(settlement);
+                        }
+                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
+                        return Ok(ResourceCreationSettlement::Indeterminate);
+                    }
+                };
+                match self.commit_resource_effect_patch(
+                    &recovery.idempotency_key,
+                    &recovery.operation,
+                    &recovery.fingerprint,
+                    &projection.patch,
+                    &created_path,
+                    &projection.changes,
+                ) {
+                    Ok(commit) => Ok(ResourceCreationSettlement::Created(commit)),
+                    Err(_) => {
+                        if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
+                            return Ok(settlement);
+                        }
+                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
+                        Ok(ResourceCreationSettlement::Indeterminate)
+                    }
+                }
+            }
+            ResourceCreationEvidence::NotApplied(reason) => {
+                let error = failure.unwrap_or_else(|| {
+                    ResourceError::operation_failed(
+                        &recovery.operation,
+                        reason,
+                        json!({
+                            "correlation_key":recovery.correlation_key,
+                            "attempt":recovery.attempt,
+                        }),
+                    )
+                });
+                match self.commit_resource_effect(
+                    &recovery.idempotency_key,
+                    &recovery.operation,
+                    &recovery.fingerprint,
+                    &ResourceEffectOutcome::Failure(error.clone()),
+                    None,
+                ) {
+                    Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
+                    Err(_) => {
+                        if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
+                            return Ok(settlement);
+                        }
+                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
+                        Ok(ResourceCreationSettlement::Indeterminate)
+                    }
+                }
+            }
+            ResourceCreationEvidence::Ambiguous => {
+                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
+                Ok(ResourceCreationSettlement::Indeterminate)
+            }
+        }
+    }
+
+    fn persisted_creation_settlement(
+        &self,
+        recovery: &ResourceCreationRecovery,
+    ) -> anyhow::Result<Option<ResourceCreationSettlement>> {
+        let preparation = self.workspace_registry.lock().unwrap().lookup_resource_creation(
+            &recovery.correlation_key,
+            &recovery.idempotency_key,
+            &recovery.operation,
+            &recovery.fingerprint,
+            true,
+        )?;
+        Ok(match preparation {
+            Some(ResourceCreationPreparation::Created { created_path, revision, .. }) => {
+                Some(ResourceCreationSettlement::Created(ResourcePatchCommit {
+                    revision,
+                    result: created_path,
+                    replayed: true,
+                }))
+            }
+            Some(ResourceCreationPreparation::Failed { error, .. }) => {
+                Some(ResourceCreationSettlement::NotApplied(error))
+            }
+            _ => None,
+        })
+    }
+
+    fn resource_creation_evidence(
+        &self,
+        recovery: &ResourceCreationRecovery,
+    ) -> anyhow::Result<ResourceCreationEvidence> {
+        let operation: ResourceOperation =
+            serde_json::from_value(Value::String(recovery.operation.clone()))
+                .context("stored resource creation has an invalid operation")?;
+        match created_identity_kind(operation) {
+            Some(CreatedIdentityKind::Browser) => self.browser_creation_evidence(&recovery.intent),
+            Some(CreatedIdentityKind::Terminal) => {
+                self.terminal_creation_evidence(&recovery.intent)
+            }
+            None => Ok(ResourceCreationEvidence::Ambiguous),
+        }
+    }
+
+    fn browser_creation_evidence(
+        &self,
+        intent: &Value,
+    ) -> anyhow::Result<ResourceCreationEvidence> {
+        let expected = self.effect_browser_reservation(intent)?;
+        let surface = {
+            let state = self.state.lock().unwrap();
+            let mut matches = state
+                .surfaces
+                .values()
+                .filter(|surface| surface.resource_identity() == Some(&expected))
+                .map(|surface| surface.id);
+            let first = matches.next();
+            if matches.next().is_some() {
+                return Ok(ResourceCreationEvidence::Ambiguous);
+            }
+            first
+        };
+        if let Some(surface) = surface {
+            return Ok(match self.created_resource_path(surface) {
+                Ok(path) => ResourceCreationEvidence::Created(path),
+                Err(_) => ResourceCreationEvidence::Ambiguous,
+            });
+        }
+        Ok(if self.reserved_workspace_exists(intent)? {
+            ResourceCreationEvidence::Ambiguous
+        } else {
+            ResourceCreationEvidence::NotApplied(
+                "reserved browser identity is absent after creation reconciliation",
+            )
+        })
+    }
+
+    fn terminal_creation_evidence(
+        &self,
+        intent: &Value,
+    ) -> anyhow::Result<ResourceCreationEvidence> {
+        let terminal_id = intent["terminal_reservation"]["terminal_id"]
+            .as_str()
+            .context("stored topology intent omitted its terminal reservation")?;
+        let resolution = self.resolve_terminal(terminal_id)?;
+        let Some(resolution) = resolution else {
+            return Ok(if self.reserved_workspace_exists(intent)? {
+                ResourceCreationEvidence::Ambiguous
+            } else {
+                ResourceCreationEvidence::NotApplied(
+                    "reserved terminal identity is absent after creation reconciliation",
+                )
+            });
+        };
+        if let Some(surface) = resolution.surface {
+            return Ok(match self.created_resource_path(surface) {
+                Ok(path) => ResourceCreationEvidence::Created(path),
+                Err(_) => ResourceCreationEvidence::Ambiguous,
+            });
+        }
+        Ok(match resolution.terminal.lifecycle {
+            TerminalLifecycle::Launching
+            | TerminalLifecycle::Adopting
+            | TerminalLifecycle::Running
+            | TerminalLifecycle::Exited
+            | TerminalLifecycle::Tombstoned => ResourceCreationEvidence::Ambiguous,
+        })
+    }
+
+    fn reserved_workspace_exists(&self, intent: &Value) -> anyhow::Result<bool> {
+        let Some(reservation) = intent.get("workspace_reservation") else {
+            return Ok(false);
+        };
+        let key = reservation["workspace_key"]
+            .as_str()
+            .context("stored workspace reservation omitted its key")?;
+        Ok(self.state.lock().unwrap().workspaces.iter().any(|workspace| workspace.key == key))
+    }
+
     fn resource_topology_effect_intent(
         &self,
         operation: ResourceOperation,
@@ -1587,6 +1990,12 @@ impl Mux {
                 "workspace_key":Self::new_workspace_key()?,
                 "mutation_id":mutation.id,
                 "mutation_origin":mutation.origin,
+            });
+        }
+        if operation == ResourceOperation::TabCreateBrowser {
+            intent["browser_reservation"] = json!({
+                "tab_id":TabPublicId::random()?,
+                "browser_id":BrowserPublicId::random()?,
             });
         }
         if operation == ResourceOperation::WorkspaceLayoutApply {
@@ -1857,20 +2266,32 @@ impl Mux {
             ResourceOperation::TabCreateBrowser => {
                 let slots = self.effect_slots(&path)?;
                 let size = effect_browser_cell_size(self, fields)?;
+                let identity = self.effect_browser_reservation(intent)?;
+                let reserved_workspace_key = (slots.workspace.is_none()
+                    && path.workspace.is_none())
+                .then(|| self.effect_workspace_reservation(intent).map(|(key, _)| key))
+                .transpose()?;
                 let surface = match slots.pane {
-                    Some(pane) => self.new_browser_tab(
+                    Some(pane) => self.new_browser_tab_reserved(
                         required_str(fields, "url")?.to_string(),
                         Some(pane),
                         size,
+                        identity,
+                        None,
                     )?,
                     None if slots.workspace.is_some() => self.create_browser_surface_in_workspace(
                         slots.workspace.expect("checked"),
                         required_str(fields, "url")?.to_string(),
                         size,
+                        Some(identity),
                     )?,
-                    None => {
-                        self.new_browser_tab(required_str(fields, "url")?.to_string(), None, size)?
-                    }
+                    None => self.new_browser_tab_reserved(
+                        required_str(fields, "url")?.to_string(),
+                        None,
+                        size,
+                        identity,
+                        reserved_workspace_key,
+                    )?,
                 };
                 if let Some(name) = optional_owned_string(fields, "name")? {
                     surface.set_name(Some(name));
@@ -2056,6 +2477,25 @@ impl Mux {
             expected_generation: None,
             expected_revision: None,
         })
+    }
+
+    fn effect_browser_reservation(&self, intent: &Value) -> anyhow::Result<TabResourceIdentity> {
+        let stored = intent["browser_reservation"]
+            .as_object()
+            .context("stored topology intent omitted its browser reservation")?;
+        let tab_id = TabPublicId::parse(
+            stored["tab_id"]
+                .as_str()
+                .context("stored browser reservation omitted its tab id")?
+                .to_string(),
+        )?;
+        let browser_id = BrowserPublicId::parse(
+            stored["browser_id"]
+                .as_str()
+                .context("stored browser reservation omitted its browser id")?
+                .to_string(),
+        )?;
+        Ok(TabResourceIdentity::persisted_browser(tab_id, browser_id))
     }
 
     fn effect_create_workspace_terminal(
@@ -2398,6 +2838,54 @@ struct EffectSlots {
     tab: Option<SurfaceId>,
 }
 
+enum ResourceCreationEvidence {
+    Created(Value),
+    NotApplied(&'static str),
+    Ambiguous,
+}
+
+enum ResourceCreationSettlement {
+    Created(ResourcePatchCommit),
+    NotApplied(ResourceError),
+    Indeterminate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CreatedIdentityKind {
+    Terminal,
+    Browser,
+}
+
+fn resource_creation_failure(
+    recovery: &ResourceCreationRecovery,
+    error: &anyhow::Error,
+) -> ResourceError {
+    error.downcast_ref::<ResourceError>().cloned().unwrap_or_else(|| {
+        ResourceError::operation_failed(
+            &recovery.operation,
+            error.to_string(),
+            json!({
+                "correlation_key":recovery.correlation_key,
+                "attempt":recovery.attempt,
+            }),
+        )
+    })
+}
+
+fn creation_settlement_result(
+    settlement: ResourceCreationSettlement,
+    idempotency_key: &str,
+    operation: &str,
+) -> anyhow::Result<ResourcePatchCommit> {
+    match settlement {
+        ResourceCreationSettlement::Created(commit) => Ok(commit),
+        ResourceCreationSettlement::NotApplied(error) => Err(anyhow::Error::new(error)),
+        ResourceCreationSettlement::Indeterminate => {
+            Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
+        }
+    }
+}
+
 fn resource_effect_indeterminate(idempotency_key: &str, operation: &str) -> ResourceError {
     ResourceError::new(
         "mutation.indeterminate",
@@ -2412,16 +2900,7 @@ fn resource_effect_indeterminate(idempotency_key: &str, operation: &str) -> Reso
 }
 
 fn topology_effect_creates_terminal(operation: ResourceOperation) -> bool {
-    matches!(
-        operation,
-        ResourceOperation::WorkspaceCreate
-            | ResourceOperation::WorkspaceRun
-            | ResourceOperation::ScreenCreate
-            | ResourceOperation::PaneCreate
-            | ResourceOperation::PaneSplit
-            | ResourceOperation::PaneRun
-            | ResourceOperation::TabCreateTerminal
-    )
+    created_identity_kind(operation) == Some(CreatedIdentityKind::Terminal)
 }
 
 fn topology_effect_may_create_workspace(operation: ResourceOperation) -> bool {
@@ -2431,6 +2910,7 @@ fn topology_effect_may_create_workspace(operation: ResourceOperation) -> bool {
             | ResourceOperation::ScreenCreate
             | ResourceOperation::PaneCreate
             | ResourceOperation::TabCreateTerminal
+            | ResourceOperation::TabCreateBrowser
     )
 }
 
@@ -2984,6 +3464,32 @@ fn is_effectful(operation: ResourceOperation) -> bool {
             | ResourceOperation::TabCreateBrowser
             | ResourceOperation::TabClose
     )
+}
+
+fn is_created_path_operation(operation: ResourceOperation) -> bool {
+    created_identity_kind(operation).is_some()
+}
+
+fn created_identity_kind(operation: ResourceOperation) -> Option<CreatedIdentityKind> {
+    match operation {
+        ResourceOperation::WorkspaceCreate
+        | ResourceOperation::WorkspaceRun
+        | ResourceOperation::ScreenCreate
+        | ResourceOperation::PaneCreate
+        | ResourceOperation::PaneSplit
+        | ResourceOperation::PaneRun
+        | ResourceOperation::TabCreateTerminal => Some(CreatedIdentityKind::Terminal),
+        ResourceOperation::TabCreateBrowser => Some(CreatedIdentityKind::Browser),
+        _ => None,
+    }
+}
+
+fn semantic_creation_fields(fields: &Map<String, Value>) -> Map<String, Value> {
+    let mut fields = fields.clone();
+    fields.remove("expected_revision");
+    fields.remove("correlation_key");
+    fields.remove("idempotency_key");
+    fields
 }
 
 fn find_screen(state: &State, target: ScreenId) -> Option<(usize, usize)> {
@@ -4012,5 +4518,54 @@ fn set_node_split_ratios(node: &mut Node, ratios: &std::collections::BTreeMap<Sp
             set_node_split_ratios(a, ratios);
             set_node_split_ratios(b, ratios);
         }
+    }
+}
+
+#[cfg(test)]
+mod creation_recovery_tests {
+    use super::*;
+
+    #[test]
+    fn all_created_path_operations_have_restart_evidence_identity() {
+        let operations = [
+            (ResourceOperation::WorkspaceCreate, CreatedIdentityKind::Terminal),
+            (ResourceOperation::WorkspaceRun, CreatedIdentityKind::Terminal),
+            (ResourceOperation::ScreenCreate, CreatedIdentityKind::Terminal),
+            (ResourceOperation::PaneCreate, CreatedIdentityKind::Terminal),
+            (ResourceOperation::PaneSplit, CreatedIdentityKind::Terminal),
+            (ResourceOperation::PaneRun, CreatedIdentityKind::Terminal),
+            (ResourceOperation::TabCreateTerminal, CreatedIdentityKind::Terminal),
+            (ResourceOperation::TabCreateBrowser, CreatedIdentityKind::Browser),
+        ];
+        for (operation, expected) in operations {
+            assert!(is_created_path_operation(operation));
+            assert_eq!(created_identity_kind(operation), Some(expected));
+        }
+        assert_eq!(created_identity_kind(ResourceOperation::WorkspaceClose), None);
+        assert_eq!(created_identity_kind(ResourceOperation::TabClose), None);
+    }
+
+    #[test]
+    fn creation_fingerprint_excludes_delivery_metadata_only() {
+        let fields = json!({
+            "correlation_key":"correlation-one",
+            "idempotency_key":"attempt-one",
+            "expected_revision":"42",
+            "url":"https://example.test",
+            "name":"Example",
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        assert_eq!(
+            semantic_creation_fields(&fields),
+            json!({
+                "url":"https://example.test",
+                "name":"Example",
+            })
+            .as_object()
+            .unwrap()
+            .clone()
+        );
     }
 }
