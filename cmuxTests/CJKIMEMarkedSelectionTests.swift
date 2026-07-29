@@ -391,6 +391,54 @@ struct CJKIMEMarkedSelectionTests {
         #expect(commit.text == "line\n")
     }
 
+    @Test func deferredConsumedCommitSendsExactlyOneNonphysicalKeyEvent() async throws {
+        let terminal = try await makeHostedCallbackTerminal()
+        defer { tearDown(terminal) }
+        var forwarded: [(keyCode: UInt32, text: String?)] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwarded.append((
+                keyCode: keyEvent.keycode,
+                text: keyEvent.text.map(String.init(cString:))
+            ))
+        }
+
+        try await confirmation("deferred text input commit") { committed in
+            terminal.surfaceView.textInputEventHandler = { event in
+                guard event.keyCode == UInt16(kVK_ANSI_Keypad1) else {
+                    return false
+                }
+                DispatchQueue.main.async {
+                    terminal.surfaceView.insertText(
+                        "1",
+                        replacementRange: NSRange(
+                            location: NSNotFound,
+                            length: 0
+                        )
+                    )
+                    committed()
+                }
+                return true
+            }
+
+            try sendKey(
+                text: "1",
+                keyCode: UInt16(kVK_ANSI_Keypad1),
+                modifierFlags: [.numericPad],
+                to: terminal
+            )
+            #expect(
+                forwarded.isEmpty,
+                "AppKit ownership must suppress the physical-key fallback"
+            )
+        }
+
+        #expect(forwarded.count == 1)
+        let commit = try #require(forwarded.first)
+        #expect(commit.keyCode == 0)
+        #expect(commit.text == "1")
+    }
+
     private func makeHostedCallbackTerminal() async throws
         -> HostedCallbackTerminal {
         _ = NSApplication.shared
@@ -459,12 +507,13 @@ struct CJKIMEMarkedSelectionTests {
     private func sendKey(
         text: String,
         keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = [],
         to terminal: HostedCallbackTerminal
     ) throws {
         let event = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [],
+            modifierFlags: modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: terminal.window.windowNumber,
             context: nil,
