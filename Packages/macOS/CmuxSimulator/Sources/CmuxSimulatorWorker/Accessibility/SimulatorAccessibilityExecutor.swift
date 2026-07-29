@@ -89,34 +89,35 @@ actor SimulatorAccessibilityExecutor: SimulatorAccessibilityExecuting {
                 "No Simulator is attached."
             )
         }
-        return try await mutationGate.withLocks([
+        let lease = try await mutationGate.acquireLocks([
             .accessibility(deviceIdentifier: attachedDeviceIdentifier),
-        ], isolation: self) {
-            var lastFailure: SimulatorWorkerFailure?
-            for delay in Self.retryDelays {
-                try Task.checkCancellation()
-                bridge.resetAccessibilityConnection()
-                if delay != .zero {
-                    try await retrySleep(delay)
-                }
-                do {
-                    let result = try operation()
-                    bridge.resetAccessibilityConnection()
-                    return result
-                } catch let failure as SimulatorWorkerFailure {
-                    bridge.resetAccessibilityConnection()
-                    guard case .accessibilityUnavailable = failure else {
-                        throw failure
-                    }
-                    lastFailure = failure
-                } catch {
-                    bridge.resetAccessibilityConnection()
-                    throw error
-                }
+        ], isolation: self)
+        defer { lease.release() }
+
+        var lastFailure: SimulatorWorkerFailure?
+        for delay in Self.retryDelays {
+            try Task.checkCancellation()
+            bridge.resetAccessibilityConnection()
+            if delay != .zero {
+                try await retrySleep(delay)
             }
-            throw lastFailure ?? SimulatorWorkerFailure.accessibilityUnavailable(
-                "The Simulator accessibility connection could not be established."
-            )
+            do {
+                let result = try operation()
+                bridge.resetAccessibilityConnection()
+                return result
+            } catch let failure as SimulatorWorkerFailure {
+                bridge.resetAccessibilityConnection()
+                guard case .accessibilityUnavailable = failure else {
+                    throw failure
+                }
+                lastFailure = failure
+            } catch {
+                bridge.resetAccessibilityConnection()
+                throw error
+            }
         }
+        throw lastFailure ?? SimulatorWorkerFailure.accessibilityUnavailable(
+            "The Simulator accessibility connection could not be established."
+        )
     }
 }
