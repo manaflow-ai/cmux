@@ -51,6 +51,43 @@ import Testing
         #expect(candidates.map(\.macDeviceID) == ["mac-online"])
     }
 
+    @Test func warmControlPoolHasStableResourceCap() throws {
+        let store = MobileShellComposite(isSignedIn: false)
+        let candidateCount =
+            MobileShellComposite.maximumWarmControlConnectionCount + 2
+        let pairedMacs = try (0 ..< candidateCount).map { index in
+            MobilePairedMac(
+                macDeviceID: "mac-\(index)",
+                displayName: "Mac \(index)",
+                routes: [try CmxAttachRoute(
+                    id: "route-\(index)",
+                    kind: .debugLoopback,
+                    endpoint: .hostPort(
+                        host: "127.0.0.1",
+                        port: 50_000 + index
+                    )
+                )],
+                createdAt: .distantPast,
+                lastSeenAt: Date(timeIntervalSince1970: Double(index)),
+                isActive: false,
+                stackUserID: "user-1",
+                teamID: "team-1",
+                instanceTag: "tag-\(index)"
+            )
+        }
+
+        let candidates = store.secondaryAggregationCandidateMacs(
+            from: pairedMacs
+        )
+
+        #expect(
+            candidates.count
+                == MobileShellComposite.maximumWarmControlConnectionCount
+        )
+        #expect(candidates.first?.macDeviceID == "mac-\(candidateCount - 1)")
+        #expect(!candidates.contains { $0.macDeviceID == "mac-0" })
+    }
+
     @Test func onlineTaggedInstanceWinsBeforePhysicalMacCoalescing() throws {
         let store = MobileShellComposite(
             isSignedIn: false,
@@ -437,6 +474,87 @@ import Testing
             shell.secondaryRetryBackoffIsScheduledForTesting()
         })
         #expect(shell.secondaryMacSubscriptions["mac-transient"] == nil)
+    }
+
+    @Test func identityFreeStatusRunsAuthenticatedRepairBeforeRetrying() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "identity-repair",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-auth",
+            displayName: "Auth Mac",
+            routes: [route],
+            instanceTag: "auth-tag",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-auth",
+            instanceTag: "auth-tag",
+            displayName: "Auth Mac"
+        )
+        await router.omitNextHostStatusIdentities()
+        let tokenRequests = PoolTransportAttemptCounter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            stackAccessTokenProvider: {
+                tokenRequests.increment()
+                return "fresh-stack-token"
+            },
+            now: { Date() }
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        shell.applyPresenceUpdate(
+            Self.snapshot([
+                Self.instance(
+                    deviceID: "mac-auth",
+                    tag: "auth-tag",
+                    online: true
+                ),
+            ]),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions["mac-auth"] != nil
+        })
+        #expect(await router.count(of: "mobile.host.status") == 2)
+        #expect(tokenRequests.count > 0)
+        #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
+        if let subscription = shell.secondaryMacSubscriptions["mac-auth"] {
+            subscription.cancel()
+            shell.secondaryMacSubscriptions["mac-auth"] = nil
+            await subscription.client.disconnect()
+        }
     }
 
     @Test func controlEventTaskDoesNotRetainShellStore() throws {

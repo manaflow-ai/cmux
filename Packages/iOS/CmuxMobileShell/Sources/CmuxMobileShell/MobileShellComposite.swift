@@ -34,6 +34,10 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 @MainActor
 @Observable
 public final class MobileShellComposite: MobileTerminalOutputSinking {
+    /// One focused connection is additional to this control-only allowance.
+    /// Existing owners win admission so presence churn cannot rotate sockets.
+    static let maximumWarmControlConnectionCount = 8
+
     static let maxTerminalReplayFailureRetries = 2
     static let maxTerminalReplayBarrierFollowUps = 1
 
@@ -3649,7 +3653,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             transportConnectObserver: transportConnectDiagnosticObserver,
             sessionPurpose: .backgroundControl
         )
-        let status: MobileHostStatusResponse
+        var status: MobileHostStatusResponse
         switch await fetchSecondaryHostStatus(on: client) {
         case let .received(receivedStatus):
             status = receivedStatus
@@ -3659,6 +3663,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case .permanentFailure:
             await client.disconnect()
             return .permanentFailure
+        }
+        if MobileMacInstanceTagAuthority.secondaryStatusAuthority(
+            expectedDeviceID: mac.macDeviceID,
+            storedInstanceTag: mac.instanceTag,
+            reportedDeviceID: status.macDeviceID,
+            reportedInstanceTag: status.macInstanceTag
+        ) == .identityUnavailable,
+           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+            // Status intentionally uses only a cached token. If it cannot prove
+            // identity, perform one authorized request that may refresh Stack
+            // credentials, then bind the status response to that exact token.
+            switch await fetchSecondaryAuthenticatedHostStatus(on: client) {
+            case let .received(receivedStatus):
+                status = receivedStatus
+            case .transientFailure:
+                await client.disconnect()
+                return .transientFailure
+            case .permanentFailure:
+                await client.disconnect()
+                return .permanentFailure
+            }
         }
         switch MobileMacInstanceTagAuthority.secondaryStatusAuthority(
             expectedDeviceID: mac.macDeviceID,
@@ -3670,9 +3695,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             break
         case .identityUnavailable:
             await client.disconnect()
-            return MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
-                ? .transientFailure
-                : .permanentFailure
+            return .permanentFailure
         case .rejected:
             mobileShellLog.warning(
                 "secondary client rejected mismatched authenticated identity mac=\(mac.macDeviceID, privacy: .private)"
@@ -3723,6 +3746,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .received(response)
         } catch {
             mobileShellLog.warning("secondary host status failed: \(String(describing: error), privacy: .private)")
+            return Self.secondaryControlAttemptIsTransient(error)
+                ? .transientFailure
+                : .permanentFailure
+        }
+    }
+
+    private func fetchSecondaryAuthenticatedHostStatus(
+        on client: MobileCoreRPCClient
+    ) async -> SecondaryHostStatusAttempt {
+        guard let runtime else { return .permanentFailure }
+        do {
+            let exchange = try await client.sendRequestAndAuthenticatedHostStatus(
+                MobileCoreRPCClient.requestData(
+                    method: "workspace.list",
+                    params: [:]
+                ),
+                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds,
+                hostStatusTimeoutNanoseconds: {
+                    runtime.pairingRequestTimeoutNanoseconds
+                }
+            )
+            guard let response = try? MobileHostStatusResponse.decode(
+                exchange.hostStatusResponse
+            ) else {
+                return .permanentFailure
+            }
+            return .received(response)
+        } catch {
+            mobileShellLog.warning(
+                "secondary authenticated host status failed: \(String(describing: error), privacy: .private)"
+            )
             return Self.secondaryControlAttemptIsTransient(error)
                 ? .transientFailure
                 : .permanentFailure
@@ -4126,7 +4180,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
         }
-        return macs.filter { mac in
+        let eligibleMacs = macs.filter { mac in
             guard !mac.macDeviceID.isEmpty,
                   !foregroundIDSet.contains(cmxCanonicalDeviceID(mac.macDeviceID)) else {
                 return false
@@ -4143,6 +4197,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return !foregroundIrohEndpointIDs.contains(endpointID)
         }
+        let existingControlMacIDs = Set(
+            secondaryMacSubscriptions.keys.map(cmxCanonicalDeviceID)
+        )
+        return Array(eligibleMacs.sorted { lhs, rhs in
+            let lhsIsWarm = existingControlMacIDs.contains(
+                cmxCanonicalDeviceID(lhs.macDeviceID)
+            )
+            let rhsIsWarm = existingControlMacIDs.contains(
+                cmxCanonicalDeviceID(rhs.macDeviceID)
+            )
+            if lhsIsWarm != rhsIsWarm { return lhsIsWarm }
+            if lhs.isActive != rhs.isActive { return lhs.isActive }
+            if lhs.lastSeenAt != rhs.lastSeenAt {
+                return lhs.lastSeenAt > rhs.lastSeenAt
+            }
+            return cmxCanonicalDeviceID(lhs.macDeviceID)
+                < cmxCanonicalDeviceID(rhs.macDeviceID)
+        }.prefix(Self.maximumWarmControlConnectionCount))
     }
 
     /// Open a persistent read-only connection to `mac`, seed its workspace state,
@@ -4190,6 +4262,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // during the connect does not leave an old-scope connection live or write
         // its state; the loser disconnects its client.
         guard secondaryMacSubscriptions[macID] == nil,
+              secondaryMacSubscriptions.count
+                  < Self.maximumWarmControlConnectionCount,
               await isSecondaryMacStillVisible(
                   macID,
                   instanceTag: mac.instanceTag,
@@ -6956,6 +7030,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   instanceTag: stored.instanceTag,
                   scope: scope
               ) else {
+            return false
+        }
+        guard secondaryMacSubscriptions.count
+                < Self.maximumWarmControlConnectionCount else {
             return false
         }
         // Some injected/legacy compositions have no live-presence service.

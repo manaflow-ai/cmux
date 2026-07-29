@@ -33,6 +33,7 @@ actor LivenessHostRouter {
     )] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
+    private var omittedHostIdentityResponsesRemaining = 0
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
     private var failedWorkspaceListRequestNumbers: Set<Int> = []
@@ -209,6 +210,10 @@ actor LivenessHostRouter {
         macDeviceID = deviceID
         macInstanceTag = instanceTag
         macDisplayName = displayName
+    }
+
+    func omitNextHostStatusIdentities(count: Int = 1) {
+        omittedHostIdentityResponsesRemaining += count
     }
 
     func setWorkspaceListResponseHook(_ hook: @escaping @Sendable () -> Void) {
@@ -400,9 +405,14 @@ actor LivenessHostRouter {
                 "terminal_fidelity": "render_grid",
                 "capabilities": capabilities,
             ]
-            if let macDeviceID { result["mac_device_id"] = macDeviceID }
-            if let macInstanceTag { result["mac_instance_tag"] = macInstanceTag }
-            if let macDisplayName { result["mac_display_name"] = macDisplayName }
+            let omitsIdentity = omittedHostIdentityResponsesRemaining > 0
+            if omitsIdentity {
+                omittedHostIdentityResponsesRemaining -= 1
+            } else {
+                if let macDeviceID { result["mac_device_id"] = macDeviceID }
+                if let macInstanceTag { result["mac_instance_tag"] = macInstanceTag }
+                if let macDisplayName { result["mac_display_name"] = macDisplayName }
+            }
             return try? Self.resultFrame(id: id, result: result)
         case "mobile.events.subscribe":
             subscribeRequestCount += 1
