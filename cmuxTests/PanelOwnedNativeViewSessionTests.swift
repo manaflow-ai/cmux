@@ -67,12 +67,14 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
 
         let firstView = session.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .clear,
             drawsBackground: false
         )
         let remountedView = session.view(
             panel: panel,
+            revision: panel.previewRevision,
             isVisibleInUI: true,
             backgroundColor: .clear,
             drawsBackground: false

@@ -54,10 +54,13 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
-    func clearBinding() {
+    func clearBinding(agentSessionEnded: Bool) {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            _ = workspace.clearSurfaceResumeBinding(panelId: surfaceID)
+            _ = workspace.clearSurfaceResumeBinding(
+                panelId: surfaceID,
+                agentSessionEnded: agentSessionEnded
+            )
         case .dock(_, let dock, let surfaceID):
             _ = dock.clearSurfaceResumeBinding(panelId: surfaceID)
         }
@@ -293,13 +296,10 @@ extension TerminalController {
         )
         content.apply(to: alert, presentingWindow: nil)
 
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            return .auto
-        case .alertSecondButtonReturn:
-            return .prompt
-        default:
-            return .manual
+        return switch alert.runModal() {
+        case .alertFirstButtonReturn: .auto
+        case .alertSecondButtonReturn: .prompt
+        default: .manual
         }
     }
 
@@ -375,7 +375,8 @@ extension TerminalController {
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .windowUnavailable
@@ -395,7 +396,7 @@ extension TerminalController {
         if let expectedSource, currentBinding?.source != expectedSource {
             return .result(surfaceResumeSnapshot(target: target, binding: currentBinding, cleared: false))
         }
-        target.clearBinding()
+        target.clearBinding(agentSessionEnded: agentSessionEnded)
         return .result(surfaceResumeSnapshot(target: target, binding: nil, cleared: true))
     }
 }

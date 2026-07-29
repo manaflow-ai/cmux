@@ -36,44 +36,42 @@ Common CLI exit codes for every mapping are `0` success, `1` command error, `2` 
 `Tree`:
 
 ```text
-object{
-  registry_id?:string,
-  generation?:string,
-  workspace_revision?:uint64,
-  terminal_revision?:uint64,
-  pane_revision?:uint64,
-  workspaces:array<Workspace>
-}
+object{workspace_revision?:uint64,pane_revision?:uint64,workspaces:array<Workspace>}
 ```
 
 `Workspace`:
 
 ```text
-object{id:Id,key?:string,short_id?:string,name:string,active:boolean,screens:array<Screen>}
+object{id:Id,key?:string,name:string,active:boolean,screens:array<Screen>}
 ```
 
-`registry_id`, `generation`, `workspace_revision`, and `Workspace.key` are
-protocol-v7 `workspace-registry-v1` fields. `terminal_revision` is a protocol-v9
-addition. Older servers may omit them.
+`workspace_revision` and `Workspace.key` are present on servers advertising
+`workspace-registry-v1`. They are omitted by older servers, so clients must
+treat a missing revision as `0` and a missing key as unavailable.
 
-Protocol-v9 `pane_revision` changes only when the live pane-ID set changes.
-Renderers can use it to invalidate pane-membership caches without scanning
-unchanged trees. Older servers omit it.
+`pane_revision` changes only when the live pane-ID set changes. Renderers can
+use it to invalidate pane-membership caches without scanning unchanged trees.
+Older servers omit it, so clients must treat it as unavailable.
 
 `Screen`:
 
 ```text
 object{
   id:Id,
-  short_id?:string,
   name:string|null,
   active:boolean,
   active_pane:Id,
   zoomed_pane:Id|null,
   layout:Layout,
+  viewport_base_width?:float32,
+  viewport_splits?:array<object{split:Id,width:float32}>,
   panes:array<Pane>
 }
 ```
+
+Servers advertising `viewport-splits-v1` include `viewport_splits` when a screen uses horizontal viewport columns. Each entry marks a right split whose second child is appended to a horizontal virtual canvas. `width` is the second child's width as a fraction of each frontend's viewport. Ordinary screens omit the field. Clients that do not implement the capability may ignore it and render the split's fallback ratio.
+
+Servers advertising `viewport-column-resize-v1` include `viewport_base_width` when horizontal viewport layout is active. It is the width of the first column as a fraction of the frontend viewport. A missing value defaults to `1.0`.
 
 `Layout`:
 
@@ -100,7 +98,7 @@ Applying a stack creates one fresh pane per exported pane id, preserves membersh
 `Pane`:
 
 ```text
-object{id:Id,short_id?:string,name:string|null,active_tab:usize,focused_at?:u64,tabs:array<Tab>}
+object{id:Id,name:string|null,active_tab:usize,focused_at?:u64,tabs:array<Tab>}
 | object{id:Id,dead:true}
 ```
 
@@ -111,29 +109,14 @@ object{id:Id,short_id?:string,name:string|null,active_tab:usize,focused_at?:u64,
 ```text
 object{
   surface: Id,
-  terminal_id?: string|null,
-  terminal_incarnation?: string|null,
-  short_id?: string,
   kind: "pty"|"browser",
   browser_source: "external"|"launched"|null,
-  browser_status?: "starting"|"live"|"failed"|null,
-  browser_error?: string|null,
-  browser_frames_stalled?: boolean|null,
-  notification?: object{
-    notification:Id,
-    unread:boolean,
-    level:"info"|"warning"|"error"
-  }|null,
   name: string|null,
   title: string,
   size: object{cols:uint16,rows:uint16}|null,
   dead: boolean
 }
 ```
-
-Protocol 6 adds short ids, browser health, and retained notification markers.
-Protocol 9 adds terminal identity fields. Current protocol-v10 snapshots always
-serialize these fields, using `null` when they do not apply.
 
 The `dead` pane variant is serialized only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
 
@@ -145,7 +128,7 @@ Each client reports the cell grid available for every surface it currently displ
 
 The final effective grid is retained while at least one client still reports a visible surface. Once the final report is released or disconnected, existing surfaces keep their last grids and later unsized headless creation uses the configured default, normally `80x24`. Internal server-only resizes, including sidebar plugin tracking, do not update the client-size cache.
 
-Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `new-pane`, `split`, `create-terminal`, and `run`. Their rules are:
+Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `split`, and `run`. Their rules are:
 
 | Input | Behavior |
 | --- | --- |
@@ -163,20 +146,15 @@ Frontends report their grid after a surface becomes visible and whenever that vi
 
 ### Durable workspace mutation envelope
 
-`create-workspace`, `rename-workspace`, `move-workspace`, `close-workspace`,
-`create-terminal`, `move-terminal`, and `close-terminal` accept the following
-additive fields:
+`create-workspace`, `rename-workspace`, `move-workspace`, and
+`close-workspace` accept the following additive fields:
 
 | Name | JSON type | Required/default | Meaning |
 | --- | --- | --- | --- |
 | `origin` | `string` | paired with `mutation_id` | Stable frontend/profile identity |
 | `mutation_id` | `string` | paired with `origin` | Stable UUID/id reused for every retry of one logical mutation |
 | `expected_generation` | `string` | optional | Compare-and-swap guard for the daemon boot UUID |
-| `expected_revision` | `uint64` | optional | Compare-and-swap guard for the owning workspace or terminal registry |
-
-`expected_revision` is the canonical wire field. Terminal commands also accept
-`expected_terminal_revision` as a compatibility alias, and both names select
-the same guard.
+| `expected_revision` | `uint64` | optional | Compare-and-swap guard for the ordered workspace registry |
 
 The server durably records `(origin, mutation_id)`, the logical request
 fingerprint, original result, and committed revision. Duplicate lookup occurs
@@ -189,9 +167,6 @@ different logical payload is an error. Guards are not part of the fingerprint.
 Workspace mutation results add `registry_id`, `generation`,
 `workspace_revision`, `replayed`, stable `key`, and the compatibility numeric
 `workspace` id. Canonical frontend state must use `key`, not the numeric id.
-Terminal mutation results use `terminal_revision`. Frontend projections have a
-separate ledger and `expected_projection_revision` guard described in their
-command section.
 
 ### identify
 
@@ -208,12 +183,12 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,registry_id:string,generation:string,workspace_revision:uint64,terminal_revision:uint64,daemon_handoff:1}
+object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,registry_id:string,generation:string,workspace_revision:uint64}
 ```
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -235,7 +210,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","workspace-registry-v1","surface-subscribe-filter","provider-managed-workspace-authority-v2"],"session":"main","pid":12345,"registry_id":"registry-uuid","generation":"boot-uuid","workspace_revision":1,"terminal_revision":0,"daemon_handoff":1}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","workspace-registry-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `10` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, and protocol 10 before using per-surface client sizing.
@@ -317,14 +292,7 @@ Example:
 | status | implemented |
 | since | protocol 6 additive extension |
 
-Returns all current Unix and WebSocket control connections in ascending
-client-id order. When the in-process TUI reports sizes, a synthetic client `0`
-with `transport:"local"` appears first. `self` identifies the requesting
-connection. `connected_seconds` is elapsed monotonic whole seconds. `attached`
-contains unique surface ids, and each corresponding `sizes` entry has null
-dimensions until that connection requests `resize-surface` for the attached
-surface. Protocol v10 reports `size_participating` on each size entry because
-one client may participate on one terminal and be excluded on another.
+Returns all current Unix and WebSocket control connections in ascending client-id order. `self` identifies the requesting connection. `connected_seconds` is elapsed monotonic whole seconds. `attached` contains unique surface ids, and each corresponding `sizes` entry has null dimensions until that connection requests `resize-surface` for the attached surface. Protocol v10 reports `size_participating` on each size entry because one client may participate on one terminal and be excluded on another.
 
 Params: none.
 
@@ -373,7 +341,7 @@ Example:
 | --- | --- |
 | name | `set-client-sizing` |
 | status | implemented |
-| since | protocol 7; per-surface request shape protocol 10 |
+| since | protocol 9; per-surface request shape protocol 10 |
 
 Changes one client's size participation on one terminal surface. The `surface` field is always required. `exclusive:true` requires `enabled:true` and a client with a reported size on that surface. Omitting `client` with `enabled:true` restores all clients on that surface.
 
@@ -584,7 +552,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"list-workspaces"}
-{"id":2,"ok":true,"data":{"registry_id":"registry-uuid","generation":"boot-uuid","workspace_revision":1,"terminal_revision":0,"pane_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","short_id":"000004","name":"1","active":true,"screens":[{"id":3,"short_id":"000003","name":null,"active":true,"active_pane":2,"zoomed_pane":null,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"short_id":"000002","name":null,"active_tab":0,"focused_at":1,"tabs":[{"surface":1,"terminal_id":null,"terminal_incarnation":null,"short_id":"000001","kind":"pty","browser_source":null,"browser_status":null,"browser_error":null,"browser_frames_stalled":null,"notification":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
+{"id":2,"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"focused_at":1,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
 
 ### get-frontend-projection / put-frontend-projection
@@ -600,41 +568,13 @@ Stores one opaque, schema-versioned frontend layout document per
 `frontend:"cmux-browser"`, `scope:"window-group"`, with a stable
 profile/window-group identity in `subject_key`.
 
-Both commands require `frontend`, `scope`, and `subject_key`. Each identifier
-is nonempty, contains no control character, and is at most 128 bytes.
-`put-frontend-projection` additionally requires `schema_version` and a JSON
-`projection`. `expected_projection_revision` is optional. `origin` and
-`mutation_id` must appear together; when both are absent the server creates a
-local legacy mutation identity. Flattened `expected_generation` and
-`expected_revision` are accepted by the current decoder but ignored for
-projection writes.
-
-Projection writes use their own exactly-once ledger and CAS; they do not
-advance `workspace_revision`. A projection may contain browser columns,
+`put-frontend-projection` additionally requires `schema_version`, a JSON
+`projection`, optional `expected_projection_revision`, and `origin` plus
+`mutation_id`. It uses its own exactly-once ledger and projection CAS; it does
+not advance `workspace_revision`. A projection may contain browser columns,
 splits, web tabs, focus, and terminal placement keyed by canonical workspace
 UUID. It must not duplicate workspace existence, name, order, or group
 membership.
-
-`get-frontend-projection` params:
-
-```text
-object{frontend:string,scope:string,subject_key:string}
-```
-
-`put-frontend-projection` params:
-
-```text
-object{
-  frontend:string,
-  scope:string,
-  subject_key:string,
-  schema_version:uint32,
-  expected_projection_revision?:uint64,
-  projection:any,
-  origin?:string,
-  mutation_id?:string
-}
-```
 
 Result:
 
@@ -643,10 +583,7 @@ object{frontend:string,scope:string,subject_key:string,schema_version:uint32,pro
 ```
 
 Missing projections return revision/schema `0` and `projection:null`.
-Documents larger than 1 MiB fail with `frontend projection exceeds 1048576
-bytes`. CAS failure is `projection revision conflict: expected <n>, current
-<n>`. Retrying one `(origin,mutation_id)` with a different payload fails with
-`mutation <id> from <origin> was retried with a different payload`.
+Documents larger than 1 MiB are rejected.
 
 ### export-layout
 
@@ -667,12 +604,14 @@ Params:
 Result:
 
 ```text
-object{layout:Layout,panes:array<object{pane:Id,surfaces:array<Id>}>}
+object{layout:Layout,viewport_base_width?:float32,viewport_splits?:array<object{split:Id,width:float32}>,panes:array<object{pane:Id,surfaces:array<Id>}>}
 ```
 
 Errors: `unknown screen <id>`, `no active screen`, `bad request: ...`.
 
 CLI mapping: verb `export-layout`; flags `[--screen <id>]`; plain stdout and JSON stdout both print the exact result object.
+
+The result is an identity-bearing runtime snapshot for inspection. Its `layout` is not the declarative `layout` input accepted by `apply-layout`.
 
 ### apply-layout
 
@@ -700,15 +639,7 @@ Result:
 object{screen:Id,panes:array<object{pane:Id,surface:Id}>}
 ```
 
-Errors: `unknown workspace <id>`, `layout must contain at least one leaf`,
-`stack must contain at least one pane`, `stack expanded pane must be a member`,
-`leaf command must not be empty`, spawn or PTY error string, and `bad request:
-...`.
-
-Current protocol v10 can expose raw upstream text in these errors. Clients must not parse
-or persist it as a stable API value. The structured, sanitized replacement is a
-required vNext primitive in
-[`programmability.md`](programmability.md#required-vnext-primitives).
+Errors: `unknown workspace <id>`, `layout must contain at least one leaf`, `leaf command must not be empty`, spawn or PTY error string, `bad request: ...`.
 
 CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--cols <n> --rows <n>] --layout <json>`; plain stdout prints the new screen and created pane/surface pairs; JSON stdout prints the exact result object.
 
@@ -815,6 +746,103 @@ Example:
 ```json
 {"id":4,"cmd":"read-screen","surface":1}
 {"id":4,"ok":true,"data":{"text":"$ ls\nREADME.md\n"}}
+```
+
+### clear-history
+
+| Field | Value |
+| --- | --- |
+| name | `clear-history` |
+| status | implemented |
+| since | protocol 9 with `clear-history-v1` |
+
+On a primary screen with OSC 133 prompt metadata, clears retained scrollback and complete visible rows before the active prompt inside the terminal emulator. The prompt, edit buffer, and cursor remain in place, and no bytes are written to the child process. Without prompt metadata, only retained scrollback is cleared, preserving the visible grid and cursor. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
+
+The command fails without changing history, the visible grid, or the cursor when active input extends into retained history or exact preservation cannot be proven. If the terminal stream ends inside an incomplete VT sequence, the server waits for a bounded interval and then fails without mutation unless the sequence completes. Repeated requests against the same unchanged stream share that interval. After it expires, only new PTY output permits a fresh interval.
+
+Clients must require `identify.capabilities` to contain `clear-history-v1` before sending this command.
+
+When the alternate screen is active, the command leaves both screens untouched. If `fallback_key` is present, the server encodes that structured key from its authoritative terminal keyboard modes and writes the encoded bytes to the PTY. If the active keyboard mode cannot represent the key, the command fails without writing bytes. If `fallback_key` is absent, the alternate-screen request succeeds as a no-op. Clients must require both `clear-history-v1` and `clear-history-key-v1` before sending `fallback_key`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Must identify a live PTY surface |
+| `fallback_key` | `TerminalKeyInput \| null` | default null | Requires `clear-history-key-v1`; ignored on the primary screen |
+
+`TerminalKeyInput` preserves the frontend key event so the server can apply its current Kitty keyboard and terminal mode state:
+
+| Field | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `key` | `TerminalKey` | required | One of the symbolic values below |
+| `mods` | `TerminalModifiers` | required | Exact active modifier state |
+| `consumed_mods` | `TerminalModifiers` | required | Must be a subset of `mods` |
+| `composing` | `boolean` | default false | Whether the key belongs to an uncommitted composition sequence |
+| `utf8` | `string` | required | At most 4 KiB of UTF-8 and contains no control characters |
+| `unshifted_codepoint` | `string \| null` | default null | Exactly one Unicode scalar when present |
+| `shifted_codepoint` | `string \| null` | default null | Shifted logical identity; exactly one Unicode scalar when present |
+| `base_layout_codepoint` | `string \| null` | default null | Explicit PC-101 base-layout identity; exactly one Unicode scalar when present |
+| `action` | `"press" \| "release" \| "repeat" \| null` | default null | Key action when known |
+| `macos_option_as_alt` | `boolean` | required | `false` is valid only when Alt is active and consumed |
+
+`TerminalModifiers` contains six required booleans: `shift`, `control`, `alt`, `super`, `caps_lock`, and `num_lock`. Unknown fields are rejected.
+
+`TerminalKey` accepts these exact kebab-case values:
+
+```text
+unidentified backquote backslash bracket-left bracket-right comma
+digit0 digit1 digit2 digit3 digit4 digit5 digit6 digit7 digit8 digit9 equal
+a b c d e f g h i j k l m n o p q r s t u v w x y z
+minus period quote semicolon slash backspace enter space tab delete end home insert
+page-down page-up arrow-down arrow-left arrow-right arrow-up
+numpad0 numpad1 numpad2 numpad3 numpad4 numpad5 numpad6 numpad7 numpad8 numpad9
+numpad-add numpad-backspace numpad-comma numpad-decimal numpad-divide numpad-enter
+numpad-equal numpad-multiply numpad-subtract numpad-up numpad-down numpad-right
+numpad-left numpad-begin numpad-home numpad-end numpad-insert numpad-delete
+numpad-page-up numpad-page-down escape
+f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18 f19 f20
+```
+
+Result: empty object.
+
+Failed `clear-history` responses include the response-envelope `error_delivery` field. Clients may
+retry or preserve the input lane after `"known-not-delivered"`. They must quarantine the affected
+input lane after `"ambiguous"` because fallback input may have reached the PTY.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown surface <id>` | Surface id does not exist |
+| `browser surface does not support PTY/VT socket commands` | Surface is a browser |
+| `active terminal input extends into retained history` | The prompt or active input cannot be preserved exactly |
+| `terminal output did not reach a safe clear-history boundary` | An incomplete VT sequence did not finish before the bounded wait expired |
+| `terminal keyboard mode cannot encode clear-history fallback key` | The alternate-screen fallback key is not representable in the active keyboard mode |
+| `bad request: ...` | Missing `surface` or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `clear-history` |
+| Flags | `--surface <id>` |
+| Plain stdout | none |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":5,"cmd":"clear-history","surface":1}
+{"id":5,"ok":true,"data":{}}
+```
+
+Alternate-screen key fallback:
+
+```json
+{"id":6,"cmd":"clear-history","surface":1,"fallback_key":{"key":"k","mods":{"shift":false,"control":false,"alt":false,"super":true,"caps_lock":false,"num_lock":false},"consumed_mods":{"shift":false,"control":false,"alt":false,"super":false,"caps_lock":false,"num_lock":false},"composing":false,"utf8":"","unshifted_codepoint":"k","shifted_codepoint":null,"base_layout_codepoint":"k","action":"press","macos_option_as_alt":true}}
+{"id":6,"ok":true,"data":{}}
 ```
 
 ### sidebar-plugin
@@ -925,7 +953,7 @@ If only one of `cols` or `rows` is present, the server ignores both because it u
 Result:
 
 ```text
-object{surface:Id,terminal_id:string|null,terminal_incarnation:string|null}
+object{surface:Id}
 ```
 
 Errors:
@@ -951,7 +979,7 @@ Example:
 
 ```json
 {"id":6,"cmd":"new-tab","pane":2,"cwd":"/tmp","cols":100,"rows":30}
-{"id":6,"ok":true,"data":{"surface":5,"terminal_id":null,"terminal_incarnation":null}}
+{"id":6,"ok":true,"data":{"surface":5}}
 ```
 
 ### new-browser-tab
@@ -985,12 +1013,8 @@ Errors:
 | --- | --- |
 | `unknown pane <id>` | Supplied pane id does not exist |
 | `pane disappeared while creating browser tab` | Target pane vanished after validation |
+| browser/CDP error string | Browser runtime connect, target create, attach, setup, or Chrome launch fails |
 | `bad request: ...` | Missing `url` or wrong JSON type |
-
-The tab is inserted in `"starting"` state before Chrome/CDP setup finishes.
-Bootstrap, target, attach, and navigation failures therefore do not fail this
-command response; they arrive asynchronously through `browser-state` and
-`status`.
 
 CLI mapping:
 
@@ -1023,7 +1047,7 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `name` | `string` | default null | Workspace name; empty string is accepted; maximum 1,024 UTF-8 bytes |
+| `name` | `string` | default null | Workspace name; empty string is accepted |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 
@@ -1076,7 +1100,7 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `name` | `string` | default null | Defaults to the zero-based workspace count at creation time; maximum 1,024 UTF-8 bytes |
+| `name` | `string` | default null | Defaults to the zero-based workspace count at creation time |
 | `key` | `string` | default generated UUID | Must be a lowercase canonical UUID and never previously used |
 | mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and CAS |
 
@@ -1086,7 +1110,7 @@ Result:
 object{workspace:Id,key:string,index:usize,workspace_revision:uint64,replayed:bool,registry_id:string,generation:string}
 ```
 
-At most 4,096 live workspaces may exist. Errors include `workspace key must be a lowercase UUID`, `workspace key already exists: <key>`, `tombstoned workspace key cannot be reused: <key>`, `workspace name exceeds 1024 bytes`, `workspace limit reached (4096)`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
+Errors include `workspace key must be a lowercase UUID`, `workspace key already exists: <key>`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
 
 Example:
 
@@ -1126,45 +1150,20 @@ Params:
 | `name` | `string` | default null | New terminal tab name |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
-| `terminal_id` | `string` | default null | Optional caller-reserved stable terminal id; presence selects durable mutation |
-| mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and terminal revision/generation guards |
-
-The decoder first rejects requests containing exactly one of `origin` and
-`mutation_id`. The durable mutation branch then runs only when `terminal_id` or
-the paired mutation identity is present. Without either, revision and
-generation guards are ignored and the server follows the legacy create path.
-`cols` and `rows` must be supplied together. Terminal identity and registry
-result fields are protocol-v9 additions to the protocol-v7 command.
 
 Result:
 
 ```text
-object{
-  surface:Id,
-  terminal_id:string|null,
-  terminal_incarnation:string|null,
-  pane:Id,
-  screen:Id,
-  workspace:Id,
-  key:string,
-  lifecycle:"running"|null,
-  terminal_revision:uint64,
-  replayed:boolean,
-  registry_id:string,
-  generation:string
-}
+object{surface:Id,pane:Id,screen:Id,workspace:Id,key:string}
 ```
 
-Errors include missing, unknown, or mismatched workspace selectors; mutually
-exclusive or empty commands; `create-terminal cols and rows must be supplied
-together`; terminal identity, generation, revision, and mutation conflicts;
-PTY spawn failures; and malformed requests.
+Errors include missing, unknown, or mismatched workspace selectors; mutually exclusive or empty commands; PTY spawn failures; and malformed requests.
 
 Example:
 
 ```json
 {"id":10,"cmd":"create-terminal","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","command":"htop","cwd":"/tmp"}
-{"id":10,"ok":true,"data":{"surface":15,"terminal_id":null,"terminal_incarnation":null,"pane":14,"screen":13,"workspace":12,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","lifecycle":null,"terminal_revision":2,"replayed":false,"registry_id":"registry-uuid","generation":"boot-uuid"}}
+{"id":10,"ok":true,"data":{"surface":15,"pane":14,"screen":13,"workspace":12,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f"}}
 ```
 
 ### new-screen
@@ -1225,13 +1224,13 @@ Example:
 | status | implemented |
 | since | protocol 9 |
 
-Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, the first pane stays full-height on the left while the remaining panes form a right-side stack whose focused member expands. The new surface inherits the active surface working directory of `pane` when available.
+Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout inside the horizontal viewport column containing `pane`. A screen without horizontal viewport columns is one implicit column, preserving the original whole-screen behavior. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, the first pane stays full-height on the left while the remaining panes form a right-side stack whose focused member expands. The new surface inherits the active surface working directory of `pane` when available.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `pane` | `Id` | required | Pane whose screen receives the new pane |
+| `pane` | `Id` | required | Pane whose horizontal column receives the new pane |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 
@@ -1264,6 +1263,169 @@ Example:
 ```json
 {"id":10,"cmd":"new-pane","pane":2}
 {"id":10,"ok":true,"data":{"surface":14}}
+```
+
+### new-pane-right
+
+| Field | Value |
+| --- | --- |
+| name | `new-pane-right` |
+| status | implemented |
+| since | protocol 9 additive capability `viewport-splits-v1` |
+
+Creates and focuses one PTY column immediately to the right of the horizontal viewport column containing `pane`. Supporting frontends keep each existing column at its independent viewport-relative width and insert the new pane at `width` times the viewport width. The default is two thirds. The shared split tree stores equivalent proportional fallback ratios for clients that ignore viewport metadata. The new surface inherits the active surface working directory of `pane` when available.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Pane whose screen receives the new pane |
+| `width` | `float32` | default `0.6666667` | From 0.1 through 1.0 |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+
+Result:
+
+```text
+object{surface:Id}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `pane <id> has no workspace` | Target pane is not in a screen |
+| `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
+| `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `new-pane-right` |
+| Flags | `--pane <id> [--width <fraction>] [--cols <n> --rows <n>]` |
+| Plain stdout | new surface id followed by newline |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":11,"cmd":"new-pane-right","pane":2}
+{"id":11,"ok":true,"data":{"surface":15}}
+```
+
+### set-viewport-pane-width
+
+| Field | Value |
+| --- | --- |
+| name | `set-viewport-pane-width` |
+| status | implemented |
+| since | protocol 9 additive capability `viewport-column-resize-v1` |
+
+Sets the width of the horizontal viewport column containing `pane`. Every pane nested inside that column keeps its internal split ratios. The command updates proportional fallback ratios for clients that ignore viewport metadata.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Must belong to a screen with viewport columns |
+| `width` | `float32` | required | Finite value from 0.1 through 1.0 |
+| `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
+
+Result: empty object.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `viewport pane width must be between 0.1 and 1.0` | `width` is non-finite or outside the supported range |
+| `pane <id> has no resizable viewport column` | Pane is unknown or its screen has no viewport columns |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+Invalid widths return `error_code:"viewport-width-out-of-range"`. A missing pane or a pane outside a viewport layout returns `error_code:"viewport-column-not-found"`.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `set-viewport-pane-width` |
+| Flags | `--pane <id> --width <fraction>` |
+| Plain stdout | empty |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":12,"cmd":"set-viewport-pane-width","pane":15,"width":0.5}
+{"id":12,"ok":true,"data":{}}
+```
+
+### undo-layout
+
+| Field | Value |
+| --- | --- |
+| name | `undo-layout` |
+| status | implemented |
+| since | protocol 9 additive capability `layout-undo-v1` |
+
+Undoes the latest structural layout entry on the screen containing `pane`. History is owned by that screen, capped at 32 entries, and kept in memory only. Resize samples carrying the same connection-scoped `transaction` coalesce. A new transaction, another connection, or a request without a transaction starts a new undo entry. Pane creation, split and column resize, swap, zoom, and automatic-layout changes are undoable. A direct pane close clears that screen's history because the closed process cannot be recreated.
+
+If the entry created panes, the first request returns a confirmation preview. The server advances to a unique confirmation revision and binds it to the exact ordered surface membership of every pane in `closes_panes`. The client must show the consequence, then resend that revision with `confirm_close:true`. A later structural change, tab addition, tab removal, tab reorder, tab move, or newer preview invalidates the confirmation. A rejected or stale confirmation closes nothing.
+
+Clients must reject the response unless it contains exactly one complete result variant. The applied variant requires `undone:true`, `screen`, and `revision`, with `confirmation_required` either absent or false. The preview variant requires `undone:false`, `confirmation_required:true`, `screen`, `revision`, and an array of valid pane ids in `closes_panes`. Missing fields, contradictory outcome flags, invalid ids, and non-array `closes_panes` values are protocol errors.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Selects the screen whose history is used |
+| `revision` | `uint64` | default null | Required for a confirmed pane-closing undo; must equal the preview revision |
+| `confirm_close` | `boolean` | default false | Must be true to commit an undo that closes panes |
+
+Result:
+
+```text
+object{undone:true,screen:Id,revision:uint64}
+| object{undone:false,confirmation_required:true,screen:Id,revision:uint64,closes_panes:array<Id>}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown pane <id>` | `pane` is not in a live screen |
+| `no layout change to undo` | The selected screen has no undo entry |
+| `confirmed layout undo requires the preview revision` | `confirm_close` is true without `revision` |
+| `layout revision conflict: expected <n>, current <n>` | The confirmation revision is stale or incorrect |
+| `tabs in pane <id> changed since the undo confirmation` | A pane's surface membership differs from the preview |
+| `layout changed before undo could commit` | The layout changed after validation and before commit |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+Expected failures also include a machine-readable response `error_code`.
+`layout-undo-unavailable` means the screen has no undo entry.
+`layout-undo-stale` means a previously valid entry or confirmation can no
+longer commit. Other failures omit `error_code`.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `undo-layout` |
+| Flags | `--pane <id> [--revision <n> --confirm-close]` |
+| Plain stdout | undo line, or confirmation instructions with the revision and closing pane ids |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Examples:
+
+```json
+{"id":13,"cmd":"undo-layout","pane":15}
+{"id":13,"ok":true,"data":{"undone":false,"confirmation_required":true,"screen":3,"revision":8,"closes_panes":[15]}}
+{"id":14,"cmd":"undo-layout","pane":15,"revision":8,"confirm_close":true}
+{"id":14,"ok":true,"data":{"undone":true,"screen":3,"revision":9}}
 ```
 
 ### split
@@ -1347,6 +1509,7 @@ Errors:
 | --- | --- |
 | `bad dir "<value>" (want "right" or "down")` | `dir` is not allowed |
 | `unknown pane/split <id>` | Pane is unknown or no ancestor split has `dir` |
+| `split <id> ratio ... width must be between 0.1 and 1` | The projected viewport split cannot represent the clamped ratio |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -1376,7 +1539,7 @@ Example:
 | status | implemented |
 | since | protocol 8 |
 
-Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged.
+Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged. A compatibility split representing a horizontal viewport column also preserves the column width invariant `0.1..1.0`.
 
 Params:
 
@@ -1384,6 +1547,7 @@ Params:
 | --- | --- | --- | --- |
 | `split` | `Id` | required | Stable split id from `list-workspaces` or `export-layout` |
 | `ratio` | `float32` | required | Clamped to `0.05..0.95` |
+| `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
 
 Result: `object{}`.
 
@@ -1392,7 +1556,10 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown split <id>` | No live split node has the id |
+| `split <id> ratio ... width must be between 0.1 and 1` | The live viewport split would require an unsupported column width; layout remains unchanged |
 | `bad request: ...` | Missing fields or wrong JSON type |
+
+Missing targets return `error_code:"layout-ratio-target-missing"`. Unsupported viewport widths return `error_code:"layout-ratio-out-of-range"`.
 
 CLI mapping:
 
@@ -1524,15 +1691,8 @@ CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `p
 | name | `set-default-colors` |
 | status | implemented |
 | since | protocol 5 |
-| extended fields | protocol 9 additive extension |
 
-Updates session terminal defaults. With `complete:false`, missing fields preserve
-their current values. With `complete:true`, missing fields reset to built-in
-defaults. A supplied palette replaces all 256 authored entries; indexes absent
-from the supplied object become unset. Existing and future PTYs receive the
-merged defaults, while active per-surface OSC and DECSCUSR values remain
-authoritative. The server also emits `surface-output` for browser surfaces,
-although browser color application is a no-op.
+Updates the session default foreground and/or background colors used by PTY surfaces. Missing fields preserve their previous values. Existing PTY surfaces receive the merged defaults. When the merged defaults change, each live PTY attach stream receives a `colors-changed` event containing that surface's effective colors and cursor metadata; active OSC 10/11/12 and DECSCUSR overrides remain authoritative. The cursor fields may be unchanged by this command. The server also emits `surface-output` for every existing surface, including browser surfaces; browser color application is a no-op, but the event is still emitted. Future PTY surfaces start with the merged defaults. Attach clients can read the initial effective colors and cursor metadata from `vt-state.colors` without issuing this write command.
 
 Params:
 
@@ -1540,13 +1700,6 @@ Params:
 | --- | --- | --- | --- |
 | `fg` | `ColorHex` | default null | Foreground color |
 | `bg` | `ColorHex` | default null | Background color |
-| `cursor` | `ColorHex` | default null | Cursor color |
-| `selection_bg` | `ColorHex` | default null | Selection background |
-| `selection_fg` | `ColorHex` | default null | Selection foreground |
-| `cursor_style` | `"block"\|"underline"\|"bar"` | default null | Cursor shape |
-| `cursor_blink` | `boolean` | default null | Cursor blink |
-| `palette` | `object{[index:string]:ColorHex}` | default null | Complete authored palette replacement; decimal indexes 0 through 255 |
-| `complete` | `boolean` | default false | Reset absent optional values instead of preserving current values |
 
 Result:
 
@@ -1559,8 +1712,6 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `bad color "<value>" (want "#rrggbb")` | Color is not exactly `#rrggbb` |
-| `invalid palette index <index>` | Palette key is not a decimal `uint8` |
-| `invalid cursor style <value>` | Cursor style is not block, underline, or bar |
 | `bad request: ...` | Wrong JSON type |
 
 CLI mapping:
@@ -1572,9 +1723,6 @@ CLI mapping:
 | Plain stdout | no output |
 | JSON stdout | exact result object |
 | Exit codes | common |
-
-The CLI intentionally exposes only `fg` and `bg`. Cursor, selection, palette,
-and `complete` fields require the raw socket or an SDK.
 
 Example:
 
@@ -1591,7 +1739,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes one surface tab. The server kills the surface runtime, removes the tab from its pane, and collapses empty descendant topology. The workspace container remains until `close-workspace` explicitly removes it.
+Closes one surface tab. The server kills the surface runtime, removes the tab from its pane, collapses an emptied pane out of its split tree, removes emptied screens and workspaces, and may emit `tree-changed` and `empty`.
 
 Params:
 
@@ -1637,7 +1785,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a pane and every tab in it. The pane is collapsed out of the screen split tree. The workspace container remains until `close-workspace` explicitly removes it.
+Closes a pane and every tab in it. The pane is collapsed out of the screen split tree. Emptied screens and workspaces are removed.
 
 Params:
 
@@ -1683,7 +1831,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a screen and every pane and tab in it. The workspace remains even when it has no screens; only `close-workspace` removes the container.
+Closes a screen and every pane and tab in it. The workspace remains if it still has screens; otherwise the workspace is removed.
 
 Params:
 
@@ -1840,7 +1988,7 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `invalid provider workspace authority` | Authority is missing from this mux generation or does not match |
-| `unknown provider-managed workspace selector` | The id and key do not identify the same live workspace |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 This control-only command has no public CLI mapping.
@@ -1848,8 +1996,8 @@ This control-only command has no public CLI mapping.
 Example:
 
 ```json
-{"id":18,"cmd":"close-provider-managed-workspace","workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","authority":"<provider-authority>"}
-{"id":18,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":3}}
+{"id":18,"cmd":"close-provider-managed-workspace","workspace":4,"key":"ops-stable","authority":"<provider-authority>"}
+{"id":18,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":3}}
 ```
 
 ### rename-pane
@@ -2009,7 +2157,7 @@ Params:
 | --- | --- | --- | --- |
 | `workspace` | `Id` | one of id/key | Must identify a live workspace |
 | `key` | `string` | one of id/key | Lowercase canonical workspace UUID |
-| `name` | `string` | required | Empty string is stored; maximum 1,024 UTF-8 bytes |
+| `name` | `string` | required | Empty string is stored |
 | mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
 Result:
@@ -2026,7 +2174,6 @@ Errors:
 | `unknown workspace key <key>` | Workspace key does not exist |
 | `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
 | `workspace revision conflict: ...` | Compare-and-swap guard is stale |
-| `workspace name exceeds 1024 bytes` | Name exceeds the registry limit |
 | `cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls` | Provider ownership is enabled for this mux generation |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
@@ -2057,7 +2204,7 @@ Requires the `provider-managed-workspace-authority-v2` capability. Clients must 
 | status | implemented |
 | since | protocol 9 additive capability |
 
-Commits a provider-approved rename to the local mux mirror. Both selectors are required and must identify the same live workspace. Clients must send this command only after the external provider durably accepts the rename. The name may be empty and is limited to 1,024 UTF-8 bytes. A same-name request still advances the workspace revision and emits the rename delta.
+Commits a provider-approved rename to the local mux mirror. Both selectors are required and must identify the same live workspace. Clients must send this command only after the external provider durably accepts the rename.
 
 Params:
 
@@ -2075,8 +2222,7 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `invalid provider workspace authority` | Authority is missing from this mux generation or does not match |
-| `unknown provider-managed workspace selector` | The id and key do not identify the same live workspace |
-| `workspace name exceeds 1024 bytes` | Name exceeds the registry limit |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 This control-only command has no public CLI mapping.
@@ -2084,8 +2230,8 @@ This control-only command has no public CLI mapping.
 Example:
 
 ```json
-{"id":21,"cmd":"rename-provider-managed-workspace","workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","name":"prod","authority":"<provider-authority>"}
-{"id":21,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":2}}
+{"id":21,"cmd":"rename-provider-managed-workspace","workspace":4,"key":"ops-stable","name":"prod","authority":"<provider-authority>"}
+{"id":21,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":2}}
 ```
 
 ### resize-surface
@@ -2363,13 +2509,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing tab, identified by `surface`, into `pane` at zero-based
-`index`. An out-of-range index clamps to the destination end. Moving a tab to
-its current pane and effective index is an `ok:true` no-op. The current dispatcher
-ignores the mux's changed/failure boolean and always returns `{}` after its
-initial validation. A durable cross-workspace persistence failure can
-therefore also return success without moving. Observe `tree-changed` or
-refetch the tree to determine the actual outcome.
+Moves an existing tab, identified by `surface`, into `pane` at zero-based `index`. Moving a tab to its current pane and current index is an `ok:true` no-op. This command is documented from the consumer-side landed contract; it is not present in this branch's `server.rs`, so out-of-range index behavior and event emission could not be verified here.
 
 Params:
 
@@ -2389,8 +2529,10 @@ Errors:
 
 | Error | Condition |
 | --- | --- |
-| `unknown surface/pane` | Surface, source pane, or destination pane does not exist |
+| `unknown surface <id>` | Surface id does not exist |
+| `unknown pane <id>` | Destination pane does not exist |
 | `bad request: ...` | Missing fields or wrong JSON type |
+| unverified error string | Non-same-position out-of-range index behavior could not be checked in this branch |
 
 CLI mapping:
 
@@ -2579,19 +2721,11 @@ Example:
 | since | protocol 5 |
 | `mode`, `cols`, `rows` fields | protocol 7 additive extensions |
 
-Attaches the connection to a PTY or browser surface stream. In protocol v5, the server first sends a `vt-state` event for current PTY state, then sends live `output` events, and finally sends `detached`. The command response follows the initial state event.
+Attaches the connection to a PTY surface stream. In protocol v5, the server first sends a `vt-state` event for the current surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
 
-Protocol v6 changes the attach stream ordering to `vt-state -> (resized |
-output | colors-changed)* -> detached`. Its compatibility `resized` payload
-uses `data`; protocol v7 and the current server use `replay`. Either field is a
-complete fresh replay, and clients discard the old mirror before applying
-later output. The additive `vt-state.colors` field contains effective colors
-and cursor metadata captured with the snapshot. The Ghostty VT replay does not
-emit DECSCUSR, so clients apply that metadata after replaying `data`.
+Protocol v6 changes the attach stream ordering to `vt-state -> (resized | output | colors-changed)* -> detached`. A v6 `resized` attach event carries a fresh replay and requires clients to discard the old mirror and replace it from that replay. The additive `vt-state.colors` field contains effective colors plus `cursor_style` and `cursor_blink` captured with the snapshot, and `colors-changed` reports later `set-default-colors` updates without changing the replay/output ordering contract. The Ghostty VT replay does not emit DECSCUSR, so clients must apply these cursor fields after replaying `data`; current per-surface DECSCUSR state takes precedence over Ghostty configuration defaults. Clients that support only protocol 5 or older must refuse protocol v6 attach streams rather than treating `resized` as a normal resize. The v6 field name `replay` could not be verified against this branch's code.
 
 Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is absent, is the exact protocol-v6 attach behavior above. `mode:"render"` selects the authoritative styled-cell stream specified in [`render.md`](render.md): `render-state -> (render-delta | scroll-changed)* -> detached`. A client must require `identify.protocol >= 7` before selecting render mode.
-
-A browser surface accepts only default or `"bytes"` mode. Its stream is `browser-state -> (browser-state | frame | notification | scroll-changed)* -> detached`. The initial `browser-state` includes the latest frame when one exists. Later state and frame events are separate. Browser operations are asynchronous, so this stream is the authoritative result channel for navigation, target state, and rendered pixels.
 
 Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
@@ -2599,8 +2733,8 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | Must identify a live PTY or browser surface |
-| `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"`; browsers reject `"render"` |
+| `surface` | `Id` | required | Must identify a live PTY surface |
+| `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
 | `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
 
@@ -2615,10 +2749,11 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown surface <id>` | Surface id does not exist |
-| `browser surface does not support PTY/VT socket commands` | Browser requested with `mode:"render"` |
+| `browser panes are not supported over attach yet` | Surface is a browser |
 | `bad attach mode <mode>` | `mode` is not `"bytes"` or `"render"` |
 | `attach-surface cols and rows must be supplied together` | Only one initial dimension is supplied |
-| terminal or browser runtime error string | Initial state capture or attachment fails |
+| `render attach requires protocol 7` | Server does not implement render mode |
+| terminal error string | VT replay generation fails |
 | thread spawn error string | Server cannot create the attach writer thread |
 | `bad request: ...` | Missing `surface` or wrong JSON type |
 
@@ -2648,355 +2783,14 @@ Render mode example:
 {"id":29,"ok":true,"data":{}}
 ```
 
-### shutdown-daemon
-
-| Field | Value |
-| --- | --- |
-| name | `shutdown-daemon` |
-| status | implemented |
-| since | protocol 9 additive extension |
-
-Reserves a graceful durable-terminal handoff and asks this daemon to exit only
-after its success response is queued. Only a Unix-classified connection may
-call it. `pid` and `generation` must match the latest `identify` result.
-
-Params: `object{pid:uint32,generation:string}`.
-
-Result: `object{accepted:true,pid:uint32,generation:string}`.
-
-Errors are `daemon pid changed; identify again`, `daemon generation changed;
-identify again`, `daemon shutdown requires a trusted local connection`,
-`another native-browser frontend still owns this daemon`, and `daemon handoff
-is already in progress`. If the acknowledgement cannot be queued, the server
-cancels the reservation and does not request shutdown.
-
-### Durable terminal types
-
-`terminal_id` and `terminal_incarnation` are strict 32-character lowercase
-UUIDv4 hex strings without dashes. Terminal lifecycle is `"launching"`,
-`"adopting"`, `"running"`, `"exited"`, or `"tombstoned"`. Tombstoned ids
-cannot be reused. `list-terminals` omits tombstones and sorts by creation
-revision, then terminal id. `resolve-terminal` can resolve a non-live durable
-record with `surface:null`.
-
-### list-terminals
-
-| Field | Value |
-| --- | --- |
-| name | `list-terminals` |
-| status | implemented |
-| since | protocol 9 additive extension |
-
-Returns the canonical non-tombstoned terminal registry.
-
-Result:
-
-```text
-object{
-  registry_id:string,
-  generation:string,
-  terminal_revision:uint64,
-  terminals:array<object{
-    terminal_id:string,
-    workspace_key:string,
-    terminal_incarnation:string|null,
-    lifecycle:"launching"|"adopting"|"running"|"exited",
-    launch_spec:object,
-    exit:object|null
-  }>
-}
-```
-
-### terminal-events
-
-| Field | Value |
-| --- | --- |
-| name | `terminal-events` |
-| status | implemented |
-| since | protocol 9 additive extension |
-
-Returns ordered durable terminal mutations after `after_revision`. A consumer must reject a different `registry_id` or `generation`, apply only contiguous revisions, and refetch `list-terminals` after a gap.
-
-Params: `object{after_revision?:uint64=0}`.
-
-Result:
-
-```text
-object{
-  registry_id:string,
-  generation:string,
-  terminal_revision:uint64,
-  events:array<object{
-    terminal_revision:uint64,
-    kind:string,
-    terminal_id:string,
-    workspace_key:string,
-    origin:string,
-    mutation_id:string,
-    result:any
-  }>
-}
-```
-
-### pairing-response
-
-| Field | Value |
-| --- | --- |
-| name | `pairing-response` |
-| status | implemented |
-| since | protocol 7 additive extension |
-
-Approves or denies a pending WebSocket pairing challenge. Only a
-Unix-classified connection may call it. Direct Unix and the current stdio relay
-meet that test; WebSocket does not.
-
-Params: `object{request:uint64,approve:boolean}`.
-
-Result: `object{}`. Unknown or expired ids fail with `unknown or expired pairing request <id>`.
-
-The current `uint64` JSON number is unsafe in JavaScript above `2^53-1`; vNext uses a decimal string.
-
-### mint-terminal-renderer
-
-| Field | Value |
-| --- | --- |
-| name | `mint-terminal-renderer` |
-| status | implemented |
-| since | protocol 9 additive extension |
-
-Mints a one-use, time-bounded renderer credential for a terminal-host-backed
-PTY. It does not expose the daemon owner capability. `ttl_ms` must be from 1
-through 60,000. The returned rights value is `7` (`READ|INPUT|RESIZE`).
-
-Params: `object{surface:Id,ttl_ms?:uint64=30000}`.
-
-Result: `object{endpoint:string,terminal_id:string,incarnation:string,token:string,rights:uint32,ttl_ms:uint64}`.
-
-Local PTYs without a terminal host reject the request. Host write, timeout,
-malformed capability, and capability-store failures are command errors.
-
-### resolve-terminal
-
-| Field | Value |
-| --- | --- |
-| name | `resolve-terminal` |
-| status | implemented |
-| since | protocol 9 additive extension |
-
-Resolves a process-stable terminal id to its current daemon-local surface without creating state.
-
-Params: `object{terminal_id:string}`.
-
-Result:
-
-```text
-object{
-  surface:Id|null,
-  terminal_id:string,
-  terminal_incarnation:string|null,
-  workspace_key:string,
-  lifecycle:string,
-  launch_spec:object,
-  exit:object|null,
-  terminal_revision:uint64,
-  registry_id:string,
-  generation:string
-}
-```
-
-An unknown terminal fails with `terminal_not_found`. A tombstoned record remains
-resolvable with `surface:null` and `lifecycle:"tombstoned"`.
-
-### close-terminal
-
-| Field | Value |
-| --- | --- |
-| name | `close-terminal` |
-| status | implemented |
-| since | protocol 9 additive extension |
-
-Tombstones a hosted terminal by stable id. `terminal_incarnation` prevents a stale caller from closing a replacement. The durable mutation envelope makes a lost-response retry return the original result.
-
-Params: `object{terminal_id:string,terminal_incarnation?:string,...MutationRequest}`.
-
-Result: `object{surface:Id|null,terminal_id:string,terminal_incarnation:string|null,already_closed:boolean,closed:true,terminal_revision:uint64,registry_id:string,generation:string}`.
-
-Unknown records fail with `unknown terminal <id>; it may not have been adopted
-yet`. A mismatched incarnation fails with `terminal_incarnation_mismatch`.
-Generation and revision guards fail with `terminal generation conflict` and
-`terminal revision conflict`. Closing an already-tombstoned record returns
-`already_closed:true` without advancing the terminal revision. Reusing the
-same `(origin,mutation_id)` and request fingerprint replays the original
-result; reusing it for another payload is an error.
-
-### set-cell-pixels
-
-| Field | Value |
-| --- | --- |
-| name | `set-cell-pixels` |
-| status | implemented |
-| since | protocol 6 additive extension |
-
-Updates the browser renderer's cell pixel dimensions and schedules browser
-viewport resizes derived from current cell grids. Zero dimensions clamp to
-one. PTYs and already-settled no-ops are omitted. Accepted browser resizes
-finish asynchronously; immediate per-surface failures are returned.
-
-Params: `object{width_px:uint16,height_px:uint16}`.
-
-Result: `object{resizes:array<object{surface:Id,cols:uint16,rows:uint16,reservation_id:uint64}>,failures:array<object{surface:Id,error:string}>}`.
-
-### browser-mouse
-
-| Field | Value |
-| --- | --- |
-| name | `browser-mouse` |
-| status | implemented |
-| since | protocol 6 additive extension |
-
-Dispatches one browser mouse event in CSS pixels.
-
-Params: `object{surface:Id,kind:"down"|"up"|"move",x_px:number,y_px:number,button?:string,click_count?:uint32}`.
-
-Result: `object{}`. The target must be a browser surface.
-
-### browser-wheel
-
-| Field | Value |
-| --- | --- |
-| name | `browser-wheel` |
-| status | implemented |
-| since | protocol 6 additive extension |
-
-Dispatches a vertical browser wheel event.
-
-Params: `object{surface:Id,x_px:number,y_px:number,delta_y_px:number}`.
-
-Result: `object{}`.
-
-### browser-key
-
-| Field | Value |
-| --- | --- |
-| name | `browser-key` |
-| status | implemented |
-| since | protocol 6 additive extension |
-
-Dispatches one CDP keyboard event.
-
-Params: `object{surface:Id,kind:"down"|"up",key:string,code:string,windows_virtual_key_code:uint32,modifiers:uint32,text?:string}`.
-
-Result: `object{}`.
-
-### browser-insert-text
-
-| Field | Value |
-| --- | --- |
-| name | `browser-insert-text` |
-| status | implemented |
-| since | protocol 6 additive extension |
-
-Inserts text through the browser input method without synthesizing key events.
-
-Params: `object{surface:Id,text:string}`.
-
-Result: `object{}`.
-
-### browser-navigate
-
-| Field | Value |
-| --- | --- |
-| name | `browser-navigate` |
-| status | implemented |
-| since | protocol 6 additive extension |
-
-Queues navigation of a browser surface to `url`.
-
-Params: `object{surface:Id,url:string}`.
-
-Result: `object{}`. Acceptance does not prove page load success; observe `browser-state`.
-
-### browser-back
-
-| Field | Value |
-| --- | --- |
-| name | `browser-back` |
-| status | implemented |
-| since | protocol 6 additive extension |
-
-Queues one browser history-back operation. Params: `object{surface:Id}`. Result: `object{}`.
-
-### browser-forward
-
-| Field | Value |
-| --- | --- |
-| name | `browser-forward` |
-| status | implemented |
-| since | protocol 6 additive extension |
-
-Queues one browser history-forward operation. Params: `object{surface:Id}`. Result: `object{}`.
-
-### browser-reload
-
-| Field | Value |
-| --- | --- |
-| name | `browser-reload` |
-| status | implemented |
-| since | protocol 6 additive extension |
-
-Queues one browser reload. Params: `object{surface:Id}`. Result: `object{}`.
-
-### browser-activate
-
-| Field | Value |
-| --- | --- |
-| name | `browser-activate` |
-| status | implemented |
-| since | protocol 6 additive extension |
-
-Activates the browser target before interactive input. Params: `object{surface:Id}`. Result: `object{}`.
-
-Browser mouse, wheel, key, and insert-text requests use a bounded disposable
-input queue and silently drop the newest input when full. Navigation is
-latest-wins. Back, forward, reload, and activate reject a full control queue
-with `browser command queue is full; browser may be unresponsive`. CDP failures
-after queue acceptance are asynchronous `status` or `browser-state` outcomes.
-
-### move-terminal
-
-| Field | Value |
-| --- | --- |
-| name | `move-terminal` |
-| status | implemented |
-| since | protocol 9 additive extension |
-
-Moves a durable hosted terminal to a workspace selected by stable key. `terminal_incarnation` and the durable mutation envelope fence stale or duplicated calls.
-
-Params: `object{terminal_id:string,workspace_key:string,terminal_incarnation?:string,...MutationRequest}`.
-
-Result:
-
-```text
-object{
-  surface:Id|null,pane:Id|null,screen:Id|null,workspace:Id|null,
-  terminal_id:string,terminal_incarnation:string|null,workspace_key:string,
-  lifecycle:string,changed:boolean,replayed:boolean,
-  terminal_revision:uint64,registry_id:string,generation:string
-}
-```
-
-Moving to the current workspace still commits a terminal revision and returns
-`changed:false`. Consumers must not equate `changed:false` with a stable
-revision.
-
-## Implemented Automation Commands
+## Proposed Commands
 
 ### read-scrollback
 
 | Field | Value |
 | --- | --- |
 | name | `read-scrollback` |
-| status | implemented |
+| status | proposed |
 | since | protocol 7 |
 
 Returns one atomic page of the PTY surface's styled retained scrollback. `start` is zero-based from the oldest row retained when the server captures the request. The result uses the `Row` and `Run` types from [`render.md`](render.md#shared-render-types); each returned `Row.row` is relative to the returned page.
@@ -3058,13 +2852,11 @@ Example:
 
 Blocks until a regular expression matches the current plain-text screen for a PTY surface. The server polls the same text source as `read-screen` and returns as soon as a match is found or the timeout expires. This is the primary automation synchronization primitive.
 
-Current protocol v10 searches only the current viewport, has no fresh-output boundary or cancellation, and can match text that was already visible before the request. A surface exit is reported as timeout. The command blocks later requests on the same connection, so clients use a dedicated connection. CLI and TypeScript transport deadlines may expire before a server `timeout_ms` longer than ten seconds.
-
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | PTY surface |
+| `surface` | `IdRef` | required | PTY surface |
 | `pattern` | `string` | required | Rust regex syntax |
 | `timeout_ms` | `uint64` | required | `0` means a single immediate check |
 
@@ -3118,7 +2910,7 @@ Params:
 | `argv` | `array<string>` | required if `command` absent | Non-empty; direct exec |
 | `command` | `string` | required if `argv` absent | Executed via shell `-lc` |
 | `cwd` | `string` | default null | Working directory |
-| `pane` | `Id` | default null | Mutually exclusive with `new_workspace:true` |
+| `pane` | `IdRef` | default null | Mutually exclusive with `new_workspace:true` |
 | `new_workspace` | `boolean` | default false | Create a new workspace |
 | `key` | `string` | default null | Protocol 9; valid only with `new_workspace:true`; unique stable workspace key |
 | `name` | `string` | default null | Sets surface name; also workspace name when `new_workspace:true` |
@@ -3128,7 +2920,7 @@ Params:
 Result:
 
 ```text
-object{surface:Id,terminal_id:string|null,terminal_incarnation:string|null,pane:Id,screen:Id,workspace:Id}
+object{surface:Id,pane:Id,screen:Id,workspace:Id}
 ```
 
 Errors:
@@ -3158,9 +2950,9 @@ Example:
 
 ```json
 {"id":102,"cmd":"run","argv":["python3","-m","http.server"],"cwd":"/tmp","name":"server"}
-{"id":102,"ok":true,"data":{"surface":31,"terminal_id":null,"terminal_incarnation":null,"pane":2,"screen":3,"workspace":4}}
-{"id":103,"cmd":"run","argv":["/bin/zsh","-l"],"new_workspace":true,"key":"598a98ba-4778-40bb-9606-6053f6db90cb","name":"cloud"}
-{"id":103,"ok":true,"data":{"surface":32,"terminal_id":null,"terminal_incarnation":null,"pane":5,"screen":6,"workspace":7}}
+{"id":102,"ok":true,"data":{"surface":31,"pane":2,"screen":3,"workspace":4}}
+{"id":103,"cmd":"run","argv":["/bin/zsh","-l"],"new_workspace":true,"key":"workspace-019c","name":"cloud"}
+{"id":103,"ok":true,"data":{"surface":32,"pane":5,"screen":6,"workspace":7}}
 ```
 
 ### send-key
@@ -3171,16 +2963,16 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Sends named key chords to a PTY surface without requiring callers to hand-encode escape sequences. PTY surfaces use the same Ghostty key encoder as the TUI, synced to the surface terminal modes. Browser input uses `browser-key` and `browser-insert-text`.
+Sends named key chords to a surface without requiring callers to hand-encode escape sequences. PTY surfaces use the same Ghostty key encoder as the TUI, synced to the surface terminal modes. Browser surfaces translate supported keys to CDP keyboard input when the browser runtime is local.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | PTY surface |
+| `surface` | `IdRef` | required | Target surface |
 | `keys` | `array<string>` | required | Non-empty key chord list |
 
-Key chord syntax is lower-case tokens joined with `+`. Named keys are `enter` or `return`, `tab`, `backtab`, `escape` or `esc`, `backspace`, `delete`, `insert`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, `space`, and `f1` through `f24`. Single-character keys are `a` through `z`, `0` through `9`, space, backtick, backslash, `[`, `]`, comma, `=`, `-`, `.`, single quote, `;`, and `/`. Modifiers are `ctrl` or `control`, `alt` or `option`, and `shift`; multiple modifiers may precede one key.
+Key chord syntax is lower-case tokens joined with `+`. Supported names are `enter`, `tab`, `backtab`, `escape`, `backspace`, `delete`, `insert`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, `f1` through `f24`, printable single characters, `ctrl+<key>`, `alt+<key>`, and `shift+<key>` where the encoder supports it.
 
 Result:
 
@@ -3194,8 +2986,8 @@ Errors:
 | --- | --- |
 | `unknown surface <id>` | Surface id does not exist |
 | `unknown key <key>` | Key token is not supported |
-| `surface does not support key input` | Surface is not a PTY |
-| IO error string | Input write fails |
+| `surface does not support key input` | Surface kind cannot accept keys |
+| IO or CDP error string | Input write fails |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -3229,7 +3021,7 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | PTY surface |
+| `surface` | `IdRef` | required | PTY surface |
 | `mode` | `string` | required | `"screen"`, `"selection"`, or `"scrollback"` |
 
 Result:
@@ -3246,6 +3038,7 @@ Errors:
 | `browser surface does not support PTY/VT socket commands` | Surface is a browser |
 | `bad mode <mode>` | Mode is not allowed |
 | `no selection` | Mode is `selection` and no selection exists |
+| `scrollback unavailable` | Mode is `scrollback` and the terminal cannot export it |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -3273,7 +3066,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Returns the current tree's id mapping. Every workspace, screen, pane, and surface has a numeric id and a six-character short id in that snapshot. Short ids are content-independent and collision-checked across the current live tree. They are convenience labels, not durable session identities. Accepting short ids anywhere an `IdRef` is accepted remains proposed; implemented command parameters currently accept numeric ids only.
+Returns the session id mapping. Every workspace, screen, pane, and surface has a numeric id and a stable short id for the lifetime of the session. Short ids are content-independent and collision-checked per session. Accepting short ids anywhere an `IdRef` is accepted remains proposed; implemented command parameters currently accept numeric ids only.
 
 Params:
 
@@ -3287,7 +3080,7 @@ Short id format:
 [a-z0-9]{6}
 ```
 
-Generation rule: implemented short ids are six-character base36 ids collision-checked across live ids. A later snapshot may assign a different short id after topology changes, so callers resolve and use them only against the snapshot that supplied them. Short ids never replace workspace keys or terminal ids.
+Generation rule: implemented short ids are stable six-character base36 ids collision-checked across live ids. The proposed future scheme derives a candidate from a per-session random seed plus numeric id, encodes it base36, and checks for collisions across all live ids. On collision, it rehashes with an incrementing salt. Short ids never depend on names, titles, command text, cwd, or layout position.
 
 Resolution rule: short-id / `IdRef` string resolution across commands is still proposed and not yet accepted by the implementation. Implemented commands currently deserialize id parameters as numeric JSON ids. Proposed behavior is: numeric JSON ids resolve first; string ids matching `[0-9]+` are rejected as ambiguous; string ids matching the short-id format resolve by exact short id; unknown or ambiguous strings error.
 
@@ -3329,7 +3122,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Posts a notification event. This is a telemetry command and must not change app focus or pane selection. Current protocol v10 retains only one `{notification,level,unread}` marker for each inactive target surface; a later notification overwrites it. Title and body are event-only. Active-surface and session-wide notifications are not retained.
+Posts a notification into the mux notification area. This is a telemetry command and must not change app focus or pane selection.
 
 Params:
 
@@ -3338,7 +3131,7 @@ Params:
 | `title` | `string` | required | Non-empty |
 | `body` | `string` | required | May be empty |
 | `level` | `string` | default `"info"` | `"info"`, `"warning"`, or `"error"` |
-| `surface` | `Id` | default null | Optional originating surface |
+| `surface` | `IdRef` | default null | Optional originating surface |
 
 Result:
 
@@ -3380,13 +3173,13 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Returns known agent status records. Storage contains at most one record per surface. A stored `source:"hook"` record cannot be replaced by a later `source:"socket"` report; that socket request succeeds and returns the unchanged hook record. Records are removed when the surface is explicitly closed. `source:"detected"` is reserved by the model, but protocol v10 has no producer for it. Protocol v10 emits no agent event or history.
+Returns known agent status records. Records may come from detection, explicit reports, or hooks. Explicit hook-authority reports override detection for the same surface until another explicit report changes the state or the surface closes.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | default null | Optional surface filter |
+| `surface` | `IdRef` | default null | Optional surface filter |
 | `state` | `string` | default null | Optional state filter |
 
 Result:
@@ -3436,13 +3229,13 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Reports agent state for a surface. This is a telemetry command and must not change focus. Reports with `source:"hook"` permanently outrank later socket reports until another hook report changes the record or the surface closes. Protocol v10 accepts only `socket` and `hook`; `detected` is an enum-only reserved value with no current producer. The server trusts the caller-supplied source string and does not authenticate hook provenance. This is a current integrity limitation; vNext must bind source precedence to authenticated producer context.
+Reports agent state for a surface. This is a telemetry command and must not change focus. Reports with `source:"hook"` have hook authority and override detector-derived state. Reports with `source:"socket"` override detector-derived state but are lower priority than a newer hook report.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | Surface associated with the agent |
+| `surface` | `IdRef` | required | Surface associated with the agent |
 | `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, or `"unknown"` |
 | `source` | `string` | required | `"socket"` or `"hook"` |
 | `session` | `string` | default null | Optional upstream agent session id |
@@ -3536,21 +3329,26 @@ Hook event mapping:
 | `on-agent-done` | Proposed agent state becomes `done` |
 | `on-surface-exit` | Implemented surface exits and is reaped |
 
-## Remaining compatibility debt
+## Compatibility Notes
 
-The current protocol retains several legacy behaviors that need a newer
-version or capability:
+The following v5 behaviors are awkward for generated bindings and should be normalized in protocol v6:
 
-| Area | Current protocol-v10 behavior | Required vNext change |
+| Area | v5 behavior | Proposed v6 normalization |
 | --- | --- | --- |
-| Create commands | Most legacy create commands return only `{surface}` | Return complete placement and stable terminal identity |
+| Create commands | `new-tab`, `new-browser-tab`, `new-screen`, `new-workspace`, and `split` return only `{surface}` | Return `{surface,pane,screen,workspace}` |
 | Selection commands | `select-*` returns success for unknown targets, out-of-range indexes, and missing selector fields | Return a changed boolean or reject invalid target/index |
 | Resize command | `resize-surface` reports acceptance but not the final clamped size | Return `{accepted,cols,rows}` |
 | Ratio command | `set-ratio` silently clamps and does not return final ratio | Return `{ratio}` after clamping |
 | Naming commands | Empty string clears pane/surface/screen names but stores an empty workspace name | Make empty string clear all optional display names, including workspace |
-| Attach response ordering | Initial attach state precedes the command response | Return an explicit stream registration acknowledgement before stream data, or expose a typed ordering primitive |
+| Attach response ordering | v5 `attach-surface` sends `vt-state` before the command response | v6 keeps attach as an event stream and adds `resized` replay events; clients must gate behavior by protocol |
 | Error taxonomy | Errors are strings from `anyhow`, IO, base64, and terminal layers | Add stable machine error codes while preserving messages |
-| Optional size pair | Legacy creation commands silently ignore an incomplete pair; newer paths reject it | Reject partial size pairs uniformly |
+| Optional size pair | Supplying only one of `cols` or `rows` is silently ignored | Reject partial size pairs |
 | Unknown fields | Unknown request fields are ignored by serde | Reject unknown fields or define extension slots |
 
 Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future result expansion may add `{pane,screen,workspace}` only behind a newer protocol version.
+
+`viewport-splits-v1` is additive within protocol v9. Clients must require the capability before sending `new-pane-right` or interpreting `Screen.viewport_splits`.
+
+`viewport-column-resize-v1` is additive within protocol v9. Clients must require the capability before sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width`.
+
+`layout-undo-v1` is additive within protocol v9. Clients must require the capability before sending `undo-layout`. A binding must preserve both result variants and must not set `confirm_close` without the exact revision returned by the confirmation preview.

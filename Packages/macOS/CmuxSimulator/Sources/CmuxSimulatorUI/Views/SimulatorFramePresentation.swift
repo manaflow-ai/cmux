@@ -34,7 +34,7 @@ struct SimulatorFramePresentation: @unchecked Sendable {
                 ],
                 provider: provider,
                 decode: nil,
-                shouldInterpolate: true,
+                shouldInterpolate: false,
                 intent: .defaultIntent
               ) else { return nil }
         self.image = image

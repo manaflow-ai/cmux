@@ -38,7 +38,7 @@ extension Workspace {
     /// Sends a config-defined workspace `setup` command to the first terminal
     /// panel. Used by workspace actions/commands that define no custom layout.
     func sendConfigSetupCommand(_ command: String) {
-        let firstTerminal: TerminalPanel? = focusedTerminalPanel ?? {
+        let firstTerminal: TerminalPanel? = focusedTerminalInputTarget()?.panel ?? {
             for paneId in bonsplitController.allPaneIds {
                 for tab in bonsplitController.tabs(inPane: paneId) {
                     if let panelId = panelIdFromSurfaceId(tab.id),
@@ -121,6 +121,13 @@ extension Workspace {
                 pendingSetup: &pendingSetup
             )
         }
+
+        // The first surface either reuses or replaces the pane's placeholder.
+        // Append only the remaining declarative surfaces in config order, then
+        // restore the interactive "next to current" policy immediately.
+        let interactiveNewTabPosition = bonsplitController.configuration.newTabPosition
+        bonsplitController.configuration.newTabPosition = .end
+        defer { bonsplitController.configuration.newTabPosition = interactiveNewTabPosition }
 
         for surfaceIndex in 1..<surfaces.count {
             createNewSurface(

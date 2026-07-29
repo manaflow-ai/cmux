@@ -434,7 +434,7 @@
         "workspaceInheritWorkingDirectory": {
           "type": "boolean",
           "default": true,
-          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
+          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead."
         },
         "minimalMode": {
           "type": "boolean",
@@ -589,6 +589,12 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
+        },
+        "autoRetryAgentSessions": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.autoRetryAgentSessions",
+          "description": "Automatically resume a managed agent session when its active command exits with a nonzero, non-signal error status. Retries are bounded and use exponential backoff; normal completion and explicit user termination are never retried."
         },
         "showTextBoxOnNewTerminals": {
           "type": "boolean",
@@ -1615,6 +1621,12 @@
               "prevSurface",
               "moveSurfaceLeft",
               "moveSurfaceRight",
+              "moveSurfaceToPreviousPane",
+              "moveSurfaceToNextPane",
+              "moveSurfaceToPaneLeft",
+              "moveSurfaceToPaneRight",
+              "moveSurfaceToPaneUp",
+              "moveSurfaceToPaneDown",
               "selectSurfaceByNumber",
               "nextSidebarTab",
               "prevSidebarTab",
