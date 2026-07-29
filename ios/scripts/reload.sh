@@ -260,6 +260,12 @@ CMUX_IOS_IROH_BROKER_BASE_URL_VALUE="$(cmux_ios_resolve_iroh_broker_base_url)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+IROH_RELAY_POLICY_BUILD_ARGS=()
+if [[ "$PROD_AUTH" -eq 1 ]]; then
+  IROH_RELAY_POLICY_BUILD_ARGS=(
+    -xcconfig "$IOS_DIR/../config/IrohRelayPolicyProduction.xcconfig"
+  )
+fi
 # Shared tag/identity + attach helpers; sanitize_tag() above delegates here so the
 # built bundle id matches the signed-launch bundle id. Sourced before any
 # sanitize_tag call below.
@@ -574,6 +580,7 @@ reload_simulator() {
     -configuration Debug \
     -destination "$DESTINATION" \
     -derivedDataPath "$DERIVED_DATA" \
+    ${IROH_RELAY_POLICY_BUILD_ARGS[@]+"${IROH_RELAY_POLICY_BUILD_ARGS[@]}"} \
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
@@ -685,6 +692,7 @@ reload_device() {
     -destination "$device_destination"
     -derivedDataPath "$DERIVED_DATA"
   )
+  build_args+=(${IROH_RELAY_POLICY_BUILD_ARGS[@]+"${IROH_RELAY_POLICY_BUILD_ARGS[@]}"})
 
   if [[ "$ALLOW_PROVISIONING_UPDATES" -eq 1 ]]; then
     build_args+=(-allowProvisioningUpdates)
