@@ -33,6 +33,10 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
 
     // MARK: - Harness (mirrors MirrorTitleHarness in RemoteTmuxMirrorTargetingTests)
 
+    private final class FocusableTestView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
     @MainActor
     private final class Harness {
         let windowId: UUID
@@ -149,21 +153,123 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         #expect(surfaceIds.count == paneIds.count)
     }
 
-    @Test
-    func multiPaneWindowSelectTargetEqualsInputTargetForEveryPane() throws {
-        let harness = try Harness()
-        defer { harness.tearDown() }
+    private func publishTwoPaneWindow(
+        in harness: Harness,
+        activePaneId: Int = 4
+    ) throws -> RemoteTmuxWindowMirror {
         harness.publishListWindows([
             "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} [] work",
         ])
         try harness.drainThroughPaneRects([2: [
-            "%4 0 0 60 40 1 off :0 \"host\"",
-            "%5 61 0 59 40 0 off :1 \"host\"",
+            "%4 0 0 60 40 \(activePaneId == 4 ? 1 : 0) off :0 \"host\"",
+            "%5 61 0 59 40 \(activePaneId == 5 ? 1 : 0) off :1 \"host\"",
         ]])
-
         let mirror = try harness.mirror()
+        mirror.noteRemoteActivePane(activePaneId)
+        return mirror
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 2,
+        condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if condition() { return true }
+            RunLoop.main.run(until: Date.now.addingTimeInterval(0.01))
+        } while Date.now < deadline
+        return condition()
+    }
+
+    @Test
+    func multiPaneWindowSelectTargetEqualsInputTargetForEveryPane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let mirror = try publishTwoPaneWindow(in: harness)
         try expectSelectTargetMatchesInputTarget(mirror)
         try expectDistinctSurfacesPerPane(mirror)
+    }
+
+    /// The pane-navigation shortcut path calls ``Workspace/moveFocus(direction:)``.
+    /// A mirrored tmux window is one outer workspace pane containing a second
+    /// Bonsplit tree, so navigation must enter that nested tree before falling
+    /// through to an outer neighbor.
+    @Test
+    func directionalNavigationMovesFocusToSiblingTmuxPane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let mirror = try publishTwoPaneWindow(in: harness)
+        #expect(mirror.activePaneId == 4)
+
+        harness.workspace.moveFocus(direction: .right)
+
+        #expect(
+            mirror.activePaneId == 5,
+            "Cmd+Option+Right must move the remote tmux input target to the right sibling"
+        )
+        #expect(
+            mirror.bonsplitController.focusedPaneId
+                .flatMap { mirror.paneIdByBonsplitPane[$0] } == 5,
+            "The nested focus indicator and remote input target must move together"
+        )
+    }
+
+    /// Claude Code exposes the stale-responder repair path frequently. When the
+    /// selected workspace surface is a remote-tmux container, repair must target
+    /// the authoritative active inner pane rather than the adopted first pane
+    /// stored under the container id.
+    @Test
+    func keyRepairTargetsActiveSiblingTmuxPane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let mirror = try publishTwoPaneWindow(in: harness, activePaneId: 5)
+        let activePanel = try #require(mirror.panel(forPane: 5))
+        let adoptedFirstPanel = try #require(mirror.panel(forPane: 4))
+        let appDelegate = try #require(AppDelegate.shared)
+        let manager = try #require(appDelegate.tabManagerFor(windowId: harness.windowId))
+        manager.selectWorkspace(harness.workspace)
+        let window = try #require(appDelegate.mainWindow(for: harness.windowId))
+        window.makeKeyAndOrderFront(nil)
+
+        #expect(waitUntil {
+            activePanel.hostedView.window === window &&
+                adoptedFirstPanel.hostedView.window === window
+        }, "Expected both mirrored pane surfaces to mount in the test window")
+
+        let strayResponder = FocusableTestView(
+            frame: NSRect(x: 0, y: 0, width: 24, height: 24)
+        )
+        window.contentView?.addSubview(strayResponder)
+        defer { strayResponder.removeFromSuperview() }
+        #expect(window.makeFirstResponder(strayResponder))
+
+        let keyDown = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        appDelegate.repairFocusedTerminalKeyboardRoutingIfNeeded(
+            window: window,
+            event: keyDown,
+            firstResponderOverride: strayResponder
+        )
+
+        #expect(
+            activePanel.hostedView.isSurfaceViewFirstResponder(),
+            "Key repair must restore input to the active sibling pane, not the adopted first pane"
+        )
+        #expect(
+            !adoptedFirstPanel.hostedView.isSurfaceViewFirstResponder(),
+            "The inactive Claude pane must not recapture keyboard input"
+        )
     }
 
     /// The reported repro: a window cmux first saw as a single pane, then split.
