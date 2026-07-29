@@ -813,7 +813,9 @@ def verify_stale_clear_start_preserves_handoff(cli_path: str) -> None:
             )
 
 
-def verify_clear_handoff_outlives_session_end_budget(cli_path: str) -> None:
+def verify_clear_handoff_outlives_creator_budget_across_readers(
+    cli_path: str,
+) -> None:
     workspace_id = str(uuid.uuid4()).upper()
     surface_id = str(uuid.uuid4()).upper()
     old_session_id = f"delayed-old-{uuid.uuid4().hex}"
@@ -857,8 +859,16 @@ def verify_clear_handoff_outlives_session_end_budget(cli_path: str) -> None:
 
         state = json.loads(state_path.read_text())
         transfer = state["clearBackgroundWorkTransfersBySurface"][surface_id]
-        transfer["updatedAt"] = time.time() - 601
+        # A different pane's default-budget reader must not shorten the
+        # creator's explicitly configured lifetime.
+        transfer["updatedAt"] = 0
         state_path.write_text(json.dumps(state))
+        default_reader_env = hook_environment(
+            server,
+            workspace_id,
+            surface_id,
+            state_path,
+        )
 
         clear_start = len(server.commands)
         run_claude_hook(
@@ -866,7 +876,7 @@ def verify_clear_handoff_outlives_session_end_budget(cli_path: str) -> None:
             server.socket_path,
             "session-start",
             {"session_id": clear_session_id, "source": "clear", "cwd": "/tmp"},
-            env,
+            default_reader_env,
         )
         clear_commands = server.commands[clear_start:]
         if not has_command_with(
@@ -1140,6 +1150,49 @@ def verify_authoritative_resume_supersedes_clear_tombstone(cli_path: str) -> Non
             raise RuntimeError(
                 "The resumed session remained blocked by its clear tombstone:\n"
                 f"prompt_commands={prompt_commands!r}"
+            )
+
+
+def verify_vacant_surface_accepts_authoritative_resume(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    session_id = f"ordinary-resume-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "ordinary-resume-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        resume_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": session_id, "source": "resume", "cwd": "/tmp"},
+            env,
+        )
+        resume_commands = server.commands[resume_start:]
+        if not has_command_with(
+            resume_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "An ordinary resume did not establish an idle vacant surface:\n"
+                f"resume_commands={resume_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        surface_owner = state["activeSessionsBySurface"][surface_id]
+        if surface_owner.get("sessionId") != session_id:
+            raise RuntimeError(
+                "An ordinary resume did not claim its vacant surface:\n"
+                f"surface_owner={surface_owner!r}\nstate={state!r}"
+            )
+        resume_record = state["sessions"][session_id]
+        if resume_record.get("agentLifecycle") != "idle":
+            raise RuntimeError(
+                "An ordinary resume did not persist its idle lifecycle:\n"
+                f"resume_record={resume_record!r}"
             )
 
 
@@ -1470,10 +1523,11 @@ def main() -> int:
         verify_clear_handoff_follows_moved_surface(cli_path)
         verify_guessed_surface_does_not_consume_clear_handoff(cli_path)
         verify_stale_clear_start_preserves_handoff(cli_path)
-        verify_clear_handoff_outlives_session_end_budget(cli_path)
+        verify_clear_handoff_outlives_creator_budget_across_readers(cli_path)
         verify_repeated_clear_end_does_not_retire_replacement(cli_path)
         verify_guessed_clear_end_uses_stored_surface(cli_path)
         verify_authoritative_resume_supersedes_clear_tombstone(cli_path)
+        verify_vacant_surface_accepts_authoritative_resume(cli_path)
         verify_late_resume_cannot_replace_clear_successor(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
