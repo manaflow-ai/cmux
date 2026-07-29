@@ -2,6 +2,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
+import CoreImage
 import SwiftUI
 import Testing
 
@@ -12,6 +13,43 @@ import Testing
 #endif
 
 struct WindowAppearanceSnapshotPaneBackgroundTests {
+    /// Verifies late OSC 11 changes reuse a cutout configured before AppKit's first display pass.
+    @Test func lateOSCOverrideUsesPredisplaySharedBackdropCutout() throws {
+        let bounds = NSRect(x: 0, y: 0, width: 320, height: 180)
+        let host = GhosttySurfaceScrollView(surfaceView: GhosttyNSView(frame: bounds))
+        host.frame = bounds
+
+        let cutoutBeforeDisplay = try #require(sharedBackdropCutout(in: host))
+        #expect(cutoutBeforeDisplay.layerUsesCoreImageFilters)
+        #expect(cutoutBeforeDisplay.compositingFilter != nil)
+        #expect(cutoutBeforeDisplay.isHidden)
+
+        let contentView = NSView(frame: bounds)
+        contentView.addSubview(host)
+        let window = NSWindow(
+            contentRect: bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+
+        host.setBackgroundColor(
+            try #require(NSColor(hex: "#EEF5F8")),
+            clearsSharedWindowBackdrop: true
+        )
+
+        let activeCutout = try #require(sharedBackdropCutout(in: host))
+        #expect(activeCutout === cutoutBeforeDisplay)
+        #expect(!activeCutout.isHidden)
+
+        host.setBackgroundColor(.clear, clearsSharedWindowBackdrop: false)
+        #expect(cutoutBeforeDisplay.isHidden)
+        #expect(cutoutBeforeDisplay.superview === host)
+    }
+
     /// Verifies pane-local OSC colors paint the surface without replacing the shared window root.
     @Test func surfaceOSCOverrideUsesHostFillAndKeepsSharedWindowRootDefault() throws {
         let snapshot = makeSnapshot(
@@ -44,6 +82,12 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
         #expect(
             windowRoot.snapshot.windowGlassSettings.terminalGlassTintColor?.hexString(includeAlpha: true) == "#272822FF"
         )
+    }
+
+    private func sharedBackdropCutout(in host: NSView) -> NSView? {
+        host.subviews.first {
+            ($0.compositingFilter as? CIFilter)?.name == "terminalSharedBackdropCutout"
+        }
     }
 
     private func makeSnapshot(
