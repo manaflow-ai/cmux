@@ -26,9 +26,9 @@ type AppProWelcomeMessages = {
   }>;
 };
 
-const STEP_HREFS: Record<WelcomeStepKey, string> = {
-  iosApp: `/dashboard/testflight?${APP_BROWSER_QUERY}`,
-  billing: `/dashboard/billing?${APP_BROWSER_QUERY}`,
+const STEP_PATHS: Record<WelcomeStepKey, string> = {
+  iosApp: "/dashboard/testflight",
+  billing: "/dashboard/billing",
 };
 
 const STEP_ORDER: readonly WelcomeStepKey[] = [
@@ -54,7 +54,8 @@ export default async function AppProWelcomePage({
 
   const appearance = appPricingAppearance(params);
   const pageBackground = appPricingPageBackground(params, appearance);
-  const catalog = await loadMessages(supportedLocale(await getLocale())) as {
+  const locale = supportedLocale(await getLocale());
+  const catalog = await loadMessages(locale) as {
     appProWelcome: AppProWelcomeMessages;
   };
   const welcome = catalog.appProWelcome;
@@ -94,7 +95,7 @@ export default async function AppProWelcomePage({
                       backgroundColor: "var(--foreground)",
                       color: "var(--button-foreground)",
                     }}
-                    href={STEP_HREFS[key]}
+                    href={localizedDashboardHref(locale, STEP_PATHS[key])}
                     rel="noopener"
                     target="_blank"
                   >
@@ -108,7 +109,7 @@ export default async function AppProWelcomePage({
           <div className="mt-8 border-t border-border pt-6">
             <a
               className="inline-flex border border-border px-4 py-2 text-sm font-medium text-foreground"
-              href={`/dashboard?${APP_BROWSER_QUERY}`}
+              href={localizedDashboardHref(locale, "/dashboard")}
               rel="noopener"
               target="_blank"
             >
@@ -124,4 +125,9 @@ export default async function AppProWelcomePage({
 function supportedLocale(locale: string): Locale {
   return routing.locales.find((candidate) => candidate === locale)
     ?? routing.defaultLocale;
+}
+
+function localizedDashboardHref(locale: Locale, path: string): string {
+  const prefix = locale === routing.defaultLocale ? "" : `/${locale}`;
+  return `${prefix}${path}?${APP_BROWSER_QUERY}`;
 }

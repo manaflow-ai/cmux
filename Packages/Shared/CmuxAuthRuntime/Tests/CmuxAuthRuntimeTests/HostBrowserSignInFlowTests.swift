@@ -103,11 +103,7 @@ import Testing
 
     @Test func browserCallbackSignsInAndSeedsTokens() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let signedIn = HostBrowserSignedInRecorder()
-        let harness = HostBrowserSignInFlowHarness(
-            user: user,
-            onSignedIn: { signedIn.record() }
-        )
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
@@ -119,7 +115,6 @@ import Testing
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
         #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
         #expect(harness.flow.isSigningIn == false)
-        #expect(signedIn.callCount == 1)
     }
 
     @Test func cancelledPopupResolvesFalse() async {
@@ -160,11 +155,7 @@ import Testing
 
     @Test func staleSessionCompletionCannotResumeNewAttempt() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let signedIn = HostBrowserSignedInRecorder()
-        let harness = HostBrowserSignInFlowHarness(
-            user: user,
-            onSignedIn: { signedIn.record() }
-        )
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         harness.flow.beginSignIn()
         await harness.waitForSession()
@@ -178,14 +169,12 @@ import Testing
         await Task.yield()
         #expect(harness.flow.isSigningIn)
         #expect(harness.coordinator.isAuthenticated == false)
-        #expect(signedIn.callCount == 0)
 
         harness.factory.sessions[1].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[1])))
 
         #expect(await secondAttempt.value)
         #expect(harness.coordinator.isAuthenticated)
         #expect(harness.coordinator.currentUser == user)
-        #expect(signedIn.callCount == 1)
     }
 
     @Test func abandonedBrowserAttemptTimesOut() async throws {

@@ -10,7 +10,6 @@ const ACCESS_COOKIE_MAX_AGE_SECONDS = 24 * 60 * 60;
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 60;
-const RATE_LIMIT_MAX_ENTRIES = 2_048;
 const APP_HANDOFF_HEADER = "x-cmux-app-session-handoff";
 const APP_HANDOFF_RESPONSE_HEADER = "x-cmux-app-session-response";
 
@@ -46,8 +45,6 @@ type RateLimitEntry = {
   count: number;
   resetAt: number;
 };
-
-const rateLimits = new Map<string, RateLimitEntry>();
 
 function sanitizedAfterPath(value: string | null): string | null {
   if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
@@ -90,36 +87,19 @@ function handoffFailure(
   return signInRedirect(request, afterPath);
 }
 
-function requestRateLimitKey(request: NextRequest): string {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || request.headers.get("x-real-ip") || "unknown";
-}
-
-function pruneRateLimits(now: number): void {
-  if (rateLimits.size < RATE_LIMIT_MAX_ENTRIES) return;
-  for (const [key, entry] of rateLimits) {
-    if (entry.resetAt <= now) rateLimits.delete(key);
-  }
-  while (rateLimits.size >= RATE_LIMIT_MAX_ENTRIES) {
-    const oldestKey = rateLimits.keys().next().value;
-    if (typeof oldestKey !== "string") break;
-    rateLimits.delete(oldestKey);
-  }
-}
-
-function isRateLimited(request: NextRequest, now = Date.now()): boolean {
-  const key = requestRateLimitKey(request);
-  const entry = rateLimits.get(key);
-  if (!entry || entry.resetAt <= now) {
-    pruneRateLimits(now);
-    rateLimits.set(key, {
-      count: 1,
-      resetAt: now + RATE_LIMIT_WINDOW_MS,
-    });
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > RATE_LIMIT_MAX_REQUESTS;
+function makeLocalRateLimiter(): (now: number) => boolean {
+  let entry: RateLimitEntry | null = null;
+  return (now: number) => {
+    if (!entry || entry.resetAt <= now) {
+      entry = {
+        count: 1,
+        resetAt: now + RATE_LIMIT_WINDOW_MS,
+      };
+      return false;
+    }
+    entry.count += 1;
+    return entry.count > RATE_LIMIT_MAX_REQUESTS;
+  };
 }
 
 function isNativeAppHandoff(request: NextRequest): boolean {
@@ -144,8 +124,7 @@ async function isDurablyRateLimited(
   request: NextRequest,
   dependencies: AppSessionHandoffDependencies,
 ): Promise<boolean> {
-  const isVercel = dependencies.isVercel?.() ?? process.env.VERCEL === "1";
-  if (!isVercel) return false;
+  if (!isVercelRuntime(dependencies)) return false;
 
   const rateLimitId = dependencies.rateLimitId
     ?? env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID
@@ -163,6 +142,12 @@ async function isDurablyRateLimited(
   } catch {
     return true;
   }
+}
+
+function isVercelRuntime(
+  dependencies: AppSessionHandoffDependencies,
+): boolean {
+  return dependencies.isVercel?.() ?? process.env.VERCEL === "1";
 }
 
 function secureCookiesFor(request: NextRequest): boolean {
@@ -261,6 +246,10 @@ async function readBodyWithLimit(
 export function makeAppSessionHandoffHandler(
   dependencies: AppSessionHandoffDependencies,
 ) {
+  // Production uses Vercel's durable limiter below. This process-local budget
+  // covers non-Vercel development runtimes and deliberately does not trust
+  // forwarding headers supplied by the caller.
+  const isLocallyRateLimited = makeLocalRateLimiter();
   return async function POST(request: NextRequest) {
     if (!isNativeAppHandoff(request)) {
       return NextResponse.redirect(new URL("/", request.url), 303);
@@ -273,7 +262,8 @@ export function makeAppSessionHandoffHandler(
     const app = dependencies.stackServerApp;
     const projectId = dependencies.projectId;
     if (!app || !projectId) return handoffFailure(request, "/", 503);
-    if (isRateLimited(request, dependencies.now?.() ?? Date.now())) {
+    if (!isVercelRuntime(dependencies)
+      && isLocallyRateLimited(dependencies.now?.() ?? Date.now())) {
       return handoffFailure(request, "/", 429);
     }
     if (await isDurablyRateLimited(request, dependencies)) {
@@ -303,8 +293,10 @@ export function makeAppSessionHandoffHandler(
       });
       if (!user) return handoffFailure(request, afterPath);
 
-      // Reuse the validated native session instead of minting an independent
-      // browser refresh session. Native sign-out then revokes both surfaces.
+      // Stack's browser client requires its refresh cookie to remain readable
+      // by JavaScript. Reusing the validated native session intentionally
+      // couples revocation, while the dedicated non-persistent WebKit store
+      // prevents that credential from entering a shared browser profile.
       const tokens = await user.currentSession.getTokens();
       if (!tokens.refreshToken || !tokens.accessToken) {
         return handoffFailure(request, afterPath, 502);

@@ -320,7 +320,7 @@ import WebKit
            let url = navigationAction.request.url,
            let appLink = BrowserAppLinkOpenRequest(
                url: url,
-               webOrigin: AuthEnvironment.appWebOrigin
+               webOrigin: AuthEnvironment.appSessionHandoffOrigin
            ),
            openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
             clearAttemptedRequest(discardPendingBypasses: true)

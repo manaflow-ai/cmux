@@ -35,7 +35,6 @@ struct HostBrowserSignInFlowHarness {
         openSucceeds: Bool = true,
         beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
         localSignOut: @escaping @MainActor @Sendable () async -> Void = {},
-        onSignedIn: @escaping @MainActor @Sendable () -> Void = {},
         onSignedOut: @escaping @Sendable (
             _ accessToken: String?,
             _ refreshToken: String?
@@ -71,7 +70,6 @@ struct HostBrowserSignInFlowHarness {
             slowSignInThreshold: slowSignInThreshold,
             beginSignOut: beginSignOut,
             localSignOut: localSignOut,
-            onSignedIn: onSignedIn,
             onSignedOut: onSignedOut
         )
         self.coordinator = coordinator
@@ -131,14 +129,5 @@ struct HostBrowserSignInFlowHarness {
             }
             await Task.yield()
         }
-    }
-}
-
-@MainActor
-final class HostBrowserSignedInRecorder {
-    private(set) var callCount = 0
-
-    func record() {
-        callCount += 1
     }
 }

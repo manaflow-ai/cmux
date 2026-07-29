@@ -42,8 +42,10 @@ enum BrowserAppSessionRequestOutcome {
 
     var recoveryAction: BrowserAppSessionRecoveryAction? {
         switch self {
-        case .navigation, .cancelled:
+        case .navigation:
             nil
+        case .cancelled:
+            .isolatedBrowser
         case .notAuthenticated:
             .beginSignIn
         case .transientFailure, .failed:

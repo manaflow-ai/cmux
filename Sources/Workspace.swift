@@ -3778,7 +3778,7 @@ final class Workspace: Identifiable, ObservableObject {
                 return
             }
             guard let auth = AppDelegate.shared?.auth else {
-                _ = self.openAppLinkInIsolatedBrowser(
+                _ = self.recoverAppLinkNavigation(
                     destinationURL,
                     from: sourcePanel
                 )
@@ -3801,21 +3801,25 @@ final class Workspace: Identifiable, ObservableObject {
                 return
             }
             if outcome.recoveryAction == .isolatedBrowser {
-                if !self.openAppLinkInIsolatedBrowser(
+                _ = self.recoverAppLinkNavigation(
                     destinationURL,
                     from: sourcePanel
-                ) {
-                    auth.browserSignIn.beginSignIn()
-                }
+                )
                 return
             }
             guard case let .navigation(navigation) = outcome else { return }
 
             guard let currentSource = self.panels[sourcePanel.id] as? BrowserPanel,
-                  currentSource === sourcePanel,
-                  auth.browserAppSession.isCurrent(
-                      generation: navigation.generation
-                  ) else {
+                  currentSource === sourcePanel else {
+                return
+            }
+            guard auth.browserAppSession.isCurrent(
+                generation: navigation.generation
+            ) else {
+                _ = self.recoverAppLinkNavigation(
+                    destinationURL,
+                    from: sourcePanel
+                )
                 return
             }
             if let targetPane = self.preferredRightSideTargetPane(
@@ -3844,17 +3848,34 @@ final class Workspace: Identifiable, ObservableObject {
             // Navigating the source would reuse its shared profile and lose the
             // native-to-web session established above.
             if let sourcePane = self.paneId(forPanelId: currentSource.id) {
-                _ = self.newBrowserSurface(
+                if self.newBrowserSurface(
                     inPane: sourcePane,
                     initialRequest: navigation.request,
                     focus: true,
                     insertAtEnd: true,
                     preferredProfileID: sourcePanel.profileID,
                     websiteDataStore: navigation.websiteDataStore
-                )
+                ) != nil {
+                    return
+                }
             }
+            _ = self.recoverAppLinkNavigation(
+                destinationURL,
+                from: sourcePanel
+            )
         }
         return true
+    }
+
+    /// Preserves a cancelled app-link click without placing credentials in a
+    /// shared browser profile. The system browser is the last-resort path when
+    /// the workspace can no longer create a browser surface.
+    private func recoverAppLinkNavigation(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        openAppLinkInIsolatedBrowser(destinationURL, from: sourcePanel)
+            || NSWorkspace.shared.open(destinationURL)
     }
 
     /// Opens a handoff recovery page in a fresh cookie store so a failed
