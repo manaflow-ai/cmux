@@ -415,6 +415,89 @@ func TestAttachRPCSharedStartSurvivesOwnerCancellation(t *testing.T) {
 	}
 }
 
+func TestAttachRPCFastExitCoalescedWaitersShareGeneration(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	var startCount atomic.Int32
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		startCount.Add(1)
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	type attachResult struct {
+		attachment  *wsPTYAttachment
+		sessionDone <-chan struct{}
+		err         error
+	}
+	attach := func(ctx context.Context, attachmentID string) <-chan attachResult {
+		result := make(chan attachResult, 1)
+		go func() {
+			attachment, _, sessionDone, err := hub.attachRPC(
+				ctx,
+				"coalesced-fast-exit",
+				attachmentID,
+				80,
+				24,
+				"exit 0",
+				"",
+				false,
+				false,
+			)
+			result <- attachResult{attachment: attachment, sessionDone: sessionDone, err: err}
+		}()
+		return result
+	}
+
+	firstResult := attach(context.Background(), "first")
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first fast-exit attach never attempted PTY allocation")
+	}
+	waiterJoined := make(chan struct{}, 1)
+	secondResult := attach(
+		doneObservedContext{Context: context.Background(), observed: waiterJoined},
+		"second",
+	)
+	select {
+	case <-waiterJoined:
+	case <-time.After(time.Second):
+		close(releaseStart)
+		t.Fatal("second fast-exit attach did not join the in-flight generation")
+	}
+	close(releaseStart)
+
+	results := []attachResult{<-firstResult, <-secondResult}
+	for index, result := range results {
+		if result.err != nil {
+			t.Fatalf("coalesced fast-exit attach %d: %v", index+1, result.err)
+		}
+		if result.attachment == nil || result.sessionDone == nil {
+			t.Fatalf("coalesced fast-exit attach %d returned incomplete attachment", index+1)
+		}
+		select {
+		case <-result.sessionDone:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("coalesced fast-exit attach %d did not observe session exit", index+1)
+		}
+	}
+	if got := startCount.Load(); got != 1 {
+		t.Fatalf("coalesced fast-exit PTY start count = %d, want exactly 1", got)
+	}
+	hub.mu.Lock()
+	_, retained := hub.sessions[persistentPTYSessionKey("coalesced-fast-exit")]
+	hub.mu.Unlock()
+	if retained {
+		t.Fatal("fast-exit generation remained after its final initial claim")
+	}
+}
+
 func TestAttachRPCLateCancellationSchedulesPublishedSessionReap(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:          "/bin/sh",
@@ -457,6 +540,10 @@ func TestAttachRPCLateCancellationSchedulesPublishedSessionReap(t *testing.T) {
 	if !hasIdleTimer {
 		t.Fatal("late-canceled published session has no idle reap timer")
 	}
+
+	session.terminateProcesses()
+	session.closePTYFiles()
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
 }
 
 func TestAttachRPCBoundsStalledSessionStartOwners(t *testing.T) {

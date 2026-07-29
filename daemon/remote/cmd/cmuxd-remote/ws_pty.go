@@ -165,6 +165,16 @@ const (
 	wsPTYAnonymousSession
 )
 
+type wsPTYSessionInitialPhase uint8
+
+// The initial phase keeps a process that exits during attach startup visible
+// until every caller coalesced onto that generation can observe ready + exit.
+const (
+	wsPTYSessionInitialActive wsPTYSessionInitialPhase = iota
+	wsPTYSessionAwaitingInitialAttachment
+	wsPTYSessionFinishedBeforeInitialAttachment
+)
+
 func persistentPTYSessionKey(sessionID string) wsPTYSessionKey {
 	return wsPTYSessionKey{kind: wsPTYPersistentSession, sessionID: sessionID}
 }
@@ -197,14 +207,20 @@ type wsPTYSession struct {
 	closeTTYOnce   sync.Once
 	closePTYOnce   sync.Once
 	terminateOnce  sync.Once
+	initialPhase   wsPTYSessionInitialPhase
+	// initialClaims counts the start owner and live joiners that must consume
+	// this exact generation rather than interpreting an early exit as absence.
+	initialClaims int
 }
 
 type wsPTYSessionStart struct {
 	done    chan struct{}
 	err     error
+	session *wsPTYSession
 	// waiters counts joiners only until the owner publishes or discards the
 	// completed start; the count is never consulted after done closes.
-	waiters int
+	waiters        int
+	closeRequested bool
 }
 
 type wsPTYHub struct {
@@ -862,14 +878,29 @@ func (h *wsPTYHub) prepareAttachment(
 	h.mu.Unlock()
 
 	var session *wsPTYSession
+	var claimedSession *wsPTYSession
+	ownsInitialClaim := false
 	for {
 		h.mu.Lock()
 		if h.closed {
 			h.mu.Unlock()
 			return nil, nil, nil, errWSPTYHubClosed
 		}
+		if claimedSession != nil {
+			session = claimedSession
+			if h.sessions[sessionKey] != session || session.closed {
+				h.releaseInitialClaimLocked(session)
+				h.mu.Unlock()
+				return nil, nil, nil, fmt.Errorf("persistent PTY session %q closed before attachment completed", sessionID)
+			}
+			break
+		}
 		session = h.sessions[sessionKey]
 		if session != nil && !session.closed {
+			if session.initialPhase == wsPTYSessionFinishedBeforeInitialAttachment {
+				h.mu.Unlock()
+				return nil, nil, nil, fmt.Errorf("persistent PTY session %q is no longer running", sessionID)
+			}
 			break
 		}
 		if start := h.startingSessions[sessionKey]; start != nil {
@@ -881,14 +912,24 @@ func (h *wsPTYHub) prepareAttachment(
 				if start.err != nil {
 					return nil, nil, nil, start.err
 				}
+				claimedSession = start.session
+				ownsInitialClaim = claimedSession != nil
 			case <-closedCh:
 				h.mu.Lock()
-				start.waiters--
+				if start.session != nil {
+					h.releaseInitialClaimLocked(start.session)
+				} else {
+					start.waiters--
+				}
 				h.mu.Unlock()
 				return nil, nil, nil, errWSPTYHubClosed
 			case <-ctx.Done():
 				h.mu.Lock()
-				start.waiters--
+				if start.session != nil {
+					h.releaseInitialClaimLocked(start.session)
+				} else {
+					start.waiters--
+				}
 				h.mu.Unlock()
 				return nil, nil, nil, ctx.Err()
 			}
@@ -912,22 +953,35 @@ func (h *wsPTYHub) prepareAttachment(
 		startedSession, startErr := h.startSession(sessionKey, sessionID, cols, rows, command)
 		<-h.sessionStartSlots
 		discardStartedSession := false
+		publishedStartedSession := false
 
 		h.mu.Lock()
 		delete(h.startingSessions, sessionKey)
 		if startErr == nil {
+			ownerContextErr := ctx.Err()
 			switch existingSession := h.sessions[sessionKey]; {
 			case h.closed:
 				startErr = errWSPTYHubClosed
 				discardStartedSession = true
-			case ctx.Err() != nil && start.waiters == 0:
-				startErr = ctx.Err()
+			case start.closeRequested:
+				startErr = fmt.Errorf("persistent PTY session %q was closed while starting", sessionID)
+				discardStartedSession = true
+			case ownerContextErr != nil && start.waiters == 0:
+				startErr = ownerContextErr
 				discardStartedSession = true
 			case existingSession != nil && !existingSession.closed:
 				discardStartedSession = true
 			default:
+				startedSession.initialClaims = start.waiters
+				if ownerContextErr == nil {
+					startedSession.initialClaims++
+					claimedSession = startedSession
+					ownsInitialClaim = true
+				}
 				h.sessions[sessionKey] = startedSession
 				h.scheduleIdleReapLocked(startedSession)
+				start.session = startedSession
+				publishedStartedSession = true
 			}
 		}
 		start.err = startErr
@@ -944,9 +998,18 @@ func (h *wsPTYHub) prepareAttachment(
 		if startErr != nil {
 			return nil, nil, nil, startErr
 		}
+		if publishedStartedSession && !ownsInitialClaim {
+			return nil, nil, nil, ctx.Err()
+		}
+		if publishedStartedSession {
+			continue
+		}
 	}
 
 	if err := ctx.Err(); err != nil {
+		if ownsInitialClaim {
+			h.releaseInitialClaimLocked(session)
+		}
 		if len(session.attachments) == 0 {
 			h.scheduleIdleReapLocked(session)
 		}
@@ -989,6 +1052,9 @@ func (h *wsPTYHub) prepareAttachment(
 	replay := append([]byte(nil), session.scrollback...)
 	if ok := attachment.enqueueReady(sessionID); !ok {
 		cancel()
+		if ownsInitialClaim {
+			h.releaseInitialClaimLocked(session)
+		}
 		h.mu.Unlock()
 		if superseded != nil {
 			superseded.closeNow()
@@ -997,14 +1063,25 @@ func (h *wsPTYHub) prepareAttachment(
 	}
 	if ok := enqueuePTYReplay(attachment, replay); !ok {
 		cancel()
+		if ownsInitialClaim {
+			h.releaseInitialClaimLocked(session)
+		}
 		h.mu.Unlock()
 		if superseded != nil {
 			superseded.closeNow()
 		}
 		return nil, nil, nil, errors.New("failed to queue replay frame")
 	}
-	session.attachments[attachmentID] = attachment
-	shouldApplySize := h.recomputeSessionSizeLocked(session)
+	finishedBeforeInitialAttachment := session.initialPhase == wsPTYSessionFinishedBeforeInitialAttachment
+	shouldApplySize := false
+	if !finishedBeforeInitialAttachment {
+		session.attachments[attachmentID] = attachment
+		session.initialPhase = wsPTYSessionInitialActive
+		shouldApplySize = h.recomputeSessionSizeLocked(session)
+	}
+	if ownsInitialClaim {
+		h.releaseInitialClaimLocked(session)
+	}
 	sessionDone := session.done
 	h.mu.Unlock()
 
@@ -1015,6 +1092,21 @@ func (h *wsPTYHub) prepareAttachment(
 		h.applyCurrentPTYSize(session)
 	}
 	return attachment, attachmentCtx, sessionDone, nil
+}
+
+func (h *wsPTYHub) releaseInitialClaimLocked(session *wsPTYSession) {
+	if session == nil || session.initialClaims <= 0 {
+		return
+	}
+	session.initialClaims--
+	if session.initialClaims != 0 ||
+		session.initialPhase != wsPTYSessionFinishedBeforeInitialAttachment ||
+		h.sessions[session.key] != session {
+		return
+	}
+	delete(h.sessions, session.key)
+	h.cancelIdleReapLocked(session)
+	session.closed = true
 }
 
 func (h *wsPTYHub) startSession(sessionKey wsPTYSessionKey, sessionID string, cols int, rows int, command string) (*wsPTYSession, error) {
@@ -1078,6 +1170,7 @@ func (h *wsPTYHub) startSession(sessionKey wsPTYSessionKey, sessionID string, co
 		lastKnownRows: rows,
 		input:         make(chan wsPTYInputChunk, defaultPTYInputQueueCap),
 		done:          make(chan struct{}),
+		initialPhase:  wsPTYSessionAwaitingInitialAttachment,
 	}
 	return session, nil
 }
@@ -1375,6 +1468,11 @@ func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
 	sessionKey := persistentPTYSessionKey(sessionID)
 
 	h.mu.Lock()
+	if start := h.startingSessions[sessionKey]; start != nil {
+		start.closeRequested = true
+		h.mu.Unlock()
+		return true
+	}
 	session := h.sessions[sessionKey]
 	if session == nil || session.closed {
 		h.mu.Unlock()
@@ -1650,6 +1748,17 @@ func (h *wsPTYHub) finishSession(session *wsPTYSession) {
 	session.closePTYFiles()
 
 	h.mu.Lock()
+	if session.initialPhase == wsPTYSessionAwaitingInitialAttachment {
+		session.initialPhase = wsPTYSessionFinishedBeforeInitialAttachment
+		close(session.done)
+		if session.initialClaims == 0 && h.sessions[session.key] == session {
+			delete(h.sessions, session.key)
+			h.cancelIdleReapLocked(session)
+			session.closed = true
+		}
+		h.mu.Unlock()
+		return
+	}
 	if h.sessions[session.key] == session {
 		delete(h.sessions, session.key)
 	}

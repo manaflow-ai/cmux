@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -1252,6 +1253,123 @@ func TestStdioRPCStalledPTYAttachDoesNotBlockHealthyAttach(t *testing.T) {
 	}
 	if strings.Contains(output.String(), `"id":1`) {
 		t.Fatalf("stalled attach unexpectedly completed before release: %q", output.String())
+	}
+}
+
+func TestStdioRPCCloseOvertakesStalledPTYStart(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	stdinReader, stdinWriter := io.Pipe()
+	output := newNotifyingBuffer()
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- runRPCServer(stdinReader, output, hub, false)
+	}()
+	t.Cleanup(func() {
+		_ = stdinWriter.Close()
+		select {
+		case <-releaseStart:
+		default:
+			close(releaseStart)
+		}
+	})
+
+	writePersistentTestFrame(t, bufio.NewWriter(stdinWriter), rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "close-stalled-start",
+			"attachment_id":           "stalled",
+			"client_attachment_token": "stalled-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 30",
+		},
+	})
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PTY attach never reached its stalled allocation")
+	}
+
+	writePersistentTestFrame(t, bufio.NewWriter(stdinWriter), rpcRequest{
+		ID:     2,
+		Method: "pty.close",
+		Params: map[string]any{
+			"session_id": "close-stalled-start",
+		},
+	})
+	closeResponse := waitForRPCResponseID(t, output, 2, time.Second)
+	if ok, _ := closeResponse["ok"].(bool); !ok {
+		t.Fatalf("close pending PTY start failed: %v", closeResponse)
+	}
+
+	close(releaseStart)
+	attachResponse := waitForRPCResponseID(t, output, 1, 5*time.Second)
+	if ok, _ := attachResponse["ok"].(bool); ok {
+		t.Fatalf("closed pending PTY start unexpectedly attached: %v", attachResponse)
+	}
+	hub.mu.Lock()
+	_, published := hub.sessions[persistentPTYSessionKey("close-stalled-start")]
+	hub.mu.Unlock()
+	if published {
+		t.Fatal("closed pending PTY start was published")
+	}
+}
+
+func TestStdioRPCShortCommandStartsExactlyOnce(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	var startCount atomic.Int32
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		startCount.Add(1)
+		return openPTY()
+	}
+
+	stdinReader, stdinWriter := io.Pipe()
+	output := newNotifyingBuffer()
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- runRPCServer(stdinReader, output, hub, false)
+	}()
+	t.Cleanup(func() { _ = stdinWriter.Close() })
+
+	writePersistentTestFrame(t, bufio.NewWriter(stdinWriter), rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "short-command",
+			"attachment_id":           "short",
+			"client_attachment_token": "short-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "exit 0",
+		},
+	})
+	response := waitForRPCResponseID(t, output, 1, 5*time.Second)
+	if ok, _ := response["ok"].(bool); !ok {
+		t.Fatalf("short command attach failed: %v", response)
+	}
+	exitEvent := waitForRPCEvent(t, output, 0, func(event map[string]any) bool {
+		return event["event"] == "pty.exit"
+	})
+	if exitEvent["session_id"] != "short-command" {
+		t.Fatalf("short command exit event = %v", exitEvent)
+	}
+	if got := startCount.Load(); got != 1 {
+		t.Fatalf("short command PTY start count = %d, want exactly 1", got)
 	}
 }
 
