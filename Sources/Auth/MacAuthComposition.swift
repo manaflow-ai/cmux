@@ -143,7 +143,8 @@ struct MacAuthComposition {
         let browserAppSession = BrowserAppSessionController(
             coordinator: coordinator,
             webOrigin: AuthEnvironment.appWebOrigin,
-            projectID: stackProjectID
+            projectID: stackProjectID,
+            defaults: defaults
         )
         self.browserAppSession = browserAppSession
         let callbackRouter = AuthCallbackRouter(

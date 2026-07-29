@@ -3777,7 +3777,13 @@ final class Workspace: Identifiable, ObservableObject {
                   mountedSource === sourcePanel else {
                 return
             }
-            guard let auth = AppDelegate.shared?.auth else { return }
+            guard let auth = AppDelegate.shared?.auth else {
+                _ = self.openAppLinkInIsolatedBrowser(
+                    destinationURL,
+                    from: sourcePanel
+                )
+                return
+            }
             var outcome = await auth.browserAppSession.request(
                 destinationURL: destinationURL,
                 websiteDataStore: sourcePanel.websiteDataStore
@@ -3792,8 +3798,17 @@ final class Workspace: Identifiable, ObservableObject {
                     websiteDataStore: retrySource.websiteDataStore
                 )
             }
-            if outcome.shouldBeginSignIn {
+            if outcome.recoveryAction == .beginSignIn {
                 auth.browserSignIn.beginSignIn()
+                return
+            }
+            if outcome.recoveryAction == .isolatedBrowser {
+                if !self.openAppLinkInIsolatedBrowser(
+                    destinationURL,
+                    from: sourcePanel
+                ) {
+                    auth.browserSignIn.beginSignIn()
+                }
                 return
             }
             guard case let .navigation(navigation) = outcome else { return }
@@ -3826,8 +3841,44 @@ final class Workspace: Identifiable, ObservableObject {
             ) != nil {
                 return
             }
+            _ = currentSource.navigateWithoutInsecureHTTPPrompt(
+                request: navigation.request,
+                recordTypedNavigation: false
+            )
         }
         return true
+    }
+
+    /// Opens a handoff recovery page in a fresh cookie store so a failed
+    /// exchange cannot fall through to an unrelated signed-in browser profile.
+    private func openAppLinkInIsolatedBrowser(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard let mountedSource = panels[sourcePanel.id] as? BrowserPanel,
+              mountedSource === sourcePanel else {
+            return false
+        }
+        let isolatedStore = WKWebsiteDataStore.nonPersistent()
+        if let targetPane = preferredRightSideTargetPane(
+            fromPanelId: sourcePanel.id
+        ), newBrowserSurface(
+            inPane: targetPane,
+            url: destinationURL,
+            focus: true,
+            preferredProfileID: sourcePanel.profileID,
+            websiteDataStore: isolatedStore
+        ) != nil {
+            return true
+        }
+        return newBrowserSplit(
+            from: sourcePanel.id,
+            orientation: .horizontal,
+            url: destinationURL,
+            preferredProfileID: sourcePanel.profileID,
+            focus: true,
+            websiteDataStore: isolatedStore
+        ) != nil
     }
 
     private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {

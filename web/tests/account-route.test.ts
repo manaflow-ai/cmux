@@ -523,8 +523,7 @@ mock.module("../services/asc/client", () => ({
 mock.module("../services/asc/testflight", () => ({
   ...ascTestflightModule,
   removeTester: ((...args: Parameters<typeof realRemoveTester>) => {
-    const [email] = args;
-    if (useAccountRouteStubs) return removeTester(email);
+    if (useAccountRouteStubs) return removeTester(...args);
     return realRemoveTester(...args);
   }) as typeof realRemoveTester,
 }));
@@ -1361,7 +1360,9 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
-    expect(removeTester).toHaveBeenCalledWith("account@example.com");
+    expect(removeTester).toHaveBeenCalledWith("account@example.com", {
+      ownedLegacyGroupIDs: [],
+    });
     expect(routeEvents).toContain("testflight-remove:account@example.com");
   });
 

@@ -27,6 +27,150 @@ enum BrowserAppSessionRequestOutcome {
     static func exchangeFailure(statusCode: Int) -> Self {
         statusCode == 401 ? .notAuthenticated : .failed
     }
+
+    static func tokenFailure(_ error: Error) -> Self {
+        if let authError = error as? AuthError,
+           authError == .unauthorized {
+            return .notAuthenticated
+        }
+        return .failed
+    }
+
+    var recoveryAction: BrowserAppSessionRecoveryAction? {
+        switch self {
+        case .navigation:
+            nil
+        case .notAuthenticated:
+            .beginSignIn
+        case .failed:
+            .isolatedBrowser
+        }
+    }
+}
+
+enum BrowserAppSessionRecoveryAction: Equatable {
+    case beginSignIn
+    case isolatedBrowser
+}
+
+enum BrowserAppSessionStoreIdentity: Hashable {
+    case defaultStore
+    case persistent(UUID)
+
+    fileprivate init?(persistedValue: String) {
+        if persistedValue == "default" {
+            self = .defaultStore
+            return
+        }
+        guard persistedValue.hasPrefix("persistent:"),
+              let identifier = UUID(
+                  uuidString: String(persistedValue.dropFirst("persistent:".count))
+              ) else {
+            return nil
+        }
+        self = .persistent(identifier)
+    }
+
+    fileprivate var persistedValue: String {
+        switch self {
+        case .defaultStore:
+            "default"
+        case let .persistent(identifier):
+            "persistent:\(identifier.uuidString.lowercased())"
+        }
+    }
+}
+
+/// Persists only the exact WebKit stores that received cmux app-session
+/// cookies. Persistent store identifiers survive an app relaunch; ephemeral
+/// stores remain process-local because WebKit discards their data on exit.
+@MainActor
+final class BrowserAppSessionStoreRegistry {
+    private let defaults: UserDefaults
+    private let defaultsKey: String
+    private var liveStores: [ObjectIdentifier: WKWebsiteDataStore] = [:]
+    private var identities: Set<BrowserAppSessionStoreIdentity>
+
+    init(defaults: UserDefaults, defaultsKey: String) {
+        self.defaults = defaults
+        self.defaultsKey = defaultsKey
+        identities = Set(
+            (defaults.stringArray(forKey: defaultsKey) ?? []).compactMap(
+                BrowserAppSessionStoreIdentity.init(persistedValue:)
+            )
+        )
+    }
+
+    var persistedIdentities: [BrowserAppSessionStoreIdentity] {
+        identities.sorted { $0.persistedValue < $1.persistedValue }
+    }
+
+    func register(_ store: WKWebsiteDataStore) {
+        liveStores[ObjectIdentifier(store)] = store
+        guard let identity = Self.identity(for: store),
+              identities.insert(identity).inserted else {
+            return
+        }
+        persist()
+    }
+
+    func storesForCleanup() -> [WKWebsiteDataStore] {
+        var stores = liveStores
+        for identity in identities {
+            let store = Self.store(for: identity)
+            stores[ObjectIdentifier(store)] = store
+        }
+        return Array(stores.values)
+    }
+
+    func removeAllOwnership() {
+        liveStores.removeAll()
+        identities.removeAll()
+        defaults.removeObject(forKey: defaultsKey)
+    }
+
+    private func persist() {
+        defaults.set(
+            persistedIdentities.map(\.persistedValue),
+            forKey: defaultsKey
+        )
+    }
+
+    private static func identity(
+        for store: WKWebsiteDataStore
+    ) -> BrowserAppSessionStoreIdentity? {
+        if store === WKWebsiteDataStore.default() {
+            return .defaultStore
+        }
+        return store.identifier.map(BrowserAppSessionStoreIdentity.persistent)
+    }
+
+    private static func store(
+        for identity: BrowserAppSessionStoreIdentity
+    ) -> WKWebsiteDataStore {
+        switch identity {
+        case .defaultStore:
+            WKWebsiteDataStore.default()
+        case let .persistent(identifier):
+            WKWebsiteDataStore(forIdentifier: identifier)
+        }
+    }
+}
+
+final class BrowserAppSessionRedirectRejectingDelegate:
+    NSObject,
+    URLSessionTaskDelegate,
+    @unchecked Sendable
+{
+    nonisolated func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
 }
 
 /// Exchanges the native Stack session for browser cookies without allowing
@@ -36,27 +180,39 @@ final class BrowserAppSessionController {
     private let coordinator: AuthCoordinator
     private let handoff: BrowserAppSessionHandoff
     private let projectID: String
+    private let redirectDelegate: BrowserAppSessionRedirectRejectingDelegate
     private let session: URLSession
+    private let storeRegistry: BrowserAppSessionStoreRegistry
     private var generation: UInt64 = 0
     private var acceptsHandoffs = true
     private var activeTasks: [UUID: Task<BrowserAppSessionRequestOutcome, Never>] = [:]
-    private var handoffStores: [ObjectIdentifier: WKWebsiteDataStore] = [:]
 
     init(
         coordinator: AuthCoordinator,
         webOrigin: URL,
-        projectID: String
+        projectID: String,
+        defaults: UserDefaults = .standard
     ) {
         self.coordinator = coordinator
         handoff = BrowserAppSessionHandoff(webOrigin: webOrigin)
         self.projectID = projectID
+        storeRegistry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "cmux.auth.browserAppSessionStores.\(projectID)"
+        )
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        session = URLSession(configuration: configuration)
+        let redirectDelegate = BrowserAppSessionRedirectRejectingDelegate()
+        self.redirectDelegate = redirectDelegate
+        session = URLSession(
+            configuration: configuration,
+            delegate: redirectDelegate,
+            delegateQueue: nil
+        )
     }
 
     func request(
@@ -110,11 +266,11 @@ final class BrowserAppSessionController {
         }
         activeTasks.removeAll()
 
-        let stores = Array(handoffStores.values)
-        handoffStores.removeAll()
+        let stores = storeRegistry.storesForCleanup()
         for store in stores {
             await clearCmuxWebSession(in: store)
         }
+        storeRegistry.removeAllOwnership()
     }
 
     private func performHandoff(
@@ -123,19 +279,25 @@ final class BrowserAppSessionController {
         requestGeneration: UInt64
     ) async -> BrowserAppSessionRequestOutcome {
         let tokens: BrowserAppSessionTokens
-        if let current = try? await coordinator.currentTokens() {
+        do {
+            let current = try await coordinator.currentTokens()
             tokens = BrowserAppSessionTokens(
                 accessToken: current.accessToken,
                 refreshToken: current.refreshToken
             )
-        } else if let refreshToken = await coordinator.refreshToken(),
-                  !refreshToken.isEmpty {
-            tokens = BrowserAppSessionTokens(
-                accessToken: await coordinator.storedAccessToken(),
-                refreshToken: refreshToken
-            )
-        } else {
-            return coordinator.isAuthenticated ? .failed : .notAuthenticated
+        } catch {
+            if BrowserAppSessionRequestOutcome.tokenFailure(error).shouldBeginSignIn {
+                return .notAuthenticated
+            }
+            if let refreshToken = await coordinator.refreshToken(),
+               !refreshToken.isEmpty {
+                tokens = BrowserAppSessionTokens(
+                    accessToken: await coordinator.storedAccessToken(),
+                    refreshToken: refreshToken
+                )
+            } else {
+                return .failed
+            }
         }
 
         guard handoffIsCurrent(requestGeneration),
@@ -167,7 +329,7 @@ final class BrowserAppSessionController {
             return .failed
         }
 
-        handoffStores[ObjectIdentifier(websiteDataStore)] = websiteDataStore
+        storeRegistry.register(websiteDataStore)
         await clearCmuxWebSession(in: websiteDataStore)
         guard handoffIsCurrent(requestGeneration) else { return .failed }
         for cookie in cookies {

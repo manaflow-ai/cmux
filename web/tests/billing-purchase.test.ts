@@ -1113,7 +1113,7 @@ describe("recordCheckoutCompletion", () => {
   test("removes an explicitly recorded legacy Pro membership when Pro lapses", async () => {
     const removeTester = mock(async () => undefined);
     const user = {
-      id: "user_legacy",
+      id: "user_123",
       primaryEmail: "legacy@example.com",
       clientReadOnlyMetadata: {
         cmuxPlan: "pro",
@@ -1123,14 +1123,10 @@ describe("recordCheckoutCompletion", () => {
       },
       update: mock(async () => undefined),
     };
-    selectResults = [[{ stackUserId: "user_legacy" }], [{ id: "sub_legacy" }]];
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
 
     const result = await applySubscriptionUpdate(
-      userSubscriptionUpdate({
-        id: "sub_legacy",
-        status: "canceled",
-        metadata: { stackUserId: "user_legacy", scope: "user" },
-      }) as never,
+      userSubscriptionUpdate({ status: "canceled" }) as never,
       {
         db: fakeDb() as never,
         stackApp: { getUser: async () => user } as never,
@@ -1143,7 +1139,7 @@ describe("recordCheckoutCompletion", () => {
 
     expect(result).toEqual({
       scope: "user",
-      stackUserId: "user_legacy",
+      stackUserId: "user_123",
       isActive: false,
     });
     expect(removeTester).toHaveBeenCalledWith("legacy@example.com", {

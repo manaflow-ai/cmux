@@ -38,7 +38,10 @@ import {
   type ProMetadataCustomer,
 } from "../../../services/billing/pro";
 import { isAscConfigured } from "../../../services/asc/client";
-import { removeTester } from "../../../services/asc/testflight";
+import {
+  proOwnedLegacyTestflightGroupIDs,
+  removeTester,
+} from "../../../services/asc/testflight";
 import { captureAscError } from "../../../services/errors";
 import { isStripeBillingConfigured, stripe } from "../../../services/billing/stripe";
 import {
@@ -186,12 +189,16 @@ export async function DELETE(request: Request): Promise<Response> {
         },
       },
     );
-    await removeTestFlightAccessForAccountDeletion(stackUser, {
-      afterExternalMutation: () => {
-        restoreBillingEntitlementsOnFailure = false;
-        destructiveCleanupStarted = true;
+    await removeTestFlightAccessForAccountDeletion(
+      stackUser,
+      originalStackMetadata,
+      {
+        afterExternalMutation: () => {
+          restoreBillingEntitlementsOnFailure = false;
+          destructiveCleanupStarted = true;
+        },
       },
-    });
+    );
     await refreshAccountDeletionTombstoneLease(userId);
     try {
       const revokedIdentityLeases = await revokeAccountDeletionIdentityLeases(userId, {
@@ -928,13 +935,16 @@ function deletedStripeAccountId(userId: string): string {
 
 async function removeTestFlightAccessForAccountDeletion(
   user: DeletableStackUser,
+  ownershipMetadata: unknown,
   options: { readonly afterExternalMutation?: () => void } = {},
 ): Promise<void> {
   if (!isAscConfigured()) return;
   const email = user.primaryEmail?.trim();
   if (!email) return;
   try {
-    await removeTester(email);
+    await removeTester(email, {
+      ownedLegacyGroupIDs: proOwnedLegacyTestflightGroupIDs(ownershipMetadata),
+    });
     options.afterExternalMutation?.();
   } catch (error) {
     captureAscError(error, {

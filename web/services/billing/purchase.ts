@@ -23,7 +23,11 @@ import {
 } from "./pro";
 import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
-import { removeTester, type RemoveTesterOptions } from "../asc/testflight";
+import {
+  proOwnedLegacyTestflightGroupIDs,
+  removeTester,
+  type RemoveTesterOptions,
+} from "../asc/testflight";
 import { captureAscError } from "../errors";
 
 export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
@@ -606,7 +610,11 @@ async function removeUserFromTestflightOnLapse(
   try {
     await (dependencies.testflight?.removeTester ?? removeTester)(
       user.primaryEmail,
-      { removeLegacyFounderMembership: true },
+      {
+        ownedLegacyGroupIDs: proOwnedLegacyTestflightGroupIDs(
+          user.clientReadOnlyMetadata,
+        ),
+      },
     );
   } catch (error) {
     (dependencies.testflight?.captureAscError ?? captureAscError)(error, {

@@ -1,9 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 import { localizedVaultPath, vaultSignInHref } from "../../lib/vault-auth";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { locales, routing } from "../../../i18n/routing";
-import { enrollTester, removeTester } from "../../../services/asc/testflight";
+import {
+  enrollTester,
+  proOwnedLegacyTestflightGroupIDs,
+  removeTester,
+} from "../../../services/asc/testflight";
 import { isAscConfigured } from "../../../services/asc/client";
 import { isTestflightEligible } from "../../../services/billing/pro";
 import { captureAscError } from "../../../services/errors";
@@ -56,7 +60,11 @@ export async function POST(request: NextRequest) {
       return testflightRedirect(request, "joined");
     }
 
-    await removeTester(email);
+    await removeTester(email, {
+      ownedLegacyGroupIDs: proOwnedLegacyTestflightGroupIDs(
+        user.clientReadOnlyMetadata,
+      ),
+    });
     return testflightRedirect(request, "left");
   } catch (error) {
     captureAscError(error, {

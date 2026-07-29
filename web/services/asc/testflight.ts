@@ -12,11 +12,30 @@ export const FOUNDER_TESTFLIGHT_GROUP_ID =
 
 export type RemoveTesterOptions = {
   /**
-   * Before the dedicated Pro group existed, Pro testers were added to the
-   * Founder group. This fallback is reserved for a Pro subscription lapse.
+   * Server-recorded legacy group memberships that were created by Pro. Never
+   * infer these from current ASC overlap because genuine Founders can also
+   * subscribe to Pro.
    */
-  readonly removeLegacyFounderMembership?: boolean;
+  readonly ownedLegacyGroupIDs?: readonly string[];
 };
+
+const PRO_OWNED_LEGACY_TESTFLIGHT_GROUP_IDS_METADATA_KEY =
+  "cmuxProTestflightOwnedLegacyGroupIDs";
+
+export function proOwnedLegacyTestflightGroupIDs(
+  metadata: unknown,
+): readonly string[] {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return [];
+  }
+  const value = (metadata as Record<string, unknown>)[
+    PRO_OWNED_LEGACY_TESTFLIGHT_GROUP_IDS_METADATA_KEY
+  ];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (groupID): groupID is string => groupID === FOUNDER_TESTFLIGHT_GROUP_ID,
+  );
+}
 
 type JsonApiResource = {
   readonly id: string;
@@ -119,18 +138,15 @@ export async function removeTester(
 ): Promise<void> {
   const tester = await findBetaTesterByEmail(email);
   if (!tester) return;
-  let groupID = PRO_TESTFLIGHT_GROUP_ID;
-  if (options.removeLegacyFounderMembership) {
-    const groupIDs = await testerGroupIDs(tester.id);
-    if (groupIDs.has(PRO_TESTFLIGHT_GROUP_ID)) {
-      groupID = PRO_TESTFLIGHT_GROUP_ID;
-    } else if (groupIDs.has(FOUNDER_TESTFLIGHT_GROUP_ID)) {
-      groupID = FOUNDER_TESTFLIGHT_GROUP_ID;
-    } else {
-      return;
-    }
+  const groupIDs = [
+    PRO_TESTFLIGHT_GROUP_ID,
+    ...(options.ownedLegacyGroupIDs ?? []).filter(
+      (groupID) => groupID === FOUNDER_TESTFLIGHT_GROUP_ID,
+    ),
+  ];
+  for (const groupID of new Set(groupIDs)) {
+    await removeTesterFromGroup(tester.id, groupID);
   }
-  await removeTesterFromGroup(tester.id, groupID);
 }
 
 async function removeTesterFromGroup(
