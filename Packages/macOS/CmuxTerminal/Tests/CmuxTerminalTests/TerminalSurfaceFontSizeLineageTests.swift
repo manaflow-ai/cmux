@@ -1111,6 +1111,76 @@ private func setFontBindingResult(_ result: Bool)
     }
 
     @Test
+    func abandonedConfigurationReloadPreservesDurableMobileFitBase() {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(13, isExplicitOverride: true)
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        registry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: surface.id
+        )
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.mobileViewportFontFitState =
+            MobileViewportFontFitState(
+                baseRuntimePointSize: 13,
+                fittedRuntimePointSize: 8
+            )
+        beginFontState(runtimeSurface, 8, true, 13)
+        defer {
+            setFontBindingResult(true)
+            endFontState()
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        let state =
+            surface.captureFontSizeConfigurationReloadState(
+                magnificationPercent: 100,
+                targetConfiguredRuntimePoints: 26,
+                targetMagnificationPercent: 200
+            )
+        beginFontState(runtimeSurface, 8, false, 26)
+        setFontBindingResult(false)
+        #expect(
+            surface.reconcileFontSizeAfterConfigurationReload(
+                from: state,
+                configuredRuntimePoints: 26,
+                magnificationPercent: 200
+            ) == .failed
+        )
+
+        surface
+            .abandonFontSizeConfigurationReloadReconciliation(
+                from: state,
+                magnificationPercent: 200
+            )
+
+        #expect(
+            surface.mobileViewportFontFitState
+                == MobileViewportFontFitState(
+                    baseRuntimePointSize: 26,
+                    fittedRuntimePointSize: 8
+                )
+        )
+        #expect(
+            surface.lastKnownFontSizeLineage
+                == TerminalFontSizeLineage(
+                    basePoints: 13,
+                    isExplicitOverride: true
+                )
+        )
+        #expect(!surface.followsConfiguredFontSize)
+    }
+
+    @Test
     func neverRealizedFollowerUsesTargetReloadInheritance() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(12, isExplicitOverride: false)

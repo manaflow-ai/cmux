@@ -1900,6 +1900,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
     func testWorkspaceSnapshotProjectsJoinDeferredBehindConfigurationBarrier() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(
+            workspace.bonsplitController.focusedPaneId
+        )
         let terminalPanels =
             workspace.panels.values.compactMap {
                 $0 as? TerminalPanel
@@ -1961,6 +1964,46 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 $0.surface.fontSizeLineageSnapshot()?
                     .basePoints == 20
             }
+        )
+        let projectedTerminal = try XCTUnwrap(
+            snapshot.panels.compactMap(\.terminal).first
+        )
+        XCTAssertFalse(
+            projectedTerminal.fontSizeChangeTokens?.isEmpty
+                ?? true
+        )
+        let restoredPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: pane,
+                focus: false,
+                runtimeSpawnPolicy: .pacedSessionRestore,
+                terminalFontSizeCreationPolicy:
+                    .sessionRestore(
+                        overrideBasePoints:
+                            projectedTerminal.fontSize,
+                        representedChangeTokens: Set(
+                            projectedTerminal
+                                .fontSizeChangeTokens
+                                ?? []
+                        )
+                    )
+            )
+        )
+
+        finishConfigurationBarrier?()
+        finishConfigurationBarrier = nil
+#if DEBUG
+        coordinator.debugDrainAll()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        XCTAssertEqual(
+            restoredPanel.surface
+                .fontSizeLineageSnapshot()?
+                .basePoints,
+            19,
+            "Promoting a deferred join must not replay its projected change on a restored terminal"
         )
     }
 
@@ -3513,6 +3556,13 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 arbiter.extendCurrentFontSizeWorkIdleBarrier()
         }
         defer { finishConfigurationBarrier?() }
+        arbiter
+            .setCurrentFontSizeWorkIdleBarrierProjectionConfiguration(
+                WorkspaceTerminalFontConfigurationSnapshot(
+                    configuredRuntimePoints: 12,
+                    magnificationPercent: 100
+                )
+            )
         XCTAssertTrue(
             sourceCoordinator.enqueue(
                 .relative([-1]),
@@ -3526,6 +3576,38 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             return
         }
         destinationManager.attachWorkspace(detached, select: true)
+        let pane = try? XCTUnwrap(
+            workspace.bonsplitController.focusedPaneId
+        )
+        guard let pane,
+              let projectedTerminal =
+                workspace.sessionSnapshot(
+                    includeScrollback: false,
+                    restorableAgentIndex: .empty
+                ).panels.compactMap(\.terminal).first,
+              let restoredPanel =
+                workspace.newTerminalSurface(
+                    inPane: pane,
+                    focus: false,
+                    runtimeSpawnPolicy: .pacedSessionRestore,
+                    terminalFontSizeCreationPolicy:
+                        .sessionRestore(
+                            overrideBasePoints:
+                                projectedTerminal.fontSize,
+                            representedChangeTokens: Set(
+                                projectedTerminal
+                                    .fontSizeChangeTokens
+                                    ?? []
+                            )
+                        )
+                ) else {
+            XCTFail("Expected a projected restored terminal")
+            return
+        }
+        XCTAssertFalse(
+            projectedTerminal.fontSizeChangeTokens?.isEmpty
+                ?? true
+        )
 
         sourceCoordinator.cancelWindowOwnedWork()
         finishConfigurationBarrier?()
@@ -3543,6 +3625,13 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
             },
             "Closing the source window must preserve a deferred request owned by the moved workspace"
+        )
+        XCTAssertEqual(
+            restoredPanel.surface
+                .fontSizeLineageSnapshot()?
+                .basePoints,
+            19,
+            "Workspace-only promotion must retain the deferred join's projected token"
         )
     }
 
