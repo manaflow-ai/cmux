@@ -41,12 +41,26 @@ extension BrowserPanel {
         scheduled: false,
         pendingDirty: true,
         lastPost: 0,
+        lastScrollPost: -Infinity,
         markDirty() {
           if (!this.enabled) return;
           this.pendingDirty = true;
           if (this.scheduled) return;
           this.scheduled = true;
           nativeRequestAnimationFrame(this.tick);
+        },
+        postScrollDirty() {
+          if (!this.enabled) return;
+          this.pendingDirty = true;
+          const timestamp = performance.now();
+          if (timestamp - this.lastScrollPost < 16) {
+            this.markDirty();
+            return;
+          }
+          this.lastScrollPost = timestamp;
+          this.lastPost = timestamp;
+          this.pendingDirty = false;
+          if (!post()) this.enabled = false;
         },
         tick: null
       };
@@ -86,8 +100,11 @@ extension BrowserPanel {
         state.markDirty();
         return callback(timestamp);
       });
+      for (const name of ['scroll', 'wheel']) {
+        addEventListener(name, () => state.postScrollDirty(), { capture: true, passive: true });
+      }
       for (const name of [
-        'scroll', 'resize', 'input', 'focusin', 'focusout',
+        'resize', 'input', 'focusin', 'focusout',
         'play', 'pause', 'animationstart', 'animationend', 'transitionrun', 'transitionend'
       ]) {
         addEventListener(name, () => state.markDirty(), { capture: true, passive: true });

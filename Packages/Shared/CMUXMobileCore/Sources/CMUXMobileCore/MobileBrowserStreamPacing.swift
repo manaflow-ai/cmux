@@ -41,6 +41,13 @@ public struct MobileBrowserStreamPacing: Equatable, Sendable {
         lastDirtyAt = timestamp
     }
 
+    /// Marks a successfully replayed browser input batch as requiring a new capture.
+    ///
+    /// - Parameter timestamp: Replay time in the caller's monotonic clock domain.
+    public mutating func noteInputReplayed(at timestamp: TimeInterval) {
+        noteDirty(at: timestamp)
+    }
+
     /// Chooses the next capture, deadline, or flow-control state.
     public func decision(at timestamp: TimeInterval) -> MobileBrowserStreamPacingDecision {
         guard unackedSequences.count < maximumUnackedFrames else {

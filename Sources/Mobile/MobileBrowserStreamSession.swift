@@ -4,6 +4,11 @@ import Foundation
 
 @MainActor
 final class MobileBrowserStreamSession {
+    private enum DirtyCause {
+        case pageSignal
+        case inputReplay
+    }
+
     let id = UUID()
     let connectionID: UUID
     let panelID: UUID
@@ -60,6 +65,10 @@ final class MobileBrowserStreamSession {
         requestDrive()
     }
 
+    func noteInputReplayed() {
+        noteDirty(cause: .inputReplay)
+    }
+
     func stop(sendClosed: Bool) async {
         guard !isStopped else { return }
         isStopped = true
@@ -86,14 +95,12 @@ final class MobileBrowserStreamSession {
                 editableFocused = focused
                 scheduleStateEmission()
             }
-            pacing.noteDirty(at: clock.now)
-            requestDrive()
+            noteDirty()
         case .stateChanged:
             scheduleStateEmission()
         case .webViewReplaced:
-            pacing.noteDirty(at: clock.now)
+            noteDirty()
             emitStateImmediately()
-            requestDrive()
         case let .dialog(dialog):
             emitDialog(dialog)
         case let .dialogResolved(resolved):
@@ -103,6 +110,17 @@ final class MobileBrowserStreamSession {
                 await self?.panelDidClose()
             }
         }
+    }
+
+    private func noteDirty(cause: DirtyCause = .pageSignal) {
+        guard !isStopped else { return }
+        switch cause {
+        case .pageSignal:
+            pacing.noteDirty(at: clock.now)
+        case .inputReplay:
+            pacing.noteInputReplayed(at: clock.now)
+        }
+        requestDrive()
     }
 
     private func emitDialog(_ dialog: MobileBrowserDialogEvent) {
@@ -180,13 +198,10 @@ final class MobileBrowserStreamSession {
         do {
             let pageSize = panel.webView.bounds.size
             // Continuous JPEG frames drive motion (scroll, drag, animation). The
-            // offscreen render host window lives off all screens at alpha ~0, where
-            // macOS throttles the screen-update cycle, so `afterScreenUpdates: true`
-            // blocks each snapshot on that throttled cycle and caps capture to a few
-            // fps. `false` captures the currently committed render (which already
-            // reflects the new scroll offset) without that wait, and the dirty loop
-            // re-fires to stay current. The lossless PNG settle frame is rare and
-            // correctness-critical, so it keeps the synchronized path.
+            // active dirty loop must not block each snapshot on a synchronized
+            // screen-update cycle. `false` captures the currently committed render
+            // without that wait, while the rare, correctness-critical lossless PNG
+            // settle frame keeps the synchronized path.
             let waitForScreenUpdate = (format == .png)
             #if DEBUG
             let captureStart = DispatchTime.now()

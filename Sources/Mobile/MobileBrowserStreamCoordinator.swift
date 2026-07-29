@@ -76,6 +76,14 @@ final class MobileBrowserStreamCoordinator {
         return true
     }
 
+    @discardableResult
+    func noteInputReplayed(connectionID: UUID, panelID: UUID) -> Bool {
+        let key = SessionKey(connectionID: connectionID, panelID: panelID)
+        guard let session = sessions[key] else { return false }
+        session.noteInputReplayed()
+        return true
+    }
+
     func connectionClosed(_ connectionID: UUID) async {
         let matching = sessions.filter { $0.key.connectionID == connectionID }
         for (key, session) in matching {

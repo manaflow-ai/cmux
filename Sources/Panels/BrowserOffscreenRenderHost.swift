@@ -2,7 +2,7 @@ import AppKit
 import CmuxBrowser
 import WebKit
 
-/// Holds a browser presentation root in a real offscreen rendering window.
+/// Holds a browser presentation root in a persistent, imperceptible rendering window.
 @MainActor
 final class BrowserOffscreenRenderHost {
     private let webView: WKWebView
@@ -44,7 +44,7 @@ final class BrowserOffscreenRenderHost {
             : nil
 
         let normalizedSize = Self.normalizedViewportSize(viewportSize)
-        let frame = Self.offscreenFrame(for: normalizedSize)
+        let frame = Self.renderFrame(for: normalizedSize)
         let renderWindow = BrowserOffscreenRenderPanel(
             contentRect: frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -58,6 +58,7 @@ final class BrowserOffscreenRenderHost {
         renderWindow.backgroundColor = .clear
         renderWindow.alphaValue = 0.01
         renderWindow.ignoresMouseEvents = true
+        renderWindow.level = .floating
         renderWindow.hidesOnDeactivate = false
         renderWindow.collectionBehavior = [.transient, .ignoresCycle, .stationary, .canJoinAllSpaces]
         renderWindow.isExcludedFromWindowsMenu = true
@@ -97,7 +98,7 @@ final class BrowserOffscreenRenderHost {
     func resize(to viewportSize: NSSize) -> Bool {
         guard !isFinished, presentationView.superview === contentView else { return false }
         let normalizedSize = Self.normalizedViewportSize(viewportSize)
-        window.setFrame(Self.offscreenFrame(for: normalizedSize), display: false)
+        window.setFrame(Self.renderFrame(for: normalizedSize), display: false)
         contentView.frame = NSRect(origin: .zero, size: normalizedSize)
         contentView.bounds = NSRect(origin: .zero, size: normalizedSize)
         webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
@@ -195,13 +196,30 @@ final class BrowserOffscreenRenderHost {
         )
     }
 
-    private static func offscreenFrame(for viewportSize: NSSize) -> NSRect {
-        NSRect(
-            x: -100_000 - viewportSize.width,
-            y: -100_000 - viewportSize.height,
-            width: viewportSize.width,
-            height: viewportSize.height
+    private static func renderFrame(for viewportSize: NSSize) -> NSRect {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            return NSRect(origin: .zero, size: viewportSize)
+        }
+
+        // WebKit suspends rAF and degrades trusted-event hit testing/delivery when
+        // its host window is occluded. Keep a visible on-screen portion at a level
+        // ordinary windows cannot cover so the stream's beacon and input stay live.
+        let screenFrame = screen.frame
+        let minimumVisibleWidth = min(64, viewportSize.width, max(0, screenFrame.width))
+        let minimumVisibleHeight = min(64, viewportSize.height, max(0, screenFrame.height))
+        let preferredOrigin = NSPoint(
+            x: screenFrame.maxX - viewportSize.width,
+            y: screenFrame.minY
         )
+        let minimumX = screenFrame.minX - viewportSize.width + minimumVisibleWidth
+        let maximumX = screenFrame.maxX - minimumVisibleWidth
+        let minimumY = screenFrame.minY - viewportSize.height + minimumVisibleHeight
+        let maximumY = screenFrame.maxY - minimumVisibleHeight
+        let origin = NSPoint(
+            x: min(max(preferredOrigin.x, minimumX), maximumX),
+            y: min(max(preferredOrigin.y, minimumY), maximumY)
+        )
+        return NSRect(origin: origin, size: viewportSize)
     }
 }
 

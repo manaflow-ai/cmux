@@ -117,13 +117,13 @@ extension TerminalController {
                 "dialog_id": response.dialogID,
             ])
         case "mobile.browser.input.pointer":
-            return v2MobileBrowserPointerInput(params: params)
+            return v2MobileBrowserPointerInput(params: params, connectionID: connectionID)
         case "mobile.browser.input.scroll":
-            return v2MobileBrowserScrollInput(params: params)
+            return v2MobileBrowserScrollInput(params: params, connectionID: connectionID)
         case "mobile.browser.input.key":
-            return v2MobileBrowserKeyInput(params: params)
+            return v2MobileBrowserKeyInput(params: params, connectionID: connectionID)
         case "mobile.browser.input.text":
-            return await v2MobileBrowserTextInput(params: params)
+            return await v2MobileBrowserTextInput(params: params, connectionID: connectionID)
         case "mobile.browser.navigate":
             guard let panel = mobileBrowserPanel(params: params) else {
                 return mobileBrowserPanelResolutionError(params: params)
@@ -168,7 +168,10 @@ extension TerminalController {
         return .ok(["panels": panels])
     }
 
-    private func v2MobileBrowserPointerInput(params: [String: Any]) -> V2CallResult {
+    private func v2MobileBrowserPointerInput(
+        params: [String: Any],
+        connectionID: UUID?
+    ) -> V2CallResult {
         guard let input = mobileBrowserDecode(MobileBrowserPointerInput.self, params: params) else {
             return .err(code: "invalid_params", message: "Invalid browser pointer input", data: nil)
         }
@@ -177,13 +180,17 @@ extension TerminalController {
         }
         do {
             try MobileBrowserInputReplayer().replayPointer(input, in: panel.webView)
+            mobileBrowserInputDidReplay(connectionID: connectionID, panelID: panel.id)
             return .ok(["ok": true, "panel_id": input.panelID])
         } catch {
             return .err(code: "invalid_params", message: "Invalid browser pointer input", data: nil)
         }
     }
 
-    private func v2MobileBrowserScrollInput(params: [String: Any]) -> V2CallResult {
+    private func v2MobileBrowserScrollInput(
+        params: [String: Any],
+        connectionID: UUID?
+    ) -> V2CallResult {
         guard let input = mobileBrowserDecode(MobileBrowserScrollInput.self, params: params) else {
             return .err(code: "invalid_params", message: "Invalid browser scroll input", data: nil)
         }
@@ -192,13 +199,17 @@ extension TerminalController {
         }
         do {
             try MobileBrowserInputReplayer().replayScroll(input, in: panel.webView)
+            mobileBrowserInputDidReplay(connectionID: connectionID, panelID: panel.id)
             return .ok(["ok": true, "panel_id": input.panelID])
         } catch {
             return .err(code: "invalid_params", message: "Invalid browser scroll input", data: nil)
         }
     }
 
-    private func v2MobileBrowserKeyInput(params: [String: Any]) -> V2CallResult {
+    private func v2MobileBrowserKeyInput(
+        params: [String: Any],
+        connectionID: UUID?
+    ) -> V2CallResult {
         guard let input = mobileBrowserDecode(MobileBrowserKeyInput.self, params: params) else {
             return .err(code: "invalid_params", message: "Invalid browser key input", data: nil)
         }
@@ -207,13 +218,17 @@ extension TerminalController {
         }
         do {
             try MobileBrowserInputReplayer().replayKey(input, in: panel.webView)
+            mobileBrowserInputDidReplay(connectionID: connectionID, panelID: panel.id)
             return .ok(["ok": true, "panel_id": input.panelID])
         } catch {
             return .err(code: "invalid_params", message: "Invalid browser key input", data: nil)
         }
     }
 
-    private func v2MobileBrowserTextInput(params: [String: Any]) async -> V2CallResult {
+    private func v2MobileBrowserTextInput(
+        params: [String: Any],
+        connectionID: UUID?
+    ) async -> V2CallResult {
         guard let input = mobileBrowserDecode(MobileBrowserTextInput.self, params: params) else {
             return .err(code: "invalid_params", message: "Invalid browser text input", data: nil)
         }
@@ -222,10 +237,19 @@ extension TerminalController {
         }
         do {
             try await MobileBrowserInputReplayer().replayText(input, in: panel.webView)
+            mobileBrowserInputDidReplay(connectionID: connectionID, panelID: panel.id)
             return .ok(["ok": true, "panel_id": input.panelID])
         } catch {
             return .err(code: "invalid_params", message: "Browser text could not be inserted", data: nil)
         }
+    }
+
+    private func mobileBrowserInputDidReplay(connectionID: UUID?, panelID: UUID) {
+        guard let connectionID else { return }
+        MobileHostService.shared.mobileBrowserStreamCoordinator.noteInputReplayed(
+            connectionID: connectionID,
+            panelID: panelID
+        )
     }
 
     private func v2MobileBrowserNavigation(
