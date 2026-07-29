@@ -54,6 +54,28 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         ].joined(separator: "|")
     }
 
+    /// Builds the shell helper that terminates a foreground-authentication process tree.
+    ///
+    /// The immediate authentication PID is a shell wrapper whose descendants own
+    /// the classifier, nested PTY, and SSH process. The helper freezes each parent
+    /// before discovering its children, then terminates leaves before resuming the
+    /// parent so the wrapper cannot spawn new descendants while cleanup descends.
+    ///
+    /// - Returns: A shell function named `cmux_ssh_terminate_auth_process_tree`.
+    public func processTreeTerminationShellFunction() -> String {
+        """
+        cmux_ssh_terminate_auth_process_tree() (
+          cmux_ssh_auth_tree_pid="$1"
+          if ! /bin/kill -STOP "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1; then exit 0; fi
+          for cmux_ssh_auth_tree_child in $(/usr/bin/pgrep -P "$cmux_ssh_auth_tree_pid" . 2>/dev/null || true); do
+            cmux_ssh_terminate_auth_process_tree "$cmux_ssh_auth_tree_child"
+          done
+          /bin/kill -TERM "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
+          /bin/kill -CONT "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
+        )
+        """
+    }
+
     /// Wraps a zsh command so status-255 failures become transient (254),
     /// unclassified (``unclassifiedFailureExitStatus``), or permanent (255).
     /// Every other exit status is preserved.

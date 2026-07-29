@@ -137,6 +137,58 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.temporaryFiles.isEmpty)
     }
 
+    @Test func terminatesNestedForegroundAuthenticationProcesses() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-tree-\(UUID().uuidString)", isDirectory: true)
+        let leafScript = root.appendingPathComponent("leaf.sh")
+        let leafPIDFile = root.appendingPathComponent("leaf.pid")
+        let signalLog = root.appendingPathComponent("signal.log")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        trap '' HUP INT
+        trap 'printf "%s\\n" term > "$CMUX_TEST_SIGNAL_LOG"; exit 0' TERM
+        printf '%s\\n' "$$" > "$CMUX_TEST_LEAF_PID"
+        while :; do /bin/sleep 30; done
+        """.write(to: leafScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: leafScript.path)
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( /bin/sh "$CMUX_TEST_LEAF_SCRIPT" & wait $! ) &
+        cmux_test_auth_root=$!
+        cmux_test_ready_attempt=0
+        while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -s "$CMUX_TEST_LEAF_PID" || exit 98
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root"
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        test "$(/bin/cat "$CMUX_TEST_SIGNAL_LOG" 2>/dev/null || true)" = term
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
+            "CMUX_TEST_LEAF_PID": leafPIDFile.path,
+            "CMUX_TEST_SIGNAL_LOG": signalLog.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
+    }
+
     @Test func keepsDiagnosticStateBoundedWhileCommandIsRunning() throws {
         let fileManager = FileManager.default
         let temporaryDirectory = fileManager.temporaryDirectory
