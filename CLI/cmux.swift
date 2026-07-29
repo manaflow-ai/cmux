@@ -24577,7 +24577,7 @@ struct CMUXCLI {
                     sessionRecord: mappedSession
                 )
                 if let sessionId = parsedInput.sessionId {
-                    try? sessionStore.upsert(
+                    _ = try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -24723,7 +24723,7 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd
                     )
                     : nil
-                try? sessionStore.upsert(
+                _ = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -24926,7 +24926,7 @@ struct CMUXCLI {
             )
 
             if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
-                try? sessionStore.upsert(
+                _ = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -25204,7 +25204,7 @@ struct CMUXCLI {
                 let existingSurfaceId = resolvedSurface.isAuthoritative
                     ? surfaceId
                     : (nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId)
-                try? sessionStore.upsert(
+                _ = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
@@ -25269,7 +25269,7 @@ struct CMUXCLI {
             }
 
             if let sessionId = parsedInput.sessionId {
-                try? sessionStore.upsert(
+                _ = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -31030,7 +31030,7 @@ export default CMUXSessionRestore;
                         updateRuntimeStatus: !suppressVisibleMutations
                     )) ?? false
                 } else {
-                    try? store.upsert(
+                    _ = try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -31336,7 +31336,7 @@ export default CMUXSessionRestore;
                         launchCommand: resumeLaunchCommand
                     )) ?? false
                 } else {
-                    try? store.upsert(
+                    _ = try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -31618,7 +31618,7 @@ export default CMUXSessionRestore;
                 || codexSubagentSignals.hasSubagentNotificationRelay
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
-                try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
+                _ = try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
                                   launchCommand: resumeLaunchCommand,
@@ -32041,7 +32041,7 @@ export default CMUXSessionRestore;
                         )
                     )
                 } else {
-                    try? store.upsert(
+                    _ = try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
