@@ -30904,12 +30904,15 @@ export default CMUXSessionRestore;
                 surfaceId: surfaceId
             )
             if !suppressVisibleMutations {
-                clearSupersededAgentHookSessions(
-                    supersededOMPRecords,
-                    statusKey: def.statusKey,
-                    store: store,
-                    client: client
-                )
+                if let owner = try? store.lookup(sessionId: sessionId) {
+                    clearSupersededAgentHookSessions(
+                        supersededOMPRecords,
+                        owner: owner,
+                        statusKey: def.statusKey,
+                        store: store,
+                        client: client
+                    )
+                }
             }
 
         case .promptSubmit:
@@ -30921,6 +30924,15 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
+            if def.name == "omp", let mapped {
+                clearSupersededAgentHookSessions(
+                    [],
+                    owner: mapped,
+                    statusKey: def.statusKey,
+                    store: store,
+                    client: client
+                )
+            }
             let pid = mapped?.pid ?? inferredPID
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: hookCwd ?? mapped?.cwd)
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
@@ -31260,6 +31272,15 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
+            if def.name == "omp", let mapped {
+                clearSupersededAgentHookSessions(
+                    [],
+                    owner: mapped,
+                    statusKey: def.statusKey,
+                    store: store,
+                    client: client
+                )
+            }
             sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let pid = mapped?.pid ?? inferredPID
             let codexFailure: CodexHookFailureSummary?

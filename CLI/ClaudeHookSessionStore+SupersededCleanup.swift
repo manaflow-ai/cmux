@@ -35,10 +35,37 @@ extension ClaudeHookSessionStore {
                 !supersededIDs.contains($0.value.sessionId)
             }
         }
+        return pendingSupersededSessionCleanupCandidates(in: state, owner: owner)
+    }
+
+    func pendingSupersededSessionCleanupCandidates(
+        for owner: ClaudeHookSessionRecord,
+        excludingSessionIds: Set<String> = []
+    ) throws -> [ClaudeHookSessionRecord] {
+        try withLockedState { state in
+            pendingSupersededSessionCleanupCandidates(
+                in: state,
+                owner: owner,
+                excludingSessionIds: excludingSessionIds
+            )
+        }
+    }
+
+    private func pendingSupersededSessionCleanupCandidates(
+        in state: ClaudeHookSessionStoreFile,
+        owner: ClaudeHookSessionRecord,
+        excludingSessionIds: Set<String> = []
+    ) -> [ClaudeHookSessionRecord] {
+        guard let pid = owner.pid,
+              let startSeconds = owner.pidStartSeconds,
+              let startMicroseconds = owner.pidStartMicroseconds else {
+            return []
+        }
         return Array(
             state.pendingSupersededSessionCleanup.values
                 .filter {
-                    $0.pid == pid
+                    !excludingSessionIds.contains($0.sessionId)
+                        && $0.pid == pid
                         && $0.pidStartSeconds == startSeconds
                         && $0.pidStartMicroseconds == startMicroseconds
                 }

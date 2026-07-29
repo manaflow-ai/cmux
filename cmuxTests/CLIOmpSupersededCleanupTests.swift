@@ -19,7 +19,7 @@ struct CLIOmpSupersededCleanupTests {
     private static let ompPID = Int(getpid())
 
     @Test
-    func boundedCleanupDemotesEverySupersededClaimAndPersistsFailures() throws {
+    func boundedCleanupDrainsEveryBatchAndRetriesPersistedFailures() throws {
         let context = try Harness.makeContext(name: "omp-cleanup-bound")
         defer { context.cleanup() }
 
@@ -49,7 +49,11 @@ struct CLIOmpSupersededCleanupTests {
 
         let result = Harness.runHookProcess(
             context: context,
-            arguments: ["hooks", "omp", "session-start"],
+            arguments: [
+                "hooks", "omp", "session-start",
+                "--workspace", Self.liveWorkspaceId,
+                "--surface", Self.liveSurfaceId,
+            ],
             environment: environment,
             standardInput: #"{"session_id":"\#(currentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
@@ -66,18 +70,63 @@ struct CLIOmpSupersededCleanupTests {
             }
             return params["checkpoint_id"] as? String
         }
-        #expect(clearedCheckpoints == Array(priorSessionIds.prefix(4)))
+        #expect(clearedCheckpoints == priorSessionIds)
         #expect(!commands.contains { $0.hasPrefix("clear_agent_pid omp.") })
 
-        let saved = try #require(
+        let savedAfterFailure = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))) as? [String: Any]
         )
-        let sessions = try #require(saved["sessions"] as? [String: Any])
+        let sessions = try #require(savedAfterFailure["sessions"] as? [String: Any])
         #expect(Set(sessions.keys) == Set([currentSessionId]))
-        let pending = try #require(saved["pendingSupersededSessionCleanup"] as? [String: Any])
+        let pending = try #require(savedAfterFailure["pendingSupersededSessionCleanup"] as? [String: Any])
         #expect(Set(pending.keys) == Set(priorSessionIds))
-        #expect(saved["activeSessionsBySurface"] == nil)
-        #expect(saved["activeSessionsByWorkspace"] == nil)
+        #expect(savedAfterFailure["activeSessionsBySurface"] == nil)
+        #expect(savedAfterFailure["activeSessionsByWorkspace"] == nil)
+
+        let retryContext = try Harness.makeContext(name: "omp-cleanup-retry")
+        defer { retryContext.cleanup() }
+        let retryServerHandled = Harness.startDeliveryTargetServer(
+            context: retryContext,
+            surfacesByWorkspace: [
+                Self.staleWorkspaceId: [Self.staleSurfaceId],
+                Self.liveWorkspaceId: [Self.liveSurfaceId],
+            ],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+        var retryEnvironment = Harness.hookEnvironment(context: retryContext)
+        retryEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        retryEnvironment["CMUX_OMP_PID"] = String(Self.ompPID)
+
+        let retryResult = Harness.runHookProcess(
+            context: retryContext,
+            arguments: [
+                "hooks", "omp", "prompt-submit",
+                "--workspace", Self.liveWorkspaceId,
+                "--surface", Self.liveSurfaceId,
+            ],
+            environment: retryEnvironment,
+            standardInput: #"{"session_id":"\#(currentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"retry cleanup"}"#
+        )
+
+        #expect(retryServerHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!retryResult.timedOut, Comment(rawValue: retryResult.stderr))
+        #expect(retryResult.status == 0, Comment(rawValue: retryResult.stderr))
+        let retryCommands = retryContext.state.snapshot()
+        let retriedCheckpoints = retryCommands.compactMap { command -> String? in
+            guard let payload = Self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear",
+                  let params = payload["params"] as? [String: Any] else {
+                return nil
+            }
+            return params["checkpoint_id"] as? String
+        }
+        #expect(retriedCheckpoints == priorSessionIds)
+        #expect(retryCommands.filter { $0.hasPrefix("clear_agent_pid omp.") }.count == priorSessionIds.count)
+
+        let savedAfterRetry = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))) as? [String: Any]
+        )
+        #expect(savedAfterRetry["pendingSupersededSessionCleanup"] == nil)
     }
 
     private static func writePriorSessions(
