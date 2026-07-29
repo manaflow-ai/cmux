@@ -1808,6 +1808,49 @@ struct ComputerUseUXTests {
         }
     }
 
+    @Test
+    func applicationSurfaceResponseErrorsUseStructuredCodes() {
+        let cases: [(String, ApplicationSurfaceRuntimeError)] = [
+            ("permission_required", .permissionRequired),
+            ("window_unavailable", .windowUnavailable),
+            ("point_outside_content", .pointOutsideContent),
+            ("session_unavailable", .helperUnavailable),
+        ]
+        for (code, expectedError) in cases {
+            do {
+                try ComputerUseRuntimeService
+                    .throwApplicationSurfaceResponseError([
+                        "ok": false,
+                        "error_code": code,
+                        "error": "Localized diagnostic without protocol markers",
+                    ])
+                Issue.record("Expected \(code) to throw")
+            } catch let error as ApplicationSurfaceRuntimeError {
+                #expect(error == expectedError)
+            } catch {
+                Issue.record("Unexpected error for \(code): \(error)")
+            }
+        }
+    }
+
+    @Test
+    func applicationSurfaceDiagnosticTextDoesNotSelectErrorType() {
+        let detail =
+            "A localized diagnostic happens to mention permission_required"
+        do {
+            try ComputerUseRuntimeService
+                .throwApplicationSurfaceResponseError([
+                    "ok": false,
+                    "error": detail,
+                ])
+            Issue.record("Expected helper response to throw")
+        } catch let error as ApplicationSurfaceRuntimeError {
+            #expect(error == .failed(detail))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) @MainActor
     func nativePermissionRequestUsesBothCapabilitiesAndExactHelperPeer() async throws {
         let root = FileManager.default.temporaryDirectory

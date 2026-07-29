@@ -938,7 +938,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         )
     }
 
-    nonisolated private static func throwApplicationSurfaceResponseError(
+    nonisolated static func throwApplicationSurfaceResponseError(
         _ response: [String: Any]
     ) throws {
         guard response["ok"] as? Bool == true else {

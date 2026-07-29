@@ -848,7 +848,7 @@ struct ApplicationSurfaceTests {
         #expect(appDelegate.handleConfiguredShortcutKeyEquivalent(event))
     }
 
-    @Test func applicationSurfaceRoundTripsThroughSessionPersistence() throws {
+    @Test func applicationSurfacePaneRestoresWithoutReusingOSWindowIDs() throws {
         let runtime = FakeApplicationSurfaceRuntime()
         let source = Workspace(applicationSurfaceRuntime: runtime)
         let sourcePane = try #require(
@@ -877,9 +877,7 @@ struct ApplicationSurfaceTests {
         )
         defer { restoredPanel.close() }
 
-        #expect(restoredPanel.windowID == 42)
-        #expect(restoredPanel.processID == 43)
-        #expect(restoredPanel.selectedWindowTitle == "Dictionary")
+        #expect(restoredPanel.captureTarget == nil)
         #expect(restoredPanel.targetFrameRate == 45)
         #expect(restoredPanel.runtime === runtime)
     }
