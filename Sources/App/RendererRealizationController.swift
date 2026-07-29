@@ -56,7 +56,7 @@ final class RendererRealizationController {
                 queue: .main
             ) { _ in
                 Task { @MainActor in
-                    RendererRealizationController.shared.schedulePortalVisibilityEvaluation()
+                    RendererRealizationController.shared.evaluate(now: Date())
                 }
             }
         }
@@ -71,7 +71,7 @@ final class RendererRealizationController {
                 queue: .main
             ) { _ in
                 Task { @MainActor in
-                    RendererRealizationController.shared.evaluate(now: Date())
+                    RendererRealizationController.shared.schedulePortalVisibilityEvaluation()
                 }
             }
         }
