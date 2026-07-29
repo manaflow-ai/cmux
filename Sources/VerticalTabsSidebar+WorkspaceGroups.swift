@@ -8,8 +8,7 @@ extension VerticalTabsSidebar {
     func sidebarWorkspaceGroupTableConfiguration(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
-        renderContext: WorkspaceListRenderContext,
-        showModifierHoldHints: Bool
+        renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableRowConfiguration {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
@@ -40,13 +39,6 @@ extension VerticalTabsSidebar {
         let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
         let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: nonAnchorMemberIds)
         let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: nonAnchorMemberIds)
-        let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
-        let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
-            at: anchorIndex,
-            workspaceCount: renderContext.workspaceCount
-        )
-        let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
-        let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -60,10 +52,6 @@ extension VerticalTabsSidebar {
             tabIds: renderContext.sidebarReorderIds,
             indicatorScope: dragState.dropIndicatorScope
         )
-        let shortcutHintText: String? = {
-            guard showsHintForAnchor, let shortcutDigit else { return nil }
-            return "\(modifierSymbol)\(shortcutDigit)"
-        }()
         let model = SidebarGroupHeaderRowModel(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
@@ -80,7 +68,7 @@ extension VerticalTabsSidebar {
             hasLatestNotifications: anchorHasLatestNotification,
             canMarkAllRead: canMarkAllRead,
             canMarkAllUnread: canMarkAllUnread,
-            shortcutHintText: shortcutHintText,
+            shortcutHintText: nil,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             fontScale: settings.sidebarFontScale,
@@ -202,8 +190,7 @@ extension VerticalTabsSidebar {
         renderContext: WorkspaceListRenderContext,
         unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary],
         notificationIndex: SidebarWorkspaceNotificationIndex,
-        shouldCollectWorkspaceDropTargets: Bool,
-        showModifierHoldHints: Bool
+        shouldCollectWorkspaceDropTargets: Bool
     ) -> SidebarWorkspaceGroupRowSnapshot {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
@@ -244,13 +231,6 @@ extension VerticalTabsSidebar {
         let canMarkAllUnread = nonAnchorMemberIds.contains {
             (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) == 0
         }
-        let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
-        let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
-            at: anchorIndex,
-            workspaceCount: renderContext.workspaceCount
-        )
-        let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
-        let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let rowId = SidebarWorkspaceRenderItemID.group(group.id)
         let isPointerHovering = pointerInteractionMonitor.hoveredRowId == rowId
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
@@ -282,9 +262,9 @@ extension VerticalTabsSidebar {
             hasLatestNotifications: anchorHasLatestNotification,
             canMarkAllRead: canMarkAllRead,
             canMarkAllUnread: canMarkAllUnread,
-            shortcutDigit: shortcutDigit,
-            shortcutModifierSymbol: modifierSymbol,
-            showsShortcutHint: showsHintForAnchor,
+            shortcutDigit: nil,
+            shortcutModifierSymbol: nil,
+            showsShortcutHint: false,
             isPointerHovering: isPointerHovering,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,

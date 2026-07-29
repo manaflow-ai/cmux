@@ -2017,6 +2017,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */; };
 		737100000000000000000001 /* TabManager+NonInteractiveClose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737100000000000000000002 /* TabManager+NonInteractiveClose.swift */; };
 		E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */; };
+		9164B0019164B0019164B001 /* TabManager+NumberedWorkspaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9164B0029164B0029164B002 /* TabManager+NumberedWorkspaceSelection.swift */; };
 		C0DE1A030000000000000001 /* TabManager+SavedLayouts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A030000000000000002 /* TabManager+SavedLayouts.swift */; };
 		C548600B0000000000000001 /* TabManager+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600B0000000000000002 /* TabManager+SessionRestoreIdentity.swift */; };
 		A905DFE00000000000000001 /* TabManager+SessionRestorePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A905DFE00000000000000002 /* TabManager+SessionRestorePolicy.swift */; };
@@ -4497,6 +4498,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+FocusHistoryHosting.swift"; sourceTree = "<group>"; };
 		737100000000000000000002 /* TabManager+NonInteractiveClose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NonInteractiveClose.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NotificationDismissalHosting.swift"; sourceTree = "<group>"; };
+		9164B0029164B0029164B002 /* TabManager+NumberedWorkspaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NumberedWorkspaceSelection.swift"; sourceTree = "<group>"; };
 		C0DE1A030000000000000002 /* TabManager+SavedLayouts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SavedLayouts.swift"; sourceTree = "<group>"; };
 		C548600B0000000000000002 /* TabManager+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
 		A905DFE00000000000000002 /* TabManager+SessionRestorePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SessionRestorePolicy.swift"; sourceTree = "<group>"; };
@@ -5748,6 +5750,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */,
 				D86840000000000000000016 /* TabManager+DockSessionRestore.swift */,
 				737100000000000000000002 /* TabManager+NonInteractiveClose.swift */,
+				9164B0029164B0029164B002 /* TabManager+NumberedWorkspaceSelection.swift */,
 				604500100000000000000008 /* TabManager+WindowTitle.swift */,
 				E30750000000000000000001 /* WorkspaceTabColorResolution.swift */,
 				E3B7A4000000000000000002 /* WorkspaceTabColorSettings.swift */,
@@ -9315,6 +9318,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */,
 				737100000000000000000001 /* TabManager+NonInteractiveClose.swift in Sources */,
 				E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */,
+				9164B0019164B0019164B001 /* TabManager+NumberedWorkspaceSelection.swift in Sources */,
 				C0DE1A030000000000000001 /* TabManager+SavedLayouts.swift in Sources */,
 				C548600B0000000000000001 /* TabManager+SessionRestoreIdentity.swift in Sources */,
 				A905DFE00000000000000001 /* TabManager+SessionRestorePolicy.swift in Sources */,

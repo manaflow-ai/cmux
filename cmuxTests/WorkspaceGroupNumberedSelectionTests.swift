@@ -56,7 +56,7 @@ struct WorkspaceGroupNumberedSelectionTests {
             with: .keyDown,
             location: .zero,
             modifierFlags: [.control],
-            timestamp: ProcessInfo.processInfo.systemUptime,
+            timestamp: 0,
             windowNumber: window.windowNumber,
             context: nil,
             characters: "2",
