@@ -24,6 +24,7 @@ use ghostty_vt::{
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::platform;
+use crate::resource::{TabResourceIdentity, TerminalPublicId};
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{
@@ -526,6 +527,9 @@ impl SurfaceKind {
 
 pub struct SurfaceMeta {
     pub id: SurfaceId,
+    /// Public tab/content identities. Auxiliary surfaces, including sidebar
+    /// runtimes, deliberately carry no tab identity.
+    pub(crate) resource_identity: Option<TabResourceIdentity>,
     /// User-assigned tab name (rename tab); shared by every surface kind.
     pub(crate) name: Mutex<Option<String>>,
     pub(crate) selection: Mutex<Option<String>>,
@@ -1008,6 +1012,13 @@ impl std::fmt::Debug for Surface {
 }
 
 impl Surface {
+    pub fn resource_identity(&self) -> Option<&TabResourceIdentity> {
+        match self {
+            Self::Pty(surface) => surface.meta.resource_identity.as_ref(),
+            Self::Browser(surface) => surface.meta.resource_identity.as_ref(),
+        }
+    }
+
     pub(crate) fn spawn(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -1118,7 +1129,12 @@ impl Surface {
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
         let surface = Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
+            meta: SurfaceMeta {
+                id,
+                resource_identity: Some(TabResourceIdentity::terminal(None)?),
+                name: Mutex::new(None),
+                selection: Mutex::new(None),
+            },
             term: Mutex::new(term),
             stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),
@@ -1294,11 +1310,18 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
         let sequence_boundary = snapshot.sequence_boundary;
         let host_identity = attachment.identity();
+        let public_terminal_id =
+            TerminalPublicId::from_terminal_host_id(&host_identity.terminal_id)?;
         let supports_clear_history_key_fallback = attachment.supports_clear_history();
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
         let surface = Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
+            meta: SurfaceMeta {
+                id,
+                resource_identity: Some(TabResourceIdentity::terminal(Some(public_terminal_id))?),
+                name: Mutex::new(None),
+                selection: Mutex::new(None),
+            },
             term: Mutex::new(term),
             stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),
@@ -1781,6 +1804,7 @@ impl Surface {
         mux: Weak<Mux>,
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
+        let public_terminal_id = TerminalPublicId::from_terminal_host_id(&identity.terminal_id)?;
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
@@ -1801,7 +1825,12 @@ impl Surface {
             .filter(|command| !command.is_empty())
             .unwrap_or_else(|| vec![platform::default_shell()]);
         let surface = Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
+            meta: SurfaceMeta {
+                id,
+                resource_identity: Some(TabResourceIdentity::terminal(Some(public_terminal_id))?),
+                name: Mutex::new(None),
+                selection: Mutex::new(None),
+            },
             term: Mutex::new(term),
             stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),
@@ -1868,7 +1897,12 @@ impl Surface {
         let (frame_requests, _frame_rx) = sync_channel(1);
 
         Ok(Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
+            meta: SurfaceMeta {
+                id,
+                resource_identity: Some(TabResourceIdentity::terminal(None)?),
+                name: Mutex::new(None),
+                selection: Mutex::new(None),
+            },
             term: Mutex::new(term),
             stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),

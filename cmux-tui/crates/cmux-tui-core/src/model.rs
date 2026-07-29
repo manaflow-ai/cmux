@@ -5,6 +5,10 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 
+use crate::resource::{
+    ContentPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId, TabPublicId,
+    WorkspacePublicId,
+};
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -540,6 +544,7 @@ mod tests {
     fn legacy_projection_preserves_many_equal_viewport_column_widths() {
         let mut screen = Screen {
             id: 1,
+            public_id: ScreenPublicId::random().unwrap(),
             name: None,
             root: Node::Leaf(1),
             active_pane: 21,
@@ -583,6 +588,7 @@ mod tests {
 #[derive(Debug)]
 pub struct Pane {
     pub id: PaneId,
+    pub public_id: PanePublicId,
     /// User-assigned name; falls back to the active tab's title.
     pub name: Option<String>,
     pub tabs: Vec<SurfaceId>,
@@ -603,6 +609,7 @@ impl Pane {
 #[derive(Debug)]
 pub struct Screen {
     pub id: ScreenId,
+    pub public_id: ScreenPublicId,
     /// User-assigned name; display falls back to the screen's number.
     pub name: Option<String>,
     pub root: Node,
@@ -909,6 +916,7 @@ impl Screen {
 #[derive(Debug)]
 pub struct Workspace {
     pub id: WorkspaceId,
+    pub public_id: WorkspacePublicId,
     /// Stable external identity used by detached frontends. Unlike `id`, this
     /// survives snapshot/reconciliation boundaries and is safe to persist in
     /// a frontend's richer layout state.
@@ -936,11 +944,15 @@ pub struct State {
     /// Monotonic version of the live pane-ID set. Focus, layout, tab, screen,
     /// and workspace selection changes do not advance this counter.
     pub pane_revision: u64,
+    /// Monotonic version of the public resource tree. Every atomic resource
+    /// mutation advances this counter exactly once.
+    pub resource_revision: u64,
     pub(crate) focus_sequence: u64,
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
+    pub(crate) resource_indexes: PublicSlotIndexes,
 }
 
 impl State {
@@ -951,16 +963,25 @@ impl State {
 
     pub(crate) fn insert_pane(&mut self, pane: Pane) {
         let id = pane.id;
+        let public_id = pane.public_id.clone();
         let replaced = self.panes.insert(id, pane);
         debug_assert!(replaced.is_none(), "pane {id} was inserted twice");
         if replaced.is_none() {
+            debug_assert!(
+                self.resource_indexes.panes.insert(public_id.clone(), id).is_none(),
+                "pane public id {public_id} was inserted twice"
+            );
+            self.resource_indexes.pane_ids.insert(id, public_id);
             self.pane_revision = self.pane_revision.saturating_add(1);
         }
     }
 
     pub(crate) fn remove_pane(&mut self, pane: PaneId) -> Option<Pane> {
         let removed = self.panes.remove(&pane);
-        if removed.is_some() {
+        if let Some(removed) = removed.as_ref() {
+            self.resource_indexes.panes.remove(&removed.public_id);
+            self.resource_indexes.pane_ids.remove(&pane);
+            self.resource_indexes.pane_screen.remove(&pane);
             self.pane_revision = self.pane_revision.saturating_add(1);
         }
         removed
@@ -972,11 +993,15 @@ impl State {
         debug_assert!(!self.workspace_id_by_key.contains_key(&workspace.key));
         self.workspace_index_by_id.insert(workspace.id, index);
         self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
+        self.resource_indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
+        self.resource_indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
         self.workspaces.push(workspace);
     }
 
     pub(crate) fn remove_workspace(&mut self, index: usize) -> Workspace {
         let workspace = self.workspaces.remove(index);
+        self.resource_indexes.workspaces.remove(&workspace.public_id);
+        self.resource_indexes.workspace_ids.remove(&workspace.id);
         self.rebuild_workspace_indexes();
         workspace
     }
@@ -994,6 +1019,70 @@ impl State {
             self.workspace_index_by_id.insert(workspace.id, index);
             self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
         }
+    }
+
+    pub(crate) fn rebuild_resource_indexes(&mut self) {
+        let mut indexes = PublicSlotIndexes::default();
+        for workspace in &self.workspaces {
+            let old = indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
+            debug_assert!(old.is_none(), "duplicate workspace public id");
+            indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
+            for screen in &workspace.screens {
+                let old = indexes.screens.insert(screen.public_id.clone(), screen.id);
+                debug_assert!(old.is_none(), "duplicate screen public id");
+                indexes.screen_ids.insert(screen.id, screen.public_id.clone());
+                indexes.screen_workspace.insert(screen.id, workspace.id);
+                for pane_id in screen.root.pane_ids_vec() {
+                    if let Some(pane) = self.panes.get(&pane_id) {
+                        let old = indexes.panes.insert(pane.public_id.clone(), pane.id);
+                        debug_assert!(old.is_none(), "duplicate pane public id");
+                        indexes.pane_ids.insert(pane.id, pane.public_id.clone());
+                        indexes.pane_screen.insert(pane.id, screen.id);
+                        for surface_id in &pane.tabs {
+                            let Some(surface) = self.surfaces.get(surface_id) else { continue };
+                            let Some(identity) = surface.resource_identity() else { continue };
+                            let old = indexes.tabs.insert(identity.tab_id.clone(), *surface_id);
+                            debug_assert!(old.is_none(), "duplicate tab public id");
+                            indexes.tab_ids.insert(*surface_id, identity.tab_id.clone());
+                            let old =
+                                indexes.content.insert(identity.content_id.clone(), *surface_id);
+                            debug_assert!(old.is_none(), "duplicate content public id");
+                            indexes.content_ids.insert(*surface_id, identity.content_id.clone());
+                            indexes.tab_pane.insert(*surface_id, pane.id);
+                        }
+                    }
+                }
+            }
+        }
+        for split in self.split_screens.keys().copied() {
+            if let Some(public_id) = self.resource_indexes.split_ids.get(&split).cloned() {
+                indexes.splits.insert(public_id.clone(), split);
+                indexes.split_ids.insert(split, public_id);
+            }
+        }
+        self.resource_indexes = indexes;
+    }
+
+    pub fn workspace_by_public_id(&self, id: &WorkspacePublicId) -> Option<&Workspace> {
+        self.resource_indexes.workspaces.get(id).and_then(|id| self.workspace_by_id(*id))
+    }
+
+    pub fn screen_by_public_id(&self, id: &ScreenPublicId) -> Option<&Screen> {
+        let slot = self.resource_indexes.screens.get(id)?;
+        let workspace = self.resource_indexes.screen_workspace.get(slot)?;
+        self.workspace_by_id(*workspace)?.screens.iter().find(|screen| screen.id == *slot)
+    }
+
+    pub fn pane_by_public_id(&self, id: &PanePublicId) -> Option<&Pane> {
+        self.resource_indexes.panes.get(id).and_then(|slot| self.panes.get(slot))
+    }
+
+    pub fn surface_by_tab_public_id(&self, id: &TabPublicId) -> Option<&Arc<Surface>> {
+        self.resource_indexes.tabs.get(id).and_then(|slot| self.surfaces.get(slot))
+    }
+
+    pub fn surface_by_content_public_id(&self, id: &ContentPublicId) -> Option<&Arc<Surface>> {
+        self.resource_indexes.content.get(id).and_then(|slot| self.surfaces.get(slot))
     }
 
     pub(crate) fn workspace_index(&self, id: WorkspaceId) -> Option<usize> {

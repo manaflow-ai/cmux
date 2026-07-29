@@ -28,6 +28,7 @@ use crate::model::{
     ProjectedSplitRatioUpdate, Screen, State, Workspace,
 };
 use crate::pairing::PairingBroker;
+use crate::resource::{PanePublicId, ScreenPublicId, WorkspacePublicId};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_runtime::TerminalHostIdentity;
@@ -1086,33 +1087,40 @@ impl Mux {
         let workspaces = snapshot
             .workspaces
             .into_iter()
-            .map(|workspace| Workspace {
-                id: workspace.id,
-                key: workspace.key,
-                name: workspace.name,
-                screens: Vec::new(),
-                active_screen: 0,
+            .map(|workspace| {
+                Ok(Workspace {
+                    id: workspace.id,
+                    public_id: workspace.public_id,
+                    key: workspace.key,
+                    name: workspace.name,
+                    screens: Vec::new(),
+                    active_screen: 0,
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<anyhow::Result<Vec<_>>>()?;
         let workspace_index_by_id =
             workspaces.iter().enumerate().map(|(index, workspace)| (workspace.id, index)).collect();
         let workspace_id_by_key =
             workspaces.iter().map(|workspace| (workspace.key.clone(), workspace.id)).collect();
         surface_options.browser_session_name = session.clone();
+        let mut state = State {
+            workspaces,
+            workspace_index_by_id,
+            workspace_id_by_key,
+            workspace_revision: snapshot.revision,
+            pane_revision: 0,
+            resource_revision: snapshot.resource_revision,
+            focus_sequence: 0,
+            active_workspace: 0,
+            panes: HashMap::new(),
+            surfaces: HashMap::new(),
+            split_screens: HashMap::new(),
+            resource_indexes: Default::default(),
+        };
+        state.rebuild_resource_indexes();
         let mux = Arc::new(Mux {
             workspace_registry: Mutex::new(registry),
-            state: Mutex::new(State {
-                workspaces,
-                workspace_index_by_id,
-                workspace_id_by_key,
-                workspace_revision: snapshot.revision,
-                pane_revision: 0,
-                focus_sequence: 0,
-                active_workspace: 0,
-                panes: HashMap::new(),
-                surfaces: HashMap::new(),
-                split_screens: HashMap::new(),
-            }),
+            state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
             next_id: AtomicU64::new(next_id),
             next_notification_id: AtomicU64::new(1),
@@ -1523,8 +1531,9 @@ impl Mux {
             )?;
             anyhow::bail!("terminal host exited during adoption");
         }
-        let (pane_id, pane) = self.make_pane(surface.id);
+        let (pane_id, pane) = self.make_pane(surface.id)?;
         let screen_id = self.next_id();
+        let screen_public_id = ScreenPublicId::random()?;
         let mut registry = self.workspace_registry.lock().unwrap();
         let (terminal, revision) = commit_terminal_lifecycle(
             &mut registry,
@@ -1576,6 +1585,7 @@ impl Mux {
             let workspace = &mut state.workspaces[workspace_index];
             workspace.screens.push(Screen {
                 id: screen_id,
+                public_id: screen_public_id,
                 name: None,
                 root: Node::Leaf(pane_id),
                 active_pane: pane_id,
@@ -2034,6 +2044,7 @@ impl Mux {
             .iter()
             .map(|workspace| RegistryWorkspace {
                 id: workspace.id,
+                public_id: workspace.public_id.clone(),
                 key: workspace.key.clone(),
                 name: workspace.name.clone(),
                 group_key: self.session.clone(),
@@ -2220,6 +2231,7 @@ impl Mux {
             }
         }
         state.split_screens = index;
+        state.rebuild_resource_indexes();
     }
 
     fn emit_terminal_registry_changed(&self, registry: &WorkspaceRegistry, terminal_revision: u64) {
@@ -2640,7 +2652,7 @@ impl Mux {
         url: String,
         size: Option<(u16, u16)>,
         pending_workspace: Option<WorkspaceId>,
-    ) -> Arc<Surface> {
+    ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
         if let Some(workspace) = pending_workspace {
             self.pending_workspace_surfaces.lock().unwrap().insert(id, workspace);
@@ -2649,10 +2661,10 @@ impl Mux {
         let size = self.resolve_client_size(size, (opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
         let surface =
-            browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self));
-        self.state.lock().unwrap().surfaces.insert(id, surface.clone());
+            browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self))?;
+        insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
         self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
-        surface
+        Ok(surface)
     }
 
     fn resolve_client_size(
@@ -3436,10 +3448,21 @@ impl Mux {
     }
 
     /// A fresh single-tab pane wrapping `surface`.
-    fn make_pane(&self, surface: SurfaceId) -> (PaneId, Pane) {
+    fn make_pane(&self, surface: SurfaceId) -> anyhow::Result<(PaneId, Pane)> {
         let id = self.next_id();
         let active_at = self.next_active_at();
-        (id, Pane { id, name: None, tabs: vec![surface], active_tab: 0, active_at, focused_at: 0 })
+        Ok((
+            id,
+            Pane {
+                id,
+                public_id: PanePublicId::random()?,
+                name: None,
+                tabs: vec![surface],
+                active_tab: 0,
+                active_at,
+                focused_at: 0,
+            },
+        ))
     }
 
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
@@ -4142,6 +4165,7 @@ impl Mux {
                 replayed: true,
             });
         }
+        let workspace_public_id = WorkspacePublicId::random()?;
         let (placement, delta, selection_resync) = {
             let mut state = self.state.lock().unwrap();
             if state.workspaces.len() >= WORKSPACE_REGISTRY_LIMIT {
@@ -4156,12 +4180,14 @@ impl Mux {
             let mut desired = self.registry_projection(&state);
             desired.push(RegistryWorkspace {
                 id: ws_id,
+                public_id: workspace_public_id.clone(),
                 key: key.clone(),
                 name: name.clone(),
                 group_key: self.session.clone(),
             });
             let result = serde_json::json!({
                 "workspace": ws_id,
+                "workspace_id": workspace_public_id.as_str(),
                 "key": key,
                 "index": index,
             });
@@ -4197,6 +4223,7 @@ impl Mux {
             }
             state.push_workspace(Workspace {
                 id: ws_id,
+                public_id: workspace_public_id,
                 key: key.clone(),
                 name,
                 screens: Vec::new(),
@@ -4390,7 +4417,7 @@ impl Mux {
         }
         .ok_or_else(|| anyhow::anyhow!("workspace disappeared before terminal spawn"))?;
         let surface = self.spawn_surface_in_workspace(&workspace_key, cwd, size, None)?;
-        let (pane_id, pane) = self.make_pane(surface.id);
+        let (pane_id, pane) = self.make_pane(surface.id)?;
         let screen_id = self.next_id();
         let notifications = self.surface_notifications();
         let attached = {
@@ -4404,6 +4431,7 @@ impl Mux {
                 Some(ws) => {
                     ws.screens.push(Screen {
                         id: screen_id,
+                        public_id: ScreenPublicId::random()?,
                         name: None,
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
@@ -4808,12 +4836,13 @@ impl Mux {
                     true,
                 )
             } else {
-                let (pane_id, pane) = self.make_pane(surface.id);
+                let (pane_id, pane) = self.make_pane(surface.id)?;
                 let screen_id = self.next_id();
                 state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.workspaces[wi].screens.push(Screen {
                     id: screen_id,
+                    public_id: ScreenPublicId::random()?,
                     name: None,
                     root: Node::Leaf(pane_id),
                     active_pane: pane_id,
@@ -4928,8 +4957,8 @@ impl Mux {
                 return self.create_browser_surface_in_workspace(workspace, url, size);
             }
             let workspace_key = Self::new_workspace_key()?;
-            let surface = self.spawn_browser_surface(url, size, None);
-            let (pane_id, pane) = self.make_pane(surface.id);
+            let surface = self.spawn_browser_surface(url, size, None)?;
+            let (pane_id, pane) = self.make_pane(surface.id)?;
             let screen_id = self.next_id();
             let ws_id = self.next_id();
             let notifications = self.surface_notifications();
@@ -4947,6 +4976,7 @@ impl Mux {
                     stamp_pane_focus(self, &mut state, pane_id);
                     state.workspaces[workspace_index].screens.push(Screen {
                         id: screen_id,
+                        public_id: ScreenPublicId::random()?,
                         name: None,
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
@@ -4982,6 +5012,7 @@ impl Mux {
                 return Ok(surface);
             }
             let mutation = WorkspaceMutation::local("cmux-tui");
+            let workspace_public_id = WorkspacePublicId::random()?;
             let mut registry = self.workspace_registry.lock().unwrap();
             let delta = {
                 let mut state = self.state.lock().unwrap();
@@ -4990,6 +5021,7 @@ impl Mux {
                 let mut desired = self.registry_projection(&state);
                 desired.push(RegistryWorkspace {
                     id: ws_id,
+                    public_id: workspace_public_id.clone(),
                     key: workspace_key.clone(),
                     name: name.clone(),
                     group_key: self.session.clone(),
@@ -5009,6 +5041,7 @@ impl Mux {
                     &desired,
                     &serde_json::json!({
                         "workspace": ws_id,
+                        "workspace_id": workspace_public_id.as_str(),
                         "key": workspace_key.clone(),
                         "index": index,
                     }),
@@ -5025,10 +5058,12 @@ impl Mux {
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.push_workspace(Workspace {
                     id: ws_id,
+                    public_id: workspace_public_id,
                     key: workspace_key,
                     name,
                     screens: vec![Screen {
                         id: screen_id,
+                        public_id: ScreenPublicId::random()?,
                         name: None,
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
@@ -5069,7 +5104,7 @@ impl Mux {
             return Ok(surface);
         };
 
-        let surface = self.spawn_browser_surface(url, size, None);
+        let surface = self.spawn_browser_surface(url, size, None)?;
         let active_at = self.next_active_at();
         let notifications = self.surface_notifications();
         let attached = {
@@ -5127,7 +5162,7 @@ impl Mux {
         if self.state.lock().unwrap().workspace_by_id(workspace).is_none() {
             anyhow::bail!("unknown workspace {workspace}");
         }
-        let surface = self.spawn_browser_surface(url, size, Some(workspace));
+        let surface = self.spawn_browser_surface(url, size, Some(workspace))?;
         let pending_surface = self.pending_workspace_surface(surface.id);
         let notifications = self.surface_notifications();
         let active_at = self.next_active_at();
@@ -5176,12 +5211,13 @@ impl Mux {
                     true,
                 )
             } else {
-                let (pane_id, pane) = self.make_pane(surface.id);
+                let (pane_id, pane) = self.make_pane(surface.id)?;
                 let screen_id = self.next_id();
                 state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.workspaces[wi].screens.push(Screen {
                     id: screen_id,
+                    public_id: ScreenPublicId::random()?,
                     name: None,
                     root: Node::Leaf(pane_id),
                     active_pane: pane_id,
@@ -5229,11 +5265,11 @@ impl Mux {
         target_id: String,
         url: String,
         runtime: Arc<BrowserRuntime>,
-    ) -> bool {
+    ) -> anyhow::Result<bool> {
         let (pane_id, size) = {
             let state = self.state.lock().unwrap();
             let Some(pane_id) = state.pane_of(opener_surface) else {
-                return false;
+                return Ok(false);
             };
             let size = state.surfaces.get(&opener_surface).map(|surface| surface.size());
             (pane_id, size)
@@ -5243,10 +5279,10 @@ impl Mux {
         let size = size.unwrap_or((opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
         let surface =
-            browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self));
+            browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self))?;
         let active_at = self.next_active_at();
         match self.attach_browser_surface_to_pane_or_kill(pane_id, &surface, active_at) {
-            BrowserSurfaceAttach::MissingPane => return false,
+            BrowserSurfaceAttach::MissingPane => return Ok(false),
             BrowserSurfaceAttach::Attached(Some(delta)) => self.emit_tree_delta(delta, true),
             BrowserSurfaceAttach::Attached(None) => self.emit(MuxEvent::TreeChanged),
         }
@@ -5255,7 +5291,7 @@ impl Mux {
             BrowserBootstrap::ExistingTarget { target_id, url },
             Some(runtime),
         );
-        true
+        Ok(true)
     }
 
     fn attach_browser_surface_to_pane_or_kill(
@@ -5440,6 +5476,7 @@ impl Mux {
             if done {
                 state.insert_pane(Pane {
                     id: pane_id,
+                    public_id: PanePublicId::random()?,
                     name: None,
                     tabs: vec![surface.id],
                     active_tab: 0,
@@ -5557,6 +5594,7 @@ impl Mux {
             if let Some(screen) = changed_screen {
                 state.insert_pane(Pane {
                     id: pane_id,
+                    public_id: PanePublicId::random()?,
                     name: None,
                     tabs: vec![surface.id],
                     active_tab: 0,
@@ -7333,6 +7371,7 @@ impl Mux {
             stamp_pane_focus(self, &mut state, active_pane);
             let screen = Screen {
                 id: screen_id,
+                public_id: ScreenPublicId::random()?,
                 name,
                 root,
                 active_pane,
@@ -7395,7 +7434,7 @@ impl Mux {
                     size,
                     spec.command.clone(),
                 )?;
-                let (pane_id, pane) = self.make_pane(surface.id);
+                let (pane_id, pane) = self.make_pane(surface.id)?;
                 created.push(AppliedPane { pane: pane_id, surface: surface.id });
                 panes.push((pane_id, pane));
                 spawned.push(surface);
@@ -7664,38 +7703,41 @@ impl Mux {
         {
             return Ok((Some(current), false));
         }
-        let target_pane = state.workspaces[destination]
-            .active_screen_ref()
-            .map(|screen| screen.active_pane)
-            .unwrap_or_else(|| {
-                let pane = self.next_id();
-                let screen = self.next_id();
-                state.insert_pane(Pane {
-                    id: pane,
-                    name: None,
-                    tabs: Vec::new(),
-                    active_tab: 0,
-                    active_at,
-                    // The projection preserves the user's existing focus
-                    // identity below; this destination starts unfocused.
-                    focused_at: 0,
-                });
-                state.workspaces[destination].screens.push(Screen {
-                    id: screen,
-                    name: None,
-                    root: Node::Leaf(pane),
-                    active_pane: pane,
-                    zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![pane]),
-                    viewport_splits: Default::default(),
-                    viewport_base_width: None,
-                    layout_columns: Vec::new(),
-                    layout_revision: 0,
-                    layout_undo: Default::default(),
-                });
-                state.workspaces[destination].active_screen = 0;
-                pane
+        let target_pane = if let Some(pane) =
+            state.workspaces[destination].active_screen_ref().map(|screen| screen.active_pane)
+        {
+            pane
+        } else {
+            let pane = self.next_id();
+            let screen = self.next_id();
+            state.insert_pane(Pane {
+                id: pane,
+                public_id: PanePublicId::random()?,
+                name: None,
+                tabs: Vec::new(),
+                active_tab: 0,
+                active_at,
+                // The projection preserves the user's existing focus
+                // identity below; this destination starts unfocused.
+                focused_at: 0,
             });
+            state.workspaces[destination].screens.push(Screen {
+                id: screen,
+                public_id: ScreenPublicId::random()?,
+                name: None,
+                root: Node::Leaf(pane),
+                active_pane: pane,
+                zoomed_pane: None,
+                zellij_auto_layout: Some(vec![pane]),
+                viewport_splits: Default::default(),
+                viewport_base_width: None,
+                layout_columns: Vec::new(),
+                layout_revision: 0,
+                layout_undo: Default::default(),
+            });
+            state.workspaces[destination].active_screen = 0;
+            pane
+        };
         if state.pane_of(surface).is_some() {
             let (moved, topology_changed) =
                 move_tab_in_state(self, state, surface, target_pane, usize::MAX);
@@ -8959,6 +9001,7 @@ mod tests {
                     "workspace-one",
                     &[RegistryWorkspace {
                         id: 1,
+                        public_id: WorkspacePublicId::random().unwrap(),
                         key: "workspace-one".into(),
                         name: "One".into(),
                         group_key: "secret-test".into(),
@@ -9634,7 +9677,8 @@ mod tests {
             (8, 16),
             &opts,
             Arc::downgrade(&mux),
-        );
+        )
+        .unwrap();
         let browser = surface.as_browser().expect("browser surface");
         let done = browser.take_worker_done_for_test();
 
@@ -9702,10 +9746,12 @@ mod tests {
         *state = State {
             workspaces: vec![Workspace {
                 id: 1,
+                public_id: WorkspacePublicId::random().unwrap(),
                 key: "00000000-0000-4000-8000-000000000001".into(),
                 name: "1".into(),
                 screens: vec![Screen {
                     id: 1,
+                    public_id: ScreenPublicId::random().unwrap(),
                     name: None,
                     root: Node::Split {
                         id: 10,
@@ -9738,6 +9784,7 @@ mod tests {
             )]),
             workspace_revision: 1,
             pane_revision: 3,
+            resource_revision: 0,
             focus_sequence: 3,
             active_workspace: 0,
             panes: HashMap::from([
@@ -9745,6 +9792,7 @@ mod tests {
                     p1,
                     Pane {
                         id: p1,
+                        public_id: PanePublicId::random().unwrap(),
                         name: None,
                         tabs: vec![1],
                         active_tab: 0,
@@ -9756,6 +9804,7 @@ mod tests {
                     p2,
                     Pane {
                         id: p2,
+                        public_id: PanePublicId::random().unwrap(),
                         name: None,
                         tabs: vec![2],
                         active_tab: 0,
@@ -9767,6 +9816,7 @@ mod tests {
                     p3,
                     Pane {
                         id: p3,
+                        public_id: PanePublicId::random().unwrap(),
                         name: None,
                         tabs: vec![3],
                         active_tab: 0,
@@ -9777,6 +9827,7 @@ mod tests {
             ]),
             surfaces: HashMap::new(),
             split_screens: HashMap::new(),
+            resource_indexes: Default::default(),
         };
         Mux::rebuild_split_screen_index(&mut state);
         drop(state);
@@ -12219,6 +12270,7 @@ mod tests {
             for index in 0..WORKSPACE_REGISTRY_LIMIT {
                 state.push_workspace(Workspace {
                     id: index as u64 + 1,
+                    public_id: WorkspacePublicId::random().unwrap(),
                     key: format!("key-{index}"),
                     name: format!("workspace-{index}"),
                     screens: Vec::new(),
@@ -12497,6 +12549,7 @@ mod tests {
                     "workspace-one",
                     &[RegistryWorkspace {
                         id: 1,
+                        public_id: WorkspacePublicId::random().unwrap(),
                         key: "workspace-one".into(),
                         name: "One".into(),
                         group_key: "recover-terminal".into(),
@@ -12562,6 +12615,7 @@ mod tests {
                     "workspace-one",
                     &[RegistryWorkspace {
                         id: 1,
+                        public_id: WorkspacePublicId::random().unwrap(),
                         key: "workspace-one".into(),
                         name: "One".into(),
                         group_key: "recover-exited".into(),

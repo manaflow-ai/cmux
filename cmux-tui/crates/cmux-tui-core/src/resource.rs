@@ -544,10 +544,9 @@ macro_rules! public_id {
         impl $name {
             pub const PREFIX: &'static str = $prefix;
 
-            pub fn random() -> anyhow::Result<Self> {
+            pub fn random() -> Result<Self, ResourceError> {
                 let mut bytes = [0u8; 16];
-                getrandom::fill(&mut bytes)
-                    .map_err(|_| anyhow::anyhow!("could not allocate {} identity", $prefix))?;
+                getrandom::fill(&mut bytes).map_err(|_| ResourceError::allocation($prefix))?;
                 Ok(Self(format!("{}_{}", $prefix, encode_hex(bytes))))
             }
 
@@ -617,6 +616,43 @@ public_id!(PairingRequestPublicId, "pairing");
 public_id!(SidebarViewPublicId, "sidebar_view");
 public_id!(SidebarPluginPublicId, "sidebar_plugin");
 
+impl TerminalPublicId {
+    pub fn from_terminal_host_id(value: &str) -> Result<Self, ResourceError> {
+        Self::parse(format!("term_{value}"))
+    }
+
+    pub fn terminal_host_id(&self) -> &str {
+        self.as_str().strip_prefix("term_").expect("validated terminal public id")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TabResourceIdentity {
+    pub tab_id: TabPublicId,
+    pub content_id: ContentPublicId,
+}
+
+impl TabResourceIdentity {
+    pub fn terminal(terminal_id: Option<TerminalPublicId>) -> Result<Self, ResourceError> {
+        let terminal_id = match terminal_id {
+            Some(terminal_id) => terminal_id,
+            None => TerminalPublicId::random()?,
+        };
+        Ok(Self {
+            tab_id: TabPublicId::random()?,
+            content_id: ContentPublicId::Terminal(terminal_id),
+        })
+    }
+
+    pub fn browser() -> Result<Self, ResourceError> {
+        Ok(Self {
+            tab_id: TabPublicId::random()?,
+            content_id: ContentPublicId::Browser(BrowserPublicId::random()?),
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "id", rename_all = "lowercase")]
 pub enum ContentPublicId {
@@ -685,6 +721,15 @@ impl ResourceError {
             format!("more than one {kind} is named {selector:?}"),
             json!({"kind":kind,"selector":selector,"candidates":candidates}),
             false,
+        )
+    }
+
+    pub fn allocation(kind: &str) -> Self {
+        Self::new(
+            "resource.allocation_failed",
+            format!("could not allocate {kind} identity"),
+            json!({"kind":kind}),
+            true,
         )
     }
 }
@@ -902,6 +947,11 @@ pub struct PublicSlotIndexes {
     pub pane_ids: HashMap<crate::PaneId, PanePublicId>,
     pub tab_ids: HashMap<crate::SurfaceId, TabPublicId>,
     pub content_ids: HashMap<crate::SurfaceId, ContentPublicId>,
+    pub splits: HashMap<SplitPublicId, crate::SplitId>,
+    pub split_ids: HashMap<crate::SplitId, SplitPublicId>,
+    pub screen_workspace: HashMap<crate::ScreenId, crate::WorkspaceId>,
+    pub pane_screen: HashMap<crate::PaneId, crate::ScreenId>,
+    pub tab_pane: HashMap<crate::SurfaceId, crate::PaneId>,
 }
 
 #[cfg(test)]

@@ -11,6 +11,7 @@ use cmux_tui_cdp::{
 };
 
 use crate::platform;
+use crate::resource::TabResourceIdentity;
 use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
 use crate::{Mux, MuxEvent, SurfaceId};
 
@@ -546,7 +547,7 @@ pub(crate) fn new_surface(
     cell_pixels: (u16, u16),
     opts: &SurfaceOptions,
     mux: Weak<Mux>,
-) -> Arc<Surface> {
+) -> anyhow::Result<Arc<Surface>> {
     let normalized_url = normalize_url(&url);
     let (cols, rows) = (size.0.max(1), size.1.max(1));
     let (cell_w, cell_h) = (cell_pixels.0.max(1), cell_pixels.1.max(1));
@@ -565,7 +566,12 @@ pub(crate) fn new_surface(
     #[cfg(not(test))]
     let worker_done_tx = None;
     let surface = Arc::new(Surface::Browser(BrowserSurface {
-        meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
+        meta: SurfaceMeta {
+            id,
+            resource_identity: Some(TabResourceIdentity::browser()?),
+            name: Mutex::new(None),
+            selection: Mutex::new(None),
+        },
         session: Mutex::new(None),
         state: Mutex::new(BrowserState {
             latest_frame: None,
@@ -607,7 +613,7 @@ pub(crate) fn new_surface(
         mux,
         worker_done_tx,
     );
-    surface
+    Ok(surface)
 }
 
 impl BrowserCaptureOptions {
@@ -2071,13 +2077,17 @@ fn handle_target_created(
         let _ = session.runtime.client.close_target(&created.target_id);
         return;
     };
-    if !mux.adopt_browser_target(
+    let adopted = mux.adopt_browser_target(
         opener_surface,
         created.target_id.clone(),
         if created.url.is_empty() { "about:blank".to_string() } else { created.url.clone() },
         session.runtime.clone(),
-    ) {
+    );
+    if !matches!(adopted, Ok(true)) {
         let _ = session.runtime.client.close_target(&created.target_id);
+        if let Err(error) = adopted {
+            mux.emit(MuxEvent::Status(format!("browser target adoption failed: {error}")));
+        }
     }
 }
 
@@ -2252,7 +2262,7 @@ mod tests {
 
     fn test_surface() -> Arc<Surface> {
         let opts = SurfaceOptions::default();
-        new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+        new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new()).unwrap()
     }
 
     fn read_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>) -> Value {
@@ -2397,12 +2407,14 @@ mod tests {
         .unwrap();
         let opts = SurfaceOptions::default();
         let first =
-            new_surface(11, "https://one.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+            new_surface(11, "https://one.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+                .unwrap();
         runtime
             .setup_attached_surface(&first, "target-1", "session-1", "https://one.test")
             .unwrap();
         let second =
-            new_surface(12, "https://two.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+            new_surface(12, "https://two.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+                .unwrap();
         runtime
             .setup_attached_surface(&second, "target-2", "session-2", "https://two.test")
             .unwrap();
@@ -2977,7 +2989,8 @@ mod tests {
             (8, 16),
             &SurfaceOptions::default(),
             Arc::downgrade(&mux),
-        );
+        )
+        .unwrap();
         let browser = surface.as_browser().expect("browser surface");
         let done = browser.take_worker_done_for_test();
         let events = mux.subscribe();
@@ -3252,7 +3265,8 @@ mod tests {
     fn input_mapping_uses_latest_frame_viewport() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
         {
             let state = browser.state.lock().unwrap();
@@ -3272,7 +3286,8 @@ mod tests {
     fn input_mapping_falls_back_to_capture_pixels_before_first_frame() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
 
         assert_eq!(browser.scale_input_point(2380.0, 1274.0), (966.5, 517.5));
@@ -3284,7 +3299,8 @@ mod tests {
     fn input_mapping_uses_new_capture_geometry_while_waiting_for_resized_frame() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
 
         let mut frame = test_frame(1);
@@ -3377,7 +3393,8 @@ mod tests {
     fn cell_pixel_mismatch_requires_browser_resize() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
         assert!(!browser.resize_needed(10, 5));
 
@@ -3389,7 +3406,8 @@ mod tests {
     fn cell_pixel_change_reports_only_accepted_reconfigure() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
 
         assert!(browser.set_cell_pixel_size(9, 16).unwrap());
@@ -3508,7 +3526,8 @@ mod tests {
     fn pending_browser_resize_suppresses_duplicates_until_reconfigure_completes() {
         let opts = SurfaceOptions::default();
         let surface =
-            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+                .unwrap();
         let browser = surface.as_browser().expect("browser surface");
         *browser.cell_pixels.lock().unwrap() = (9, 16);
 
