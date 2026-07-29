@@ -16865,19 +16865,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
 #endif
-        guard let context = contextContainingTabId(tabId) else { return }
-        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
-        let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
-        if !recordHistory {
-            closedWindowHistorySuppressedWindowIds.insert(context.windowId)
-        }
-        guard let window else {
+        func closeOwnedRoute(
+            windowId: UUID,
+            exactWindow: NSWindow?,
+            commitWindowlessClose: () -> Bool
+        ) {
             if !recordHistory {
-                closedWindowHistorySuppressedWindowIds.remove(context.windowId)
+                closedWindowHistorySuppressedWindowIds.insert(windowId)
             }
+            if let exactWindow,
+               NSApp.windows.contains(where: { $0 === exactWindow }) {
+                exactWindow.performClose(nil)
+                return
+            }
+            let didCommit = commitWindowlessClose()
+            if !didCommit, !recordHistory {
+                closedWindowHistorySuppressedWindowIds.remove(windowId)
+            }
+        }
+
+        if let context = contextContainingTabId(tabId) {
+            closeOwnedRoute(
+                windowId: context.windowId,
+                exactWindow: context.window,
+                commitWindowlessClose: {
+                    commitMainWindowClose(context: context, window: nil)
+                }
+            )
             return
         }
-        window.performClose(nil)
+
+        guard let route = recoverableMainWindowRouteContainingTabId(tabId),
+              let manager = route.tabManager else {
+            return
+        }
+        closeOwnedRoute(
+            windowId: route.windowId,
+            exactWindow: route.window,
+            commitWindowlessClose: {
+                commitMainWindowClose(
+                    windowId: route.windowId,
+                    tabManager: manager,
+                    context: nil,
+                    window: nil
+                )
+            }
+        )
     }
 
     @discardableResult

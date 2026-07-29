@@ -464,6 +464,15 @@ extension AppDelegate {
         return nil
     }
 
+    /// Returns the raw recoverable owner for a tab while AppKit is replacing
+    /// or tearing down its window. Callers that mutate the owner must prefer a
+    /// registered context before consulting this lifecycle route.
+    func recoverableMainWindowRouteContainingTabId(_ tabId: UUID) -> RecoverableMainWindowRoute? {
+        sortedRecoverableMainWindowRoutes().first { route in
+            route.tabManager?.workspacesById[tabId] != nil
+        }
+    }
+
     /// One-pass `tabId -> workspace title` index across every window context.
     /// Callers can limit the projection to the workspace ids they render, keeping
     /// notification lists O(tabs + groups) rather than O(notifications × tabs).
