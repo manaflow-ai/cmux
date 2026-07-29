@@ -108,11 +108,15 @@ final class AgentSessionRetryCoordinator {
 
         if let state = statesByPanelId[panelId] {
             switch state.phase {
-            case .awaitingLaunch, .running where state.binding.isSameManagedSession(as: binding):
+            case .awaitingLaunch:
                 var updatedState = state
                 updatedState.binding = binding
                 statesByPanelId[panelId] = updatedState
-            case .waiting, .ready, .awaitingLaunch, .running, .exhausted:
+            case .running where state.binding.isSameManagedSession(as: binding):
+                var updatedState = state
+                updatedState.binding = binding
+                statesByPanelId[panelId] = updatedState
+            case .waiting, .ready, .running, .exhausted:
                 // A different managed session, or a manual resume while waiting
                 // or exhausted, owns the pane now and starts with a fresh budget.
                 clearRecovery(panelId: panelId)
