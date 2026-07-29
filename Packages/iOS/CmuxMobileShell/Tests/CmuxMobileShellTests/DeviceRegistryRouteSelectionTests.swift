@@ -288,29 +288,87 @@ import Testing
         #expect(store.read() == .found(first))
     }
 
-    @Test func deviceIdentityMintsFreshWhenKeychainReportsAbsentDespiteMirror() {
-        // Phone-restore proxy: `UserDefaults` migrated over in the backup, but
-        // the ThisDeviceOnly Keychain item did not — the Keychain
-        // authoritatively reports the id ABSENT. Adopting the mirror here would
-        // give TWO physical devices (the old phone and this restored one) the
-        // same device id, and their registrations would fight over one
-        // (user, device, tag) binding slot, displacing each other on every
-        // reconnect. A fresh id must be minted and persisted instead; the
-        // mirror is trusted only while the Keychain is temporarily unreadable.
+    @Test func deviceIdentityMintsFreshWhenMirrorWitnessBelongsToAnotherPhone() {
+        // Phone-restore proxy: `UserDefaults` migrated over in the backup —
+        // including the mirror AND the old phone's device witness — but the
+        // ThisDeviceOnly Keychain item did not, so the Keychain authoritatively
+        // reports the id ABSENT and this phone's witness differs. Adopting the
+        // mirror would give TWO physical devices the same device id, and their
+        // registrations would fight over one (user, device, tag) binding slot
+        // on every reconnect. A fresh id must be minted and persisted, and the
+        // mirror re-pointed at it under THIS device's witness.
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let migratedMirror = "legacy-device-id-\(UUID().uuidString.lowercased())"
         defaults.set(migratedMirror, forKey: "cmux.deviceRegistry.iosDeviceID")
+        defaults.set("witness-old-phone", forKey: DeviceRegistryService.deviceWitnessKey)
         let store = InMemoryDeviceIdentityStore()
 
-        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
-        // A fresh identity, never the mirror that may belong to another phone.
+        let resolved = DeviceRegistryService.deviceID(
+            store: store,
+            defaults: defaults,
+            deviceWitness: "witness-new-phone"
+        )
+        // A fresh identity, never the mirror that belongs to another phone.
         #expect(resolved != migratedMirror)
         #expect(UUID(uuidString: resolved) != nil)
-        // Persisted authoritatively, and the mirror now tracks the new id.
+        // Persisted authoritatively; mirror and witness now track this device.
         #expect(store.read() == .found(resolved))
         #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == resolved)
+        #expect(
+            defaults.string(forKey: DeviceRegistryService.deviceWitnessKey) == "witness-new-phone"
+        )
+    }
+
+    @Test func deviceIdentityAdoptsPreWitnessMirrorOnInPlaceUpgrade() {
+        // The in-place upgrade population: a pre-Keychain install whose mirror
+        // holds the id its LIVE binding already uses, with no witness recorded
+        // (older builds never wrote one). Minting here would change every
+        // existing installation's identity once and strand all of their
+        // bindings, so the mirror is adopted — and this device's witness is
+        // recorded so a future restore of this backup onto another phone IS
+        // detectable.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let legacy = "legacy-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore()
+
+        let resolved = DeviceRegistryService.deviceID(
+            store: store,
+            defaults: defaults,
+            deviceWitness: "witness-this-phone"
+        )
+        // The pre-Keychain id is preserved, so the binding slot survives.
+        #expect(resolved == legacy)
+        // Promoted into the authoritative store, with the witness recorded.
+        #expect(store.read() == .found(legacy))
+        #expect(
+            defaults.string(forKey: DeviceRegistryService.deviceWitnessKey) == "witness-this-phone"
+        )
+    }
+
+    @Test func deviceIdentityAdoptsMirrorWhoseWitnessMatchesThisPhone() {
+        // Same-device Keychain loss (the item vanished but defaults survived):
+        // the recorded witness matches this device, so the mirror provably
+        // belongs here and is adopted rather than replaced.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let mirrored = "mirrored-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(mirrored, forKey: "cmux.deviceRegistry.iosDeviceID")
+        defaults.set("witness-this-phone", forKey: DeviceRegistryService.deviceWitnessKey)
+        let store = InMemoryDeviceIdentityStore()
+
+        let resolved = DeviceRegistryService.deviceID(
+            store: store,
+            defaults: defaults,
+            deviceWitness: "witness-this-phone"
+        )
+        #expect(resolved == mirrored)
+        #expect(store.read() == .found(mirrored))
     }
 
     @Test func deviceIdentitySurvivesUserDefaultsWipe() {
