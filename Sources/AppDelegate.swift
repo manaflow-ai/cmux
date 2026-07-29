@@ -10766,7 +10766,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             forName: .ghosttyDidFocusSurface,
             object: nil,
             queue: .main
-        ) { _ in checkAndSignal() }
+        ) { _ in
+            MainActor.assumeIsolated {
+                checkAndSignal()
+            }
+        }
 
         // Also poll in case the notification already fired before we observed.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { checkAndSignal() }
