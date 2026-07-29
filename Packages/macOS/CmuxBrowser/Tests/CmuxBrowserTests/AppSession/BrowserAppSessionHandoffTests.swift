@@ -97,6 +97,30 @@ struct BrowserAppSessionHandoffTests {
         #expect(handoff.sessionCookies(from: incomplete, projectID: "project-123") == nil)
     }
 
+    @Test("accepts cookie exchange headers with HTTP/2 lowercase names")
+    func acceptsLowercaseCookieExchangeHeaders() throws {
+        let origin = try #require(URL(string: "https://cmux.test"))
+        let handoff = BrowserAppSessionHandoff(webOrigin: origin)
+        let response = try #require(LowercaseHeaderHTTPURLResponse(
+            url: origin.appendingPathComponent("handler/app-session-handoff"),
+            statusCode: 204,
+            httpVersion: "HTTP/2",
+            headerFields: [
+                "X-Cmux-App-Session-Handoff": "ready",
+                "Set-Cookie": "hexclave-access=access; Path=/; Secure; SameSite=Lax, __Host-hexclave-refresh-project-123--default=refresh; Path=/; Secure; SameSite=Lax",
+            ]
+        ))
+
+        let cookies = try #require(handoff.sessionCookies(
+            from: response,
+            projectID: "project-123"
+        ))
+        #expect(cookies.map(\.name).sorted() == [
+            "__Host-hexclave-refresh-project-123--default",
+            "hexclave-access",
+        ])
+    }
+
     @Test("handoff rejects an empty refresh token")
     func rejectsEmptyRefreshToken() throws {
         let origin = try #require(URL(string: "https://cmux.test"))
@@ -160,5 +184,13 @@ struct BrowserAppSessionHandoffTests {
             domain: "cmux.test",
             projectID: "project-123"
         ))
+    }
+}
+
+private final class LowercaseHeaderHTTPURLResponse: HTTPURLResponse, @unchecked Sendable {
+    override var allHeaderFields: [AnyHashable: Any] {
+        super.allHeaderFields.reduce(into: [:]) { result, entry in
+            result[AnyHashable(String(describing: entry.key).lowercased())] = entry.value
+        }
     }
 }
