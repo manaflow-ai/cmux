@@ -506,6 +506,46 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restoredAgentCompletedGeneration?.processIdentities.isEmpty == true)
     }
 
+    @Test("Cleared Dock binding cannot fall back to the cached transfer")
+    @MainActor
+    func clearedDockBindingDoesNotReturnFromCachedTransfer() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "omp-cleared-dock-binding-\(UUID().uuidString)"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(sessionId)'",
+            cwd: "/tmp/cmux-omp-cleared-binding",
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgentResumeState: .awaitingAutoResumeCommand,
+            restoredResumeSessionWorkingDirectory: "/tmp/cmux-omp-cleared-binding",
+            resumeBinding: binding,
+            agentSessionRetryCompletedAttempts: 2
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+        #expect(store.clearSurfaceResumeBinding(panelId: panel.id))
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.resumeBinding == nil)
+        #expect(roundTripped.restorableAgentResumeState == nil)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
+        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
+    }
+
     @Test("Dock detach drops agent metadata whose recorded processes all exited")
     @MainActor
     func dockDetachDropsAgentMetadataWhoseRecordedProcessesAllExited() throws {
