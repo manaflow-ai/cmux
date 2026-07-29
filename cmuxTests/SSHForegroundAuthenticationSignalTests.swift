@@ -137,6 +137,97 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(process.terminationStatus, 130)
     }
 
+    func testSSHDirectSignalInterruptsInitialAuthenticationBackoff() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-foreground-auth-backoff-signal-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeSleep = root.appendingPathComponent("sleep")
+        let backoffReadyMarker = root.appendingPathComponent("backoff-ready")
+        let backoffPIDFile = root.appendingPathComponent("backoff-pid")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeForegroundAuthSignalShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try writeForegroundAuthSignalShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' 'ssh: connect to host boot-retry.example.test port 22: Network is unreachable' >&2",
+            "exit 255",
+        ])
+        try writeForegroundAuthSignalShellFile(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' ready > \"${CMUX_TEST_BACKOFF_READY:?}\"",
+            "printf '%s\\n' \"$$\" > \"${CMUX_TEST_BACKOFF_PID:?}\"",
+            "exec /bin/sleep \"$1\"",
+        ])
+        for executable in [fakeCLI, fakeSSH, fakeSleep] {
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        }
+
+        let startupCommand = try generatedVMSSHInitialStartupCommand()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_BACKOFF_READY"] = backoffReadyMarker.path
+        environment["CMUX_TEST_BACKOFF_PID"] = backoffPIDFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "30"
+        environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "30"
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", startupCommand]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        var backoffPID: Int32?
+        defer {
+            if process.isRunning {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                process.waitUntilExit()
+            }
+            if let backoffPID {
+                Darwin.kill(backoffPID, SIGKILL)
+            }
+        }
+
+        try process.run()
+        let readyDeadline = Date.now.addingTimeInterval(3)
+        while !fileManager.fileExists(atPath: backoffReadyMarker.path),
+              process.isRunning,
+              Date.now < readyDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        XCTAssertTrue(
+            fileManager.fileExists(atPath: backoffReadyMarker.path),
+            "Timed out waiting for initial authentication retry backoff"
+        )
+        backoffPID = try XCTUnwrap(Int32(
+            String(contentsOf: backoffPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+
+        Darwin.kill(process.processIdentifier, SIGINT)
+        let exitDeadline = Date.now.addingTimeInterval(1)
+        while process.isRunning, Date.now < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        let exitedPromptly = !process.isRunning
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+        }
+        process.waitUntilExit()
+
+        XCTAssertTrue(exitedPromptly, "SIGINT must interrupt initial authentication backoff promptly")
+        XCTAssertEqual(process.terminationStatus, 130)
+    }
+
     func testSSHInitialStartupStopsAtForegroundAuthenticationFailureLimit() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
