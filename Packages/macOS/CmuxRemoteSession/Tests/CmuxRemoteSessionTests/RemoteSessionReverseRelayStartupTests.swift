@@ -102,6 +102,51 @@ struct RemoteSessionReverseRelayStartupTests {
     }
 
     @Test(
+        "Successful master exit retries the dedicated relay",
+        .timeLimit(.minutes(1))
+    )
+    func successfulMasterExitRetriesDedicatedRelay() async throws {
+        let host = ReverseRelayRecoveryHost()
+        let runner = RecordingProcessRunner()
+        let fixture = try Self.makeCoordinator(
+            host: host,
+            runner: runner,
+            destination: "127.0.0.1",
+            port: 1,
+            relayPort: 64_046
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+
+        coordinator.queue.async {
+            coordinator.daemonReady = true
+            _ = coordinator.beginConflictedControlMasterExitIfNeededLocked(
+                startupFailure: "Error: remote port forwarding failed for listen port 64046",
+                remotePath: "/tmp/cmuxd-remote",
+                relayPort: 64_046,
+                relayID: "relay-successful-recovery",
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: coordinator.configuration.localSocketPath ?? ""
+            )
+        }
+
+        var statuses = host.daemonStatuses.makeAsyncIterator()
+        let retryStatus = await statuses.next()
+        #expect(retryStatus?.detail?.contains("Remote SSH relay unavailable") == true)
+
+        let recoveryRequest = runner.requests.first
+        #expect(recoveryRequest?.arguments.contains("-O") == true)
+        #expect(recoveryRequest?.arguments.contains("exit") == true)
+        #expect(runner.requests.count == 1)
+        let retriedAfterRecovery = coordinator.queue.sync {
+            coordinator.reverseRelayStartupPhase.allowsRelayLaunch &&
+                coordinator.reverseRelayRestartTask != nil
+        }
+        #expect(retriedAfterRecovery)
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
+    @Test(
         "Stop cancels conflicted-master exit without waiting on its timeout",
         .timeLimit(.minutes(1))
     )
@@ -139,7 +184,10 @@ struct RemoteSessionReverseRelayStartupTests {
 
     private static func makeCoordinator(
         host: any RemoteSessionHosting = NoopRemoteSessionHost(),
-        runner: any RemoteSessionProcessRunning
+        runner: any RemoteSessionProcessRunning,
+        destination: String = "user@example.test",
+        port: Int? = nil,
+        relayPort: Int = 64_044
     ) throws -> (coordinator: RemoteSessionCoordinator, scratchDirectory: URL) {
         let scratchDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -151,12 +199,12 @@ struct RemoteSessionReverseRelayStartupTests {
             withIntermediateDirectories: true
         )
         let configuration = WorkspaceRemoteConfiguration(
-            destination: "user@example.test",
-            port: nil,
+            destination: destination,
+            port: port,
             identityFile: nil,
             sshOptions: ["StrictHostKeyChecking=accept-new"],
             localProxyPort: nil,
-            relayPort: 64_044,
+            relayPort: relayPort,
             relayID: "relay-startup-cancellation",
             relayToken: String(repeating: "a", count: 64),
             localSocketPath: scratchDirectory.appendingPathComponent("relay.sock").path,
