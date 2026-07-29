@@ -364,7 +364,7 @@ set -euo pipefail
 if ! mkdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null; then
   printf 'overlap\n' >> "$FAKE_CMUX_CONCURRENCY_LOG"
 fi
-sleep 3
+sleep "${FAKE_CMUX_SLEEP_SECONDS:-0.25}"
 printf '%s\n' "$*" >> "$FAKE_CMUX_ARGS_LOG"
 cat >> "$FAKE_CMUX_STDIN_LOG"
 printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
@@ -391,6 +391,7 @@ rmdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null || true
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
         check_env["FAKE_CMUX_CONCURRENCY_LOG"] = str(fake_concurrency_log)
         check_env["FAKE_CMUX_LOCK_DIR"] = str(fake_lock_dir)
+        check_env["FAKE_CMUX_SLEEP_SECONDS"] = "0.25"
         check_env["AMP_API_KEY"] = "amp-secret"
         check_source = """
 const extensionPath = process.env.CMUX_TEST_OMP_EXTENSION_PATH;
@@ -433,6 +434,16 @@ await handlers.get("agent_end")({
 const elapsed = Date.now() - start;
 if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
 await handlers.get("session_shutdown")({}, ctx);
+process.env.FAKE_CMUX_SLEEP_SECONDS = "10";
+const hungStart = Date.now();
+await handlers.get("session_start")({}, ctx);
+for (let index = 0; index < 40; index += 1) {
+  await handlers.get("before_agent_start")({ prompt: `hung omp ${index}` }, ctx);
+}
+await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, ctx);
+await handlers.get("session_shutdown")({}, ctx);
+const hungElapsed = Date.now() - hungStart;
+if (hungElapsed > 3500) throw new Error(`shutdown drain exceeded deadline: ${hungElapsed}ms`);
 """
         check = subprocess.run(
             [bun, "--eval", check_source],

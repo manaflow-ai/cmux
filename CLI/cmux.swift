@@ -30686,11 +30686,11 @@ export default CMUXSessionRestore;
                 return (workspaceId, surfaceId)
             }
 
-            // Without explicit flags, the unique kernel controlling-TTY binding
-            // is authoritative over both ambient IDs. This also follows a pane
-            // that moved to a different workspace after the env was captured.
+            // Only live-process evidence may replace an ambient workspace; an ambient TTY stays inside it.
+            let processResolution = processBindingResolution()
             if hookWsFlag == nil, explicitSurfaceFlag == nil,
-               let binding = processBinding(),
+               let binding = processResolution.binding,
+               processResolution.canReplaceAmbientWorkspace(resolvedDirectWorkspaceArg),
                let workspaceId = resolveAccessibleWorkspaceId(binding.workspaceId),
                let surfaceId = resolveAccessibleSurfaceId(
                    binding.surfaceId,

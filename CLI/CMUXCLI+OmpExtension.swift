@@ -160,14 +160,24 @@ function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record
   };
 }
 
-function runHook(invocation: HookInvocation, subcommand: string): Promise<void> {
-  return new Promise<void>((resolve) => {
-    let child: ReturnType<typeof spawn> | null = null;
+interface RunningHook {
+  completion: Promise<void>;
+  cancel: () => void;
+}
+
+function startHook(invocation: HookInvocation, subcommand: string): RunningHook {
+  let child: ReturnType<typeof spawn> | null = null;
+  let settle = () => {};
+  const completion = new Promise<void>((resolve) => {
+    let settled = false;
     const timeout = setTimeout(() => {
       child?.kill("SIGKILL");
+      settle();
     }, 5000);
     timeout.unref();
-    const settle = () => {
+    settle = () => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       resolve();
     };
@@ -184,6 +194,13 @@ function runHook(invocation: HookInvocation, subcommand: string): Promise<void> 
       settle();
     }
   });
+  return {
+    completion,
+    cancel: () => {
+      child?.kill("SIGKILL");
+      settle();
+    },
+  };
 }
 
 interface QueuedHook {
@@ -192,13 +209,19 @@ interface QueuedHook {
 }
 
 const maxQueuedHooks = 16;
+const hookShutdownDeadlineMs = 2000;
 const hookQueue: QueuedHook[] = [];
 let hookWorker: Promise<void> | null = null;
+let activeHook: RunningHook | null = null;
 
 async function drainHookQueue(): Promise<void> {
   while (hookQueue.length > 0) {
     const next = hookQueue.shift();
-    if (next) await runHook(next.invocation, next.subcommand);
+    if (!next) continue;
+    const running = startHook(next.invocation, next.subcommand);
+    activeHook = running;
+    await running.completion;
+    if (activeHook === running) activeHook = null;
   }
 }
 
@@ -211,7 +234,28 @@ function startHookWorker(): void {
 }
 
 async function awaitHookQueueDrain(): Promise<void> {
-  while (hookWorker) await hookWorker;
+  for (let index = hookQueue.length - 1; index >= 0; index -= 1) {
+    if (hookQueue[index]?.subcommand === "prompt-submit") hookQueue.splice(index, 1);
+  }
+  const worker = hookWorker;
+  if (!worker) return;
+  let timedOut = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  await Promise.race([
+    worker,
+    new Promise<void>((resolve) => {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        resolve();
+      }, hookShutdownDeadlineMs);
+    }),
+  ]);
+  if (timeout) clearTimeout(timeout);
+  if (timedOut) {
+    hookQueue.splice(0);
+    activeHook?.cancel();
+    await worker;
+  }
 }
 
 function enqueueHook(invocation: HookInvocation, subcommand: string): void {

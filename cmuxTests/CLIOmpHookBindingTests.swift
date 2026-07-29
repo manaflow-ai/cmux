@@ -184,6 +184,47 @@ struct CLIOmpHookBindingTests {
     }
 
     @Test
+    func ambientTTYCannotMoveGenericHookAcrossClaimedWorkspace() throws {
+        let context = try Harness.makeContext(name: "generic-tty-boundary")
+        defer { context.cleanup() }
+        let sessionId = "codex-ambient-tty-session"
+        let staleTTY = "ttys-ambient-stale"
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.liveWorkspaceId: [Self.liveSurfaceId],
+                Self.leakedWorkspaceId: [Self.leakedSurfaceId],
+            ],
+            pidTarget: nil,
+            ttyRows: [
+                (tty: staleTTY, workspaceId: Self.leakedWorkspaceId, surfaceId: Self.leakedSurfaceId)
+            ]
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLI_TTY_NAME"] = staleTTY
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/codex"])
+        environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let resume = try #require(Harness.resumeBindingParams(in: context).last)
+        #expect(resume["workspace_id"] as? String == Self.liveWorkspaceId)
+        #expect(resume["surface_id"] as? String == Self.liveSurfaceId)
+    }
+
+    @Test
     func numericPIDWithoutGenerationDoesNotSupersedePriorSession() throws {
         let context = try Harness.makeContext(name: "omp-pid-generation")
         defer { context.cleanup() }

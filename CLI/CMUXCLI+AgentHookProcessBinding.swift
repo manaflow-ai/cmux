@@ -1,9 +1,20 @@
 import Foundation
 
 extension CMUXCLI {
+    enum AgentHookProcessBindingSource {
+        case ambientTTY
+        case liveProcess
+    }
+
     struct AgentHookProcessBindingResult {
         let binding: CallerTerminalBinding?
+        let source: AgentHookProcessBindingSource?
         let rejectsAmbientClaim: Bool
+
+        func canReplaceAmbientWorkspace(_ workspaceId: String?) -> Bool {
+            guard let workspaceId else { return true }
+            return source == .liveProcess || binding?.workspaceId == workspaceId
+        }
     }
 
     enum AgentHookProcessBindingProbe {
@@ -55,30 +66,37 @@ extension CMUXCLI {
         client: SocketClient
     ) -> AgentHookProcessBindingResult {
         guard resolution == .controllingTTY else {
-            return AgentHookProcessBindingResult(
-                binding: uniqueCallerTerminalBindingByTTY(client: client)
-                    ?? resolveAgentProcessTerminalBinding(pid: pid, client: client),
-                rejectsAmbientClaim: false
-            )
+            return corroboratedAgentHookProcessBinding(pid: pid, client: client)
         }
 
         switch liveAgentControllingTTYBinding(pid: pid, client: client) {
         case .resolved(let binding):
-            return AgentHookProcessBindingResult(binding: binding, rejectsAmbientClaim: false)
+            return AgentHookProcessBindingResult(binding: binding, source: .liveProcess, rejectsAmbientClaim: false)
         case .unsupported:
-            return AgentHookProcessBindingResult(
-                binding: uniqueCallerTerminalBindingByTTY(client: client)
-                    ?? resolveAgentProcessTerminalBinding(pid: pid, client: client),
-                rejectsAmbientClaim: false
-            )
+            return corroboratedAgentHookProcessBinding(pid: pid, client: client)
         case .failed:
-            return AgentHookProcessBindingResult(binding: nil, rejectsAmbientClaim: true)
+            return AgentHookProcessBindingResult(binding: nil, source: nil, rejectsAmbientClaim: true)
         case .notAttempted:
             return AgentHookProcessBindingResult(
                 binding: uniqueCallerTerminalBindingByTTY(client: client),
+                source: .ambientTTY,
                 rejectsAmbientClaim: false
             )
         }
+    }
+
+    private func corroboratedAgentHookProcessBinding(
+        pid: Int?,
+        client: SocketClient
+    ) -> AgentHookProcessBindingResult {
+        if let binding = uniqueCallerTerminalBindingByTTY(client: client) {
+            return AgentHookProcessBindingResult(binding: binding, source: .ambientTTY, rejectsAmbientClaim: false)
+        }
+        return AgentHookProcessBindingResult(
+            binding: resolveAgentProcessTerminalBinding(pid: pid, client: client),
+            source: .liveProcess,
+            rejectsAmbientClaim: false
+        )
     }
 
     func clearSupersededAgentHookSessions(
