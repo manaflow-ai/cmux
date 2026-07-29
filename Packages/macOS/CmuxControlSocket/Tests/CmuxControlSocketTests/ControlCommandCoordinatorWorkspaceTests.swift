@@ -277,7 +277,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
         let context = FakeWorkspaceControlCommandContext(
             currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner(
                 transportKey: "persistent-transport",
-                attachmentID: surfaceID.uuidString,
+                attachmentID: surfaceID.uuidString.lowercased(),
                 commitLease: FixedRemotePTYLifecycleCommitLease(isCurrent: true)
             )
         )
@@ -419,6 +419,30 @@ struct ControlCommandCoordinatorWorkspaceTests {
             ]
         )) else {
             Issue.record("incomplete lifecycle-only request was accepted")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(context.terminalSessionEndCall == nil)
+    }
+
+    @Test func relaySessionEndRejectsMissingTerminalGeneration() throws {
+        let (coordinator, context) = coordinator()
+        context.terminalSessionEndResolution = .resolved(
+            windowID: nil,
+            workspaceID: UUID(),
+            remoteStatus: .object([:])
+        )
+
+        guard case .err(let code, _, _) = coordinator.handle(request(
+            "workspace.remote.terminal_session_end",
+            [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string(UUID().uuidString),
+                "relay_port": .int(64_007),
+            ]
+        )) else {
+            Issue.record("relay end without a terminal generation was accepted")
             return
         }
 

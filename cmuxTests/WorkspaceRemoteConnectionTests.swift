@@ -1781,6 +1781,24 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalEndClearsReadinessPendingRemoteConfiguration() throws {
+        let workspace = Workspace()
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panelID,
+                authority: .relayPort(64_016)
+            )
+        )
+        XCTAssertNotNil(workspace.pendingRemoteTerminalConnectionsBySurfaceId[panelID])
+
+        workspace.clearRemoteTerminalSessionPhase(surfaceId: panelID)
+
+        XCTAssertNil(workspace.pendingRemoteTerminalConnectionsBySurfaceId[panelID])
+    }
+
+    @MainActor
     func testDockOwnedRemoteTerminalLifecycleSurvivesConnectedAndEndedRoundTrips() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
