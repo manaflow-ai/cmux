@@ -8,6 +8,7 @@ protocol TerminalLinkOpenContainer: AnyObject {
 
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String?
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool
+    func terminalLinkSnapshotTerminalPanel(for sourcePanelId: UUID) -> TerminalPanel?
 
     @discardableResult
     func deferTerminalFileLinkOpen(

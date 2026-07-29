@@ -14,6 +14,11 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         detachedSurfaceTransfersByPanelId[sourcePanelId]?.isRemoteTerminal == true
     }
 
+    func terminalLinkSnapshotTerminalPanel(for sourcePanelId: UUID) -> TerminalPanel? {
+        guard !terminalLinkIsRemoteTerminal(sourcePanelId) else { return nil }
+        return panels[sourcePanelId] as? TerminalPanel
+    }
+
     func deferTerminalFileLinkOpen(
         sourcePanelId _: UUID,
         filePath _: String,

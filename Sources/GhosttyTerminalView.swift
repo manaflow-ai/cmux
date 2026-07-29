@@ -6109,12 +6109,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return nil }
 
         guard let termSurface = terminalSurface,
-              let workspace = termSurface.owningWorkspace(),
-              workspace.canResolveTerminalPathsAgainstLocalFilesystem(
-                  surfaceID: termSurface.id
-              ) else { return nil }
+              let container = terminalLinkOpenContainer(for: termSurface),
+              !container.terminalLinkIsRemoteTerminal(termSurface.id) else {
+            return nil
+        }
 
-        guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface) else {
+        guard let cwd = container.terminalLinkWorkingDirectory(for: termSurface.id) else {
             return nil
         }
 
@@ -6123,8 +6123,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             resolveVisibleWordPath(
                 at: $0,
                 cwd: cwd,
-                workspace: workspace,
-                terminalSurface: termSurface
+                container: container,
+                sourcePanelId: termSurface.id
             )
         }
 
@@ -6160,8 +6160,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 viewportResolution = resolveVisibleWordPathFromViewportOffset(
                     viewportOffsetStart,
                     cwd: cwd,
-                    workspace: workspace,
-                    terminalSurface: termSurface
+                    container: container,
+                    sourcePanelId: termSurface.id
                 )
             }
 
@@ -6273,13 +6273,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
     }
 
-    private func resolvedWordPathWorkingDirectory(
-        workspace: Workspace,
-        terminalSurface: TerminalSurface
-    ) -> String? {
-        CommandClickFileOpenRouter.resolveWorkingDirectory(
-            workspace: workspace,
-            surfaceId: terminalSurface.id
+    private func terminalLinkOpenContainer(
+        for terminalSurface: TerminalSurface
+    ) -> (any TerminalLinkOpenContainer)? {
+        TerminalLinkOpenCoordinator.resolveContainer(
+            sourceWorkspaceId: terminalSurface.tabId,
+            sourcePanelId: terminalSurface.id
         )
     }
 
@@ -6315,24 +6314,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func wordPathSnapshotTerminalPanel(
-        workspace: Workspace,
-        terminalSurface: TerminalSurface
+        container: any TerminalLinkOpenContainer,
+        sourcePanelId: UUID
     ) -> TerminalPanel? {
-        guard workspace.canResolveTerminalPathsAgainstLocalFilesystem(
-            surfaceID: terminalSurface.id
-        ) else { return nil }
-        return workspace.controlTerminalPanel(for: terminalSurface.id)
+        guard !container.terminalLinkIsRemoteTerminal(sourcePanelId) else { return nil }
+        return container.terminalLinkSnapshotTerminalPanel(for: sourcePanelId)
     }
 
 #if DEBUG
     func debugWordPathSnapshotTerminalPanelID() -> UUID? {
         guard let terminalSurface,
-              let workspace = terminalSurface.owningWorkspace() else {
+              let container = terminalLinkOpenContainer(for: terminalSurface) else {
             return nil
         }
         return wordPathSnapshotTerminalPanel(
-            workspace: workspace,
-            terminalSurface: terminalSurface
+            container: container,
+            sourcePanelId: terminalSurface.id
         )?.id
     }
 #endif
@@ -6340,12 +6337,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func resolveVisibleWordPathFromViewportOffset(
         _ viewportOffsetStart: Int,
         cwd: String,
-        workspace: Workspace,
-        terminalSurface: TerminalSurface
+        container: any TerminalLinkOpenContainer,
+        sourcePanelId: UUID
     ) -> WordPathResolution? {
         guard let panel = wordPathSnapshotTerminalPanel(
-            workspace: workspace,
-            terminalSurface: terminalSurface
+            container: container,
+            sourcePanelId: sourcePanelId
         ),
               let surface else {
             return nil
@@ -6383,12 +6380,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func resolveVisibleWordPath(
         at point: NSPoint,
         cwd: String,
-        workspace: Workspace,
-        terminalSurface: TerminalSurface
+        container: any TerminalLinkOpenContainer,
+        sourcePanelId: UUID
     ) -> WordPathResolution? {
         guard let panel = wordPathSnapshotTerminalPanel(
-            workspace: workspace,
-            terminalSurface: terminalSurface
+            container: container,
+            sourcePanelId: sourcePanelId
         ),
               let surface else {
             return nil
@@ -6544,21 +6541,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         #endif
 
-        // Remote-surface guard runs before shouldRoute so we never stat a local
-        // path on the main thread for a remote workspace. When the cmux route
-        // is applicable but split creation fails, fall back to the preferred
-        // editor so the click never silently no-ops.
+        // Resolution already rejected remote terminals before touching the
+        // local filesystem. Route supported files through the same container
+        // coordinator as structured Ghostty links so Workspace and Dock
+        // terminals share browser behavior and deferred state validation.
         if let termSurface = terminalSurface,
-           let workspace = termSurface.owningWorkspace(),
-           workspace.canResolveTerminalPathsAgainstLocalFilesystem(
-               surfaceID: termSurface.id
-           ),
-           CommandClickFileOpenRouter.openInCmux(
-               workspace: workspace,
-               sourcePanelId: termSurface.id,
-               filePath: resolution.path
-           ) {
-            return resolution
+           CommandClickFileOpenRouter.shouldRouteInCmux(path: resolution.path) {
+            let coordinator = TerminalLinkOpenCoordinator(
+                externalOpen: { url in
+                    PreferredEditorService(defaults: .standard).open(url)
+                    return true
+                }
+            )
+            if coordinator.open(
+                TerminalLinkOpenRequest(
+                    rawValue: resolution.path,
+                    sourceWorkspaceId: termSurface.tabId,
+                    sourcePanelId: termSurface.id,
+                    workingDirectory: nil
+                )
+            ) {
+                return resolution
+            }
         }
 
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))

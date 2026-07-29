@@ -25,6 +25,10 @@ struct TerminalLinkOpenCoordinatorTests {
             isRemote
         }
 
+        func terminalLinkSnapshotTerminalPanel(for sourcePanelId: UUID) -> TerminalPanel? {
+            nil
+        }
+
         func deferTerminalFileLinkOpen(
             sourcePanelId: UUID,
             filePath: String,

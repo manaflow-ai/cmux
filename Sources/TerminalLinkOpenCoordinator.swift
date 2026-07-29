@@ -250,7 +250,7 @@ struct TerminalLinkOpenCoordinator {
         return externalOpen(url)
     }
 
-    private static func resolveContainer(
+    static func resolveContainer(
         sourceWorkspaceId: UUID?,
         sourcePanelId: UUID?
     ) -> (any TerminalLinkOpenContainer)? {

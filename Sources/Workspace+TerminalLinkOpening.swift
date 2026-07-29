@@ -22,6 +22,11 @@ extension Workspace: TerminalLinkOpenContainer {
         )
     }
 
+    func terminalLinkSnapshotTerminalPanel(for sourcePanelId: UUID) -> TerminalPanel? {
+        guard !terminalLinkIsRemoteTerminal(sourcePanelId) else { return nil }
+        return controlTerminalPanel(for: sourcePanelId)
+    }
+
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
         filePath: String,
