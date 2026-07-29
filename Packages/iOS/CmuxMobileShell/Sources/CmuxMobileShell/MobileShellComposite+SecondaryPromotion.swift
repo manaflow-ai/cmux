@@ -399,11 +399,36 @@ extension MobileShellComposite {
             }
             return false
         }
-        // A workspace event that raced the fetch already owns a fresh
-        // foreground refetch. Never overwrite its result with this older
-        // response.
-        if workspaceListEventGeneration == snapshotEventGeneration,
-           foregroundWorkspaceStateRevision == snapshotStateRevision {
+        let eventRaced =
+            workspaceListEventGeneration != snapshotEventGeneration
+        let newerWorkspaceStateApplied =
+            foregroundWorkspaceStateRevision != snapshotStateRevision
+        if eventRaced, !newerWorkspaceStateApplied {
+            // The event fetch is part of the promotion's freshness contract.
+            // If it fails, fail closed and let the normal switch path redial
+            // instead of returning success with the older control snapshot.
+            for _ in 0 ..< 3
+                where foregroundWorkspaceStateRevision
+                    == snapshotStateRevision {
+                guard let racedRefresh = workspaceListRefreshTask else {
+                    break
+                }
+                _ = await racedRefresh.value
+            }
+            guard foregroundWorkspaceStateRevision
+                    != snapshotStateRevision,
+                  isCurrentMacSwitchAttempt(switchAttemptID),
+                  remoteClient === sub.client,
+                  foregroundMacDeviceID == macID else {
+                stopTerminalRefreshPolling()
+                if let promotedConnection = connections[macID] {
+                    invalidateFocusedConnectionAfterAbortedHandoff(
+                        promotedConnection
+                    )
+                }
+                return false
+            }
+        } else if !newerWorkspaceStateApplied {
             workspacesByMac[macID] = MacWorkspaceState(
                 macDeviceID: macID,
                 displayName: displayName,

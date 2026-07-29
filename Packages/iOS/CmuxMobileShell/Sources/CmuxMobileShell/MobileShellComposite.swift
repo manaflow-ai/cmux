@@ -812,7 +812,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var createWorkspaceTaskGroupID: MobileWorkspaceGroupPreview.ID?
     var createWorkspaceTaskSpec: MobileWorkspaceCreateSpec?
     private var createTerminalTask: Task<Void, Never>?
-    private var workspaceListRefreshTask: Task<Void, Never>?
+    var workspaceListRefreshTask: Task<Bool, Never>?
+    private var workspaceListRefreshOperationID: UUID?
     /// Advances before every foreground `workspace.updated` refetch. Promotion
     /// rejects its own handoff snapshot when a newer event races that fetch.
     var workspaceListEventGeneration: UInt64 = 0
@@ -4957,6 +4958,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         subscription.isTransitioningToFocus = false
+        if subscription.refreshPending,
+           subscription.refreshTask == nil,
+           subscription.deferredRefreshTask == nil {
+            scheduleDeferredSecondaryWorkspaceRefresh(
+                subscription,
+                displayName: subscription.displayName
+            )
+        }
         ensureSecondaryControlKeepalive()
         scheduleSecondaryPresenceAggregation(forMacDeviceID: macDeviceID)
     }
@@ -5194,6 +5203,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let clock = controlPlaneSchedulingClock
         subscription.deferredRefreshOperationID = operationID
         subscription.deferredRefreshTask = Task { @MainActor [weak self] in
+            defer {
+                if subscription.deferredRefreshOperationID == operationID {
+                    subscription.deferredRefreshTask = nil
+                    subscription.deferredRefreshOperationID = nil
+                }
+            }
             do {
                 try await clock.sleep(for: .milliseconds(500))
             } catch {
@@ -5207,6 +5222,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   !subscription.isTransitioningToFocus else {
                 return
             }
+            // Vacate the slot before enqueueing. Otherwise the refresh owner
+            // would coalesce onto this already-running deferred task.
             subscription.deferredRefreshTask = nil
             subscription.deferredRefreshOperationID = nil
             subscription.refreshPending = false
@@ -6757,6 +6774,40 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let routeAllowsStackAuthFallbackOverride = allowsStackAuthFallback
         let connectionAttemptStartedAt = pairingAttemptStartedAt
         var lastError: (any Error)?
+        var displacedControlReservation: SecondaryMacSubscription?
+        defer {
+            if let displacedControlReservation,
+               secondaryMacSubscriptions[
+                   displacedControlReservation.macDeviceID
+               ] === displacedControlReservation {
+                displacedControlReservation.detachKeepingClient()
+                secondaryMacSubscriptions[
+                    displacedControlReservation.macDeviceID
+                ] = nil
+                markSecondaryMacUnavailable(
+                    displacedControlReservation.macDeviceID
+                )
+                scheduleSecondaryPresenceAggregation(
+                    forMacDeviceID:
+                        displacedControlReservation.macDeviceID
+                )
+            }
+        }
+        // A fresh same-peer dial cannot acquire the Iroh session while the
+        // target's warm control client owns it. Reserve and retire that exact
+        // registry owner before the first target RPC, keeping its slot occupied
+        // until the authenticated client either publishes focus or fails.
+        if let requestedMacDeviceID,
+           let displaced = secondaryMacSubscriptions.first(where: {
+               cmxCanonicalDeviceID($0.key)
+                   == cmxCanonicalDeviceID(requestedMacDeviceID)
+           })?.value {
+            displaced.isTransitioningToFocus = true
+            displacedControlReservation = displaced
+            displaced.detachKeepingClient()
+            await displaced.client.disconnect()
+            guard isConnectCurrent() else { return nil }
+        }
         routeLoop: for route in supportedRoutes {
             candidateRoute = route
             if previousFocusedConnection == nil {
@@ -6941,42 +6992,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         hint: pairedMacDeviceID
                     )
                     let authenticatedCapabilities = Set(status.capabilities)
-                    var displacedControlReservation:
-                        SecondaryMacSubscription?
-                    defer {
-                        if let displacedControlReservation,
-                           secondaryMacSubscriptions[
-                               displacedControlReservation.macDeviceID
-                           ] === displacedControlReservation {
-                            displacedControlReservation.detachKeepingClient()
-                            secondaryMacSubscriptions[
-                                displacedControlReservation.macDeviceID
-                            ] = nil
-                            markSecondaryMacUnavailable(
-                                displacedControlReservation.macDeviceID
-                            )
-                            scheduleSecondaryPresenceAggregation(
-                                forMacDeviceID:
-                                    displacedControlReservation.macDeviceID
-                            )
-                        }
-                    }
-                    // A fresh dial may race an already-live control connection
-                    // for the target. Stop and close that owner while leaving
-                    // its registry slot occupied; the final atomic transition
-                    // replaces it with focus, so another aggregation pass cannot
-                    // install a control owner in the handoff gap.
-                    if !resolvedForegroundMacID.isEmpty,
-                       let displaced = secondaryMacSubscriptions[resolvedForegroundMacID] {
-                        displaced.isTransitioningToFocus = true
-                        displacedControlReservation = displaced
-                        displaced.detachKeepingClient()
-                        await displaced.client.disconnect()
-                        guard isConnectCurrent() else {
-                            await client.disconnect()
-                            return nil
-                        }
-                    }
                     if let previousFocusedConnection {
                         let resolvesToSameMac = !resolvedForegroundMacID.isEmpty
                             && cmxCanonicalDeviceID(previousFocusedConnection.macDeviceID)
@@ -7278,10 +7293,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         generation: UUID
     ) {
         guard workspaceListRefreshTask == nil else { return }
+        let operationID = UUID()
+        workspaceListRefreshOperationID = operationID
         workspaceListRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.workspaceListRefreshTask = nil }
-            _ = await self.refreshAllWorkspacesWithAttachTokenIfAvailable(
+            guard let self else { return false }
+            defer {
+                if self.workspaceListRefreshOperationID == operationID {
+                    self.workspaceListRefreshTask = nil
+                    self.workspaceListRefreshOperationID = nil
+                }
+            }
+            return await self.refreshAllWorkspacesWithAttachTokenIfAvailable(
                 client: client,
                 route: route,
                 generation: generation,
@@ -7575,6 +7597,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
+        workspaceListRefreshOperationID = nil
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
         workspaceChangesSummaryDebounceTask?.cancel()
@@ -10008,10 +10031,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // event-driven task handle; the user pull-to-refresh runs on its own
         // (``pullToRefreshTask``) so an event can never truncate its spinner.
         workspaceListRefreshTask?.cancel()
+        let operationID = UUID()
+        workspaceListRefreshOperationID = operationID
         workspaceListRefreshTask = Task { @MainActor [weak self] in
-            defer { self?.workspaceListRefreshTask = nil }
-            await self?.reloadWorkspaceListFromMac()
-            self?.scheduleWorkspaceChangesSummaryRefresh()
+            guard let self else { return false }
+            defer {
+                if self.workspaceListRefreshOperationID == operationID {
+                    self.workspaceListRefreshTask = nil
+                    self.workspaceListRefreshOperationID = nil
+                }
+            }
+            let refreshed = await self.reloadWorkspaceListFromMac()
+            if refreshed {
+                self.scheduleWorkspaceChangesSummaryRefresh()
+            }
+            return refreshed
         }
     }
 

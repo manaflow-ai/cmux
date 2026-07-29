@@ -2103,7 +2103,6 @@ import Testing
             runtime: runtime,
             isSignedIn: true,
             pairedMacStore: pairedStore,
-            presence: IdlePresence(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-1" },
             controlPlaneSchedulingClock: clock
@@ -2153,10 +2152,22 @@ import Testing
         #expect(try await pollUntil {
             subscription.deferredRefreshTask != nil
         })
-        clock.advance(by: .milliseconds(499))
+        subscription.isTransitioningToFocus = true
+        clock.advance(by: .milliseconds(500))
         for _ in 0 ..< 16 { await Task.yield() }
         #expect(await router.count(of: "workspace.list") == 3)
-        clock.advance(by: .milliseconds(1))
+        #expect(subscription.deferredRefreshTask == nil)
+        #expect(subscription.refreshPending)
+
+        await shell.resumeSecondarySubscriptionAfterAbortedPromotion(
+            subscription,
+            macDeviceID: "mac-b"
+        )
+        #expect(try await pollUntil {
+            subscription.deferredRefreshTask != nil
+        })
+        for _ in 0 ..< 16 { await Task.yield() }
+        clock.advance(by: .milliseconds(500))
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 4))
         #expect(try await pollUntil {
             shell.workspacesByMac["mac-b"]?.workspaces.first?.name
@@ -2582,6 +2593,20 @@ import Testing
         #expect(shell.activeTicket?.macDeviceID == "mac-a")
         #expect(shell.activeRoute == oldRoute)
         #expect(shell.connectedHostName == "Mac A")
+        #expect(displacedControl.isTransitioningToFocus)
+        do {
+            _ = try await displacedControlClient.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    params: [:]
+                )
+            )
+            Issue.record(
+                "target control owner stayed usable during the fresh target RPC"
+            )
+        } catch {
+            // Expected: Iroh ownership is released before the fresh dial.
+        }
 
         await router.releaseAllHeld()
         _ = try await connectTask.value

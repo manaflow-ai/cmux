@@ -387,9 +387,9 @@ import Testing
         }
     }
 
-    @Test(arguments: [false, true])
+    @Test(arguments: PromotionWorkspaceRace.allCases)
     func promotionDoesNotOverwriteNewerForegroundWorkspaceState(
-        stateSyncProjectionRaces: Bool
+        race: PromotionWorkspaceRace
     ) async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -554,11 +554,24 @@ import Testing
             )
         )
 
-        let switchTask = Task { @MainActor in
-            await shell.switchToMac(
-                macDeviceID: "mac-b",
-                instanceTag: "feature-b"
-            )
+        let switchTask: Task<Bool, Never>
+        if race == .eventRefreshFailure {
+            let switchAttemptID = UUID()
+            shell.macSwitchAttemptID = switchAttemptID
+            shell.macSwitchAttemptSignInGeneration = shell.signInGeneration
+            switchTask = Task { @MainActor in
+                await shell.promoteSecondaryToForeground(
+                    "mac-b",
+                    switchAttemptID: switchAttemptID
+                )
+            }
+        } else {
+            switchTask = Task { @MainActor in
+                await shell.switchToMac(
+                    macDeviceID: "mac-b",
+                    instanceTag: "feature-b"
+                )
+            }
         }
         #expect(await oldRouter.waitForCount(
             of: "mobile.events.unsubscribe",
@@ -587,9 +600,11 @@ import Testing
         #expect(shell.selectedWorkspace?.macDeviceID == "mac-b")
         #expect(shell.selectedWorkspace?.rpcWorkspaceID.rawValue
             == "live-workspace")
-        #expect(shell.macSwitchRestoreBaseline?.macDeviceID == "mac-a")
+        if race != .eventRefreshFailure {
+            #expect(shell.macSwitchRestoreBaseline?.macDeviceID == "mac-a")
+        }
         let expectedFreshTitle: String
-        if stateSyncProjectionRaces {
+        if race == .stateSyncProjection {
             expectedFreshTitle = "State Sync Fresh Snapshot"
             shell.applyRemoteWorkspaceList(
                 MobileSyncWorkspaceListResponse(
@@ -616,6 +631,9 @@ import Testing
             )
         } else {
             expectedFreshTitle = "Event Fresh Snapshot"
+            if race == .eventRefreshFailure {
+                await targetRouter.failWorkspaceListRequest(number: 3)
+            }
             let targetTransport = try #require(targetTransportBox.get())
             await targetTransport.deliver(
                 try promotionWorkspaceUpdatedEventFrame()
@@ -627,7 +645,15 @@ import Testing
         }
 
         await targetRouter.releaseAllHeld()
-        #expect(await switchTask.value)
+        let switched = await switchTask.value
+        if race == .eventRefreshFailure {
+            #expect(!switched)
+            #expect(shell.workspacesByMac["mac-b"]?.workspaces.first?.name
+                != "Stale Promotion Snapshot")
+            await targetClient.disconnect()
+            return
+        }
+        #expect(switched)
         #expect(try await pollUntil {
             shell.workspacesByMac["mac-b"]?.workspaces.first?.name
                 == expectedFreshTitle
@@ -960,6 +986,12 @@ import Testing
         #expect(shell.workspacesByMac["mac-b"]?.status == .unavailable)
         #expect(shell.workspacesByMac["mac-b"]?.workspaces.isEmpty == true)
     }
+}
+
+enum PromotionWorkspaceRace: CaseIterable, Sendable {
+    case eventRefresh
+    case stateSyncProjection
+    case eventRefreshFailure
 }
 
 private func promotionWorkspaceUpdatedEventFrame() throws -> Data {
