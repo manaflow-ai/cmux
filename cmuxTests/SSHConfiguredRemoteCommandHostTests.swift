@@ -314,6 +314,8 @@ struct SSHConfiguredRemoteCommandHostTests {
         let listenerFD = try processSupport.bindUnixSocket(at: socketPath)
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let harness = try makeRemoteCommandHostHarness(prefix: "cmux-ssh-rc-bootstrap")
+        let configuredRemoteCommand = #"printf 'caller %% %h %n %p %r'"#
+        let expandedRemoteCommand = #"printf 'caller % resolved.example cmux-remotecommand-host 2233 remote-token-user'"#
 
         defer {
             harness.cleanup()
@@ -359,9 +361,12 @@ struct SSHConfiguredRemoteCommandHostTests {
             arguments: [
                 "ssh",
                 "--no-focus",
+                "--port", "2233",
                 "--ssh-option", "ControlMaster no",
                 "--ssh-option", "ControlPath /tmp/cmux-ssh-%C",
-                "--ssh-option", "RemoteCommand=printf caller-command",
+                "--ssh-option", "HostName=resolved.example",
+                "--ssh-option", "User=remote-token-user",
+                "--ssh-option", "RemoteCommand=\(configuredRemoteCommand)",
                 "cmux-remotecommand-host",
             ],
             environment: captureEnvironment,
@@ -379,13 +384,13 @@ struct SSHConfiguredRemoteCommandHostTests {
         let configureParams = try #require(
             requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"] as? [String: Any]
         )
-        #expect(configureParams["configured_remote_command"] as? String == "printf caller-command")
+        #expect(configureParams["configured_remote_command"] as? String == expandedRemoteCommand)
         let forwardedOptions = configureParams["ssh_options"] as? [String] ?? []
         #expect(
-            forwardedOptions.contains("RemoteCommand=printf caller-command"),
+            forwardedOptions.contains("RemoteCommand=\(configuredRemoteCommand)"),
             """
-            Durable workspace options must preserve the caller's explicit RemoteCommand \
-            for fallback restores: \(forwardedOptions)
+            Durable workspace options must preserve the caller's tokenized RemoteCommand \
+            so unmanaged OpenSSH fallbacks retain authoritative expansion: \(forwardedOptions)
             """
         )
         let executableStartupCommand = try harness.startupCommandUsingFakeSSH(startupCommand)
