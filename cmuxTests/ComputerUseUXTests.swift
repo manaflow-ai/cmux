@@ -800,6 +800,16 @@ struct ComputerUseUXTests {
             $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
         }
         #expect(companionWindow?.isVisible == true)
+        let visibleFrame = mainWindow.screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? originalMainFrame
+        let expandedSize = CGSize(width: 600, height: 440)
+        let expectedCenteredFrame = NSRect(
+            x: visibleFrame.midX - expandedSize.width / 2,
+            y: visibleFrame.midY - expandedSize.height / 2,
+            width: expandedSize.width,
+            height: expandedSize.height
+        )
 
         controller.revealExpandedOnboarding(
             mainWindow,
@@ -809,8 +819,9 @@ struct ComputerUseUXTests {
 
         #expect(companionWindow?.isVisible == false)
         #expect(mainWindow.isVisible)
-        #expect(mainWindow.frame == originalMainFrame)
-        #expect(mainWindow.frame.size == CGSize(width: 600, height: 440))
+        #expect(mainWindow.frame.size == expandedSize)
+        #expect(abs(mainWindow.frame.midX - expectedCenteredFrame.midX) <= 0.5)
+        #expect(abs(mainWindow.frame.midY - expectedCenteredFrame.midY) <= 0.5)
     }
 
     /// Regression: interacting with the companion beside System Settings

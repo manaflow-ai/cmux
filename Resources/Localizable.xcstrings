@@ -1476,6 +1476,142 @@
         }
       }
     },
+    "agent.autoRetry.log.exhausted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent exited with code %lld after %lld retries; automatic retries exhausted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントは %2$lld 回の再試行後にコード %1$lld で終了しました。自動再試行の上限に達しました。"
+          }
+        }
+      }
+    },
+    "agent.autoRetry.log.launchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent resume command could not be sent; automatic retries stopped."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの再開コマンドを送信できなかったため、自動再試行を停止しました。"
+          }
+        }
+      }
+    },
+    "agent.autoRetry.log.scheduled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent exited with code %lld; retrying (attempt %lld/%lld)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントはコード %1$lld で終了しました。再試行します（%2$lld/%3$lld 回目）。"
+          }
+        }
+      }
+    },
+    "agent.autoRetry.notification.exhausted.body.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent could not be resumed after 1 automatic retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 回の自動再試行後もエージェントを再開できませんでした。"
+          }
+        }
+      }
+    },
+    "agent.autoRetry.notification.exhausted.body.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent could not be resumed after %lld automatic retries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 回の自動再試行後もエージェントを再開できませんでした。"
+          }
+        }
+      }
+    },
+    "agent.autoRetry.notification.exhausted.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent retries exhausted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの再試行上限に到達"
+          }
+        }
+      }
+    },
+    "agent.autoRetry.status.exhausted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent auto-retry exhausted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの自動再試行上限に到達"
+          }
+        }
+      }
+    },
+    "agent.autoRetry.status.retrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retrying agent (attempt %lld/%lld)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを再試行中（%1$lld/%2$lld 回目）…"
+          }
+        }
+      }
+    },
     "agent.campfire.capability.fallback": {
       "extractionState": "manual",
       "localizations": {
@@ -188808,6 +188944,23 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.agent-auto-retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.autoRetryAgentSessions auto retry resume error failure transport api rate limit overloaded agents claude codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.autoRetryAgentSessions 自動 再試行 再開 エラー 失敗 通信 API レート制限 過負荷 エージェント claude codex"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.copy-on-select": {
       "extractionState": "manual",
       "localizations": {
@@ -194455,6 +194608,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "非使用中"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoRetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Failed Agent Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗したエージェントセッションを再試行"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoRetry.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Errored agent sessions stay stopped until you resume them manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーで停止したエージェントセッションは、手動で再開するまで停止したままになります。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoRetry.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eligible managed agent sessions that fail during active work resume automatically with bounded backoff; normal and intentional exits are not retried."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中に失敗した再試行対象となる管理エージェントセッションのみを、回数制限付きバックオフで自動的に再開します。正常終了や意図的な終了は再試行しません。"
           }
         }
       }
@@ -227352,6 +227556,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "リモート tmux ペインを対象にできるのはターミナルサーフェスだけです。ターミナルは対象ペインのウインドウの後に新しい tmux ウインドウとして作成されます。"
+          }
+        }
+      }
+    },
+    "socket.surface.resume.agentSessionEndedMustBeBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended must be a boolean"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended はブール値である必要があります"
           }
         }
       }

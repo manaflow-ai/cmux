@@ -354,8 +354,8 @@ cmux_codex_emit_computer_use_args() {
         "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\""
 }
 
-# The interactive session, `exec`/`e`, `resume`, and `fork` entrypoints all
-# START a Codex session, so all of them must receive cmux's hook injection; everything
+# The interactive session, `exec`/`e`, `resume`, and `fork` entrypoints all START
+# a Codex session, so all four must receive cmux's hook injection; everything
 # else (review, login, mcp, doctor, --help, --version, ...) passes through
 # untouched. `resume` is critical: cmux auto-resumes a session as `codex resume
 # <id>` after a Mac relaunch, and without hooks the resumed process fires no
@@ -366,7 +366,7 @@ cmux_codex_emit_computer_use_args() {
 # `--dangerously-bypass-hook-trust` / `-c hooks.X=...` flags before the `resume`
 # subcommand, so prepending them is safe. Mirrors should_inject_claude_hooks: a
 # leading non-option token that is a known Codex subcommand means "not a session"
-# unless it is exec, resume, or fork.
+# unless it is exec, e, resume, or fork.
 codex_subcommand_starts_session() {
     # `fork` duplicates a previous interactive session into a new live one:
     # it takes an optional prompt and accepts the same global flags before
@@ -415,8 +415,9 @@ codex_passthrough_option_flag() {
 # Decide whether this invocation is a Codex SESSION entrypoint we should inject
 # hooks into. Bare `codex` (no args) and `codex [prompt]` are interactive
 # sessions; `codex exec ...` is a non-interactive session; `codex resume ...`
-# (picker, <id>, --last, --all <id>) resumes a session; any other leading
-# subcommand is not.
+# (picker, <id>, --last, --all <id>) resumes a session; `codex fork ...` starts
+# a child session whose hooks report the new id; any other leading subcommand
+# is not.
 should_inject_codex_hooks() {
     (( $# == 0 )) && return 0
 
@@ -490,6 +491,12 @@ if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
     IN_CMUX=1
 fi
 
+# CMUX_AGENT_RESTORE_LAUNCH is a provider/session-bound one-shot token attached
+# only to app-generated restore input. Consume it before every eventual exec so
+# it can authorize this launch without leaking to Codex or hooks.
+cmux_codex_app_restore_launch="${CMUX_AGENT_RESTORE_LAUNCH:-}"
+unset CMUX_AGENT_RESTORE_LAUNCH
+
 # Resolve real codex up front; if it cannot be found we error like a missing
 # binary would (same as the claude wrapper) rather than silently succeeding.
 REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
@@ -515,7 +522,13 @@ cmux_codex_read_computer_use_args() {
     return 0
 }
 
-# Outside cmux the wrapper does nothing: computer use is a feature of
+# CMUX_CODEX_HOOKS_DISABLED is the documented MASTER opt-out: the wrapper
+# stays fully inert — no cmux calls, no Computer Use attach, no argv changes.
+if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
+    exec_real_codex_passthrough "$@"
+fi
+
+# Outside cmux the wrapper does nothing: Computer Use is a feature of
 # cmux-launched agents, so plain `codex` in a random terminal stays untouched.
 if [[ "$IN_CMUX" == "0" ]]; then
     exec_real_codex_passthrough "$@"
@@ -527,22 +540,15 @@ if ! should_inject_codex_hooks "$@"; then
     exec_real_codex_passthrough "$@"
 fi
 
-# CMUX_CODEX_HOOKS_DISABLED is the documented MASTER opt-out: "the wrapper
-# does NOTHING but exec the real codex" (see header). That means fully inert
-# — no cmux calls, no computer-use attach, no argv changes — matching the
-# claude wrapper's long-standing inertness contract and test. Computer use
-# has its own kill switch (CMUX_COMPUTER_USE_MCP_DISABLED) for the normal
-# path, but the master opt-out wins over everything.
-if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
-    exec_real_codex_passthrough "$@"
-fi
-# Dead/stale socket: fail closed with NO computer-use attach. CMUX_SURFACE_ID
-# alone can be STALE (e.g. a tmux shell that outlived cmux); an embedded
-# driver spawned there would inherit TCC identity from the real responsible
-# process (Terminal/tmux), yielding permission-denied tools or misattributed
-# permission prompts. A live socket ping is the authority bar for every
-# computer-use attach, the same bar hook injection already uses.
-if ! cmux_socket_available; then
+# App-generated restore input plus an explicit resume id proves cmux owns this
+# launch, so a transient socket miss cannot permanently strip its hooks or
+# Computer Use integration. An unmarked resume from a detached shell/tmux keeps
+# the bounded ownership probe and preserves native behavior when its inherited
+# cmux environment is stale.
+cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
+if [[ -z "$cmux_codex_resume_sid" \
+      || "$cmux_codex_app_restore_launch" != "codex:$cmux_codex_resume_sid" ]] \
+      && ! cmux_socket_available; then
     exec_real_codex_passthrough "$@"
 fi
 
@@ -582,9 +588,10 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
 # and pid from CMUX_CODEX_PID, re-binding the resumed session to its live pid and
 # flipping it back to idle/editable. Fire-and-forget (backgrounded + disowned) so
 # it never blocks the launch; best-effort so a failure can never break `codex`.
-cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
+unset CMUX_AGENT_RESUME_LAUNCH
 if [[ -n "$cmux_codex_resume_sid" \
       && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
+    export CMUX_AGENT_RESUME_LAUNCH=1
     cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\",\"cwd\":\"$PWD\"}"
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
         ( printf '%s' "$cmux_codex_resume_payload" \
