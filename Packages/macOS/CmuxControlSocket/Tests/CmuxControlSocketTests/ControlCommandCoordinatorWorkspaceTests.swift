@@ -7,6 +7,13 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator workspace domain")
 struct ControlCommandCoordinatorWorkspaceTests {
+    private nonisolated static func wait(
+        for semaphore: DispatchSemaphore,
+        timeout: DispatchTime
+    ) -> Bool {
+        semaphore.wait(timeout: timeout) == .success
+    }
+
     private func coordinator() -> (ControlCommandCoordinator, FakeWorkspaceControlCommandContext) {
         let context = FakeWorkspaceControlCommandContext()
         return (ControlCommandCoordinator(context: context), context)
@@ -434,6 +441,99 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(code == "not_found")
         #expect(context.terminalSessionConnectedCall == nil)
         #expect(ownerReadCount.withLock { $0 } == 1)
+    }
+
+    @Test
+    nonisolated func persistentReadinessCoalescesWhileFirstMainHopIsBlocked() async throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let terminalLifecycleID = UUID()
+        let attemptID = UUID()
+        let firstMainHopEntered = DispatchSemaphore(value: 0)
+        let releaseMainHop = DispatchSemaphore(value: 0)
+        let firstFinished = DispatchSemaphore(value: 0)
+        let secondFinished = DispatchSemaphore(value: 0)
+        let firstResult = SimulatorResultBox()
+        let secondResult = SimulatorResultBox()
+        let setup = await MainActor.run {
+            let context = FakeWorkspaceControlCommandContext(
+                currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner(
+                    transportKey: "persistent-transport",
+                    attachmentID: surfaceID.uuidString,
+                    commitLease: FixedRemotePTYLifecycleCommitLease(isCurrent: true)
+                ),
+                beforeMainResolution: {
+                    firstMainHopEntered.signal()
+                    _ = releaseMainHop.wait(timeout: .now() + 2)
+                }
+            )
+            context.terminalSessionConnectedResolution = .resolved(
+                windowID: nil,
+                workspaceID: workspaceID,
+                remoteStatus: .object(["connected": .bool(true)])
+            )
+            return (ControlCommandCoordinator(context: context), context)
+        }
+        let request = ControlRequest(
+            id: .int(1),
+            method: "workspace.remote.terminal_session_connected",
+            params: [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "session_id": .string("ssh-session"),
+                "lifecycle_id": .string("lifecycle-generation"),
+                "terminal_lifecycle_id": .string(terminalLifecycleID.uuidString),
+                "attempt_id": .string(attemptID.uuidString),
+            ]
+        )
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let result = setup.0.handleSocketWorkerV2(request, context: setup.1) {
+                firstResult.set(result)
+            }
+            firstFinished.signal()
+        }
+        let didEnterFirstMainHop = await Task.detached {
+            Self.wait(for: firstMainHopEntered, timeout: .now() + 1)
+        }.value
+        #expect(didEnterFirstMainHop)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let result = setup.0.handleSocketWorkerV2(request, context: setup.1) {
+                secondResult.set(result)
+            }
+            secondFinished.signal()
+        }
+        let duplicateCompletedBeforeMainHop = await Task.detached {
+            Self.wait(for: secondFinished, timeout: .now() + 0.25)
+        }.value
+
+        releaseMainHop.signal()
+        releaseMainHop.signal()
+        let didFinishFirst = await Task.detached {
+            Self.wait(for: firstFinished, timeout: .now() + 1)
+        }.value
+        #expect(didFinishFirst)
+        if !duplicateCompletedBeforeMainHop {
+            let didFinishSecond = await Task.detached {
+                Self.wait(for: secondFinished, timeout: .now() + 1)
+            }.value
+            #expect(didFinishSecond)
+        }
+
+        #expect(
+            duplicateCompletedBeforeMainHop,
+            "A duplicate readiness report must not queue another main-actor mutation"
+        )
+        guard case .err(let code, _, _) = secondResult.get() else {
+            Issue.record("in-flight duplicate readiness was not rejected")
+            return
+        }
+        #expect(code == "busy")
+        guard case .ok = firstResult.get() else {
+            Issue.record("the admitted readiness report did not complete")
+            return
+        }
     }
 
     @Test(arguments: [

@@ -7,6 +7,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     nonisolated let currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner?
     nonisolated let currentRemotePTYLifecycleOwnerProvider:
         (@Sendable () -> ControlRemotePTYLifecycleOwner?)?
+    nonisolated let beforeMainResolution: (@Sendable () -> Void)?
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
     var closeResolution: ControlWorkspaceCloseResolution = .tabManagerUnavailable
@@ -40,10 +41,25 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     init(
         currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner? = nil,
         currentRemotePTYLifecycleOwnerProvider:
-            (@Sendable () -> ControlRemotePTYLifecycleOwner?)? = nil
+            (@Sendable () -> ControlRemotePTYLifecycleOwner?)? = nil,
+        beforeMainResolution: (@Sendable () -> Void)? = nil
     ) {
         self.currentRemotePTYLifecycleOwner = currentRemotePTYLifecycleOwner
         self.currentRemotePTYLifecycleOwnerProvider = currentRemotePTYLifecycleOwnerProvider
+        self.beforeMainResolution = beforeMainResolution
+    }
+
+    nonisolated func controlResolveOnMain<T: Sendable>(
+        _ body: @MainActor (any ControlCommandContext) -> T
+    ) -> T {
+        beforeMainResolution?()
+        nonisolated(unsafe) let seam: any ControlCommandContext = self
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated { body(seam) }
+        }
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated { body(seam) }
+        }
     }
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
