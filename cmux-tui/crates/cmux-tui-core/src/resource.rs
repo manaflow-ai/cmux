@@ -336,6 +336,8 @@ pub enum ResourceOperation {
     ProviderActionInvoke,
     #[serde(rename = "provider_notice.events")]
     ProviderNoticeEvents,
+    #[serde(rename = "provider_notice.acknowledge")]
+    ProviderNoticeAcknowledge,
     #[serde(rename = "provider_workspace.mark")]
     ProviderWorkspaceMark,
     #[serde(rename = "provider_workspace.rename")]
@@ -402,6 +404,7 @@ impl ResourceOperation {
                 | Self::TerminalViewerRelease
                 | Self::BrowserViewerResize
                 | Self::BrowserViewerRelease
+                | Self::ProviderNoticeAcknowledge
         ) {
             OperationClass::ConnectionControl
         } else if matches!(
@@ -1291,6 +1294,7 @@ mod tests {
             ResourceOperation::TerminalViewerRelease,
             ResourceOperation::BrowserViewerResize,
             ResourceOperation::BrowserViewerRelease,
+            ResourceOperation::ProviderNoticeAcknowledge,
         ];
         for operation in connection_control {
             assert_eq!(operation.class(), OperationClass::ConnectionControl);
@@ -1307,6 +1311,7 @@ mod tests {
             ResourceOperation::StreamCancel,
             ResourceOperation::ClientMetadataUpdate,
             ResourceOperation::ClientDetach,
+            ResourceOperation::ProviderNoticeAcknowledge,
         ] {
             let request = RequestEnvelope {
                 protocol: PROTOCOL.into(),
