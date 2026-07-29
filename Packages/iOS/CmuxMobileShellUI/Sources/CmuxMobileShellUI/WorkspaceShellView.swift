@@ -465,11 +465,6 @@ struct WorkspaceShellView: View {
                     rootToolbarContent
                 }
             }
-            #if os(iOS)
-            .overlay(alignment: .bottomTrailing) {
-                taskComposerButtonOverlay
-            }
-            #endif
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
@@ -562,11 +557,6 @@ struct WorkspaceShellView: View {
             .toolbar {
                 rootToolbarContent
             }
-            #if os(iOS)
-            .overlay(alignment: .bottomTrailing) {
-                taskComposerButtonOverlay
-            }
-            #endif
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
             workspaceDestination(
@@ -804,22 +794,6 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private var showsTaskComposerButtonOverlay: Bool {
-        guard displaySettings.taskComposerEnabled else { return false }
-        if #available(iOS 26.0, *) {
-            return false
-        }
-        return true
-    }
-
-    @ViewBuilder
-    private var taskComposerButtonOverlay: some View {
-        if showsTaskComposerButtonOverlay {
-            TaskComposerButton(action: openTaskComposer)
-                .padding(.trailing, 20)
-                .padding(.bottom, 6)
-        }
-    }
     #endif
 
     /// Apply (and clear) a pending deep-link navigation intent. On the compact
