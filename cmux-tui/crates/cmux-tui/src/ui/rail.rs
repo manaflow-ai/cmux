@@ -1,7 +1,7 @@
 //! Shared visual primitives for the machine and workspace rails.
 
 pub use cmux_tui_chrome::RailPalette;
-use cmux_tui_chrome::{RailPaletteColors, RailState};
+use cmux_tui_chrome::{RailEdge, RailLayout, RailPaletteColors, RailState};
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier};
@@ -116,27 +116,40 @@ pub fn palette_for_app(app: &App, focused: bool) -> RailPalette {
     )
 }
 
+fn layout(area: Rect) -> RailLayout {
+    RailLayout::new(area.x, area.width, RailEdge::Divider)
+}
+
 pub fn prepare(frame: &mut Frame, area: Rect, palette: RailPalette) {
     if area.width < 3 || area.height == 0 {
         return;
     }
-    let border_x = area.x + area.width - 1;
+    let layout = layout(area);
     let buf = frame.buffer_mut();
     for y in area.y..area.y + area.height {
-        for x in area.x..border_x {
+        for x in area.x..area.x + layout.content_width() {
             buf[(x, y)].set_symbol(" ").set_style(palette.base);
         }
     }
-    palette.divider.draw(buf, border_x, area.y, area.height, palette.base, palette.divider_state);
+    if let Some(divider_x) = layout.divider_x() {
+        palette.divider.draw(
+            buf,
+            divider_x,
+            area.y,
+            area.height,
+            palette.base,
+            palette.divider_state,
+        );
+    }
 }
 
 pub fn header(frame: &mut Frame, area: Rect, label: &str, palette: RailPalette) {
-    let width = area.width.saturating_sub(1) as usize;
+    let width = layout(area).content_width() as usize;
     if width == 0 || area.height == 0 {
         return;
     }
     let buf = frame.buffer_mut();
-    for x in area.x..area.x + area.width.saturating_sub(1) {
+    for x in area.x..area.x + width as u16 {
         buf[(x, area.y)].set_symbol(" ").set_style(palette.header);
     }
     buf.set_stringn(area.x, area.y, format!(" {label}"), width, palette.header);
@@ -155,7 +168,7 @@ pub fn entry(frame: &mut Frame, area: Rect, y: u16, entry: Entry<'_>, palette: R
     if area.width < 3 || y + 1 >= area.y + area.height {
         return;
     }
-    let content_width = area.width.saturating_sub(1);
+    let content_width = layout(area).content_width();
     let content_w = content_width as usize;
     let mut style = if entry.highlighted { palette.active } else { palette.base };
     if entry.dimmed {
@@ -213,7 +226,7 @@ pub fn action(
     if y >= area.y + area.height || area.width < 2 {
         return;
     }
-    let content_width = area.width.saturating_sub(1);
+    let content_width = layout(area).content_width();
     let style = if highlighted { palette.active } else { palette.dim };
     if highlighted {
         for x in area.x..area.x + content_width {
@@ -234,7 +247,7 @@ pub fn button(
     if y >= area.y + area.height || area.width < 2 {
         return;
     }
-    let content_width = area.width.saturating_sub(1);
+    let content_width = layout(area).content_width();
     let style = if highlighted { palette.active } else { palette.dim };
     if highlighted {
         for x in area.x..area.x + content_width {
@@ -251,11 +264,19 @@ pub fn button(
 }
 
 pub fn row(area: Rect, y: u16) -> Rect {
-    Rect { x: area.x, y, width: area.width.saturating_sub(1), height: 1 }
+    Rect { x: area.x, y, width: layout(area).content_width(), height: 1 }
 }
 
 pub fn divider(area: Rect) -> Rect {
-    Rect { x: area.x + area.width.saturating_sub(1), y: area.y, width: 1, height: area.height }
+    let Some(x) = layout(area).divider_x() else {
+        return Rect { x: area.x, y: area.y, width: 0, height: area.height };
+    };
+    Rect { x, y: area.y, width: 1, height: area.height }
+}
+
+pub fn scrollbar_track(area: Rect, viewport: Rect) -> Rect {
+    let Some(x) = layout(area).scrollbar_x() else { return Rect::default() };
+    Rect { x, y: viewport.y, width: 1, height: viewport.height }
 }
 
 #[cfg(test)]

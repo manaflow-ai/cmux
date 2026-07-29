@@ -1,8 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cmux_tui_chrome::{
-    RailPalette, RailPaletteColors, RailState, ScrollbarState, ScrollbarStyle,
-    viewport_thumb_geometry,
+    RailEdge, RailLayout, RailPalette, RailPaletteColors, RailState, ScrollbarState,
+    ScrollbarStyle, viewport_thumb_geometry,
 };
 use ratatui::Frame;
 use ratatui::layout::{Position, Rect};
@@ -58,9 +58,9 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         Hit { area: trajectory, kind: HitKind::Column(Focus::Trajectory) },
     ]);
 
-    prepare_column(frame, machines, app.focus == Focus::Machines, true);
-    prepare_column(frame, conversations, app.focus == Focus::Conversations, true);
-    prepare_column(frame, trajectory, app.focus == Focus::Trajectory, false);
+    prepare_column(frame, machines, Focus::Machines, app.focus == Focus::Machines);
+    prepare_column(frame, conversations, Focus::Conversations, app.focus == Focus::Conversations);
+    prepare_column(frame, trajectory, Focus::Trajectory, app.focus == Focus::Trajectory);
     draw_machines(app, frame, machines);
     draw_conversations(app, frame, conversations);
     draw_trajectory(app, frame, trajectory);
@@ -87,22 +87,27 @@ fn column_layout(area: Rect) -> (Rect, Rect, Rect) {
     (machines, conversations, trajectory)
 }
 
-fn prepare_column(frame: &mut Frame, area: Rect, focused: bool, divider: bool) {
+fn prepare_column(frame: &mut Frame, area: Rect, column: Focus, focused: bool) {
     if area.width == 0 {
         return;
     }
     let palette = column_palette(focused);
+    let layout = column_rail_layout(area, column);
     let buffer = frame.buffer_mut();
-    let content_width = area.width.saturating_sub(u16::from(divider));
+    let content_width = layout.content_width();
     for y in area.y..area.y + area.height {
         for x in area.x..area.x + content_width {
             buffer[(x, y)].set_symbol(" ").set_style(palette.base);
         }
     }
-    if divider {
-        let x = area.x + area.width - 1;
+    if let Some(x) = layout.divider_x() {
         palette.divider.draw(buffer, x, area.y, area.height, palette.base, palette.divider_state);
     }
+}
+
+fn column_rail_layout(area: Rect, column: Focus) -> RailLayout {
+    let edge = if column == Focus::Trajectory { RailEdge::Open } else { RailEdge::Divider };
+    RailLayout::new(area.x, area.width, edge)
 }
 
 fn column_palette(focused: bool) -> RailPalette {
@@ -120,12 +125,19 @@ fn column_palette(focused: bool) -> RailPalette {
     )
 }
 
-fn draw_header(frame: &mut Frame, area: Rect, title: &str, count: Option<usize>, focused: bool) {
+fn draw_header(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    count: Option<usize>,
+    column: Focus,
+    focused: bool,
+) {
     if area.width < 2 {
         return;
     }
     let palette = column_palette(focused);
-    let content_width = area.width.saturating_sub(1);
+    let content_width = column_rail_layout(area, column).content_width();
     for x in area.x..area.x + content_width {
         frame.buffer_mut()[(x, area.y)].set_symbol(" ").set_style(palette.header);
     }
@@ -141,12 +153,15 @@ fn draw_machines(app: &mut App, frame: &mut Frame, area: Rect) {
         area,
         app.catalog.machines(),
         Some(app.machines.len()),
+        Focus::Machines,
         app.focus == Focus::Machines,
     );
     let body =
         Rect { x: area.x, y: area.y + 2, width: area.width, height: area.height.saturating_sub(3) };
     let footer =
         Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
+    let footer_content =
+        Rect { width: column_rail_layout(footer, Focus::Machines).content_width(), ..footer };
     app.machine_viewport_height = body.height as usize;
     app.clamp_scrolls();
     if app.focus == Focus::Machines && app.machine_follow_selection {
@@ -191,18 +206,15 @@ fn draw_machines(app: &mut App, frame: &mut Frame, area: Rect) {
     draw_scrollbar(app, frame, body, app.machines.len() * 3, app.machine_scroll, Focus::Machines);
 
     let highlighted = app.focus == Focus::Machines && app.machines.is_empty();
-    fill_row(frame, footer, if highlighted { palette.active } else { palette.dim });
+    fill_row(frame, footer_content, if highlighted { palette.active } else { palette.dim });
     frame.buffer_mut().set_stringn(
-        footer.x + 1,
-        footer.y,
+        footer_content.x + 1,
+        footer_content.y,
         format!("+ {}", app.catalog.add_machine()),
-        footer.width.saturating_sub(2) as usize,
+        footer_content.width.saturating_sub(1) as usize,
         if highlighted { palette.active } else { palette.dim },
     );
-    app.hits.push(Hit {
-        area: Rect { width: footer.width.saturating_sub(1), ..footer },
-        kind: HitKind::AddMachine,
-    });
+    app.hits.push(Hit { area: footer_content, kind: HitKind::AddMachine });
 }
 
 struct MachineRow<'a> {
@@ -285,6 +297,7 @@ fn draw_conversations(app: &mut App, frame: &mut Frame, area: Rect) {
         area,
         app.catalog.conversations(),
         Some(rows.len()),
+        Focus::Conversations,
         app.focus == Focus::Conversations,
     );
     let body =
@@ -419,7 +432,7 @@ fn draw_trajectory(app: &mut App, frame: &mut Frame, area: Rect) {
         .and_then(ThreadSummary::title)
         .unwrap_or(app.catalog.trajectory())
         .to_string();
-    draw_header(frame, area, &title, None, app.focus == Focus::Trajectory);
+    draw_header(frame, area, &title, None, Focus::Trajectory, app.focus == Focus::Trajectory);
     let body =
         Rect { x: area.x, y: area.y + 2, width: area.width, height: area.height.saturating_sub(2) };
     app.trajectory_viewport_height = body.height as usize;
@@ -512,7 +525,8 @@ fn draw_scrollbar(
     if area.width == 0 || area.height == 0 || total_rows <= visible_rows {
         return;
     }
-    let track = Rect { x: area.x + area.width - 1, y: area.y, width: 1, height: area.height };
+    let Some(track_x) = column_rail_layout(area, focus).scrollbar_x() else { return };
+    let track = Rect { x: track_x, y: area.y, width: 1, height: area.height };
     let state = if app.scrollbar_dragging(focus) || app.scrollbar_hovered(track) {
         ScrollbarState::Expanded
     } else if app.focus == focus {

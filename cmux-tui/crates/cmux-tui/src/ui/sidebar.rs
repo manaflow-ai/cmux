@@ -387,12 +387,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     );
     let mut hits = Vec::new();
     let scrollbar_track = if viewport.body.height > 0 && body_rows > viewport.body.height as usize {
-        Rect {
-            x: area.x + area.width.saturating_sub(2),
-            y: viewport.body.y,
-            width: 1,
-            height: viewport.body.height,
-        }
+        rail::scrollbar_track(area, viewport.body)
     } else {
         Rect::default()
     };

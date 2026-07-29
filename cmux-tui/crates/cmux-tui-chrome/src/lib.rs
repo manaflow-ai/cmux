@@ -2,6 +2,52 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 
+/// Whether a rail's content ends at the terminal edge or beside a divider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RailEdge {
+    Open,
+    Divider,
+}
+
+/// Assigns content, scrollbar, and divider columns without overlap.
+///
+/// The scrollbar always occupies the last content cell. A divider, when
+/// present, occupies the next cell outside the content region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RailLayout {
+    content_width: u16,
+    scrollbar_x: Option<u16>,
+    divider_x: Option<u16>,
+}
+
+impl RailLayout {
+    pub const fn new(x: u16, width: u16, edge: RailEdge) -> Self {
+        let divider_width = match edge {
+            RailEdge::Open => 0,
+            RailEdge::Divider if width > 0 => 1,
+            RailEdge::Divider => 0,
+        };
+        let content_width = width.saturating_sub(divider_width);
+        let scrollbar_x =
+            if content_width > 0 { Some(x.saturating_add(content_width - 1)) } else { None };
+        let divider_x =
+            if divider_width > 0 { Some(x.saturating_add(content_width)) } else { None };
+        Self { content_width, scrollbar_x, divider_x }
+    }
+
+    pub const fn content_width(self) -> u16 {
+        self.content_width
+    }
+
+    pub const fn scrollbar_x(self) -> Option<u16> {
+        self.scrollbar_x
+    }
+
+    pub const fn divider_x(self) -> Option<u16> {
+        self.divider_x
+    }
+}
+
 /// The theme inputs for cmux's vertical navigation rails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RailPaletteColors {
@@ -195,6 +241,24 @@ pub fn viewport_drag_offset(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rail_layout_keeps_scrollbar_inside_optional_divider() {
+        let divided = RailLayout::new(7, 5, RailEdge::Divider);
+        assert_eq!(divided.content_width(), 4);
+        assert_eq!(divided.scrollbar_x(), Some(10));
+        assert_eq!(divided.divider_x(), Some(11));
+
+        let open = RailLayout::new(7, 5, RailEdge::Open);
+        assert_eq!(open.content_width(), 5);
+        assert_eq!(open.scrollbar_x(), Some(11));
+        assert_eq!(open.divider_x(), None);
+
+        let divider_only = RailLayout::new(7, 1, RailEdge::Divider);
+        assert_eq!(divider_only.content_width(), 0);
+        assert_eq!(divider_only.scrollbar_x(), None);
+        assert_eq!(divider_only.divider_x(), Some(7));
+    }
 
     fn rail_colors() -> RailPaletteColors {
         RailPaletteColors {
