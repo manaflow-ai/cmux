@@ -686,7 +686,7 @@ fn expectAbsent(object: std.json.ObjectMap, field: []const u8) !void {
 }
 
 test "consumer compiles against the public protocol inventory" {
-    try std.testing.expectEqual(@as(usize, 83), cmux.protocol.command_count);
+    try std.testing.expectEqual(@as(usize, 87), cmux.protocol.command_count);
     try std.testing.expectEqual(@as(usize, 44), cmux.protocol.event_count);
     try std.testing.expectEqual(@as(u16, 10), cmux.protocol.mux_protocol);
 }

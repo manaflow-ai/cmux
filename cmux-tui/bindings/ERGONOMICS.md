@@ -3,7 +3,7 @@
 The SDKs should generate the protocol wire surface and handwrite each
 language's transport, lifecycle, errors, and conveniences. Seven standalone
 consumers now exercise only public package APIs against deterministic servers.
-This split keeps all 83 commands and 44 events synchronized without making the
+This split keeps all 87 commands and 44 events synchronized without making the
 public clients feel generated.
 
 ## Evidence from consumers

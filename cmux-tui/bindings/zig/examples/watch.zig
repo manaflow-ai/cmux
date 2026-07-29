@@ -32,7 +32,7 @@ test "package consumer imports handwritten root and generated raw module" {
         workspace.slice(),
     );
     try std.testing.expectEqual(
-        @as(usize, 83),
+        @as(usize, 87),
         cmux.raw.protocol.command_count,
     );
     try std.testing.expectEqual(
