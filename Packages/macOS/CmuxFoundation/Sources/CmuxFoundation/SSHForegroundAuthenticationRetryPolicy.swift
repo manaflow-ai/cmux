@@ -60,56 +60,67 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// the classifier, nested PTY, and SSH process. The helper freezes each parent
     /// before discovering its children, then terminates leaves before resuming the
     /// parent so the wrapper cannot spawn new descendants while cleanup descends.
-    /// After a bounded grace period, it freezes and rescans survivors before force-
-    /// killing them so a signal-trapping proxy cannot escape cleanup.
+    /// Each stopped parent anchors its child's PID identity during a bounded grace
+    /// period. Survivors are revalidated against that parent, frozen, rescanned,
+    /// and force-killed so neither a signal-trapping proxy nor PID reuse can escape
+    /// or redirect cleanup.
     ///
     /// - Returns: A shell function named `cmux_ssh_terminate_auth_process_tree`.
     public func processTreeTerminationShellFunction() -> String {
         """
         cmux_ssh_terminate_auth_process_tree() (
-          cmux_ssh_auth_tree_pids=
-          cmux_ssh_collect_auth_process_tree() {
-            case " $cmux_ssh_auth_tree_pids " in
-              *" $1 "*) return 0 ;;
-            esac
-            if ! /bin/kill -STOP "$1" >/dev/null 2>&1; then return 0; fi
-            for cmux_ssh_auth_tree_child in $(/usr/bin/pgrep -P "$1" . 2>/dev/null || true); do
-              cmux_ssh_collect_auth_process_tree "$cmux_ssh_auth_tree_child"
-            done
-            cmux_ssh_auth_tree_pids="${cmux_ssh_auth_tree_pids}${cmux_ssh_auth_tree_pids:+ }$1"
-          }
+          cmux_ssh_auth_process_is_original() (
+            cmux_ssh_auth_process_pid="$1"
+            cmux_ssh_auth_process_parent_pid="$2"
+            cmux_ssh_auth_process_snapshot=$(/bin/ps -o ppid= -o state= -p "$cmux_ssh_auth_process_pid" 2>/dev/null) || exit 1
+            set -- $cmux_ssh_auth_process_snapshot
+            if [ "$#" -lt 2 ] || [ "$1" != "$cmux_ssh_auth_process_parent_pid" ]; then exit 1; fi
+            case "$2" in *Z*) exit 1 ;; esac
+            /bin/kill -0 "$cmux_ssh_auth_process_pid" >/dev/null 2>&1
+          )
 
-          cmux_ssh_collect_auth_process_tree "$1"
-          cmux_ssh_auth_tree_initial_pids="$cmux_ssh_auth_tree_pids"
-          for cmux_ssh_auth_tree_pid in $cmux_ssh_auth_tree_initial_pids; do
+          cmux_ssh_terminate_auth_process() (
+            cmux_ssh_auth_tree_pid="$1"
+            cmux_ssh_auth_tree_parent_pid="$2"
+            if ! /bin/kill -STOP "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1; then exit 0; fi
+            if ! cmux_ssh_auth_process_is_original "$cmux_ssh_auth_tree_pid" "$cmux_ssh_auth_tree_parent_pid"; then
+              /bin/kill -CONT "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
+              exit 0
+            fi
+            for cmux_ssh_auth_tree_child in $(/usr/bin/pgrep -P "$cmux_ssh_auth_tree_pid" . 2>/dev/null || true); do
+              cmux_ssh_terminate_auth_process "$cmux_ssh_auth_tree_child" "$cmux_ssh_auth_tree_pid"
+            done
+
             /bin/kill -TERM "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
             /bin/kill -CONT "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
-          done
-
-          cmux_ssh_auth_tree_grace_attempt=0
-          while [ "$cmux_ssh_auth_tree_grace_attempt" -lt 10 ]; do
-            cmux_ssh_auth_tree_has_survivor=0
-            for cmux_ssh_auth_tree_pid in $cmux_ssh_auth_tree_initial_pids; do
-              if /bin/kill -0 "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1; then
-                cmux_ssh_auth_tree_has_survivor=1
-                break
-              fi
+            cmux_ssh_auth_tree_grace_attempt=0
+            while cmux_ssh_auth_process_is_original "$cmux_ssh_auth_tree_pid" "$cmux_ssh_auth_tree_parent_pid" \
+              && [ "$cmux_ssh_auth_tree_grace_attempt" -lt 10 ]; do
+              /bin/sleep 0.02
+              cmux_ssh_auth_tree_grace_attempt=$((cmux_ssh_auth_tree_grace_attempt + 1))
             done
-            if [ "$cmux_ssh_auth_tree_has_survivor" -eq 0 ]; then exit 0; fi
-            /bin/sleep 0.02
-            cmux_ssh_auth_tree_grace_attempt=$((cmux_ssh_auth_tree_grace_attempt + 1))
-          done
+            if ! cmux_ssh_auth_process_is_original "$cmux_ssh_auth_tree_pid" "$cmux_ssh_auth_tree_parent_pid"; then exit 0; fi
 
-          cmux_ssh_auth_tree_pids=
-          for cmux_ssh_auth_tree_pid in $cmux_ssh_auth_tree_initial_pids; do
-            if /bin/kill -0 "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1; then
-              cmux_ssh_collect_auth_process_tree "$cmux_ssh_auth_tree_pid"
+            if ! /bin/kill -STOP "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1; then exit 0; fi
+            if ! cmux_ssh_auth_process_is_original "$cmux_ssh_auth_tree_pid" "$cmux_ssh_auth_tree_parent_pid"; then
+              /bin/kill -CONT "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
+              exit 0
             fi
-          done
-          for cmux_ssh_auth_tree_pid in $cmux_ssh_auth_tree_pids; do
-            /bin/kill -KILL "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
-            /bin/kill -CONT "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
-          done
+            for cmux_ssh_auth_tree_child in $(/usr/bin/pgrep -P "$cmux_ssh_auth_tree_pid" . 2>/dev/null || true); do
+              cmux_ssh_terminate_auth_process "$cmux_ssh_auth_tree_child" "$cmux_ssh_auth_tree_pid"
+            done
+            if cmux_ssh_auth_process_is_original "$cmux_ssh_auth_tree_pid" "$cmux_ssh_auth_tree_parent_pid"; then
+              /bin/kill -KILL "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
+              /bin/kill -CONT "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
+            else
+              /bin/kill -CONT "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
+            fi
+          )
+
+          cmux_ssh_auth_tree_root_parent=$(/bin/ps -o ppid= -p "$1" 2>/dev/null | /usr/bin/tr -d '[:space:]')
+          if [ -n "$cmux_ssh_auth_tree_root_parent" ]; then
+            cmux_ssh_terminate_auth_process "$1" "$cmux_ssh_auth_tree_root_parent"
+          fi
         )
         """
     }
