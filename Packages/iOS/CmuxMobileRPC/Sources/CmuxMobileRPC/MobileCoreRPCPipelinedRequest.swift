@@ -12,4 +12,13 @@ public struct MobileCoreRPCPipelinedRequest: Sendable {
     public func response() async throws -> Data {
         try await session.awaitResponse(requestID: requestID)
     }
+
+    /// Releases the request's session settlement state without awaiting it.
+    ///
+    /// Callers that drop a handle before (or instead of) calling ``response()``
+    /// must abandon it, or the session retains the settlement slot until the
+    /// request deadline and, for an already-settled response, until teardown.
+    public func abandon() async {
+        await session.cancelPendingRequest(requestID: requestID)
+    }
 }

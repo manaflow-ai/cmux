@@ -2097,7 +2097,7 @@ actor MobileHostConnection {
             activeFrameByteCounts: activeFrameByteCounts
         ) else { return false }
         if case let .success(request) = decodedRequest,
-           MobileHostOrderedRequestClassifier.isOrderedTerminalInput(request.method) {
+           request.isOrderedTerminalInput {
             orderedRequestQueue.enqueue(MobileHostOrderedRequest(
                 frameByteCount: frame.count,
                 decodedRequest: decodedRequest

@@ -701,7 +701,7 @@ actor MobileCoreRPCSession {
             settlement: .response(.failure(error))
         )
     }
-    private func cancelPendingRequest(requestID: String) async {
+    func cancelPendingRequest(requestID: String) async {
         let legacyContinuation = pending.removeValue(forKey: requestID)
         let pipelinedSettlement = pipelinedPending.removeValue(
             forKey: requestID

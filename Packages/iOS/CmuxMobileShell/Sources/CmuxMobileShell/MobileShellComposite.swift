@@ -6730,6 +6730,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 )
             } catch {
+                // A generation change mid-enqueue (pipeline clear) surfaces as
+                // CancellationError; that is a benign teardown, not an
+                // operational failure, regardless of whether the caller also
+                // rotated connectionGeneration.
+                if error is CancellationError { return }
                 handleTerminalInputFailure(
                     error,
                     client: client,

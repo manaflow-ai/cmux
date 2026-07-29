@@ -57,9 +57,19 @@ final class MobileTerminalInputRPCPipeline {
 
     func clear() {
         generation = UUID()
+        let abandonedEntries = entries
         entries.removeAll()
         reaperTask?.cancel()
         reaperTask = nil
+        // Dropped entries are never awaited again; release their session
+        // settlement slots instead of leaving them to sit until the request
+        // deadline (or, once settled, until session teardown). The reaper's
+        // cancellation already abandons the head entry; a second abandon is a
+        // no-op.
+        for entry in abandonedEntries {
+            let request = entry.request
+            Task { await request.abandon() }
+        }
         resumeCapacityWaiters()
         resumeAllSettledWaiters()
     }
@@ -86,7 +96,10 @@ final class MobileTerminalInputRPCPipeline {
             }
             entries.removeFirst()
             entry.settlementHandler(result)
-            resumeCapacityWaiters()
+            // One settlement frees exactly one slot; waking only the
+            // longest-parked producer keeps enqueue arrival order even if a
+            // second producer ever appears. clear() still wakes everyone.
+            resumeNextCapacityWaiter()
         }
         guard generation == reaperGeneration else { return }
         reaperTask = nil
@@ -95,6 +108,11 @@ final class MobileTerminalInputRPCPipeline {
         } else {
             startReaperIfNeeded()
         }
+    }
+
+    private func resumeNextCapacityWaiter() {
+        guard !capacityWaiters.isEmpty else { return }
+        capacityWaiters.removeFirst().resume()
     }
 
     private func resumeCapacityWaiters() {

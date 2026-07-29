@@ -25,8 +25,10 @@ struct MobileHostOrderedRequestQueue {
     }
 }
 
-struct MobileHostOrderedRequestClassifier {
-    static func isOrderedTerminalInput(_ method: String) -> Bool {
+extension MobileHostRPCRequest {
+    /// Whether this request writes terminal input and must therefore be
+    /// handled in arrival order rather than on a concurrent response task.
+    var isOrderedTerminalInput: Bool {
         switch method {
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste":
