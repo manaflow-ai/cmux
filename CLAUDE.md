@@ -42,6 +42,10 @@ CMUX_TAG=<tag> scripts/cmux-debug-cli.sh send --workspace workspace:1 --surface 
 
 The helper refuses to run without `CMUX_TAG`, targets `/tmp/cmux-debug-<tag>.sock`, and uses the matching tagged CLI from DerivedData. It scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, workspace/surface/tab/panel IDs, cmuxd socket, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for the tag.
 
+## iOS builds open on the iPhone by default
+
+For any iOS-related build, install and launch the tagged build on the user's connected iPhone in addition to the simulator, without being asked. Use `ios/scripts/reload-cloud.sh --tag <tag> --device-id <id>` (find the device with `xcrun devicectl list devices`); auto sign-in and auto-pair apply as usual, and launch the app so it is immediately open on the phone. If no iPhone is reachable, say so explicitly in the handoff and include the exact retry command instead of silently stopping at simulator-only.
+
 ## iOS dev auth
 
 `ios/scripts/reload.sh` and `scripts/mobile-dev-launch.sh` auto-sign-in from `~/.secrets/cmuxterm-dev.env`. If the phone lands on the login screen or the helper reports missing credentials, do not ask the user to authenticate every build. Tell them to run `scripts/setup-team-dev.sh` once; it verifies their Stack login and writes the file chmod 600. Manual fallback: create it with `CMUX_DOGFOOD_STACK_EMAIL=...` and `CMUX_DOGFOOD_STACK_PASSWORD=...`.

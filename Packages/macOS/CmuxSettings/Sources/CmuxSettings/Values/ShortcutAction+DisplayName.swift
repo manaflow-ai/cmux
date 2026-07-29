@@ -95,6 +95,21 @@ extension ShortcutAction {
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"
+        case .increaseWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.increaseWorkspaceTerminalFontSize.label",
+                defaultValue: "Increase Font Size for Workspace Terminals"
+            )
+        case .decreaseWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.decreaseWorkspaceTerminalFontSize.label",
+                defaultValue: "Decrease Font Size for Workspace Terminals"
+            )
+        case .resetWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.resetWorkspaceTerminalFontSize.label",
+                defaultValue: "Reset Font Size for Workspace Terminals"
+            )
         case .equalizeSplits: return "Equalize Splits"
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"

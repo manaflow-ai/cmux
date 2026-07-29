@@ -2,10 +2,21 @@ import CmuxBrowser
 import WebKit
 
 extension WKWebView {
+    /// Applies the destination identity and reports whether an HTTP(S) navigation must restart.
     @MainActor
     @discardableResult
     func applyBrowserUserAgentPolicy(for url: URL?) -> Bool {
-        let resolvedUserAgent = BrowserUserAgentPolicy.system.customUserAgent(for: url)
+        let resolvedUserAgent: String?
+        switch BrowserUserAgentPolicy.system.resolution(for: url) {
+        case .custom(let userAgent):
+            resolvedUserAgent = userAgent
+        case .webKitDefault:
+            resolvedUserAgent = nil
+        case .notApplicable:
+            customUserAgent = nil
+            return false
+        }
+
         guard customUserAgent != resolvedUserAgent else { return false }
         customUserAgent = resolvedUserAgent
         return true
