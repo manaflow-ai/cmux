@@ -16,7 +16,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
     /// - Parameters:
     ///   - command: Shell command that performs one PTY attachment attempt.
     ///   - reauthenticates: Whether status 255 requires foreground authentication before reattaching.
-    /// - Returns: POSIX shell lines implementing the shared retry state machine.
+    /// - Returns: macOS `/bin/sh` lines implementing the shared retry state machine.
     public func lines(command: String, reauthenticates: Bool) -> [String] {
         let reauthenticate = reauthenticates ? "cmux_ssh_attach_reauth_required=1" : ":"
         let authPolicy = SSHForegroundAuthenticationRetryPolicy()
@@ -57,7 +57,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
             "  if [ -t 2 ]; then printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s/%s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\" >&2 || true; fi",
-            "  if [ \"$cmux_ssh_attach_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_attach_reconnect_delay\"; fi",
+            "  if [ \"$cmux_ssh_attach_reconnect_delay\" -gt 0 ]; then if [ -t 2 ]; then IFS= read -r -t \"$cmux_ssh_attach_reconnect_delay\" _cmux_ssh_attach_backoff_key < /dev/tty || true; else sleep \"$cmux_ssh_attach_reconnect_delay\"; fi; fi",
             "  if [ \"$cmux_ssh_attach_reconnect_delay\" -lt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=$((cmux_ssh_attach_reconnect_delay * 2)); if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi; fi",
             "done",
         ]

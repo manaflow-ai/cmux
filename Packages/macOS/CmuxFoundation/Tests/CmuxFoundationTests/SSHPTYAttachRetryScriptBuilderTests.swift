@@ -116,13 +116,13 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "trap 'cmux_ssh_attach_signal_exit 129 HUP' HUP",
             "trap 'cmux_ssh_attach_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_attach_signal_exit 143 TERM' TERM",
-            "cmux_test_attach() { : > \"$CMUX_TEST_BACKOFF_MARKER\"; return 255; }",
-            "cmux_ssh_attach_foreground_auth() { : > \"$CMUX_TEST_BACKOFF_MARKER\"; return 254; }",
+            "cmux_test_attach() { printf '%s\\n' \"$$\" > \"$CMUX_TEST_BACKOFF_MARKER\"; return 255; }",
+            "cmux_ssh_attach_foreground_auth() { printf '%s\\n' \"$$\" > \"$CMUX_TEST_BACKOFF_MARKER\"; return 254; }",
         ] + retryLines).joined(separator: "\n")
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", script]
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.arguments = ["-q", "/dev/null", "/bin/sh", "-c", script]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_BACKOFF_MARKER": markerURL.path,
             "CMUX_SSH_RECONNECT_DELAY_SECONDS": "30",
@@ -142,14 +142,20 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(FileManager.default.fileExists(atPath: markerURL.path))
         Thread.sleep(forTimeInterval: 0.1)
 
-        Darwin.kill(process.processIdentifier, signal)
+        let shellPID = try #require(
+            Int32(
+                String(contentsOf: markerURL, encoding: .utf8)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        )
+        Darwin.kill(shellPID, signal)
         let exitDeadline = Date().addingTimeInterval(1)
         while process.isRunning, Date() < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
         let exitedPromptly = !process.isRunning
         if process.isRunning {
-            Darwin.kill(process.processIdentifier, SIGKILL)
+            Darwin.kill(shellPID, SIGKILL)
         }
         process.waitUntilExit()
 
