@@ -819,9 +819,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
         await waitWhileSuspended(for: [fired], timeout: 1)
         completedCancellation()
-        try? await Task<Never, Never>.sleep(
-            nanoseconds: 50_000_000
-        )
+        completedCancellation()
         XCTAssertEqual(firedCount, 1)
 
         var cancelledFireCount = 0
@@ -831,9 +829,20 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                     cancelledFireCount += 1
                 }
         pendingCancellation()
-        try? await Task<Never, Never>.sleep(
-            nanoseconds: 100_000_000
+        pendingCancellation()
+        let cancellationDeadlinePassed = expectation(
+            description: "cancelled drain deadline passed"
         )
+        let deadlineCancellation =
+            WorkspaceTerminalFontSizeCoordinator
+                .scheduleDefaultDrain(after: 0.1) {
+                    cancellationDeadlinePassed.fulfill()
+                }
+        await waitWhileSuspended(
+            for: [cancellationDeadlinePassed],
+            timeout: 1
+        )
+        deadlineCancellation()
         XCTAssertEqual(cancelledFireCount, 0)
     }
 
