@@ -1,4 +1,7 @@
-import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
+import {
+  getNonRedirectingStackServerApp,
+  isStackConfigured,
+} from "../../../lib/stack";
 import { unauthorized } from "../../../../services/vms/auth";
 
 export const runtime = "nodejs";
@@ -15,12 +18,16 @@ export async function POST(request: Request): Promise<Response> {
   const accessToken = authorization.slice("bearer ".length).trim();
   if (!accessToken) return unauthorized();
 
-  const user = await getStackServerApp().getUser({
-    tokenStore: { accessToken, refreshToken },
+  const tokenStore = { accessToken, refreshToken };
+  const app = getNonRedirectingStackServerApp();
+  const user = await app.getUser({
+    tokenStore,
   });
   if (!user) return unauthorized();
 
-  await user.signOut();
+  await app.signOut({
+    tokenStore: { accessToken, refreshToken },
+  });
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,
     headers: {

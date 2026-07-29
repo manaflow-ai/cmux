@@ -25,16 +25,20 @@ export type AuthedUser = {
   teamIds: readonly string[];
   userBillingPlanId: string | null;
   billingPlanId: string | null;
-  personalSubrouterUse?: boolean;
-  personalSubrouterManageAccounts?: boolean;
+  resolveSubrouterPermissions: (
+    teamId: string,
+  ) => Promise<SubrouterPermissions>;
 };
 
 export type AuthedTeam = {
   id: string;
   displayName: string | null;
   billingPlanId: string | null;
-  subrouterUse?: boolean;
-  subrouterManageAccounts?: boolean;
+};
+
+export type SubrouterPermissions = {
+  readonly use: boolean;
+  readonly manageAccounts: boolean;
 };
 
 /**
@@ -115,7 +119,7 @@ async function authedUserFromStackUser(
     !selectedTeam ||
     (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
   const listedTeamRaw = needsListedTeams && typeof user.listTeams === "function"
-    ? await user.listTeams()
+    ? await listAllStackTeams(user)
     : [];
   const listedTeams = listedTeamRaw
     .map(billingTeamFromUnknown)
@@ -139,26 +143,11 @@ async function authedUserFromStackUser(
   }
   const enforceSubrouterPermissions =
     process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS === "1";
-  const authedTeams = await Promise.all(teams.map(async (team) => {
-    const rawTeam = rawTeams.get(team.id);
-    const permissions = await subrouterPermissions(
-      user,
-      rawTeam,
-      enforceSubrouterPermissions,
-    );
-    return {
-      id: team.id,
-      displayName: team.displayName,
-      billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
-      subrouterUse: permissions.use,
-      subrouterManageAccounts: permissions.manageAccounts,
-    };
+  const authedTeams = teams.map((team) => ({
+    id: team.id,
+    displayName: team.displayName,
+    billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
   }));
-  const personalPermissions = await subrouterPermissions(
-    user,
-    undefined,
-    enforceSubrouterPermissions,
-  );
 
   return {
     id: user.id,
@@ -171,8 +160,22 @@ async function authedUserFromStackUser(
     teamIds,
     userBillingPlanId,
     billingPlanId,
-    personalSubrouterUse: personalPermissions.use,
-    personalSubrouterManageAccounts: personalPermissions.manageAccounts,
+    resolveSubrouterPermissions: async (teamId) => {
+      if (teamId === user.id) {
+        return subrouterPermissions(
+          user,
+          undefined,
+          enforceSubrouterPermissions,
+        );
+      }
+      const rawTeam = rawTeams.get(teamId);
+      if (!rawTeam) return { use: false, manageAccounts: false };
+      return subrouterPermissions(
+        user,
+        rawTeam,
+        enforceSubrouterPermissions,
+      );
+    },
   };
 }
 
@@ -180,7 +183,7 @@ async function subrouterPermissions(
   user: StackUserLike,
   team: unknown,
   enforce: boolean,
-): Promise<{ readonly use: boolean; readonly manageAccounts: boolean }> {
+): Promise<SubrouterPermissions> {
   if (!enforce) return { use: true, manageAccounts: true };
   if (typeof user.hasPermission !== "function") {
     return { use: false, manageAccounts: false };
@@ -196,6 +199,32 @@ async function subrouterPermissions(
   } catch {
     return { use: false, manageAccounts: false };
   }
+}
+
+const MAX_STACK_TEAM_PAGES = 100;
+const STACK_TEAM_PAGE_SIZE = 100;
+
+async function listAllStackTeams(user: StackUserLike): Promise<readonly unknown[]> {
+  if (typeof user.listTeams !== "function") return [];
+
+  const teams: unknown[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  for (let pageIndex = 0; pageIndex < MAX_STACK_TEAM_PAGES; pageIndex++) {
+    const page = await user.listTeams({
+      cursor,
+      limit: STACK_TEAM_PAGE_SIZE,
+    });
+    teams.push(...page);
+    const nextCursor = normalizedOptionalString(page.nextCursor);
+    if (!nextCursor) return teams;
+    if (seenCursors.has(nextCursor)) {
+      throw new Error("Stack team pagination repeated a cursor");
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+  throw new Error("Stack team pagination exceeded its page limit");
 }
 
 async function isAccountDeletionAuthBlocked(user: StackUserLike): Promise<boolean> {
@@ -227,7 +256,9 @@ type StackUserLike = {
   readonly primaryEmail: string | null;
   readonly clientReadOnlyMetadata?: unknown;
   readonly selectedTeam?: unknown;
-  readonly listTeams?: () => Promise<readonly unknown[]>;
+  readonly listTeams?: (
+    options?: { readonly cursor?: string; readonly limit?: number },
+  ) => Promise<readonly unknown[] & { readonly nextCursor?: string | null }>;
   readonly hasPermission?: {
     (permissionId: string): Promise<boolean>;
     (scope: Team, permissionId: string): Promise<boolean>;

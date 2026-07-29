@@ -58,7 +58,7 @@ export async function resolveSubrouterRequestContext(
     };
   }
 
-  const team = resolveTeam(request, user);
+  const team = await resolveTeam(request, user);
   if (!team.ok) return team;
   const permitted = options.manageAccounts
     ? team.manageAccounts

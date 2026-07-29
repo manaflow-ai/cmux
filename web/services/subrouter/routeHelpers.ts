@@ -19,8 +19,20 @@ export type TeamResolution =
   }
   | { ok: false; response: Response };
 
-export function resolveTeam(request: Request, user: AuthedUser): TeamResolution {
+export type AuthorizedSubrouterTeam = {
+  readonly teamId: string;
+  readonly teamName: string;
+  readonly use: boolean;
+  readonly manageAccounts: boolean;
+  readonly personal: boolean;
+};
+
+export async function resolveTeam(
+  request: Request,
+  user: AuthedUser,
+): Promise<TeamResolution> {
   const requested = requestedVmTeamIdFromRequest(request);
+  let teamId: string;
   if (requested) {
     const isMember = user.teamIds.includes(requested) || requested === user.id;
     if (!isMember) {
@@ -35,28 +47,61 @@ export function resolveTeam(request: Request, user: AuthedUser): TeamResolution 
         response: jsonResponse({ error: "team_not_allowed" }, 403),
       };
     }
-    const permissions = teamPermissions(user, requested);
-    return {
-      ok: true,
-      teamId: requested,
-      teamName: teamDisplayName(user, requested),
-      ...permissions,
-    };
+    teamId = requested;
+  } else {
+    teamId = user.selectedTeamId ?? user.billingTeamId;
+    if (!subrouterTeamAllowed(teamId)) {
+      return {
+        ok: false,
+        response: jsonResponse({ error: "team_not_allowed" }, 403),
+      };
+    }
   }
 
-  const teamId = user.selectedTeamId ?? user.billingTeamId;
-  if (!subrouterTeamAllowed(teamId)) {
-    return {
-      ok: false,
-      response: jsonResponse({ error: "team_not_allowed" }, 403),
-    };
-  }
+  const permissions = await user.resolveSubrouterPermissions(teamId);
   return {
     ok: true,
     teamId,
     teamName: teamDisplayName(user, teamId),
-    ...teamPermissions(user, teamId),
+    ...permissions,
   };
+}
+
+// Resolve team permissions only for Subrouter callers. This is intentionally
+// sequential so a large Stack team list cannot fan out permission API calls
+// through shared authentication.
+export async function authorizedSubrouterTeams(
+  user: AuthedUser,
+): Promise<readonly AuthorizedSubrouterTeam[]> {
+  const candidates = [
+    ...user.teams.map((team) => ({
+      teamId: team.id,
+      teamName: team.displayName ?? team.id,
+      personal: false,
+    })),
+    {
+      teamId: user.id,
+      teamName: user.displayName ?? user.primaryEmail ?? user.id,
+      personal: true,
+    },
+  ];
+  const teams: AuthorizedSubrouterTeam[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (
+      seen.has(candidate.teamId) ||
+      !subrouterTeamAllowed(candidate.teamId)
+    ) {
+      continue;
+    }
+    seen.add(candidate.teamId);
+    const permissions = await user.resolveSubrouterPermissions(
+      candidate.teamId,
+    );
+    if (!permissions.use && !permissions.manageAccounts) continue;
+    teams.push({ ...candidate, ...permissions });
+  }
+  return teams;
 }
 
 export function subrouterTeamAllowed(
@@ -68,23 +113,6 @@ export function subrouterTeamAllowed(
     .map((value) => value.trim())
     .filter(Boolean);
   return !allowed?.length || allowed.includes(teamId);
-}
-
-function teamPermissions(
-  user: AuthedUser,
-  teamId: string,
-): { readonly use: boolean; readonly manageAccounts: boolean } {
-  if (teamId === user.id) {
-    return {
-      use: user.personalSubrouterUse ?? false,
-      manageAccounts: user.personalSubrouterManageAccounts ?? false,
-    };
-  }
-  const team = user.teams.find((candidate) => candidate.id === teamId);
-  return {
-    use: team?.subrouterUse ?? false,
-    manageAccounts: team?.subrouterManageAccounts ?? false,
-  };
 }
 
 export function teamDisplayName(user: AuthedUser, teamId: string): string {

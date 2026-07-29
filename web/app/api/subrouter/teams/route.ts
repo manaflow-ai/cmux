@@ -3,7 +3,9 @@ import {
   unauthorized,
   verifyRequest,
 } from "../../../../services/vms/auth";
-import { subrouterTeamAllowed } from "../../../../services/subrouter/routeHelpers";
+import {
+  authorizedSubrouterTeams,
+} from "../../../../services/subrouter/routeHelpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,31 +17,16 @@ export async function GET(request: Request): Promise<Response> {
   });
   if (!user) return unauthorized();
 
-  const teams = user.teams
-    .filter((team) => subrouterTeamAllowed(team.id))
-    .map((team) => ({
-    id: team.id,
-    name: team.displayName ?? team.id,
-    personal: false,
+  const authorized = await authorizedSubrouterTeams(user);
+  const teams = authorized.map((team) => ({
+    id: team.teamId,
+    name: team.teamName,
+    personal: team.personal,
     permissions: {
-      use: team.subrouterUse ?? false,
-      manageAccounts: team.subrouterManageAccounts ?? false,
+      use: team.use,
+      manageAccounts: team.manageAccounts,
     },
   }));
-  if (
-    subrouterTeamAllowed(user.id) &&
-    !teams.some((team) => team.id === user.id)
-  ) {
-    teams.push({
-      id: user.id,
-      name: user.displayName ?? user.primaryEmail ?? user.id,
-      personal: true,
-      permissions: {
-        use: user.personalSubrouterUse ?? false,
-        manageAccounts: user.personalSubrouterManageAccounts ?? false,
-      },
-    });
-  }
 
   return jsonResponse({
     selectedTeamId: teams.some(

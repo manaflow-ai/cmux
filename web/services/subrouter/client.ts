@@ -228,7 +228,7 @@ export function createSubrouterClient(options: {
     createAccount: (tenantKey, input) =>
       requestJson(
         fetchImpl,
-        `${baseUrl}/tenant/accounts?adopt=1`,
+        `${baseUrl}/tenant/accounts?adopt=1&validate=1`,
         "createAccount",
         {
           method: "POST",
@@ -251,7 +251,7 @@ export function createSubrouterClient(options: {
     repairAccount: (tenantKey, accountId, input) =>
       requestJson(
         fetchImpl,
-        `${baseUrl}/tenant/accounts/${encodeURIComponent(accountId)}/repair?adopt=1`,
+        `${baseUrl}/tenant/accounts/${encodeURIComponent(accountId)}/repair?adopt=1&validate=1`,
         "repairAccount",
         {
           method: "POST",
