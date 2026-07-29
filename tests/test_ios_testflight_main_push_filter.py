@@ -603,6 +603,46 @@ def test_demo_history_skips_newer_internal_artifact() -> None:
     ]
 
 
+def test_demo_history_paginates_to_matching_artifact() -> None:
+    first_page = tuple(
+        (
+            f"internal-sha-{index}",
+            "ios-testflight-build-metadata",
+        )
+        for index in range(100)
+    )
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[1],
+        input_variant="",
+        prior_upload_pages=(
+            first_page,
+            (("demo-base-sha", "ios-testflight-build-metadata-demo"),),
+        ),
+        prior_run_ids=tuple(range(1_000, 899, -1)),
+        changed_files=("docs/cli-contract.md",),
+    )
+
+    assert result["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "demo-base-sha",
+        "variant": "demo",
+    }
+    assert [
+        request.get("page")
+        for request in result["workflowRunRequests"]
+        if "page" in request
+    ] == [1, 2]
+    assert result["compareCalls"] == [
+        {
+            "owner": "manaflow-ai",
+            "repo": "cmux",
+            "base": "demo-base-sha",
+            "head": "head-sha",
+        }
+    ]
+
+
 def test_manual_demo_dispatch_builds_even_when_head_already_uploaded() -> None:
     result = run_decision_scenario(
         event_name="workflow_dispatch",
@@ -900,6 +940,7 @@ if __name__ == "__main__":
     test_schedule_decision_routes_demo_cron_to_demo_history()
     test_schedule_decision_routes_internal_cron_to_internal_history()
     test_demo_history_skips_newer_internal_artifact()
+    test_demo_history_paginates_to_matching_artifact()
     test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
     test_scheduled_run_waits_for_an_earlier_upload()
     test_scheduled_run_waits_before_upload_job_exists()
