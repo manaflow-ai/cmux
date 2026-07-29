@@ -5,7 +5,11 @@ internal import Foundation
 // (the CmuxCore SSH-option-normalization precedent); the script text is
 // wire/process behavior pinned by tests — do not alter.
 extension RemoteSessionCoordinator {
-    /// Proves that stale relay metadata belongs to this exact relay identity.
+    /// Proves that stale relay metadata belongs to this relay namespace.
+    ///
+    /// Persistent restores deliberately rotate relay credentials, so their
+    /// durable daemon slot is the cross-launch ownership identity. Relays
+    /// without a persistent slot remain scoped to their exact credentials.
     static func remoteRelayMetadataOwnershipProbeScript(
         relayPort: Int,
         relayID: String,
@@ -20,22 +24,24 @@ extension RemoteSessionCoordinator {
         guard persistentDaemonSlot == nil || normalizedSlot != nil else {
             return "exit 64"
         }
-        let slotCheck: String
+        let ownershipCheck: String
         if let normalizedSlot {
-            slotCheck = """
+            ownershipCheck = """
+            [ -r "$auth_file" ] || exit 64
             [ -r "$slot_file" ] || exit 64
             [ "$(tr -d '\\r\\n' < "$slot_file")" = \(normalizedSlot.shellSingleQuoted) ] || exit 64
             """
         } else {
-            slotCheck = "[ ! -e \"$slot_file\" ] || exit 64"
+            ownershipCheck = """
+            [ "$(tr -d '\\r\\n' < "$auth_file")" = \(authPayload.shellSingleQuoted) ] || exit 64
+            [ ! -e "$slot_file" ] || exit 64
+            """
         }
         return """
         relay_directory="$HOME/.cmux/relay"
         auth_file="$relay_directory/\(relayPort).auth"
         slot_file="$relay_directory/\(relayPort).slot"
-        [ -r "$auth_file" ] || exit 64
-        [ "$(tr -d '\\r\\n' < "$auth_file")" = \(authPayload.shellSingleQuoted) ] || exit 64
-        \(slotCheck)
+        \(ownershipCheck)
         """
     }
 
