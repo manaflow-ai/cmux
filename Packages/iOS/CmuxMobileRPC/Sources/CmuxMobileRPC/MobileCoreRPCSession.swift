@@ -660,11 +660,21 @@ actor MobileCoreRPCSession {
     private func timeoutPendingRequest(requestID: String) async {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
+        var condemnedWriteRequestID = requestID
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
+            // A queued request dying head-of-line blocked behind a cancelled
+            // unresolved write is unserved demand: condemn that write now.
+            // Its timeout must not merely erase it from `queuedWriteIDs`,
+            // where the grace watchdog would mistake it for an explicit
+            // cancellation and preserve the wedged transport.
+            if let write = activeWrite,
+               write.cancelledRequestResolutionTask != nil {
+                condemnedWriteRequestID = write.requestID
+            }
         }
         let error: MobileShellConnectionError = if await recycleTransportIfActiveWrite(
-            requestID: requestID
+            requestID: condemnedWriteRequestID
         ) {
             .transportWriteTimedOut
         } else {
