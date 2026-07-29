@@ -46,6 +46,27 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
 
+    /// How one configuration update reached the table.
+    enum PayloadApplyRoute: Equatable {
+        /// No row renders differently; the table was not touched.
+        case noChange
+        /// Payload-only changes with stable heights; the visible changed
+        /// cells were re-configured in place, listed here by item id.
+        case reconfiguredInPlace([String])
+        /// Structure or a row height changed; a snapshot was applied.
+        case snapshotApply
+    }
+    #if DEBUG
+    /// The most recent update's route (behavior hook for package tests).
+    private(set) var lastPayloadApplyRoute: PayloadApplyRoute?
+    #endif
+
+    private func recordPayloadApplyRoute(_ route: PayloadApplyRoute) {
+        #if DEBUG
+        lastPayloadApplyRoute = route
+        #endif
+    }
+
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
         self.configuredItemsByID = Dictionary(
@@ -109,6 +130,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let structureChanged = currentSnapshot.sectionIdentifiers != [Self.section]
             || currentSnapshot.itemIdentifiers != next.items
         var changed: [WorkspaceListTableItem] = []
+        var changedRowHeightsStable = true
         if let previous {
             // This map already mirrors previousConfiguration. Reuse it instead
             // of rebuilding a second full index for every live row update.
@@ -121,6 +143,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     next: next
                 ) {
                     changed.append(item)
+                    if !structureChanged, changedRowHeightsStable,
+                       heightCacheKey(for: oldItem, tableView: tableView, configuration: previous)
+                           != heightCacheKey(for: item, tableView: tableView, configuration: next) {
+                        changedRowHeightsStable = false
+                    }
                 }
             }
         }
@@ -137,7 +164,30 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
         previousConfiguration = next
 
-        guard structureChanged || !changed.isEmpty else { return }
+        guard structureChanged || !changed.isEmpty else {
+            recordPayloadApplyRoute(.noChange)
+            return
+        }
+
+        if !structureChanged, changedRowHeightsStable {
+            // Payload-only update: no row identity moved and no row height
+            // changed, so the snapshot has nothing to diff. Routing this
+            // through apply(_:animatingDifferences:) would still run the
+            // diffable apply queue plus UITableView's whole batch-update
+            // pass on every live preview/unread/chip tick while agents
+            // stream. Re-configure the visible changed cells in place (the
+            // exact work reconfigure performs); offscreen rows pick up the
+            // new payload from `configuredItemsByID` when they dequeue.
+            for item in changed {
+                guard
+                    let indexPath = dataSource.indexPath(for: item),
+                    let cell = tableView.cellForRow(at: indexPath)
+                else { continue }
+                configure(cell, for: configuredItemsByID[item.id] ?? item)
+            }
+            recordPayloadApplyRoute(.reconfiguredInPlace(changed.map(\.id)))
+            return
+        }
 
         var snapshot: NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>
         if structureChanged {
@@ -149,6 +199,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
         snapshot.reconfigureItems(changed)
         dataSource.apply(snapshot, animatingDifferences: false)
+        recordPayloadApplyRoute(.snapshotApply)
     }
 
     func tableView(
@@ -611,11 +662,21 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         for item: WorkspaceListTableItem,
         tableView: UITableView
     ) -> HeightCacheKey {
+        heightCacheKey(for: item, tableView: tableView, configuration: configuration)
+    }
+
+    private func heightCacheKey(
+        for item: WorkspaceListTableItem,
+        tableView: UITableView,
+        configuration: WorkspaceListTable
+    ) -> HeightCacheKey {
         let scale = tableView.window?.screen.scale ?? UIScreen.main.scale
         let kind: HeightKind
         switch item {
         case .workspace(let id, _):
-            let changesChipIdentity = workspaceChangesChipHeightIdentity(id: id)
+            let changesChipIdentity = workspaceChangesChipHeightIdentity(
+                id: id, configuration: configuration
+            )
             if configuration.wrapWorkspaceTitles,
                let workspace = configuration.workspacesByID[id] {
                 kind = .workspaceWrapped(
@@ -673,7 +734,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
     /// Separates chip modes and bounded digit-count widths that may wrap.
     private func workspaceChangesChipHeightIdentity(
-        id: MobileWorkspacePreview.ID
+        id: MobileWorkspacePreview.ID,
+        configuration: WorkspaceListTable
     ) -> WorkspaceChangesChipHeightKey? {
         guard configuration.workspaceChangesCapable,
               let workspace = configuration.workspacesByID[id],
@@ -721,7 +783,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 previous.workspacesByID[id]?.macConnectionStatus ?? previous.connectionStatus
             let nextConnectionStatus =
                 next.workspacesByID[id]?.macConnectionStatus ?? next.connectionStatus
-            return previous.workspacesByID[id] != next.workspacesByID[id]
+            return !Self.workspaceRenderEquivalent(
+                previous.workspacesByID[id], next.workspacesByID[id]
+            )
                 || workspaceChangesChipChanged(id: id, previous: previous, next: next)
                 || oldItem.isIndentedWorkspace != item.isIndentedWorkspace
                 || wasSelected != isSelected
@@ -765,6 +829,45 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case .filterEmpty:
             return previous.filter != next.filter
         }
+    }
+
+    /// Whether two snapshots of a workspace render identically in the row.
+    ///
+    /// Full struct equality decides — fail-closed for any field this list
+    /// does not special-case, including ones added later — except the
+    /// activity timestamps: the row renders them at minute granularity
+    /// (``MobileWorkspacePreview/activityTimestampLabel(referenceDate:calendar:)``),
+    /// while the Mac restamps `last_activity_at`/`preview_at` from the latest
+    /// notification on every list emission. Sub-minute restamps therefore
+    /// must not count as changes, or every agent-output notification
+    /// re-renders rows that look exactly the same (measured at ~9ms of
+    /// main-thread work per tick on an M-series simulator, worse on device —
+    /// the workspace-list scroll stutter).
+    static func workspaceRenderEquivalent(
+        _ previous: MobileWorkspacePreview?,
+        _ next: MobileWorkspacePreview?
+    ) -> Bool {
+        guard var normalizedPrevious = previous, let next else {
+            return previous == nil && next == nil
+        }
+        if Self.sameRenderedMinute(normalizedPrevious.previewAt, next.previewAt) {
+            normalizedPrevious.previewAt = next.previewAt
+        }
+        if Self.sameRenderedMinute(normalizedPrevious.lastActivityAt, next.lastActivityAt) {
+            normalizedPrevious.lastActivityAt = next.lastActivityAt
+        }
+        return normalizedPrevious == next
+    }
+
+    /// Whether the row's timestamp label renders the same for both dates.
+    /// The label shows a wall-clock minute (or month/day), so two dates in
+    /// the same calendar minute are indistinguishable. `nil` transitions are
+    /// render-relevant (the label source can change) and stay unequal.
+    private static func sameRenderedMinute(_ lhs: Date?, _ rhs: Date?) -> Bool {
+        if lhs == rhs { return true }
+        guard let lhs, let rhs else { return false }
+        return Int(lhs.timeIntervalSinceReferenceDate / 60)
+            == Int(rhs.timeIntervalSinceReferenceDate / 60)
     }
 
     private func workspaceActionAvailabilityChanged(
