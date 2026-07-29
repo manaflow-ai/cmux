@@ -131,6 +131,22 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(pendingStopResult)
 
+        let clearEndCommandStart = context.state.snapshot().count
+        let clearEndResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(oldSession)","reason":"clear","cwd":"/tmp/x","hook_event_name":"SessionEnd"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(clearEndResult)
+        let clearEndCommands = Array(context.state.snapshot().dropFirst(clearEndCommandStart))
+        #expect(
+            !clearEndCommands.contains { $0.hasPrefix("clear_agent_pid claude_code ") },
+            "SessionEnd(clear) must not erase live background activity; saw \(clearEndCommands)"
+        )
+
         let clearCommandStart = context.state.snapshot().count
         let clearResult = harness.runProcess(
             executablePath: context.cliPath,
@@ -232,6 +248,16 @@ struct ClaudeBackgroundWorkNotifyTests {
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(siblingStop)
+
+        let siblingEnd = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-end", "--surface", siblingSurfaceId],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(siblingSession)","reason":"clear","cwd":"/tmp/x","hook_event_name":"SessionEnd"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(siblingEnd)
 
         let clearCommandStart = context.state.snapshot().count
         let clearResult = harness.runProcess(
