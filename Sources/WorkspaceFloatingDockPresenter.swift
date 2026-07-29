@@ -381,6 +381,14 @@ final class WorkspaceFloatingDockPresenter {
                 visibleScreenFrame: screenFrame
             )
             for (entry, snapshot) in zip(group, snapshots) {
+#if DEBUG
+                cmuxDebugLog(
+                    "floating.parking.layout dock=\(entry.dock.id.uuidString.prefix(5)) " +
+                    "restore=\(NSStringFromRect(entry.restoreFrame)) " +
+                    "screen=\(NSStringFromRect(screenFrame)) " +
+                    "parked=\(NSStringFromRect(snapshot.parkedFrame))"
+                )
+#endif
                 if entry.dock.id == animatedDockId {
                     didStartRequestedAnimation = true
                     entry.controller.stash(snapshot: snapshot) {

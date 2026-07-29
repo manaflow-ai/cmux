@@ -55,6 +55,13 @@ final class SidebarInlineRenameCoordinator: NSObject, NSTextFieldDelegate {
     /// Treats focus loss as a commit, unless Enter or Escape already resolved.
     func controlTextDidEndEditing(_ obj: Notification) {
         guard let field = obj.object as? NSControl else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "rename.field.didEnd id=\((field as? NSView)?.identifier?.rawValue ?? "nil") " +
+            "keyWindow=\(NSApp.keyWindow?.identifier?.rawValue ?? "nil") " +
+            "userInfo=\(String(describing: obj.userInfo))"
+        )
+#endif
         commitOnce(field.stringValue)
     }
 }

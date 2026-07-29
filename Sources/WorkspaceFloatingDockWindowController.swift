@@ -356,6 +356,13 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             targetFrame = snapshot.revealedFrame
         }
         presentationTargetFrame = targetFrame
+#if DEBUG
+        cmuxDebugLog(
+            "floating.parking.apply dock=\(dock.id.uuidString.prefix(5)) " +
+            "generation=\(presentationGeneration) target=\(NSStringFromRect(targetFrame)) " +
+            "animated=\(animated ? 1 : 0)"
+        )
+#endif
         persistRestorableFrame(snapshot.restoreFrame)
         detachParkedPanel(panel)
         stashOverlay.isHidden = false
@@ -612,6 +619,12 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
 
     private func settleLatestPresentationTarget(on panel: NSWindow) {
         guard let presentationTargetFrame else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "floating.parking.settle dock=\(dock.id.uuidString.prefix(5)) " +
+            "generation=\(presentationGeneration) target=\(NSStringFromRect(presentationTargetFrame))"
+        )
+#endif
         isAnimatingPresentation = false
         setPanelFrame(presentationTargetFrame, display: panel.isVisible)
     }

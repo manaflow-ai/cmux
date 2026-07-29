@@ -162,7 +162,15 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         )
         setFrame(targetFrame, animated: true)
         panel.makeKeyAndOrderFront(nil)
-        panel.makeFirstResponder(accessoryView.renameField)
+        let focused = accessoryView.focusRenameField()
+#if DEBUG
+        cmuxDebugLog(
+            "floating.rename.focus result=\(focused ? 1 : 0) " +
+            "key=\(panel.isKeyWindow ? 1 : 0) " +
+            "firstResponder=\(String(describing: panel.firstResponder)) " +
+            "editor=\(String(describing: accessoryView.renameField.currentEditor()))"
+        )
+#endif
     }
 
     func hide(animated: Bool) {
@@ -444,10 +452,7 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
     }
 
     func beginRenaming() {
-        guard !isRenaming else {
-            window?.makeFirstResponder(renameField)
-            return
-        }
+        guard !isRenaming else { return }
         isRenaming = true
         renameField.stringValue = title
         titleLabel.isHidden = true
@@ -465,11 +470,18 @@ private final class WorkspaceFloatingDockParkingAccessoryView: NSView {
         renameField.delegate = coordinator
         onEditingChange(true)
         needsLayout = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.window?.makeFirstResponder(self.renameField)
-            self.renameField.currentEditor()?.selectAll(nil)
+    }
+
+    @discardableResult
+    fileprivate func focusRenameField() -> Bool {
+        guard isRenaming, let window else { return false }
+        if let editor = renameField.currentEditor() {
+            editor.selectAll(nil)
+            return true
         }
+        let focused = window.makeFirstResponder(renameField)
+        renameField.currentEditor()?.selectAll(nil)
+        return focused
     }
 
     func cancelRenaming(notify: Bool = true) {
