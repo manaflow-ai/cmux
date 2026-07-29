@@ -129,6 +129,31 @@ struct RendererRealizationPlannerTests {
         #expect(selected == Set(hidden))
     }
 
+    @Test func defaultFiveTabBaselineSchedulesTheIdleDeadline() throws {
+        let suiteName = "RendererRealizationPlannerTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let now: TimeInterval = 1000
+        let visible = UUID()
+        let hidden = (0..<4).map { _ in UUID() }
+        let settings = RendererRealizationSettings.values(defaults: defaults)
+        let inputs = [
+            input(visible, visible: true, lastVisibleAt: now),
+        ] + hidden.map {
+            input($0, lastVisibleAt: now)
+        }
+
+        let deadline = RendererRealizationController.nextScheduledReclaimDeadline(
+            inputs: inputs,
+            settings: settings,
+            now: now
+        )
+
+        #expect(deadline == now + settings.idleSeconds)
+    }
+
     @Test func onlyRealizedSurfacesAreConsidered() {
         let now: TimeInterval = 1000
         let unrealized = UUID()
