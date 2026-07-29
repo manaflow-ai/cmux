@@ -13,6 +13,10 @@ extension WKWebView {
 
     @MainActor
     func browserUserAgentPolicyRestartRequest(for request: URLRequest) -> URLRequest? {
+        guard let scheme = request.url?.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return nil
+        }
         guard applyBrowserUserAgentPolicy(for: request.url) else { return nil }
         var restartRequest = request
         restartRequest.setValue(nil, forHTTPHeaderField: "User-Agent")
