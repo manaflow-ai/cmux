@@ -3,24 +3,12 @@ internal import CmuxFoundation
 internal import CmuxRemoteWorkspace
 internal import Foundation
 
-/// Outcome of one broker-authorized inherited-ControlMaster reap.
-enum NativeSSHControlMasterReapOutcome: Sendable, Equatable {
-    case reaped(eventID: UUID)
-    case deferred(String)
-    case ignored(String)
-}
-
 /// Broker-owned state for disruptive inherited-ControlMaster reaps.
 ///
 /// Authorization, metadata proof, process execution, and sibling invalidation
 /// form one operation so no caller can prove one socket and exit another.
 @MainActor
 final class NativeSSHControlMasterReapCoordinator {
-    private struct InFlightReap {
-        let id: UUID
-        let task: Task<NativeSSHControlMasterReapOutcome, Never>
-    }
-
     private let sharingOptions: SSHConnectionSharingOptions
     private let processRunner: any RemoteSessionProcessRunning
     private let eventHub: NativeSSHControlMasterReapEventHub
@@ -32,7 +20,12 @@ final class NativeSSHControlMasterReapCoordinator {
                 WorkspaceRemoteConfiguration
         ]
     ] = [:]
-    private var inFlightReaps: [String: InFlightReap] = [:]
+    private var inFlightReaps: [
+        String: (
+            id: UUID,
+            task: Task<NativeSSHControlMasterReapOutcome, Never>
+        )
+    ] = [:]
 
     nonisolated init(
         sharingOptions: SSHConnectionSharingOptions,
@@ -162,7 +155,7 @@ final class NativeSSHControlMasterReapCoordinator {
             Never
         > = Task {
             defer { authorization.release() }
-            let attempt = await Self.runReap(
+            let attempt = await runNativeSSHControlMasterReap(
                 metadataProbeRequest: probeRequest,
                 exitRequest: exitRequest,
                 processRunner: processRunner
@@ -179,7 +172,7 @@ final class NativeSSHControlMasterReapCoordinator {
                 return .ignored(detail)
             }
         }
-        inFlightReaps[resolvedControlPath] = InFlightReap(
+        inFlightReaps[resolvedControlPath] = (
             id: reapID,
             task: task
         )
@@ -199,82 +192,4 @@ final class NativeSSHControlMasterReapCoordinator {
             .sshControlMasterLeaseGeneration == generation
     }
 
-    @concurrent
-    private static func runReap(
-        metadataProbeRequest: RemoteProcessRequest,
-        exitRequest: RemoteProcessRequest,
-        processRunner: any RemoteSessionProcessRunning
-    ) async -> ReapAttemptOutcome {
-        let cancellation = RemoteProcessCancellationOperation()
-        return await withTaskCancellationHandler {
-            guard !Task.isCancelled else {
-                return .deferred("control-master reap cancelled")
-            }
-            do {
-                let probe = try processRunner.run(
-                    metadataProbeRequest,
-                    operation: cancellation
-                )
-                guard probe.status == 0 else {
-                    let detail = bestErrorLine(
-                        stderr: probe.stderr,
-                        stdout: probe.stdout
-                    ) ?? "ssh exited \(probe.status)"
-                    return probe.status == 64
-                        ? .ignored("relay metadata did not match")
-                        : .deferred(
-                            "could not verify relay metadata: \(detail)"
-                        )
-                }
-                guard !Task.isCancelled else {
-                    return .deferred("control-master reap cancelled")
-                }
-                let exit = try processRunner.run(
-                    exitRequest,
-                    operation: cancellation
-                )
-                guard exit.status == 0 else {
-                    let detail = bestErrorLine(
-                        stderr: exit.stderr,
-                        stdout: exit.stdout
-                    ) ?? "ssh exited \(exit.status)"
-                    return .ignored(
-                        "control-master exit failed: \(detail)"
-                    )
-                }
-                return .reaped
-            } catch {
-                return .deferred(error.localizedDescription)
-            }
-        } onCancel: {
-            cancellation.cancel()
-        }
-    }
-
-    private nonisolated static func bestErrorLine(
-        stderr: String,
-        stdout: String
-    ) -> String? {
-        for text in [stderr, stdout] {
-            if let line = text
-                .split(whereSeparator: \.isNewline)
-                .map(String.init)
-                .last(where: {
-                    !$0.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    ).isEmpty
-                }) {
-                return line.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-            }
-        }
-        return nil
-    }
-}
-
-private enum ReapAttemptOutcome: Sendable {
-    case reaped
-    case deferred(String)
-    case ignored(String)
 }
