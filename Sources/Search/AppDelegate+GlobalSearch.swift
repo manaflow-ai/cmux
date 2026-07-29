@@ -2,6 +2,70 @@ import AppKit
 import Foundation
 
 extension AppDelegate {
+    func globalSearchWorkspaceMetadataContexts() -> [GlobalSearchWorkspaceMetadataContext] {
+        var contexts: [GlobalSearchWorkspaceMetadataContext] = []
+        var seenWorkspaceIDs = Set<UUID>()
+        var windowOrdinal = 1
+        var orderedWindowRanks: [UUID: Int] = [:]
+        for window in NSApp.orderedWindows {
+            guard let windowID = mainWindowId(from: window),
+                  orderedWindowRanks[windowID] == nil else {
+                continue
+            }
+            orderedWindowRanks[windowID] = orderedWindowRanks.count
+        }
+
+        func append(windowID: UUID, tabManager: TabManager, window: NSWindow?) {
+            let fallbackWindowTitle = String(localized: "menu.windowNumber", defaultValue: "Window \(windowOrdinal)")
+            windowOrdinal += 1
+            let windowTitle = {
+                let trimmed = window?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? fallbackWindowTitle : trimmed
+            }()
+
+            for workspace in tabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+                contexts.append(globalSearchWorkspaceMetadataContext(
+                    windowID: windowID,
+                    windowTitle: windowTitle,
+                    workspace: workspace
+                ))
+            }
+        }
+
+        let liveContexts = mainWindowContexts.values.sorted { lhs, rhs in
+            let lhsRank = orderedWindowRanks[lhs.windowId] ?? Int.max
+            let rhsRank = orderedWindowRanks[rhs.windowId] ?? Int.max
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            return lhs.windowId.uuidString < rhs.windowId.uuidString
+        }
+
+        for context in liveContexts {
+            append(
+                windowID: context.windowId,
+                tabManager: context.tabManager,
+                window: context.window ?? windowForMainWindowId(context.windowId)
+            )
+        }
+
+        let recoverableRoutes = recoverableMainWindowRoutes().sorted { lhs, rhs in
+            let lhsRank = orderedWindowRanks[lhs.windowId] ?? Int.max
+            let rhsRank = orderedWindowRanks[rhs.windowId] ?? Int.max
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            return lhs.windowId.uuidString < rhs.windowId.uuidString
+        }
+
+        for route in recoverableRoutes {
+            guard let tabManager = route.tabManager else { continue }
+            append(windowID: route.windowId, tabManager: tabManager, window: route.window)
+        }
+
+        return contexts
+    }
+
+    func globalSearchWorkspaceMetadataContext(forWorkspaceID workspaceID: UUID) -> GlobalSearchWorkspaceMetadataContext? {
+        globalSearchWorkspaceMetadataContexts().first { $0.workspaceID == workspaceID }
+    }
+
     func globalSearchPanelContexts() -> [GlobalSearchPanelContext] {
         var contexts: [GlobalSearchPanelContext] = []
         var seenPanelKeys = Set<String>()
@@ -164,6 +228,25 @@ extension AppDelegate {
         return fallback
     }
 
+    func globalSearchTranscriptRouting(workspaceID: String?, surfaceID: String?) -> GlobalSearchTranscriptRouting? {
+        guard let panelID = surfaceID.flatMap(UUID.init(uuidString:)) else { return nil }
+        let preferredWorkspaceID = workspaceID.flatMap(UUID.init(uuidString:))
+        guard let context = globalSearchContext(
+            forPanelID: panelID,
+            preferredWorkspaceID: preferredWorkspaceID
+        ) else {
+            return nil
+        }
+        return GlobalSearchTranscriptRouting(
+            windowID: context.windowID,
+            workspaceID: context.workspaceID,
+            panelID: context.panelID,
+            workspaceTitle: context.workspaceTitle,
+            panelTitle: context.panelTitle,
+            location: context.location
+        )
+    }
+
     func openGlobalSearchHit(_ hit: SearchIndexHit, query: String) {
         let resolvedContext = hit.panelID.flatMap {
             globalSearchContext(forPanelID: $0, preferredWorkspaceID: hit.workspaceID)
@@ -203,6 +286,28 @@ extension AppDelegate {
     private func applyMarkdownInlineSearch(query: String, hit: SearchIndexHit, to panel: MarkdownPanel) {
         guard let needle = GlobalSearchInlineSearch.needle(for: query, hit: hit) else { return }
         panel.applySearchNeedle(needle)
+    }
+}
+
+private extension AppDelegate {
+    func globalSearchWorkspaceMetadataContext(
+        windowID: UUID,
+        windowTitle: String,
+        workspace: Workspace
+    ) -> GlobalSearchWorkspaceMetadataContext {
+        let workspaceTitle = {
+            let trimmed = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty
+                ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
+                : trimmed
+        }()
+        return GlobalSearchWorkspaceMetadataContext(
+            windowID: windowID,
+            windowTitle: windowTitle,
+            workspaceID: workspace.id,
+            workspaceTitle: workspaceTitle,
+            workspace: workspace
+        )
     }
 }
 

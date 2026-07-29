@@ -113885,19 +113885,70 @@
         }
       }
     },
+    "globalSearch.kind.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "globalSearch.kind.transcript": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話"
+          }
+        }
+      }
+    },
+    "globalSearch.kind.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド"
+          }
+        }
+      }
+    },
     "globalSearch.palette.placeholder": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search all windows, panels, browser tabs..."
+            "value": "Search windows, panels, transcripts, commands..."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのウィンドウ、パネル、ブラウザタブを検索..."
+            "value": "ウィンドウ、パネル、会話、コマンドを検索..."
           }
         }
       }

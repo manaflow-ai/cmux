@@ -2123,6 +2123,7 @@ class TabManager: ObservableObject {
         pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)
         sidebarMultiSelection.removeFromSelection(workspace.id)
         invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
+        GlobalSearchCoordinator.shared.purgeWorkspace(id: workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.withClosedPanelHistorySuppressed {
