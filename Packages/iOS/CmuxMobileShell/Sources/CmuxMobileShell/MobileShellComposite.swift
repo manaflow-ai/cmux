@@ -5236,6 +5236,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryPresenceAggregationTask = nil
         secondaryPresenceAggregationTaskGeneration = UUID()
         secondaryPresencePendingMacIDs = []
+        secondaryAggregationAfterPushedRoutesOperationID = UUID()
+        secondaryAggregationAfterPushedRoutesTask?.cancel()
+        secondaryAggregationAfterPushedRoutesTask = nil
+        secondaryAggregationAfterPushedRoutesScope = nil
+        secondaryAggregationAfterPushedRoutesMacIDs = []
+        secondaryAggregationAfterPushedRoutesNeedsFullRefresh = false
         cancelSecondaryAggregationRetry()
         secondaryControlKeepaliveTaskGeneration = UUID()
         secondaryControlKeepaliveTask?.cancel()
@@ -6875,7 +6881,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         let retainPreviousAsControl =
                             terminalStopped && !resolvesToSameMac
                                 ? await canRetainFocusedConnectionInControlPool(
-                                    previousFocusedConnection
+                                    previousFocusedConnection,
+                                    vacatingControlMacDeviceID:
+                                        displacedControlReservation?.macDeviceID
                                 )
                                 : false
                         guard isConnectCurrent() else {

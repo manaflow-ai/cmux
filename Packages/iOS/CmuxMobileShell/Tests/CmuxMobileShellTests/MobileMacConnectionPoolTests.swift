@@ -78,6 +78,82 @@ import Testing
         #expect(candidates.map(\.macDeviceID) == ["mac-online"])
     }
 
+    @Test func teardownCancelsDeferredPostRouteAggregation() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "deferred-route-teardown",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-deferred",
+            displayName: "Deferred Mac",
+            routes: [route],
+            instanceTag: "deferred-tag",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-deferred",
+            instanceTag: "deferred-tag",
+            displayName: "Deferred Mac"
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        let scope = MobileShellScopeSnapshot(
+            userID: "user-1",
+            teamID: "team-1",
+            generation: 0
+        )
+        let gate = ControlPoolRouteSyncGate()
+        let routeSyncTask = Task { await gate.wait() }
+        shell.pushedRouteSyncTask = routeSyncTask
+        shell.pushedRouteSyncOperationID = UUID()
+        shell.applyPresenceUpdate(
+            .online(Self.instance(
+                deviceID: "mac-deferred",
+                tag: "deferred-tag",
+                online: true
+            )),
+            scope: scope
+        )
+
+        shell.clearRemoteConnectionContext()
+        await gate.release()
+        await routeSyncTask.value
+
+        let reopenedPool = try await pollUntil(attempts: 50) {
+            await router.count(of: "mobile.host.status") > 0
+        }
+        #expect(!reopenedPool)
+        #expect(shell.secondaryMacSubscriptions.isEmpty)
+    }
+
     @Test func offlinePresenceWinsAgainstInFlightControlDial() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -2117,6 +2193,16 @@ import Testing
     }
 
     @Test func freshSwitchStagesMetadataAndReplacesTargetControlOwner() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
         let router = LivenessHostRouter()
         await router.setHostIdentity(
             deviceID: "mac-b",
@@ -2155,6 +2241,16 @@ import Testing
             routes: [oldRoute],
             expiresAt: Date().addingTimeInterval(3_600)
         )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            routes: [oldRoute],
+            instanceTag: "mmpool",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
         let targetTicket = try CmxAttachTicket(
             workspaceID: "workspace-b",
             terminalID: "terminal-b",
@@ -2178,7 +2274,10 @@ import Testing
         let shell = MobileShellComposite(
             runtime: runtime,
             isSignedIn: true,
-            connectionState: .connected
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
         )
         shell.remoteClient = oldClient
         shell.foregroundMacDeviceID = "mac-a"
@@ -2224,6 +2323,36 @@ import Testing
             displayName: "Mac B"
         )
         shell.secondaryMacSubscriptions["mac-b"] = displacedControl
+        for index in 0 ..<
+            MobileShellComposite.maximumWarmControlConnectionCount - 1 {
+            let macDeviceID = "mac-fill-\(index)"
+            let fillerTicket = try CmxAttachTicket(
+                workspaceID: "",
+                terminalID: nil,
+                macDeviceID: macDeviceID,
+                macDisplayName: macDeviceID,
+                routes: [targetRoute],
+                expiresAt: Date().addingTimeInterval(3_600)
+            )
+            shell.secondaryMacSubscriptions[macDeviceID] =
+                SecondaryMacSubscription(
+                    macDeviceID: macDeviceID,
+                    client: MobileCoreRPCClient(
+                        runtime: runtime,
+                        route: targetRoute,
+                        ticket: fillerTicket,
+                        allowsStackAuthFallback: true
+                    ),
+                    route: targetRoute,
+                    ticket: fillerTicket,
+                    storedInstanceTag: "mmpool",
+                    authenticatedInstanceTag: "mmpool",
+                    supportedHostCapabilities: [],
+                    actionCapabilities: .none
+                )
+        }
+        #expect(shell.secondaryMacSubscriptions.count
+            == MobileShellComposite.maximumWarmControlConnectionCount)
         shell.startSecondaryEventConsumer(
             displacedControl,
             displayName: "Mac B"
@@ -2258,6 +2387,9 @@ import Testing
         #expect(shell.selectedWorkspace?.macDeviceID == "mac-b")
         #expect(shell.selectedWorkspace?.rpcWorkspaceID.rawValue == "live-workspace")
         #expect(shell.secondaryMacSubscriptions["mac-b"] == nil)
+        #expect(shell.secondaryMacSubscriptions["mac-a"]?.client === oldClient)
+        #expect(shell.secondaryMacSubscriptions.count
+            == MobileShellComposite.maximumWarmControlConnectionCount)
         #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
         #expect(shell.workspacesByMac["mac-b"]?.status == .connected)
         #expect(shell.connections["mac-b"]?.supportedHostCapabilities
@@ -2609,6 +2741,22 @@ private actor PromotionFenceCompletion {
 
     func finish() {
         isFinished = true
+    }
+}
+
+private actor ControlPoolRouteSyncGate {
+    private var isReleased = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        isReleased = true
+        continuation?.resume()
+        continuation = nil
     }
 }
 
