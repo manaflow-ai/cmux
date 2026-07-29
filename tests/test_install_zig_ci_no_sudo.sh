@@ -97,6 +97,11 @@ LOCAL_ONLY_INSTALL_PARENT="$TMP_DIR/local-only-install"
 LOCAL_ONLY_PATH_OUTPUT="$TMP_DIR/local-only-zig-path"
 LOCAL_ONLY_REUSE_PATH_OUTPUT="$TMP_DIR/local-only-reuse-zig-path"
 LOCAL_ONLY_MARKER="$LOCAL_ONLY_INSTALL_PARENT/keep.txt"
+CONCURRENT_INSTALL_PARENT="$TMP_DIR/concurrent-install"
+CONCURRENT_OUTPUT_ONE="$TMP_DIR/concurrent-output-one"
+CONCURRENT_OUTPUT_TWO="$TMP_DIR/concurrent-output-two"
+CONCURRENT_PATH_OUTPUT_ONE="$TMP_DIR/concurrent-path-one"
+CONCURRENT_PATH_OUTPUT_TWO="$TMP_DIR/concurrent-path-two"
 DEFAULT_OUTPUT_FILE="$TMP_DIR/default-output"
 DEFAULT_GITHUB_PATH_FILE="$TMP_DIR/default-github-path"
 DEFAULT_GITHUB_ENV_FILE="$TMP_DIR/default-github-env"
@@ -465,6 +470,63 @@ if [ -s "$SUDO_LOG" ]; then
   cat "$LOCAL_ONLY_REUSE_OUTPUT_FILE"
   cat "$SUDO_LOG"
   echo "FAIL: cached local-only reuse invoked sudo" >&2
+  exit 1
+fi
+
+mkdir -p "$CONCURRENT_INSTALL_PARENT"
+run_concurrent_install() {
+  local output_file="$1"
+  local path_output="$2"
+  PATH="$BIN_DIR:/usr/bin:/bin" \
+    RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+    FAKE_ZIG_VERSION="98.98.98" \
+    FAKE_ZIG_LIB_DIR="$FIXTURE_ROOT/$ZIG_NAME/lib" \
+    ZIG_REQUIRED="$ZIG_REQUIRED" \
+    ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+    ZIG_FORCE_LOCAL_INSTALL=1 \
+    ZIG_INSTALL_ROOT="$CONCURRENT_INSTALL_PARENT" \
+    ZIG_PATH_OUTPUT="$path_output" \
+    ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+    "$SCRIPT" > "$output_file" 2>&1
+}
+
+run_concurrent_install "$CONCURRENT_OUTPUT_ONE" "$CONCURRENT_PATH_OUTPUT_ONE" &
+CONCURRENT_PID_ONE=$!
+run_concurrent_install "$CONCURRENT_OUTPUT_TWO" "$CONCURRENT_PATH_OUTPUT_TWO" &
+CONCURRENT_PID_TWO=$!
+CONCURRENT_STATUS_ONE=0
+CONCURRENT_STATUS_TWO=0
+wait "$CONCURRENT_PID_ONE" || CONCURRENT_STATUS_ONE=$?
+wait "$CONCURRENT_PID_TWO" || CONCURRENT_STATUS_TWO=$?
+if [ "$CONCURRENT_STATUS_ONE" -ne 0 ] || [ "$CONCURRENT_STATUS_TWO" -ne 0 ]; then
+  cat "$CONCURRENT_OUTPUT_ONE" "$CONCURRENT_OUTPUT_TWO"
+  echo "FAIL: concurrent local Zig installers did not both succeed" >&2
+  exit 1
+fi
+
+CONCURRENT_INSTALL_ROOT="$CONCURRENT_INSTALL_PARENT/$ZIG_NAME"
+EXPECTED_CONCURRENT_ZIG="$(canonical_install_root "$CONCURRENT_INSTALL_ROOT")/zig"
+if [ ! -x "$EXPECTED_CONCURRENT_ZIG" ]; then
+  cat "$CONCURRENT_OUTPUT_ONE" "$CONCURRENT_OUTPUT_TWO"
+  echo "FAIL: concurrent local Zig install did not publish one complete toolchain" >&2
+  exit 1
+fi
+
+for path_output in "$CONCURRENT_PATH_OUTPUT_ONE" "$CONCURRENT_PATH_OUTPUT_TWO"; do
+  actual_zig="$(cat "$path_output")"
+  canonical_actual_zig="$(canonical_install_root "$(dirname "$actual_zig")")/zig"
+  if [ "$canonical_actual_zig" != "$EXPECTED_CONCURRENT_ZIG" ]; then
+    cat "$CONCURRENT_OUTPUT_ONE" "$CONCURRENT_OUTPUT_TWO"
+    echo "FAIL: concurrent installer published a noncanonical Zig path" >&2
+    exit 1
+  fi
+done
+
+if [ -e "${CONCURRENT_INSTALL_ROOT}.install-lock" ] \
+  || find "$CONCURRENT_INSTALL_PARENT" -maxdepth 1 -name "${ZIG_NAME}.staging.*" -print -quit | grep -q . \
+  || [ -e "$CONCURRENT_INSTALL_ROOT/$ZIG_NAME" ]; then
+  cat "$CONCURRENT_OUTPUT_ONE" "$CONCURRENT_OUTPUT_TWO"
+  echo "FAIL: concurrent Zig cache publication left lock, staging, or nested toolchain state" >&2
   exit 1
 fi
 

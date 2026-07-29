@@ -122,7 +122,16 @@ ZIG_NAME="zig-${ZIG_ARCH}-${ZIG_OS}-${ZIG_REQUIRED}"
 use_existing_zig_if_available
 mkdir -p "$ZIG_WORK_PARENT"
 ZIG_WORK_ROOT="$(mktemp -d "${ZIG_WORK_PARENT%/}/cmux-zig-install-${ZIG_REQUIRED}.XXXXXX")"
+ZIG_INSTALL_LOCK=""
+ZIG_INSTALL_STAGING=""
 cleanup_work_root() {
+  if [ -n "$ZIG_INSTALL_STAGING" ]; then
+    rm -rf -- "$ZIG_INSTALL_STAGING"
+  fi
+  if [ -n "$ZIG_INSTALL_LOCK" ]; then
+    rm -f -- "$ZIG_INSTALL_LOCK/pid"
+    rmdir "$ZIG_INSTALL_LOCK" 2>/dev/null || true
+  fi
   rm -rf "$ZIG_WORK_ROOT"
 }
 trap cleanup_work_root EXIT
@@ -208,6 +217,10 @@ install_zig_without_sudo() {
   local install_root="${ZIG_INSTALL_ROOT:-${install_parent}}"
   local source_root
   local target_root
+  local install_lock
+  local holder_pid
+  local wait_attempts=0
+  local invalid_root
   if [ "$(basename "$install_root")" != "$ZIG_NAME" ]; then
     install_root="${install_root%/}/${ZIG_NAME}"
   fi
@@ -226,8 +239,54 @@ install_zig_without_sudo() {
     echo "sudo unavailable; installing zig under ${target_root}"
   fi
   if [ "$source_root" != "$target_root" ]; then
-    rm -rf "$target_root"
-    mv "$source_root" "$target_root"
+    install_lock="${target_root}.install-lock"
+    while ! mkdir "$install_lock" 2>/dev/null; do
+      if zig_has_required_version "${target_root}/zig"; then
+        echo "zig ${ZIG_REQUIRED} cache became available at ${target_root}/zig"
+        publish_zig_for_later_steps "${target_root}/zig"
+        "${target_root}/zig" version
+        return
+      fi
+
+      holder_pid="$(cat "$install_lock/pid" 2>/dev/null || true)"
+      if [[ "$holder_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$holder_pid" 2>/dev/null; then
+        rm -f -- "$install_lock/pid"
+        rmdir "$install_lock" 2>/dev/null || true
+        continue
+      fi
+
+      wait_attempts=$((wait_attempts + 1))
+      if [ "$wait_attempts" -ge 600 ]; then
+        echo "Timed out waiting for Zig cache lock: ${install_lock}" >&2
+        exit 1
+      fi
+      sleep 0.1
+    done
+    ZIG_INSTALL_LOCK="$install_lock"
+    printf '%s\n' "$$" > "$install_lock/pid"
+
+    if zig_has_required_version "${target_root}/zig"; then
+      echo "zig ${ZIG_REQUIRED} cache became available at ${target_root}/zig"
+    else
+      ZIG_INSTALL_STAGING="$(mktemp -d "${target_root}.staging.XXXXXX")"
+      rmdir "$ZIG_INSTALL_STAGING"
+      mv "$source_root" "$ZIG_INSTALL_STAGING"
+      if ! zig_has_required_version "${ZIG_INSTALL_STAGING}/zig"; then
+        echo "Refusing to publish incomplete Zig cache: ${ZIG_INSTALL_STAGING}" >&2
+        exit 1
+      fi
+      if [ -e "$target_root" ] || [ -L "$target_root" ]; then
+        invalid_root="${target_root}.invalid.$$"
+        mv "$target_root" "$invalid_root"
+        rm -rf -- "$invalid_root"
+      fi
+      mv "$ZIG_INSTALL_STAGING" "$target_root"
+      ZIG_INSTALL_STAGING=""
+    fi
+
+    rm -f -- "$install_lock/pid"
+    rmdir "$install_lock"
+    ZIG_INSTALL_LOCK=""
   fi
   publish_zig_for_later_steps "${target_root}/zig"
   "${target_root}/zig" version
