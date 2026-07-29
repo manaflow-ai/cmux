@@ -14,32 +14,13 @@ internal import CMUXDebugLog
 /// and timeout NSError domain/codes/messages, the capture/close ordering,
 /// stdin handling, and the debug-log lines are all pinned behavior.
 ///
-/// Isolation: the struct is stateless (one immutable test hook); each `run`
-/// call owns its process-local state. The capture readers run on the global
-/// utility pool and hand their results through a small queue-confined box,
-/// synchronized by the capture `DispatchGroup` before any read-back, exactly
-/// like the legacy local-variable captures.
+/// Isolation: the struct owns immutable process-input behavior and one optional
+/// read-handle observation hook; each `run` call owns its process-local state.
+/// The capture readers run on the global utility pool and hand their results
+/// through a small queue-confined box, synchronized by the capture
+/// `DispatchGroup` before any read-back, exactly like the legacy local-variable
+/// captures.
 public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
-    enum StdinWriter {
-        static func write(
-            _ data: Data,
-            to handle: FileHandle,
-            executableName: String
-        ) throws {
-            do {
-                try handle.writeProcessPipeInput(data)
-            } catch let error as POSIXError where error.code == .EPIPE {
-                // A child may exit before consuming optional stdin. The POSIX
-                // helper turns that expected race into EPIPE instead of SIGPIPE.
-            } catch {
-                throw NSError(domain: "cmux.remote.process", code: 3, userInfo: [
-                    NSLocalizedDescriptionKey: "Failed to write stdin for \(executableName): \(error.localizedDescription)",
-                    NSUnderlyingErrorKey: error,
-                ])
-            }
-        }
-    }
-
     /// Test observation seam (package tests only): invoked right after the
     /// stdout/stderr capture readers are installed, with the pipe read
     /// handles. Return `true` when the hook closes both handles, so the
@@ -47,16 +28,20 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
     /// The capture-survives-teardown regression test uses that to prove
     /// `run` still completes; production constructs the runner without a hook.
     let readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)?
+    private let stdinWriter: any RemoteProcessStdinWriting
 
     /// Creates the production runner.
     public init() {
         self.readHandlesDidInstall = nil
+        self.stdinWriter = RemoteProcessStdinWriter()
     }
 
     init(
-        readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)? = nil
+        readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)? = nil,
+        stdinWriter: any RemoteProcessStdinWriting = RemoteProcessStdinWriter()
     ) {
         self.readHandlesDidInstall = readHandlesDidInstall
+        self.stdinWriter = stdinWriter
     }
 
     // Mutable capture-state shared between the two background pipe readers
@@ -221,11 +206,10 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         if let stdin, let pipe = process.standardInput as? Pipe {
             let inputHandle = pipe.fileHandleForWriting
             do {
-                try StdinWriter.write(
-                    stdin,
-                    to: inputHandle,
-                    executableName: URL(fileURLWithPath: executable).lastPathComponent
-                )
+                try stdinWriter.write(stdin, to: inputHandle)
+            } catch let error as POSIXError where error.code == .EPIPE {
+                // A child may exit before consuming optional stdin. The POSIX
+                // helper turns that expected race into EPIPE instead of SIGPIPE.
             } catch {
                 try? inputHandle.close()
                 if process.isRunning {
@@ -236,7 +220,10 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
                     "remote.proc.stdinWriteFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                     "error=\(error.localizedDescription)"
                 )
-                throw error
+                throw NSError(domain: "cmux.remote.process", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey: "Failed to write stdin for \(URL(fileURLWithPath: executable).lastPathComponent): \(error.localizedDescription)",
+                    NSUnderlyingErrorKey: error,
+                ])
             }
             try? inputHandle.close()
         }

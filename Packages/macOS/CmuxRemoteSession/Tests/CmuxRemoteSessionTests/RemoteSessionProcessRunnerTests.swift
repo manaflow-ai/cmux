@@ -17,6 +17,15 @@ import Testing
 extension RemoteSubprocessTests {
 @Suite("RemoteSessionProcessRunner")
 struct RemoteSessionProcessRunnerTests {
+    private struct FailingStdinWriter: RemoteProcessStdinWriting {
+        func write(
+            _ data: Data,
+            to handle: FileHandle
+        ) throws {
+            throw POSIXError(.EIO)
+        }
+    }
+
     @Test("Capture survives the pipe read handles being torn down mid-run")
     func captureSurvivesPipeReadHandleTeardown() throws {
         let didCloseReadHandles = DispatchSemaphore(value: 0)
@@ -86,15 +95,20 @@ struct RemoteSessionProcessRunnerTests {
         #expect(result.status == 0)
     }
 
-    @Test("An unexpected stdin write error keeps the pinned runner error")
-    func unexpectedStdinWriteErrorKeepsPinnedRunnerError() {
-        let invalidHandle = FileHandle(fileDescriptor: -1, closeOnDealloc: false)
+    @Test("An unexpected stdin write error terminates the child and keeps the pinned runner error")
+    func unexpectedStdinWriteErrorTerminatesChildAndKeepsPinnedRunnerError() {
+        let runner = RemoteSessionProcessRunner(stdinWriter: FailingStdinWriter())
+        let startedAt = ProcessInfo.processInfo.systemUptime
 
         #expect {
-            try RemoteSessionProcessRunner.StdinWriter.write(
-                Data("payload".utf8),
-                to: invalidHandle,
-                executableName: "sleep"
+            try runner.run(
+                RemoteProcessRequest(
+                    executable: "/bin/sleep",
+                    arguments: ["30"],
+                    stdin: Data("payload".utf8),
+                    timeout: 5
+                ),
+                operation: nil
             )
         } throws: { error in
             let nsError = error as NSError
@@ -102,8 +116,9 @@ struct RemoteSessionProcessRunnerTests {
             return nsError.domain == "cmux.remote.process"
                 && nsError.code == 3
                 && nsError.localizedDescription.hasPrefix("Failed to write stdin for sleep:")
-                && underlyingError?.code == .EBADF
+                && underlyingError?.code == .EIO
         }
+        #expect(ProcessInfo.processInfo.systemUptime - startedAt < 4)
     }
 
     @Test("Streams a local file through stdin")
