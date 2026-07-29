@@ -66,13 +66,6 @@ pub(crate) struct LayoutUndoEntry {
     pub after_revision: u64,
     pub created_panes: Vec<PaneId>,
     pub coalesce: Option<LayoutMutationKey>,
-    pub confirmation: Option<LayoutUndoConfirmation>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct LayoutUndoConfirmation {
-    pub revision: u64,
-    pub pane_tabs: Vec<(PaneId, Vec<SurfaceId>)>,
 }
 
 const LAYOUT_UNDO_LIMIT: usize = 32;
@@ -694,7 +687,6 @@ impl Screen {
         {
             if let Some(entry) = self.layout_undo.back_mut() {
                 entry.after_revision = self.layout_revision;
-                entry.confirmation = None;
             }
             return;
         }
@@ -704,7 +696,6 @@ impl Screen {
             after_revision: self.layout_revision,
             created_panes,
             coalesce,
-            confirmation: None,
         });
         while self.layout_undo.len() > LAYOUT_UNDO_LIMIT {
             self.layout_undo.pop_front();

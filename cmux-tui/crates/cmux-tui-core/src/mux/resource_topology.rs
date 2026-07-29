@@ -1571,7 +1571,12 @@ impl Mux {
             } else {
                 let mut state = self.state.lock().unwrap();
                 let intent = self.resource_topology_effect_intent(
-                    operation, &selectors, &fields, &mut state, &registry,
+                    operation,
+                    &selectors,
+                    &fields,
+                    expected_revision,
+                    &mut state,
+                    &registry,
                 )?;
                 registry.prepare_resource_effect(
                     &mutation.id,
@@ -1601,6 +1606,31 @@ impl Mux {
                 )?;
                 let result = match self.execute_resource_topology_effect(operation, &intent) {
                     Ok(result) => result,
+                    Err(error)
+                        if error
+                            .downcast_ref::<ResourceError>()
+                            .is_some_and(|error| error.code == "confirmation.required") =>
+                    {
+                        let error = error.downcast_ref::<ResourceError>().expect("checked").clone();
+                        let outcome = ResourceEffectOutcome::Failure(error.clone());
+                        if self
+                            .commit_resource_effect(
+                                &mutation.id,
+                                &operation_name,
+                                fingerprint,
+                                &outcome,
+                                None,
+                            )
+                            .is_ok()
+                        {
+                            return Err(anyhow::Error::new(error));
+                        }
+                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
+                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                            &mutation.id,
+                            &operation_name,
+                        )));
+                    }
                     Err(_error) => {
                         #[cfg(test)]
                         eprintln!("resource topology effect execution failed: {_error:#}");
@@ -1678,6 +1708,7 @@ impl Mux {
                     operation,
                     &selectors,
                     &effect_fields,
+                    expected_revision,
                     &mut state,
                     &registry,
                 )?;
@@ -1955,6 +1986,7 @@ impl Mux {
         operation: ResourceOperation,
         selectors: &ResourceSelectors,
         fields: &Map<String, Value>,
+        expected_revision: Option<u64>,
         state: &mut State,
         registry: &WorkspaceRegistry,
     ) -> anyhow::Result<Value> {
@@ -2021,50 +2053,39 @@ impl Mux {
             let confirm_close =
                 fields.get("confirm_close").and_then(Value::as_bool).unwrap_or(false);
             if !entry.created_panes.is_empty() && !confirm_close {
-                let mut pane_tabs = Vec::with_capacity(entry.created_panes.len());
-                let mut closes_panes = Vec::with_capacity(entry.created_panes.len());
-                for pane in &entry.created_panes {
-                    let live = state.panes.get(pane).with_context(|| {
-                        format!("created pane {pane} disappeared before undo preview")
-                    })?;
-                    pane_tabs.push((*pane, live.tabs.clone()));
-                    closes_panes.push(
-                        state
-                            .resource_indexes
-                            .pane_ids
-                            .get(pane)
-                            .cloned()
-                            .with_context(|| format!("pane {pane} has no public identity"))?,
-                    );
-                }
-                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
-                let preview_revision = screen.layout_revision.saturating_add(1);
-                screen.layout_revision = preview_revision;
-                let latest =
-                    screen.layout_undo.back_mut().expect("validated undo entry remains present");
-                latest.after_revision = preview_revision;
-                latest.confirmation =
-                    Some(LayoutUndoConfirmation { revision: preview_revision, pane_tabs });
+                let details = layout_undo_confirmation_details(
+                    state,
+                    registry,
+                    workspace_index,
+                    screen_index,
+                )?;
                 return Err(anyhow::Error::new(ResourceError::new(
                     "confirmation.required",
                     "layout undo would close panes",
-                    json!({
-                        "revision":registry.resource_topology_snapshot()?.revision.to_string(),
-                        "closes_panes":closes_panes,
-                    }),
+                    details,
                     false,
                 )));
             }
             if !entry.created_panes.is_empty() {
-                let confirmed = entry.confirmation.as_ref().is_some_and(|confirmation| {
-                    confirmation.revision == entry.after_revision
-                        && confirmation
-                            .pane_tabs
-                            .iter()
-                            .map(|(pane, _)| *pane)
-                            .eq(entry.created_panes.iter().copied())
-                });
-                anyhow::ensure!(confirmed, "layout undo confirmation is missing or stale");
+                let details = layout_undo_confirmation_details(
+                    state,
+                    registry,
+                    workspace_index,
+                    screen_index,
+                )?;
+                let confirmation_matches = expected_revision.is_some()
+                    && fields
+                        .get("confirmation_token")
+                        .and_then(Value::as_str)
+                        .is_some_and(|token| details["confirmation_token"].as_str() == Some(token));
+                if !confirmation_matches {
+                    return Err(anyhow::Error::new(ResourceError::new(
+                        "confirmation.required",
+                        "layout undo confirmation is missing or stale",
+                        details,
+                        false,
+                    )));
+                }
             }
             intent["layout_revision"] = json!(entry.after_revision);
         }
@@ -2159,10 +2180,12 @@ impl Mux {
                 let revision = intent["layout_revision"]
                     .as_u64()
                     .context("stored undo intent omitted its layout revision")?;
-                match self.undo_layout(
+                let confirmation_token = fields.get("confirmation_token").and_then(Value::as_str);
+                match self.undo_layout_with_confirmation_token(
                     pane,
                     Some(revision),
                     fields.get("confirm_close").and_then(Value::as_bool).unwrap_or(false),
+                    confirmation_token,
                 )? {
                     LayoutUndoResult::Undone { .. } => {
                         let screen =
@@ -2589,11 +2612,15 @@ impl Mux {
         let active_at = self.next_active_at();
         let attached = {
             let mut state = self.state.lock().unwrap();
-            state.panes.get_mut(&target).map(|pane| {
+            let attached = state.panes.get_mut(&target).map(|pane| {
                 pane.tabs.push(surface.id);
                 pane.active_tab = pane.tabs.len() - 1;
                 pane.active_at = active_at;
-            })
+            });
+            if attached.is_some() {
+                fence_layout_undo_for_tab_membership(&mut state, &[target]);
+            }
+            attached
         };
         if attached.is_none() {
             self.fail_hosted_terminal_attachment(

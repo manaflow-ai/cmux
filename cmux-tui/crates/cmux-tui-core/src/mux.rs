@@ -29,8 +29,8 @@ use crate::layout::{
 #[cfg(test)]
 use crate::model::ViewportColumn;
 use crate::model::{
-    LayoutColumn, LayoutMutationKey, LayoutResizeOwner, LayoutUndoConfirmation, Node, Pane,
-    ProjectedSplitRatioUpdate, Screen, State, Workspace,
+    LayoutColumn, LayoutMutationKey, LayoutResizeOwner, Node, Pane, ProjectedSplitRatioUpdate,
+    Screen, State, Workspace,
 };
 use crate::pairing::PairingBroker;
 use crate::resource::{
@@ -6268,6 +6268,7 @@ impl Mux {
             pane.active_tab = pane.tabs.len() - 1;
             pane.active_at = active_at;
             let index = pane.tabs.len() - 1;
+            fence_layout_undo_for_tab_membership(&mut state, &[target]);
             let placement = RunPlacement {
                 surface: surface.id,
                 pane: target,
@@ -6452,6 +6453,7 @@ impl Mux {
                     pane.active_tab = pane.tabs.len() - 1;
                     pane.active_at = active_at;
                     let index = pane.tabs.len() - 1;
+                    fence_layout_undo_for_tab_membership(&mut state, &[target]);
                     let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
                     let workspace = state.workspaces[wi].id;
                     let screen = state.workspaces[wi].screens[si].id;
@@ -6730,6 +6732,7 @@ impl Mux {
                 pane.active_tab = pane.tabs.len() - 1;
                 pane.active_at = active_at;
                 let index = pane.tabs.len() - 1;
+                fence_layout_undo_for_tab_membership(&mut state, &[target]);
                 let screen = state.workspaces[wi].screens[si].id;
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -7074,6 +7077,7 @@ impl Mux {
                     pane.active_tab = pane.tabs.len() - 1;
                     pane.active_at = active_at;
                     let index = pane.tabs.len() - 1;
+                    fence_layout_undo_for_tab_membership(&mut state, &[target]);
                     let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
                     let workspace = state.workspaces[wi].id;
                     let screen = state.workspaces[wi].screens[si].id;
@@ -7154,6 +7158,7 @@ impl Mux {
                 pane.active_tab = pane.tabs.len() - 1;
                 pane.active_at = active_at;
                 let index = pane.tabs.len() - 1;
+                fence_layout_undo_for_tab_membership(&mut state, &[target]);
                 let screen = state.workspaces[wi].screens[si].id;
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -7273,6 +7278,7 @@ impl Mux {
                     pane.tabs.push(surface.id);
                     pane.active_tab = pane.tabs.len() - 1;
                     pane.active_at = active_at;
+                    fence_layout_undo_for_tab_membership(&mut state, &[pane_id]);
                     state.surfaces.insert(surface.id, surface.clone());
                     let delta = (|| {
                         let (wi, si) = state.screen_of(pane_id)?;
@@ -9046,17 +9052,27 @@ impl Mux {
     /// Undo the latest structural layout transaction on `pane`'s screen.
     ///
     /// Transactions that created panes return a confirmation preview first.
-    /// The caller must retry with the exact preview revision and
-    /// `confirm_close=true`, preventing a stale confirmation from closing a
-    /// pane created by a newer action.
+    /// The preview is read only. The caller must retry with its exact current
+    /// layout revision and `confirm_close=true`; structural or created-pane tab
+    /// membership changes advance that revision before the retry can commit.
     pub fn undo_layout(
         &self,
         pane: PaneId,
         expected_revision: Option<u64>,
         confirm_close: bool,
     ) -> anyhow::Result<LayoutUndoResult> {
+        self.undo_layout_with_confirmation_token(pane, expected_revision, confirm_close, None)
+    }
+
+    fn undo_layout_with_confirmation_token(
+        &self,
+        pane: PaneId,
+        expected_revision: Option<u64>,
+        confirm_close: bool,
+        confirmation_token: Option<&str>,
+    ) -> anyhow::Result<LayoutUndoResult> {
         let (workspace, screen_id, preview) = {
-            let mut state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo target is no longer available".to_string(),
@@ -9088,28 +9104,17 @@ impl Mux {
                 .into());
             }
             if !entry.created_panes.is_empty() && !confirm_close {
-                let mut pane_tabs = Vec::with_capacity(entry.created_panes.len());
                 for created in &entry.created_panes {
-                    let Some(created_pane) = state.panes.get(created) else {
+                    if !state.panes.contains_key(created) {
                         return Err(LayoutUndoError::Stale(format!(
                             "created pane {created} disappeared before undo preview"
                         ))
                         .into());
-                    };
-                    pane_tabs.push((*created, created_pane.tabs.clone()));
+                    }
                 }
-                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
-                let revision = screen.layout_revision.saturating_add(1);
-                screen.layout_revision = revision;
-                let latest = screen
-                    .layout_undo
-                    .back_mut()
-                    .expect("validated layout undo entry remains present");
-                latest.after_revision = revision;
-                latest.confirmation = Some(LayoutUndoConfirmation { revision, pane_tabs });
                 return Ok(LayoutUndoResult::ConfirmationRequired {
                     screen: screen_id,
-                    revision,
+                    revision: entry.after_revision,
                     closes_panes: entry.created_panes,
                 });
             }
@@ -9151,7 +9156,6 @@ impl Mux {
                 if let Some(previous) = screen.layout_undo.back_mut() {
                     previous.after_revision = revision;
                     previous.coalesce = None;
-                    previous.confirmation = None;
                 }
                 Self::rebuild_split_screen_index(&mut state);
                 revision
@@ -9223,44 +9227,34 @@ impl Mux {
                 )
                 .into());
             }
+            if let Some(expected_token) = confirmation_token {
+                let details = layout_undo_confirmation_details(
+                    &state,
+                    &registry,
+                    workspace_index,
+                    screen_index,
+                )?;
+                if details["confirmation_token"].as_str() != Some(expected_token) {
+                    return Err(anyhow::Error::new(ResourceError::new(
+                        "confirmation.required",
+                        "layout undo confirmation is stale",
+                        details,
+                        false,
+                    )));
+                }
+            }
 
             let selection_before = active_tree_selection(&state);
             let mut tabs = Vec::new();
             let mut deltas = Vec::new();
-            let Some(confirmation) = entry
-                .confirmation
-                .as_ref()
-                .filter(|confirmation| confirmation.revision == entry.after_revision)
-            else {
-                return Err(
-                    LayoutUndoError::Stale("layout undo confirmation expired".to_string()).into()
-                );
-            };
-            if confirmation
-                .pane_tabs
-                .iter()
-                .map(|(pane, _)| *pane)
-                .ne(entry.created_panes.iter().copied())
-            {
-                return Err(LayoutUndoError::Stale(
-                    "layout undo confirmation no longer matches its created panes".to_string(),
-                )
-                .into());
-            }
-            for (created, confirmed_tabs) in &confirmation.pane_tabs {
+            for created in &entry.created_panes {
                 let Some(pane) = state.panes.get(created) else {
                     return Err(LayoutUndoError::Stale(format!(
                         "created pane {created} disappeared before undo"
                     ))
                     .into());
                 };
-                if &pane.tabs != confirmed_tabs {
-                    return Err(LayoutUndoError::Stale(format!(
-                        "tabs in pane {created} changed since the undo confirmation"
-                    ))
-                    .into());
-                }
-                tabs.extend(confirmed_tabs.iter().copied());
+                tabs.extend(pane.tabs.iter().copied());
                 if let Some(delta) = close_pane_delta(&state, &notifications, *created) {
                     deltas.push(delta);
                 }
@@ -9296,7 +9290,6 @@ impl Mux {
             if let Some(previous) = screen.layout_undo.back_mut() {
                 previous.after_revision = revision;
                 previous.coalesce = None;
-                previous.confirmation = None;
             }
             Self::rebuild_split_screen_index(&mut state);
             let selection_resync = selection_before != active_tree_selection(&state);
@@ -9778,6 +9771,7 @@ impl Mux {
             pane.tabs.push(surface);
             pane.active_tab = pane.tabs.len() - 1;
             pane.active_at = active_at;
+            fence_layout_undo_for_tab_membership(state, &[target_pane]);
         }
         restore_focus_identity(state, preserved_focus);
         let placement = run_placement_for_surface(state, surface)
@@ -11269,6 +11263,113 @@ fn close_workspace_delta(
     })
 }
 
+fn update_layout_undo_token_part(hasher: &mut Sha256, value: &[u8]) {
+    hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+    hasher.update(value);
+}
+
+fn layout_undo_confirmation_details(
+    state: &State,
+    registry: &WorkspaceRegistry,
+    workspace_index: usize,
+    screen_index: usize,
+) -> anyhow::Result<Value> {
+    let screen = state
+        .workspaces
+        .get(workspace_index)
+        .and_then(|workspace| workspace.screens.get(screen_index))
+        .context("layout undo screen disappeared")?;
+    let entry = screen.layout_undo.back().ok_or(LayoutUndoError::Unavailable)?;
+    if entry.after_revision != screen.layout_revision {
+        return Err(LayoutUndoError::Stale(
+            "layout changed since the last undoable action".to_string(),
+        )
+        .into());
+    }
+    anyhow::ensure!(!entry.created_panes.is_empty(), "layout undo does not require confirmation");
+
+    let mut hasher = Sha256::new();
+    update_layout_undo_token_part(&mut hasher, b"cmux.layout-undo.confirmation.v1");
+    update_layout_undo_token_part(&mut hasher, registry.generation().as_bytes());
+    update_layout_undo_token_part(&mut hasher, screen.public_id.to_string().as_bytes());
+    update_layout_undo_token_part(&mut hasher, &screen.layout_revision.to_be_bytes());
+    hasher.update(u64::try_from(entry.created_panes.len()).unwrap_or(u64::MAX).to_be_bytes());
+
+    let mut closes_panes = Vec::with_capacity(entry.created_panes.len());
+    for created in &entry.created_panes {
+        let pane_id = state
+            .resource_indexes
+            .pane_ids
+            .get(created)
+            .with_context(|| format!("pane {created} has no public identity"))?;
+        let pane = state
+            .panes
+            .get(created)
+            .with_context(|| format!("created pane {created} disappeared before undo preview"))?;
+        closes_panes.push(pane_id.clone());
+        update_layout_undo_token_part(&mut hasher, pane_id.to_string().as_bytes());
+        hasher.update(u64::try_from(pane.tabs.len()).unwrap_or(u64::MAX).to_be_bytes());
+        for surface in &pane.tabs {
+            let tab_id = state
+                .resource_indexes
+                .tab_ids
+                .get(surface)
+                .cloned()
+                .or_else(|| {
+                    state
+                        .surfaces
+                        .get(surface)
+                        .and_then(|surface| surface.resource_identity())
+                        .map(|identity| identity.tab_id.clone())
+                })
+                .with_context(|| format!("tab {surface} has no public identity"))?;
+            update_layout_undo_token_part(&mut hasher, tab_id.to_string().as_bytes());
+        }
+    }
+    let confirmation_token =
+        hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let revision = registry.resource_topology_snapshot()?.revision;
+    Ok(serde_json::json!({
+        "revision":revision.to_string(),
+        "confirmation_token":confirmation_token,
+        "closes_panes":closes_panes,
+    }))
+}
+
+/// Advance the confirmation fence when a tab membership mutation touches a
+/// pane that the latest undo would close. This runs in the same state-lock
+/// critical section as the tab mutation, so a confirmed undo observes either
+/// the old membership and revision or the new membership and revision.
+fn fence_layout_undo_for_tab_membership(state: &mut State, panes: &[PaneId]) {
+    let screens = panes
+        .iter()
+        .filter_map(|pane| state.screen_of(*pane))
+        .map(|(workspace, screen)| state.workspaces[workspace].screens[screen].id)
+        .collect::<HashSet<_>>();
+    for screen_id in screens {
+        let Some(screen) = state
+            .workspaces
+            .iter_mut()
+            .flat_map(|workspace| workspace.screens.iter_mut())
+            .find(|screen| screen.id == screen_id)
+        else {
+            continue;
+        };
+        let affects_created_pane = screen.layout_undo.back().is_some_and(|entry| {
+            entry.after_revision == screen.layout_revision
+                && entry.created_panes.iter().any(|created| panes.contains(created))
+        });
+        if !affects_created_pane {
+            continue;
+        }
+        let revision = screen.layout_revision.saturating_add(1);
+        screen.layout_revision = revision;
+        let entry = screen.layout_undo.back_mut().expect("validated undo entry remains present");
+        entry.after_revision = revision;
+        entry.coalesce = None;
+    }
+}
+
 /// Remove one surface from the state: detach it from its
 /// pane, and collapse emptied panes/screens. Empty workspaces remain as
 /// canonical registry entries. Returns the removed surface and whether
@@ -11286,6 +11387,7 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
         if pane.active_tab >= idx && pane.active_tab > 0 {
             pane.active_tab -= 1;
         }
+        fence_layout_undo_for_tab_membership(state, &[pane_id]);
         return (removed, false);
     }
 
@@ -11392,9 +11494,11 @@ fn move_tab_in_state(
         let tab = pane.tabs.remove(old_idx);
         pane.tabs.insert(new_idx, tab);
         pane.active_tab = new_idx;
+        fence_layout_undo_for_tab_membership(state, &[target_pane]);
         return (true, false);
     }
 
+    fence_layout_undo_for_tab_membership(state, &[source_pane, target_pane]);
     {
         let Some(source) = state.panes.get_mut(&source_pane) else {
             return (false, false);
@@ -11448,6 +11552,54 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    fn state_topology_fingerprint(state: &State) -> String {
+        let workspaces = state
+            .workspaces
+            .iter()
+            .map(|workspace| {
+                (
+                    workspace.id,
+                    workspace.public_id.clone(),
+                    workspace.key.clone(),
+                    workspace.name.clone(),
+                    workspace.active_screen,
+                    workspace
+                        .screens
+                        .iter()
+                        .map(|screen| {
+                            (
+                                screen.id,
+                                screen.public_id.clone(),
+                                screen.layout_revision,
+                                format!("{:?}", screen.layout_snapshot()),
+                                format!("{:?}", screen.layout_undo),
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut panes = state
+            .panes
+            .iter()
+            .map(|(id, pane)| (*id, pane.tabs.clone(), pane.active_tab))
+            .collect::<Vec<_>>();
+        panes.sort_by_key(|(id, _, _)| *id);
+        let mut surfaces = state.surfaces.keys().copied().collect::<Vec<_>>();
+        surfaces.sort_unstable();
+        format!(
+            "{:?}",
+            (
+                state.resource_revision,
+                state.workspace_revision,
+                state.active_workspace,
+                workspaces,
+                panes,
+                surfaces,
+            )
+        )
     }
 
     fn restore_workspace_id(value: u128) -> WorkspacePublicId {
@@ -12427,6 +12579,146 @@ mod tests {
         });
         mux.shutdown();
         drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resource_layout_undo_confirmation_is_restart_safe() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-resource-undo-restart-{}", WorkspacePublicId::random().unwrap()));
+        let (fixture_snapshot, fixture_topology) = resource_restore_fixture();
+        {
+            let mut registry = WorkspaceRegistry::open(&root, "undo-restart").unwrap();
+            registry
+                .commit_resource_patch(
+                    &WorkspaceMutation::new("seed-undo-restart", "test").unwrap(),
+                    "session.restore_fixture",
+                    &serde_json::json!({"fixture":"layout-undo-restart"}),
+                    None,
+                    Some(0),
+                    &resource_restore_patch(&fixture_snapshot, &fixture_topology),
+                    &serde_json::json!({"restored":true}),
+                    &serde_json::json!([{"event":"session.restored"}]),
+                )
+                .unwrap();
+        }
+
+        let registry = WorkspaceRegistry::open(&root, "undo-restart").unwrap();
+        let mux = Mux::from_workspace_registry(
+            "undo-restart".into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let base_pane = mux.with_state(|state| state.workspaces[0].screens[0].active_pane);
+        let created = mux.new_pane_right(base_pane, 0.5, Some((38, 22))).unwrap();
+        let created_pane = mux.with_state(|state| state.pane_of(created.id).unwrap());
+        let (selectors, screen_id) = {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let state = mux.state.lock().unwrap();
+            let (workspace, screen) = state.screen_of(created_pane).unwrap();
+            (
+                crate::ResourceSelectors {
+                    machine: Some(registry.machine_id().to_string()),
+                    session: Some(registry.session_id().to_string()),
+                    workspace: Some(state.workspaces[workspace].public_id.to_string()),
+                    screen: Some(state.workspaces[workspace].screens[screen].public_id.to_string()),
+                    ..crate::ResourceSelectors::default()
+                },
+                state.workspaces[workspace].screens[screen].public_id.clone(),
+            )
+        };
+        let preview_fields =
+            serde_json::json!({"confirm_close":false}).as_object().unwrap().clone();
+        let durable_before =
+            mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+        let preview_error = mux
+            .resource_topology_operation(
+                crate::resource::ResourceOperation::ScreenLayoutUndo,
+                selectors.clone(),
+                preview_fields,
+                Some(durable_before.revision),
+                &WorkspaceMutation::new("restart-undo-preview", "test").unwrap(),
+            )
+            .unwrap_err();
+        let preview_revision = preview_error
+            .downcast_ref::<ResourceError>()
+            .and_then(|error| error.details["revision"].as_str())
+            .and_then(|revision| revision.parse::<u64>().ok())
+            .unwrap();
+        let confirmation_token = preview_error
+            .downcast_ref::<ResourceError>()
+            .and_then(|error| error.details["confirmation_token"].as_str())
+            .unwrap()
+            .to_string();
+        assert_eq!(preview_revision, durable_before.revision);
+        mux.shutdown();
+        drop(mux);
+
+        let registry = WorkspaceRegistry::open(&root, "undo-restart").unwrap();
+        let reopened = Mux::from_workspace_registry(
+            "undo-restart".into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let reopened_before =
+            reopened.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+        assert_eq!(reopened_before.revision, durable_before.revision);
+        assert_eq!(reopened_before.screens, durable_before.screens);
+        assert_eq!(reopened_before.panes, durable_before.panes);
+        assert_eq!(reopened_before.tabs, durable_before.tabs);
+        assert!(reopened_before.screens.iter().any(|screen| screen.public_id == screen_id));
+        let state_before = reopened.with_state(state_topology_fingerprint);
+        let confirm_fields = serde_json::json!({
+            "confirm_close":true,
+            "confirmation_token":confirmation_token,
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let confirm_fingerprint = serde_json::json!({
+            "operation":"screen.layout.undo",
+            "selectors":selectors,
+            "fields":confirm_fields,
+        });
+        let confirm_mutation = WorkspaceMutation::new("restart-undo-confirm", "test").unwrap();
+
+        let error = reopened
+            .resource_topology_operation(
+                crate::resource::ResourceOperation::ScreenLayoutUndo,
+                selectors,
+                confirm_fields,
+                Some(preview_revision),
+                &confirm_mutation,
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error.downcast_ref::<LayoutUndoError>(),
+            Some(LayoutUndoError::Unavailable)
+        ));
+        assert_eq!(reopened.with_state(state_topology_fingerprint), state_before);
+        let registry = reopened.workspace_registry.lock().unwrap();
+        assert_eq!(registry.resource_topology_snapshot().unwrap(), reopened_before);
+        assert!(registry.resource_events_after(preview_revision).unwrap().batches.is_empty());
+        assert!(
+            registry
+                .lookup_resource_effect(
+                    &confirm_mutation.id,
+                    "screen.layout.undo",
+                    &confirm_fingerprint,
+                )
+                .unwrap()
+                .is_none()
+        );
+        drop(registry);
+        reopened.shutdown();
+        drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -14257,10 +14549,14 @@ mod tests {
     #[test]
     fn resource_layout_undo_preview_does_not_enter_the_durable_journal() {
         let mux = test_mux();
-        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first = mux.new_browser_tab("about:blank#first".into(), None, Some((80, 22))).unwrap();
         let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
-        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let right_terminal = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right_terminal.id).unwrap());
+        let right = mux
+            .new_browser_tab("about:blank#right".into(), Some(right_pane), Some((38, 22)))
+            .unwrap();
+        assert!(mux.close_surface(right_terminal.id).unwrap());
         let (selectors, before_screen) = {
             let registry = mux.workspace_registry.lock().unwrap();
             let state = mux.state.lock().unwrap();
@@ -14293,17 +14589,20 @@ mod tests {
         let error = mux
             .resource_topology_operation(
                 crate::resource::ResourceOperation::ScreenLayoutUndo,
-                selectors,
-                fields,
+                selectors.clone(),
+                fields.clone(),
                 Some(before_registry.revision),
                 &mutation,
             )
             .unwrap_err();
 
-        assert_eq!(
-            error.downcast_ref::<ResourceError>().map(|error| error.code.as_str()),
-            Some("confirmation.required")
-        );
+        let preview = error.downcast_ref::<ResourceError>().unwrap();
+        assert_eq!(preview.code, "confirmation.required");
+        assert_eq!(preview.details["revision"], before_registry.revision.to_string());
+        let confirmation_token =
+            preview.details["confirmation_token"].as_str().unwrap().to_string();
+        assert_eq!(confirmation_token.len(), 64);
+        assert!(confirmation_token.bytes().all(|byte| byte.is_ascii_hexdigit()));
         mux.with_state(|state| {
             let (workspace, screen) = state.screen_of(right_pane).unwrap();
             let screen = &state.workspaces[workspace].screens[screen];
@@ -14322,6 +14621,147 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+        drop(registry);
+
+        let missing_token_fields =
+            serde_json::json!({"confirm_close":true}).as_object().unwrap().clone();
+        let missing_token_fingerprint = serde_json::json!({
+            "operation":"screen.layout.undo",
+            "selectors":selectors,
+            "fields":missing_token_fields,
+        });
+        let missing_token_mutation =
+            WorkspaceMutation::new("missing-token-undo-confirm", "test").unwrap();
+        let missing_token = mux
+            .resource_topology_operation(
+                crate::resource::ResourceOperation::ScreenLayoutUndo,
+                selectors.clone(),
+                missing_token_fields,
+                Some(before_registry.revision),
+                &missing_token_mutation,
+            )
+            .unwrap_err();
+        let missing_token = missing_token.downcast_ref::<ResourceError>().unwrap();
+        assert_eq!(missing_token.code, "confirmation.required");
+        assert_eq!(missing_token.details, preview.details);
+
+        let missing_revision_fields = serde_json::json!({
+            "confirm_close":true,
+            "confirmation_token":confirmation_token,
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let missing_revision_fingerprint = serde_json::json!({
+            "operation":"screen.layout.undo",
+            "selectors":selectors,
+            "fields":missing_revision_fields,
+        });
+        let missing_revision_mutation =
+            WorkspaceMutation::new("missing-revision-undo-confirm", "test").unwrap();
+        let missing_revision = mux
+            .resource_topology_operation(
+                crate::resource::ResourceOperation::ScreenLayoutUndo,
+                selectors.clone(),
+                missing_revision_fields,
+                None,
+                &missing_revision_mutation,
+            )
+            .unwrap_err();
+        let missing_revision = missing_revision.downcast_ref::<ResourceError>().unwrap();
+        assert_eq!(missing_revision.code, "confirmation.required");
+        assert_eq!(missing_revision.details, preview.details);
+        let registry = mux.workspace_registry.lock().unwrap();
+        assert_eq!(registry.resource_topology_snapshot().unwrap(), before_registry);
+        assert!(
+            registry.resource_events_after(before_registry.revision).unwrap().batches.is_empty()
+        );
+        assert!(
+            registry
+                .lookup_resource_effect(
+                    &missing_token_mutation.id,
+                    "screen.layout.undo",
+                    &missing_token_fingerprint,
+                )
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            registry
+                .lookup_resource_effect(
+                    &missing_revision_mutation.id,
+                    "screen.layout.undo",
+                    &missing_revision_fingerprint,
+                )
+                .unwrap()
+                .is_none()
+        );
+        drop(registry);
+
+        let late_tab = mux.new_tab(Some(right_pane), None, Some((38, 22))).unwrap();
+        let stale_fields = serde_json::json!({
+            "confirm_close":true,
+            "confirmation_token":confirmation_token,
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let stale_fingerprint = serde_json::json!({
+            "operation":"screen.layout.undo",
+            "selectors":selectors,
+            "fields":stale_fields,
+        });
+        let stale_mutation = WorkspaceMutation::new("stale-undo-confirm", "test").unwrap();
+        let stale = mux
+            .resource_topology_operation(
+                crate::resource::ResourceOperation::ScreenLayoutUndo,
+                selectors.clone(),
+                stale_fields.clone(),
+                Some(before_registry.revision),
+                &stale_mutation,
+            )
+            .unwrap_err();
+        let refreshed = stale
+            .downcast_ref::<ResourceError>()
+            .unwrap_or_else(|| panic!("stale confirmation returned an untyped error: {stale:#}"));
+        assert_eq!(refreshed.code, "confirmation.required");
+        assert_ne!(refreshed.details["confirmation_token"], stale_fields["confirmation_token"]);
+        assert!(mux.surface(right.id).is_some());
+        assert!(mux.surface(late_tab.id).is_some());
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .lookup_resource_effect(
+                    &stale_mutation.id,
+                    "screen.layout.undo",
+                    &stale_fingerprint,
+                )
+                .unwrap()
+                .is_none()
+        );
+
+        let refreshed_revision =
+            refreshed.details["revision"].as_str().unwrap().parse::<u64>().unwrap();
+        let confirmed_fields = serde_json::json!({
+            "confirm_close":true,
+            "confirmation_token":refreshed.details["confirmation_token"],
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let committed = mux
+            .resource_topology_operation(
+                crate::resource::ResourceOperation::ScreenLayoutUndo,
+                selectors,
+                confirmed_fields,
+                Some(refreshed_revision),
+                &WorkspaceMutation::new("fresh-undo-confirm", "test").unwrap(),
+            )
+            .unwrap();
+        assert!(!committed.replayed);
+        assert!(mux.surface(right.id).is_none());
+        assert!(mux.surface(late_tab.id).is_none());
     }
 
     #[test]
@@ -14343,7 +14783,7 @@ mod tests {
         assert!(matches!(
             error.downcast_ref::<LayoutUndoError>(),
             Some(LayoutUndoError::Stale(message))
-                if message.contains("tabs in pane") && message.contains("changed")
+                if message.contains("layout revision conflict")
         ));
         assert!(mux.surface(right.id).is_some());
         assert!(mux.surface(late_tab.id).is_some());
@@ -14360,6 +14800,60 @@ mod tests {
         ));
         assert!(mux.surface(right.id).is_none());
         assert!(mux.surface(late_tab.id).is_none());
+    }
+
+    #[test]
+    fn layout_undo_confirmation_and_tab_creation_commit_atomically() {
+        for _ in 0..16 {
+            let mux = test_mux();
+            let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+            let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+            let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+            let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+            let LayoutUndoResult::ConfirmationRequired { revision, .. } =
+                mux.undo_layout(right_pane, None, false).unwrap()
+            else {
+                panic!("pane creation undo must require confirmation");
+            };
+            let start = Arc::new(std::sync::Barrier::new(3));
+            let tab = {
+                let mux = mux.clone();
+                let start = start.clone();
+                std::thread::spawn(move || {
+                    start.wait();
+                    mux.new_tab(Some(right_pane), None, Some((38, 22)))
+                })
+            };
+            let undo = {
+                let mux = mux.clone();
+                let start = start.clone();
+                std::thread::spawn(move || {
+                    start.wait();
+                    mux.undo_layout(right_pane, Some(revision), true)
+                })
+            };
+            start.wait();
+            let tab = tab.join().unwrap();
+            let undo = undo.join().unwrap();
+
+            match (tab, undo) {
+                (Ok(tab), Err(error)) => {
+                    assert!(matches!(
+                        error.downcast_ref::<LayoutUndoError>(),
+                        Some(LayoutUndoError::Stale(message))
+                            if message.contains("layout revision conflict")
+                    ));
+                    assert!(mux.surface(right.id).is_some());
+                    assert!(mux.surface(tab.id).is_some());
+                }
+                (Err(_), Ok(LayoutUndoResult::Undone { .. })) => {
+                    assert!(mux.surface(right.id).is_none());
+                }
+                (tab, undo) => {
+                    panic!("tab creation and confirmed undo partially committed: {tab:?}, {undo:?}")
+                }
+            }
+        }
     }
 
     #[test]
