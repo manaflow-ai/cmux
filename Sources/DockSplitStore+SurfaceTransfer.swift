@@ -289,6 +289,11 @@ extension DockSplitStore {
             return nil
         }
         surfaceIdToPanelId[newTabId] = detached.panelId
+        AgentHibernationController.shared.transferTrackingStateForMovedPanel(
+            panelId: detached.panelId,
+            from: detached.sourceWorkspaceId,
+            to: workspaceId
+        )
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
@@ -377,6 +382,11 @@ extension DockSplitStore {
             clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
+        AgentHibernationController.shared.transferTrackingStateForMovedPanel(
+            panelId: detached.panelId,
+            from: detached.sourceWorkspaceId,
+            to: workspaceId
+        )
 
         repairPlaceholderOnlyDockPane(paneId)
         finishAttachingDetachedSurface(

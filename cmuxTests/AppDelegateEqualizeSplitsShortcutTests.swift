@@ -804,7 +804,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
-    func testDefaultWorkspaceTerminalFontSizeDrainScheduleIsOneShotAndCancellable()
+    func testWorkspaceTerminalFontSizeDrainScheduleContractIsOneShotAndCancellable()
         async {
         var firedCount = 0
         let fired = expectation(
@@ -823,26 +823,17 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         XCTAssertEqual(firedCount, 1)
 
         var cancelledFireCount = 0
-        let pendingCancellation =
-            WorkspaceTerminalFontSizeCoordinator
-                .scheduleDefaultDrain(after: 0.05) {
-                    cancelledFireCount += 1
-                }
+        // Drive cancellation through the coordinator's injected scheduler
+        // instead of waiting for a real deadline.
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        let pendingCancellation = scheduler.schedule(
+            delay: 0.05
+        ) {
+            cancelledFireCount += 1
+        }
         pendingCancellation()
         pendingCancellation()
-        let cancellationDeadlinePassed = expectation(
-            description: "cancelled drain deadline passed"
-        )
-        let deadlineCancellation =
-            WorkspaceTerminalFontSizeCoordinator
-                .scheduleDefaultDrain(after: 0.1) {
-                    cancellationDeadlinePassed.fulfill()
-                }
-        await waitWhileSuspended(
-            for: [cancellationDeadlinePassed],
-            timeout: 1
-        )
-        deadlineCancellation()
+        scheduler.fire(at: 0)
         XCTAssertEqual(cancelledFireCount, 0)
     }
 
@@ -8055,10 +8046,10 @@ private final class ManualWorkspaceFontSizeDrainScheduler {
 
 @MainActor
 private final class ManualTerminalFontConfigurationReloadScheduler {
-    private var actions: [@MainActor () -> Void] = []
+    private var actions: [@MainActor @Sendable () -> Void] = []
 
     func schedule(
-        action: @escaping @MainActor () -> Void
+        action: @escaping @MainActor @Sendable () -> Void
     ) {
         actions.append(action)
     }

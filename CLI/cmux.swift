@@ -15503,7 +15503,7 @@ struct CMUXCLI {
             return """
             Usage: cmux agent-hibernation <on|off> [--json]
 
-            Enable or disable Agent Hibernation.
+            Enable or disable routine Agent Hibernation.
             Configure idle and live-terminal limits from Settings or cmux settings JSON.
             """
         case "restore-session":
