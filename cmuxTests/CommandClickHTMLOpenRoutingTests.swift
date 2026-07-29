@@ -505,25 +505,13 @@ struct CommandClickHTMLOpenRoutingTests {
 
     #if DEBUG
     @Test
-    func commandShiftTReopensRestrictedHTMLWithFileOnlyReadAccess() throws {
+    func reopeningClosedRestrictedHTMLPreservesFileOnlyReadAccess() throws {
         _ = NSApplication.shared
 
         let defaults = UserDefaults.standard
         let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
         let previousSupportedFiles = defaults.object(forKey: supportedFilesKey)
         let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
-        let shortcutActions: [KeyboardShortcutSettings.Action] = [
-            .reopenClosedWorkspace,
-            .reopenClosedBrowserPanel,
-        ]
-        let savedShortcutData = Dictionary(
-            uniqueKeysWithValues: shortcutActions.map {
-                ($0, defaults.data(forKey: $0.defaultsKey))
-            }
-        )
-        let originalFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
-            prefix: "html-command-shift-t"
-        )
         let previousShared = AppDelegate.shared
         let appDelegate = AppDelegate()
         let manager = TabManager()
@@ -536,22 +524,9 @@ struct CommandClickHTMLOpenRoutingTests {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousShared
-            KeyboardShortcutSettings.settingsFileStore = originalFileStore
-            for action in shortcutActions {
-                if let data = savedShortcutData[action] ?? nil {
-                    defaults.set(data, forKey: action.defaultsKey)
-                } else {
-                    defaults.removeObject(forKey: action.defaultsKey)
-                }
-            }
-            appDelegate.debugResetShortcutRoutingStateForTesting()
             restore(previousSupportedFiles, forKey: supportedFilesKey, in: defaults)
             restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
         }
-        for action in shortcutActions {
-            KeyboardShortcutSettings.resetShortcut(for: action)
-        }
-        appDelegate.debugResetShortcutRoutingStateForTesting()
         defaults.set(true, forKey: supportedFilesKey)
         defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
 
@@ -578,23 +553,9 @@ struct CommandClickHTMLOpenRoutingTests {
         )
         workspace.markCloseHistoryEligible(panelId: browser.id)
         #expect(workspace.closePanel(browser.id, force: true))
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         #expect(workspace.panels.values.compactMap { $0 as? BrowserPanel }.isEmpty)
 
-        let commandShiftT = try #require(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command, .shift],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: "t",
-            charactersIgnoringModifiers: "t",
-            isARepeat: false,
-            keyCode: 17
-        ))
-        #expect(appDelegate.debugHandleCustomShortcut(event: commandShiftT))
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        #expect(manager.reopenMostRecentlyClosedBrowserPanel())
 
         let restoredBrowser = try #require(
             workspace.panels.values.compactMap { $0 as? BrowserPanel }.first

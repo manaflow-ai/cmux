@@ -8,12 +8,20 @@ public enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Hashab
     case fileOnly
 
     /// Resolves the document URL required by this policy.
+    ///
+    /// - Parameter url: The navigation URL to resolve.
+    /// - Returns: The canonical file target for ``fileOnly``, or the original URL otherwise.
     public func resolvedNavigationURL(for url: URL) -> URL {
         guard self == .fileOnly, url.isFileURL else { return url }
         return url.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     /// Returns the narrowest WebKit read-access URL permitted by this policy.
+    ///
+    /// - Parameters:
+    ///   - fileURL: The local document or directory URL being loaded.
+    ///   - fileManager: The filesystem accessor used to distinguish files from directories.
+    /// - Returns: The permitted read-access URL, or `nil` when this policy rejects the URL.
     public func readAccessURL(
         for fileURL: URL,
         fileManager: FileManager = .default
