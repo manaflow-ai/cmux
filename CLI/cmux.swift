@@ -30954,7 +30954,7 @@ export default CMUXSessionRestore;
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 sessionId: lifecycleSessionId,
-                startsNewOccupant: lifecycleSessionId == nil
+                startsNewOccupant: true
             )
 
         case .promptSubmit:

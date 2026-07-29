@@ -104,6 +104,93 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
+    func authoritativeSessionStartReplacesAnonymousOccupantAndSatisfiesPinnedExitWait() throws {
+        let fixture = try Fixture()
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            startsNewOccupant: true
+        )
+        let original = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+        let baselineSequence = CmuxEventBus.shared.latestSequence
+        var didReplaceOccupant = false
+        let coordinator = AgentWaitCoordinator(
+            eventBus: .shared,
+            shouldContinue: {
+                if !didReplaceOccupant {
+                    didReplaceOccupant = true
+                    fixture.workspace.setAgentLifecycle(
+                        key: "codex",
+                        panelId: fixture.surfaceID,
+                        lifecycle: .running,
+                        sessionID: "session-known",
+                        startsNewOccupant: true
+                    )
+                }
+                return true
+            }
+        )
+
+        let result = coordinator.wait(
+            surfaceID: fixture.surfaceID,
+            until: .exit,
+            timeoutMilliseconds: 1_000,
+            snapshot: {
+                fixture.workspace.agentWaitSurfaceSnapshot(panelID: fixture.surfaceID)
+            }
+        )
+
+        let value = try result.get()
+        let replacement = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+        let payloads = fixture.agentEvents(after: baselineSequence)
+            .compactMap { $0["payload"] as? [String: Any] }
+        #expect(value.status == .satisfied)
+        #expect(value.state == .exit)
+        #expect(value.sessionID == nil)
+        #expect(payloads.compactMap { $0["state"] as? String } == ["exit", "running"])
+        #expect(payloads.first?["session_id"] is NSNull)
+        #expect(payloads.last?["session_id"] as? String == "session-known")
+        #expect(replacement.revision > original.revision)
+        #expect(!replacement.identifiesSameOccupant(as: original))
+    }
+
+    @Test
+    func duplicateAuthoritativeSessionStartPreservesOccupantGeneration() throws {
+        let fixture = try Fixture()
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-known",
+            startsNewOccupant: true
+        )
+        let original = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+        let baselineSequence = CmuxEventBus.shared.latestSequence
+
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-known",
+            startsNewOccupant: true
+        )
+
+        let duplicate = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+        #expect(duplicate.revision == original.revision)
+        #expect(duplicate.identifiesSameOccupant(as: original))
+        #expect(fixture.agentEvents(after: baselineSequence).isEmpty)
+    }
+
+    @Test
     func socketNewOccupantFlagRotatesAnonymousGeneration() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()

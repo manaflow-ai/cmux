@@ -256,8 +256,16 @@ extension Workspace {
         let hasDifferentAuthoritativeSession = previous?.sessionID != nil
             && normalizedSessionID != nil
             && previous?.sessionID != normalizedSessionID
+        // Session-start hooks may retry. Preserve an established authoritative
+        // occupant only when the retry carries the same session identity.
+        let isDuplicateAuthoritativeStart = startsNewOccupant
+            && normalizedSessionID != nil
+            && previous?.sessionID == normalizedSessionID
         let isReplacement = previous != nil
-            && (startsNewOccupant || hasDifferentAuthoritativeSession)
+            && (
+                hasDifferentAuthoritativeSession
+                    || (startsNewOccupant && !isDuplicateAuthoritativeStart)
+            )
 
         if let previous, isReplacement {
             publishAgentLifecycleTransition(
