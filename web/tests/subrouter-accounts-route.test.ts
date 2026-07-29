@@ -46,6 +46,10 @@ const leasesRoute = await import("../app/api/subrouter/leases/route");
 const leaseEventsRoute = await import("../app/api/subrouter/leases/[leaseId]/events/route");
 const logoutRoute = await import("../app/api/subrouter/logout/route");
 const teamsRoute = await import("../app/api/subrouter/teams/route");
+const {
+  SubrouterAuthorizationTimeoutError,
+  withSubrouterAuthorizationDeadline,
+} = await import("../services/vms/auth");
 
 beforeAll(() => {
   useStubDb = true;
@@ -73,6 +77,21 @@ beforeEach(() => {
 });
 
 describe("subrouter accounts route", () => {
+  test("authorization deadline rejects work that ignores abort signals", async () => {
+    process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = "20";
+    const operation = withSubrouterAuthorizationDeadline(
+      async () => await new Promise<never>(() => {}),
+    );
+    const result = await Promise.race([
+      operation.catch((error: unknown) => error),
+      new Promise<"still-pending">((resolve) =>
+        setTimeout(() => resolve("still-pending"), 100)
+      ),
+    ]);
+
+    expect(result).toBeInstanceOf(SubrouterAuthorizationTimeoutError);
+  });
+
   test("revokes the exact native Stack session on logout", async () => {
     const redirectingUserSignOut = mock(async () => {
       throw new Error("NEXT_REDIRECT");
