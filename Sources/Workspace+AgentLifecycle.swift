@@ -430,17 +430,18 @@ extension Workspace {
         return fallback ?? .unknown
     }
 
-    func agentWaitSurfaceSnapshot(panelID: UUID) -> AgentWaitSurfaceSnapshot? {
-        guard panels[panelID] != nil else { return nil }
-        let occupants = agentLifecycleRecordsByPanelId[panelID]?
+    func agentWaitSurfaceSnapshot(surfaceID: UUID) -> AgentWaitSurfaceSnapshot? {
+        guard let ownership = surfaceOwnershipTarget(for: surfaceID) else { return nil }
+        let lifecyclePanelID = ownership.containerPanelID
+        let occupants = agentLifecycleRecordsByPanelId[lifecyclePanelID]?
             .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
             .map(\.value)
             ?? []
         let occupant = occupants.count == 1 ? occupants[0] : nil
         return AgentWaitSurfaceSnapshot(
             workspaceID: id,
-            surfaceID: panelID,
-            paneID: paneId(forPanelId: panelID)?.id,
+            surfaceID: lifecyclePanelID,
+            paneID: paneId(forPanelId: lifecyclePanelID)?.id,
             occupant: occupant
         )
     }

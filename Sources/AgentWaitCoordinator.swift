@@ -30,7 +30,8 @@ struct AgentWaitCoordinator {
         surfaceID: UUID,
         until: AgentWaitUntil,
         timeoutMilliseconds: Int64?,
-        snapshot: () -> AgentWaitSurfaceSnapshot?
+        snapshot: () -> AgentWaitSurfaceSnapshot?,
+        routingSnapshot: (() -> AgentWaitSurfaceSnapshot?)? = nil
     ) -> Result<AgentWaitResult, AgentWaitError> {
         let subscriptionSnapshot = eventBus.subscribe(
             afterSequence: nil,
@@ -50,6 +51,13 @@ struct AgentWaitCoordinator {
             return .failure(.noAgent)
         }
 
+        func refreshSurfaceRouting() -> AgentWaitSurfaceSnapshot {
+            if let refreshed = routingSnapshot?() {
+                surface = refreshed
+            }
+            return surface
+        }
+
         var pinnedState = occupant.publicState
         if until.isSatisfied(by: pinnedState) {
             return .success(
@@ -58,7 +66,7 @@ struct AgentWaitCoordinator {
                     until: until,
                     state: pinnedState,
                     occupant: occupant,
-                    surface: surface
+                    surface: refreshSurfaceRouting()
                 )
             )
         }
@@ -73,7 +81,7 @@ struct AgentWaitCoordinator {
                 until: until,
                 state: pinnedState,
                 occupant: occupant,
-                surface: surface
+                surface: refreshSurfaceRouting()
             )
         }
         while true {
@@ -92,8 +100,13 @@ struct AgentWaitCoordinator {
 
             if let event = subscriptionSnapshot.subscription.next(timeout: waitInterval) {
                 if event["name"] as? String == "surface.closed" {
+                    if let closedRouting = routing(from: event),
+                       closedRouting.surfaceID == surfaceID {
+                        surface = closedRouting
+                    }
                     let payload = event["payload"] as? [String: Any]
                     if payload?["origin"] as? String == "detach" {
+                        _ = refreshSurfaceRouting()
                         if let timeout = timeoutResultIfExpired() {
                             return .success(timeout)
                         }
@@ -105,7 +118,7 @@ struct AgentWaitCoordinator {
                             until: until,
                             state: pinnedState,
                             occupant: occupant,
-                            surface: surface
+                            surface: refreshSurfaceRouting()
                         )
                     )
                 }
@@ -133,7 +146,7 @@ struct AgentWaitCoordinator {
                             until: until,
                             state: pinnedState,
                             occupant: occupant,
-                            surface: surface
+                            surface: refreshSurfaceRouting()
                         )
                     )
                 }
@@ -182,18 +195,6 @@ struct AgentWaitCoordinator {
         case .exit:
             lifecycle = .unknown
         }
-        let routing: AgentWaitSurfaceSnapshot?
-        if let workspaceID = (event["workspace_id"] as? String).flatMap(UUID.init(uuidString:)),
-           let surfaceID = (event["surface_id"] as? String).flatMap(UUID.init(uuidString:)) {
-            routing = AgentWaitSurfaceSnapshot(
-                workspaceID: workspaceID,
-                surfaceID: surfaceID,
-                paneID: (event["pane_id"] as? String).flatMap(UUID.init(uuidString:)),
-                occupant: nil
-            )
-        } else {
-            routing = nil
-        }
         return (
             AgentLifecycleRecord(
                 agent: agent,
@@ -202,7 +203,20 @@ struct AgentWaitCoordinator {
                 revision: UInt64(revisionValue)
             ),
             state,
-            routing
+            routing(from: event)
+        )
+    }
+
+    private func routing(from event: [String: Any]) -> AgentWaitSurfaceSnapshot? {
+        guard let workspaceID = (event["workspace_id"] as? String).flatMap(UUID.init(uuidString:)),
+              let surfaceID = (event["surface_id"] as? String).flatMap(UUID.init(uuidString:)) else {
+            return nil
+        }
+        return AgentWaitSurfaceSnapshot(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            paneID: (event["pane_id"] as? String).flatMap(UUID.init(uuidString:)),
+            occupant: nil
         )
     }
 

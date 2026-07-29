@@ -199,8 +199,10 @@ extension TerminalController: ControlSidebarContext {
             _ = tab.clearAgentLifecycle(key: key, panelId: nil)
             // Bound distinct manual loaders per workspace so socket clients
             // can't grow lifecycle-key state without limit.
-            let manualLoaderCount = tab.agentLifecycleStatesByPanelId.values.reduce(0) { partial, states in
-                partial + states.keys.reduce(0) { AgentHibernationLifecycleStatusKeys.isManualKey($1) ? $0 + 1 : $0 }
+            let manualLoaderCount = tab.agentLifecycleRecordsByPanelId.values.reduce(0) { partial, records in
+                partial + records.keys.reduce(0) {
+                    AgentHibernationLifecycleStatusKeys.isManualKey($1) ? $0 + 1 : $0
+                }
             }
             guard manualLoaderCount < 32 else {
                 return ControlSidebarWorkspaceLoadingState(

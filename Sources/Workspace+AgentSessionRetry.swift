@@ -9,9 +9,9 @@ extension Workspace {
     }
 
     func hasActiveAgentLifecycleForRetry(panelId: UUID) -> Bool {
-        (agentLifecycleStatesByPanelId[panelId] ?? [:]).contains { key, lifecycle in
+        (agentLifecycleRecordsByPanelId[panelId] ?? [:]).contains { key, record in
             !AgentHibernationLifecycleStatusKeys.isManualKey(key) &&
-                (lifecycle == .running || lifecycle == .needsInput)
+                (record.state == .running || record.state == .needsInput)
         }
     }
 

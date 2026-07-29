@@ -377,6 +377,85 @@ struct AgentWaitCoordinatorTests {
     }
 
     @Test
+    func transferTimeoutRefreshesRoutingWithoutLifecycleTransition() throws {
+        let fixture = Fixture(state: .running)
+        let destination = AgentWaitSurfaceSnapshot(
+            workspaceID: UUID(),
+            surfaceID: fixture.surfaceID,
+            paneID: UUID(),
+            occupant: fixture.original
+        )
+        var currentRouting = fixture.snapshot(occupant: fixture.original)
+
+        let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
+            until: .idle,
+            timeoutMilliseconds: 0,
+            snapshot: {
+                let initial = currentRouting
+                fixture.bus.publish(
+                    name: "surface.closed",
+                    category: "surface",
+                    source: "workspace.lifecycle",
+                    workspaceId: fixture.workspaceID.uuidString,
+                    surfaceId: fixture.surfaceID.uuidString,
+                    paneId: fixture.paneID.uuidString,
+                    payload: ["origin": "detach"]
+                )
+                currentRouting = destination
+                return initial
+            },
+            routingSnapshot: { currentRouting }
+        )
+
+        let value = try result.get()
+        #expect(value.status == .timedOut)
+        #expect(value.workspaceID == destination.workspaceID)
+        #expect(value.surfaceID == destination.surfaceID)
+        #expect(value.paneID == destination.paneID)
+    }
+
+    @Test
+    func destinationClosureRefreshesRoutingWithoutLifecycleTransition() throws {
+        let fixture = Fixture(state: .running)
+        let destinationWorkspaceID = UUID()
+        let destinationPaneID = UUID()
+
+        let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            surfaceID: fixture.surfaceID,
+            until: .idle,
+            timeoutMilliseconds: 1_000,
+            snapshot: {
+                fixture.bus.publish(
+                    name: "surface.closed",
+                    category: "surface",
+                    source: "workspace.lifecycle",
+                    workspaceId: fixture.workspaceID.uuidString,
+                    surfaceId: fixture.surfaceID.uuidString,
+                    paneId: fixture.paneID.uuidString,
+                    payload: ["origin": "detach"]
+                )
+                fixture.bus.publish(
+                    name: "surface.closed",
+                    category: "surface",
+                    source: "workspace.lifecycle",
+                    workspaceId: destinationWorkspaceID.uuidString,
+                    surfaceId: fixture.surfaceID.uuidString,
+                    paneId: destinationPaneID.uuidString,
+                    payload: ["origin": "tab_close"]
+                )
+                return fixture.snapshot(occupant: fixture.original)
+            }
+        )
+
+        let value = try result.get()
+        #expect(value.status == .surfaceClosed)
+        #expect(value.workspaceID == destinationWorkspaceID)
+        #expect(value.surfaceID == fixture.surfaceID)
+        #expect(value.paneID == destinationPaneID)
+    }
+
+    @Test
     func subscriptionAdmissionBoundsConcurrentWaitsAndRecoversAfterRelease() throws {
         let fixture = Fixture(state: .running)
         var reservations = (0..<32).map { _ in

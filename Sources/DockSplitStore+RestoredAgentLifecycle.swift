@@ -2,6 +2,21 @@ import CmuxWorkspaces
 import Foundation
 
 extension DockSplitStore {
+    func agentWaitSurfaceSnapshot(panelID: UUID) -> AgentWaitSurfaceSnapshot? {
+        guard panels[panelID] != nil else { return nil }
+        let occupants = detachedSurfaceTransfersByPanelId[panelID]?.agentLifecycleRecords
+            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+            .map(\.value)
+            ?? []
+        let occupant = occupants.count == 1 ? occupants[0] : nil
+        return AgentWaitSurfaceSnapshot(
+            workspaceID: workspaceId,
+            surfaceID: panelID,
+            paneID: paneId(forPanelId: panelID)?.id,
+            occupant: occupant
+        )
+    }
+
     func clearSessionRestoreState(panelId: UUID) {
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)

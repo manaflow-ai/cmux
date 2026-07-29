@@ -141,7 +141,7 @@ struct AgentLifecycleEventTests {
             until: .exit,
             timeoutMilliseconds: 1_000,
             snapshot: {
-                fixture.workspace.agentWaitSurfaceSnapshot(panelID: fixture.surfaceID)
+                fixture.workspace.agentWaitSurfaceSnapshot(surfaceID: fixture.surfaceID)
             }
         )
 
@@ -247,7 +247,7 @@ struct AgentLifecycleEventTests {
         )
 
         let snapshot = try #require(
-            fixture.workspace.agentWaitSurfaceSnapshot(panelID: fixture.surfaceID)
+            fixture.workspace.agentWaitSurfaceSnapshot(surfaceID: fixture.surfaceID)
         )
         #expect(snapshot.occupant == nil)
     }
@@ -376,6 +376,60 @@ struct AgentLifecycleEventTests {
                 == original
         )
         #expect(fixture.agentEvents(after: baselineSequence).isEmpty)
+    }
+
+    @Test
+    func surfaceTreeAliasResolvesToLifecycleOwningPanel() throws {
+        let fixture = try Fixture()
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-alias"
+        )
+        let surfaceTreeID = try #require(
+            fixture.workspace.surfaceIdFromPanelId(fixture.surfaceID)?.uuid
+        )
+
+        let snapshot = try #require(
+            fixture.workspace.agentWaitSurfaceSnapshot(surfaceID: surfaceTreeID)
+        )
+
+        #expect(snapshot.surfaceID == fixture.surfaceID)
+        #expect(snapshot.occupant?.sessionID == "session-alias")
+    }
+
+    @Test
+    func dockSurfaceSnapshotUsesTransferredLifecycleOwner() throws {
+        let fixture = try Fixture()
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .idle,
+            sessionID: "session-dock"
+        )
+        let detached = try #require(
+            fixture.workspace.detachSurface(panelId: fixture.surfaceID)
+        )
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        try #require(
+            dock.attachDetachedSurface(detached, inPane: paneID, focus: false)
+        )
+
+        let snapshot = try #require(
+            dock.agentWaitSurfaceSnapshot(panelID: fixture.surfaceID)
+        )
+
+        #expect(snapshot.workspaceID == dock.workspaceId)
+        #expect(snapshot.surfaceID == fixture.surfaceID)
+        #expect(snapshot.paneID == paneID.id)
+        #expect(snapshot.occupant?.sessionID == "session-dock")
+        #expect(snapshot.occupant?.state == .idle)
     }
 
     private struct Fixture {

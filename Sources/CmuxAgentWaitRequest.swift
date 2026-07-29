@@ -124,30 +124,34 @@ extension TerminalController {
                 ) && !Self.socketPeerClosed(socket)
             }
         )
+        guard let lifecycleSurfaceID = v2MainSync({
+            self.agentWaitSurfaceSnapshot(surfaceID: surfaceID)?.surfaceID
+        }) else {
+            revocationSource?.cancel()
+            writeAgentWaitResponse(
+                v2Error(
+                    id: id,
+                    code: "not_found",
+                    message: String(
+                        localized: "socket.agentWait.error.surfaceNotFound",
+                        defaultValue: "Surface not found"
+                    )
+                ),
+                socket: socket
+            )
+            return
+        }
+        let snapshot = {
+            self.v2MainSync {
+                self.agentWaitSurfaceSnapshot(surfaceID: lifecycleSurfaceID)
+            }
+        }
         let waitResult = waitCoordinator.wait(
-            surfaceID: surfaceID,
+            surfaceID: lifecycleSurfaceID,
             until: until,
             timeoutMilliseconds: timeoutMilliseconds,
-            snapshot: {
-                self.v2MainSync {
-                    let routing = ControlRoutingSelectors(
-                        hasWindowIDParam: false,
-                        windowID: nil,
-                        groupID: nil,
-                        workspaceID: nil,
-                        surfaceID: surfaceID,
-                        paneID: nil
-                    )
-                    guard let tabManager = self.resolveTabManager(routing: routing),
-                          let workspace = self.resolveSurfaceWorkspace(
-                              routing: routing,
-                              tabManager: tabManager
-                          ) else {
-                        return nil
-                    }
-                    return workspace.agentWaitSurfaceSnapshot(panelID: surfaceID)
-                }
-            }
+            snapshot: snapshot,
+            routingSnapshot: snapshot
         )
         revocationSource?.cancel()
 
@@ -196,5 +200,26 @@ extension TerminalController {
 
     private nonisolated func writeAgentWaitResponse(_ response: String, socket: Int32) {
         _ = transport.writeAll(Data((response + "\n").utf8), to: socket)
+    }
+
+    private func agentWaitSurfaceSnapshot(surfaceID: UUID) -> AgentWaitSurfaceSnapshot? {
+        if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
+            return dock.agentWaitSurfaceSnapshot(panelID: surfaceID)
+        }
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: nil,
+            surfaceID: surfaceID,
+            paneID: nil
+        )
+        guard let tabManager = resolveTabManager(routing: routing),
+              let workspace = tabManager.tabs.first(where: {
+                  $0.surfaceOwnershipTarget(for: surfaceID) != nil
+              }) else {
+            return nil
+        }
+        return workspace.agentWaitSurfaceSnapshot(surfaceID: surfaceID)
     }
 }
