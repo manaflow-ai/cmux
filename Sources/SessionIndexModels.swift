@@ -186,6 +186,15 @@ enum OpenCodeDatabaseSnapshot {
         } catch SQLiteDatabaseSnapshotError.snapshotTooLarge(let maximumBytes) {
             try? fileManager.removeItem(at: snapshotDir)
             throw snapshotTooLargeError(maximumBytes: maximumBytes)
+        } catch SQLiteDatabaseSnapshotError.timedOut {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw CocoaError(
+                .fileReadUnknown,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "OpenCode database snapshot timed out."
+                ]
+            )
         } catch SQLiteDatabaseSnapshotError.sqlite(let message) {
             try? fileManager.removeItem(at: snapshotDir)
             throw CocoaError(

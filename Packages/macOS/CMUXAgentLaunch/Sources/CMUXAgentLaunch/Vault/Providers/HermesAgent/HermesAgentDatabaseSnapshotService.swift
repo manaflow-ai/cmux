@@ -39,6 +39,9 @@ struct HermesAgentDatabaseSnapshotService {
         } catch SQLiteDatabaseSnapshotError.snapshotTooLarge(let maximumBytes) {
             try? fileManager.removeItem(at: snapshotDirectory)
             throw HermesAgentIndexError.snapshotTooLarge(maximumBytes: maximumBytes)
+        } catch SQLiteDatabaseSnapshotError.timedOut {
+            try? fileManager.removeItem(at: snapshotDirectory)
+            throw HermesAgentIndexError.sqlite("snapshot timed out")
         } catch SQLiteDatabaseSnapshotError.sqlite(let message) {
             try? fileManager.removeItem(at: snapshotDirectory)
             throw HermesAgentIndexError.sqlite(message)

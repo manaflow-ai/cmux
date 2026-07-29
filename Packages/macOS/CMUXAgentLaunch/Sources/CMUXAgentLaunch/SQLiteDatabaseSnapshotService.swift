@@ -16,23 +16,39 @@ import SQLite3
 public struct SQLiteDatabaseSnapshotService {
     private let fileManager: FileManager
     private let pagesPerStep: Int32
+    private let maximumDuration: Duration
+    private let now: () -> ContinuousClock.Instant
     private let stepObserver: (() throws -> Void)?
 
     /// Creates a database snapshot service.
-    /// - Parameter fileManager: Filesystem dependency used to remove temporary sidecars.
-    public init(fileManager: FileManager = .default) {
+    /// - Parameters:
+    ///   - fileManager: Filesystem dependency used to remove temporary sidecars.
+    ///   - maximumDuration: Total backup duration before failing. The ten-second
+    ///     default prevents a live writer from starving an incremental backup.
+    ///   - now: Monotonic clock read used to enforce `maximumDuration`.
+    public init(
+        fileManager: FileManager = .default,
+        maximumDuration: Duration = .seconds(10),
+        now: @escaping () -> ContinuousClock.Instant = { ContinuousClock().now }
+    ) {
         self.fileManager = fileManager
         pagesPerStep = 64
+        self.maximumDuration = maximumDuration
+        self.now = now
         stepObserver = nil
     }
 
     init(
         fileManager: FileManager = .default,
         pagesPerStep: Int32,
+        maximumDuration: Duration = .seconds(10),
+        now: @escaping () -> ContinuousClock.Instant = { ContinuousClock().now },
         stepObserver: @escaping () throws -> Void
     ) {
         self.fileManager = fileManager
         self.pagesPerStep = max(1, pagesPerStep)
+        self.maximumDuration = maximumDuration
+        self.now = now
         self.stepObserver = stepObserver
     }
 
@@ -54,6 +70,8 @@ public struct SQLiteDatabaseSnapshotService {
             )
         }
         try Task.checkCancellation()
+        let startedAt = now()
+        try checkDeadline(startedAt: startedAt)
 
         var sourceDatabase: OpaquePointer?
         let sourceOpenResult = sqlite3_open_v2(
@@ -72,6 +90,7 @@ public struct SQLiteDatabaseSnapshotService {
         defer { _ = sqlite3_close(sourceDatabase) }
 
         let pageSize = try databasePageSize(sourceDatabase)
+        try checkDeadline(startedAt: startedAt)
         var destinationDatabase: OpaquePointer?
         let destinationOpenResult = sqlite3_open_v2(
             destinationPath,
@@ -116,6 +135,7 @@ public struct SQLiteDatabaseSnapshotService {
         var busyRetryCount = 0
         while true {
             try Task.checkCancellation()
+            try checkDeadline(startedAt: startedAt)
             guard let activeBackup = backup else {
                 throw SQLiteDatabaseSnapshotError.sqlite("backup state became unavailable")
             }
@@ -125,6 +145,9 @@ public struct SQLiteDatabaseSnapshotService {
                 pageSize: pageSize,
                 maximumBytes: maximumBytes
             )
+            if stepResult != SQLITE_DONE {
+                try checkDeadline(startedAt: startedAt)
+            }
 
             switch stepResult {
             case SQLITE_DONE:
@@ -163,6 +186,14 @@ public struct SQLiteDatabaseSnapshotService {
                     sqliteMessage(destinationDatabase, fallback: "backup step failed")
                 )
             }
+        }
+    }
+
+    private func checkDeadline(startedAt: ContinuousClock.Instant) throws {
+        guard startedAt.duration(to: now()) < maximumDuration else {
+            throw SQLiteDatabaseSnapshotError.timedOut(
+                maximumDuration: maximumDuration
+            )
         }
     }
 
