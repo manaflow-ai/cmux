@@ -42,7 +42,7 @@ struct NativeSSHConnectionBrokerTests {
         #expect(recorder.requests[0].arguments.contains(resolvedOwnedSSHOptions[2]))
         let request = recorder.requests[0]
         let lockPath = request.authenticationLockPath
-        #expect(lockPath?.contains("cmux-ssh-501-auth-") == true)
+        #expect(lockPath?.contains("cmux-ssh-501-resolved-auth-") == true)
         #expect(request.processInvocation.executableURL.path == "/bin/zsh")
         #expect(request.processInvocation.arguments.contains(lockPath.map { $0 + ".inflight" } ?? "") == true)
         #expect(request.processInvocation.arguments[1].contains("zsystem flock -t 4 -e"))
@@ -174,7 +174,9 @@ struct NativeSSHConnectionBrokerTests {
             clock: RecordingImmediateClock(),
             jitterMilliseconds: { 200 },
             cleanupLauncher: { _ in },
-            conflictedMasterResetRunner: runner
+            conflictedMasterResetRunner: runner,
+            controlMasterOwnershipRegistry:
+                PermissiveNativeSSHControlMasterOwnershipRegistry()
         )
         let firstLease = broker.retainWorkspace(configuration(
             owner: UUID(),
@@ -204,7 +206,7 @@ struct NativeSSHConnectionBrokerTests {
         #expect(await secondReset.value == .reset)
         #expect(runner.requests.count == 1)
         let request = try #require(runner.requests.first)
-        #expect(request.executable == "/bin/zsh")
+        #expect(request.executable == "/usr/bin/ssh")
         #expect(request.arguments.contains("-O"))
         #expect(request.arguments.contains("exit"))
         #expect(request.arguments.contains(resolvedOwnedSSHOptions[2]))
@@ -293,7 +295,9 @@ struct NativeSSHConnectionBrokerTests {
             sharingOptions: sharingOptions,
             clock: clock,
             jitterMilliseconds: { 900 },
-            cleanupLauncher: { _ in }
+            cleanupLauncher: { _ in },
+            controlMasterOwnershipRegistry:
+                PermissiveNativeSSHControlMasterOwnershipRegistry()
         )
         let leaderConfiguration = configuration(
             owner: UUID(),
@@ -387,7 +391,9 @@ struct NativeSSHConnectionBrokerTests {
             sharingOptions: sharingOptions,
             clock: clock,
             jitterMilliseconds: { 200 },
-            cleanupLauncher: { _ in }
+            cleanupLauncher: { _ in },
+            controlMasterOwnershipRegistry:
+                PermissiveNativeSSHControlMasterOwnershipRegistry()
         )
         let configuration = configuration(owner: UUID())
 
@@ -429,7 +435,11 @@ struct NativeSSHConnectionBrokerTests {
             sharingOptions: sharingOptions,
             clock: RecordingImmediateClock(),
             jitterMilliseconds: { 200 },
-            cleanupLauncher: { request in cleanupRecorder.requests.append(request) }
+            cleanupLauncher: {
+                request in cleanupRecorder.requests.append(request)
+            },
+            controlMasterOwnershipRegistry:
+                PermissiveNativeSSHControlMasterOwnershipRegistry()
         )
     }
 

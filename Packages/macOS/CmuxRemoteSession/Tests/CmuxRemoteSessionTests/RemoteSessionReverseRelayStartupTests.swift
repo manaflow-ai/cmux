@@ -70,13 +70,10 @@ struct RemoteSessionReverseRelayStartupTests {
 
         var statuses = host.daemonStatuses.makeAsyncIterator()
         let status = await statuses.next()
-        #expect(status?.detail == String(
-            localized: "remoteSession.reverseRelay.portUnavailableRetrying",
-            defaultValue: "Remote SSH relay port unavailable; retrying in 2 seconds"
-        ))
+        #expect(status?.detail == "test relay port unavailable")
 
         let request = runner.requests.first
-        #expect(request?.executable == "/bin/zsh")
+        #expect(request?.executable == "/usr/bin/ssh")
         #expect(request?.arguments.contains("-O") == true)
         #expect(request?.arguments.contains("exit") == true)
         #expect(request?.arguments.contains("-R") == false)
@@ -210,7 +207,9 @@ struct RemoteSessionReverseRelayStartupTests {
             clock: RecordingImmediateClock(),
             jitterMilliseconds: { 200 },
             cleanupLauncher: { _ in },
-            conflictedMasterResetRunner: effectiveRunner
+            conflictedMasterResetRunner: effectiveRunner,
+            controlMasterOwnershipRegistry:
+                PermissiveNativeSSHControlMasterOwnershipRegistry()
         )
         let configuration = connectionBroker.retainWorkspace(rawConfiguration)
         let coordinator = RemoteSessionCoordinator(
@@ -232,7 +231,11 @@ struct RemoteSessionReverseRelayStartupTests {
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying:
+                    "test relay unavailable",
+                reverseRelayPortUnavailableRetrying:
+                    "test relay port unavailable"
             ),
             clock: clock
         )

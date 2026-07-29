@@ -436,13 +436,27 @@ extension TerminalController: ControlWorkspaceContext {
 
     func controlWorkspaceRemoteForegroundAuthReady(
         workspaceID: UUID,
-        foregroundAuthToken: String?
+        foregroundAuthToken: String?,
+        resolvedControlPath: String?
     ) -> ControlWorkspaceRemoteResolution {
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
-        workspace.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
+        guard workspace.notifyRemoteForegroundAuthenticationReady(
+            token: foregroundAuthToken,
+            resolvedControlPath: resolvedControlPath
+        ) else {
+            return .unavailable(
+                workspaceID: workspaceID,
+                message: String(
+                    localized:
+                        "remoteSession.controlMaster.ownershipUnavailable",
+                    defaultValue:
+                        "SSH connection is busy in another cmux process."
+                )
+            )
+        }
         notifyRemotePTYControllerAvailabilityChanged()
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(

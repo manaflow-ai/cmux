@@ -710,6 +710,11 @@ extension ControlCommandCoordinator {
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
             ]))
+        case .unavailable(let workspaceID, let message):
+            return .err(code: "unavailable", message: message, data: .object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+            ]))
         case .resolved(let windowID, let workspaceID, let remoteStatus):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),
@@ -798,9 +803,12 @@ extension ControlCommandCoordinator {
         // empty-to-nil variant.
         let token = rawString(params, "foreground_auth_token")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let controlPath = rawString(params, "control_path")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         return workspaceRemoteResult(context?.controlWorkspaceRemoteForegroundAuthReady(
             workspaceID: workspaceID,
-            foregroundAuthToken: token
+            foregroundAuthToken: token,
+            resolvedControlPath: controlPath
         ))
     }
 

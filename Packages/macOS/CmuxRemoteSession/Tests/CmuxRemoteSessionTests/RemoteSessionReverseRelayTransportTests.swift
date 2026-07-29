@@ -318,10 +318,7 @@ struct RemoteSessionReverseRelayTransportTests {
         launcher.emitTermination(detail: rawFailure)
 
         let status = try #require(await statuses.next())
-        #expect(status.detail == String(
-            localized: "remoteSession.reverseRelay.unavailableRetrying",
-            defaultValue: "Remote SSH relay unavailable; retrying in 2 seconds"
-        ))
+        #expect(status.detail == "test relay unavailable")
         #expect(status.detail?.contains(rawFailure) == false)
         #expect(await clock.nextRequestedDelay() == 2_000)
         _ = await coordinator.stopAndWait(cleanupScope: .transport)

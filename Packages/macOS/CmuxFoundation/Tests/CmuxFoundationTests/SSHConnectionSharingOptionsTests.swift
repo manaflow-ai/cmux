@@ -210,9 +210,27 @@ struct SSHConnectionSharingOptionsTests {
         #expect(resolvedLock.map { URL(fileURLWithPath: $0).deletingLastPathComponent() } == lockDirectory)
         #expect(resolvedLock.map { URL(fileURLWithPath: $0).lastPathComponent.hasPrefix("cmux-ssh-501-auth-") } == true)
         #expect(resolvedLock != first)
-        #expect(options.cmuxOwnedControlPath(in: resolvedOwned) == String(
+        let resolvedControlPath = String(
             resolvedOwned[1].dropFirst("ControlPath=".count)
-        ))
+        )
+        #expect(options.cmuxOwnedControlPath(in: resolvedOwned) == resolvedControlPath)
+        let aliasIndependentLock =
+            options.resolvedControlMasterAuthenticationLockPath(
+                controlPath: resolvedControlPath
+            )
+        #expect(aliasIndependentLock.map {
+            URL(fileURLWithPath: $0).deletingLastPathComponent()
+        } == lockDirectory)
+        #expect(aliasIndependentLock?.contains("resolved-auth") == true)
+        #expect(options.resolvedControlMasterOwnershipLockPath(
+            controlPath: resolvedControlPath
+        )?.contains("-owner-") == true)
+        #expect(options.resolvedControlMasterAuthenticationLockPath(
+            controlPath: options.defaultControlPath
+        ) == nil)
+        #expect(options.resolvedControlMasterOwnershipLockPath(
+            controlPath: "~/.ssh/custom-control"
+        ) == nil)
         #expect(options.foregroundAuthenticationLockPath(
             destination: "alice@example.test",
             port: 2222,

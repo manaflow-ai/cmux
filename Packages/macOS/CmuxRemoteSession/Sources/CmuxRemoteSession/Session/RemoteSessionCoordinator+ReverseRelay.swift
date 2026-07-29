@@ -225,10 +225,7 @@ extension RemoteSessionCoordinator {
         let retryDelay = 2.0
         publishDaemonStatus(
             .error,
-            detail: String(
-                localized: "remoteSession.reverseRelay.unavailableRetrying",
-                defaultValue: "Remote SSH relay unavailable; retrying in 2 seconds"
-            )
+            detail: strings.reverseRelayUnavailableRetrying
         )
         scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: retryDelay)
     }

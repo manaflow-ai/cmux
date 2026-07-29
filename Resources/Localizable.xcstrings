@@ -139907,6 +139907,23 @@
         }
       }
     },
+    "remoteSession.controlMaster.ownershipUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH connection is busy in another cmux process."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の cmux プロセスが SSH 接続を使用しています。"
+          }
+        }
+      }
+    },
     "remoteSession.reverseRelay.portUnavailableRetrying": {
       "extractionState": "manual",
       "localizations": {

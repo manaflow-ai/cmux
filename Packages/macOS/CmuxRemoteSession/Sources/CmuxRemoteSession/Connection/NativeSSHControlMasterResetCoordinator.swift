@@ -27,6 +27,8 @@ final class NativeSSHControlMasterResetCoordinator {
     private let processRunner: any RemoteSessionProcessRunning
     private let clock: any RemoteProxyRetryClock
     private let eventHub: NativeSSHControlMasterResetEventHub
+    private let ownershipRegistry:
+        any NativeSSHControlMasterOwnershipTracking
     private var leases: [
         UUID: [NativeSSHControlMasterResetKey: WorkspaceRemoteConfiguration]
     ] = [:]
@@ -38,12 +40,14 @@ final class NativeSSHControlMasterResetCoordinator {
         sharingOptions: SSHConnectionSharingOptions,
         processRunner: any RemoteSessionProcessRunning,
         clock: any RemoteProxyRetryClock,
-        eventHub: NativeSSHControlMasterResetEventHub
+        eventHub: NativeSSHControlMasterResetEventHub,
+        ownershipRegistry: any NativeSSHControlMasterOwnershipTracking
     ) {
         self.sharingOptions = sharingOptions
         self.processRunner = processRunner
         self.clock = clock
         self.eventHub = eventHub
+        self.ownershipRegistry = ownershipRegistry
     }
 
     func retainWorkspace(
@@ -144,6 +148,25 @@ final class NativeSSHControlMasterResetCoordinator {
             inFlightResets[resolvedControlPath] = inFlight
             return await inFlight.task.value
         }
+        guard let lease = NativeSSHControlMasterLeaseIdentity(
+            configuration: configuration
+        ),
+              ownershipRegistry.retain(
+                  controlPath: resolvedControlPath,
+                  lease: lease
+              ) else {
+            return .deferred(
+                "resolved SSH master ownership is busy in another cmux process"
+            )
+        }
+        guard let resetAuthorization = ownershipRegistry.beginReset(
+            controlPath: resolvedControlPath
+        ) else {
+            return .deferred(
+                "resolved SSH master is in use by another cmux process " +
+                    "or foreground authentication"
+            )
+        }
 
         let resolvedOptions = pathResolver.replacingControlPath(
             in: effectiveOptions,
@@ -153,21 +176,17 @@ final class NativeSSHControlMasterResetCoordinator {
             configuration: configuration,
             sshOptionsOverride: resolvedOptions
         )
-        let authenticationLockPath = sharingOptions.foregroundAuthenticationLockPath(
-            destination: configuration.destination,
-            port: configuration.port,
-            options: effectiveOptions
-        )
         let request = NativeSSHControlMasterCleanupRequest(
             arguments: arguments,
             environment: configuration.sshProcessEnvironment,
-            authenticationLockPath: authenticationLockPath
+            authenticationLockPath: nil
         )
         let resetID = UUID()
         let processRunner = self.processRunner
         let clock = self.clock
         let eventHub = self.eventHub
         let task = Task {
+            defer { resetAuthorization.release() }
             let outcome = await Self.runReset(
                 request: request,
                 processRunner: processRunner,

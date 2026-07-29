@@ -96,6 +96,16 @@ extension RemoteSessionCoordinator {
     /// master.
     private func resolvedReverseRelayControlMasterSSHOptionsLocked() -> [String]? {
         if let reverseRelayResolvedControlMasterSSHOptions {
+            let sharingOptions = SSHConnectionSharingOptions()
+            guard let resolvedPath = sharingOptions.cmuxOwnedControlPath(
+                in: reverseRelayResolvedControlMasterSSHOptions
+            ),
+                  connectionBroker.retainResolvedControlMasterLease(
+                      for: configuration,
+                      controlPath: resolvedPath
+                  ) else {
+                return nil
+            }
             return reverseRelayResolvedControlMasterSSHOptions
         }
 
@@ -150,6 +160,16 @@ extension RemoteSessionCoordinator {
             in: effectiveOptions,
             with: resolvedPath
         )
+        guard connectionBroker.retainResolvedControlMasterLease(
+            for: configuration,
+            controlPath: resolvedPath
+        ) else {
+            debugLog(
+                "remote.relay.controlmaster.ownershipBusy " +
+                    "\(debugConfigSummary())"
+            )
+            return nil
+        }
         guard let observation = connectionBroker.observeControlMasterResets(
             controlPath: resolvedPath,
             handler: { [weak self] in

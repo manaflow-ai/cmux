@@ -2381,7 +2381,12 @@ final class Workspace: Identifiable, ObservableObject {
     var remoteSessionTransitionTask: Task<Void, Never>?
     var remoteSessionTransitionID: UUID?
     enum RemoteForegroundAuthenticationPhase: Equatable {
-        case readyBeforeConfiguration(token: String), authenticating(token: String)
+        case readyBeforeConfiguration(
+            token: String,
+            controlMasterAdoption:
+                NativeSSHControlMasterAdoptionHandoff?
+        )
+        case authenticating(token: String)
     }
     var remoteForegroundAuthenticationPhase: RemoteForegroundAuthenticationPhase?
     var activeRemoteSessionControllerID: UUID?
@@ -5412,9 +5417,41 @@ final class Workspace: Identifiable, ObservableObject {
         return payload
     }
 
-    func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
+    @discardableResult
+    func configureRemoteConnection(
+        _ configuration: WorkspaceRemoteConfiguration,
+        autoConnect: Bool = true
+    ) -> Bool {
         var configuration = configuration.scopedToOwnerWorkspace(id)
         configuration = nativeSSHConnectionBroker.retainWorkspace(configuration)
+        let foregroundAuthToken =
+            Self.normalizedForegroundAuthToken(
+                configuration.foregroundAuthToken
+            )
+        let pendingControlMasterAdoption:
+            NativeSSHControlMasterAdoptionHandoff?
+        if case .readyBeforeConfiguration(
+            let readyToken,
+            let controlMasterAdoption
+        ) = remoteForegroundAuthenticationPhase,
+           readyToken == foregroundAuthToken {
+            pendingControlMasterAdoption = controlMasterAdoption
+        } else {
+            cancelPendingRemoteControlMasterAdoption()
+            pendingControlMasterAdoption = nil
+        }
+        if let pendingControlMasterAdoption,
+           !nativeSSHConnectionBroker.completeControlMasterAdoption(
+               pendingControlMasterAdoption,
+               configuration: configuration
+           ) {
+            nativeSSHConnectionBroker.cancelControlMasterAdoption(
+                pendingControlMasterAdoption
+            )
+            nativeSSHConnectionBroker.releaseWorkspace(configuration)
+            remoteForegroundAuthenticationPhase = nil
+            return false
+        }
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
         let previousPresentedDirectory = presentedCurrentDirectory
@@ -5476,9 +5513,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
-        let foregroundAuthToken = Self.normalizedForegroundAuthToken(configuration.foregroundAuthToken)
         let foregroundAuthenticationWasReady = foregroundAuthToken.map {
-            remoteForegroundAuthenticationPhase == .readyBeforeConfiguration(token: $0)
+            guard case .readyBeforeConfiguration(let token, _) =
+                remoteForegroundAuthenticationPhase else {
+                return false
+            }
+            return token == $0
         } ?? false
         let shouldAutoConnect = autoConnect || foregroundAuthenticationWasReady
         remoteForegroundAuthenticationPhase = nil
@@ -5492,7 +5532,7 @@ final class Workspace: Identifiable, ObservableObject {
                 shouldStartController: false,
                 finalCleanup: false
             )
-            return
+            return true
         }
         guard shouldAutoConnect else {
             remoteForegroundAuthenticationPhase = foregroundAuthToken.map { .authenticating(token: $0) }
@@ -5504,7 +5544,7 @@ final class Workspace: Identifiable, ObservableObject {
                 shouldStartController: false,
                 finalCleanup: false
             )
-            return
+            return true
         }
         remoteConnectionState = .connecting
         applyBrowserRemoteWorkspaceStatusToPanels()
@@ -5514,6 +5554,7 @@ final class Workspace: Identifiable, ObservableObject {
             shouldStartController: true,
             finalCleanup: false
         )
+        return true
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
@@ -5537,7 +5578,7 @@ final class Workspace: Identifiable, ObservableObject {
             shouldStartController: false,
             finalCleanup: clearConfiguration
         )
-        remoteForegroundAuthenticationPhase = nil
+        cancelPendingRemoteControlMasterAdoption()
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()
         let remoteDirectoryPanelIdsToClear = clearConfiguration ? remoteDirectoryTrustRequiredPanelIds.union(remoteDirectoryReportPanelIds) : []

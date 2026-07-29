@@ -141,23 +141,6 @@ struct NativeSSHControlMasterResetTests {
         #expect(!runner.exitRequests[0].arguments.contains(
             "ControlPath=/tmp/cmux-ssh-501-%C"
         ))
-        let unresolvedLock = try #require(
-            sharingOptions.foregroundAuthenticationLockPath(
-                destination: "first.example.test",
-                port: nil,
-                options: unresolvedOptions
-            )
-        )
-        let resolvedLock = try #require(
-            sharingOptions.foregroundAuthenticationLockPath(
-                destination: "first.example.test",
-                port: nil,
-                options: resolvedOptions
-            )
-        )
-        #expect(unresolvedLock != resolvedLock)
-        #expect(runner.exitRequests[0].arguments.contains(unresolvedLock))
-        #expect(!runner.exitRequests[0].arguments.contains(resolvedLock))
         _ = firstObservation
         _ = secondObservation
     }
@@ -462,7 +445,9 @@ struct NativeSSHControlMasterResetTests {
             clock: clock,
             jitterMilliseconds: { 200 },
             cleanupLauncher: { _ in },
-            conflictedMasterResetRunner: processRunner
+            conflictedMasterResetRunner: processRunner,
+            controlMasterOwnershipRegistry:
+                PermissiveNativeSSHControlMasterOwnershipRegistry()
         )
     }
 

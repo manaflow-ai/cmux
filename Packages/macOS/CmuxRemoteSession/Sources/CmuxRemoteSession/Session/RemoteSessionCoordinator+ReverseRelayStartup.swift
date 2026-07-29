@@ -104,10 +104,7 @@ extension RemoteSessionCoordinator {
     private func publishReverseRelayPortUnavailableLocked() {
         publishDaemonStatus(
             .error,
-            detail: String(
-                localized: "remoteSession.reverseRelay.portUnavailableRetrying",
-                defaultValue: "Remote SSH relay port unavailable; retrying in 2 seconds"
-            )
+            detail: strings.reverseRelayPortUnavailableRetrying
         )
     }
 

@@ -10,10 +10,29 @@ public struct RemoteSessionStrings: Sendable, Equatable {
     /// Format for the suspended-auto-reconnect state detail
     /// (`remote.state.suspended.detail`); `%@` is the display target.
     public let suspendedDetailFormat: String
+    /// Retry detail when the reverse SSH relay is unavailable.
+    public let reverseRelayUnavailableRetrying: String
+    /// Retry detail when a live owner prevents relay-port recovery.
+    public let reverseRelayPortUnavailableRetrying: String
 
-    /// Creates the strings bundle with both formats app-resolved.
-    public init(connectedVMNoProxyFormat: String, suspendedDetailFormat: String) {
+    /// Creates the app-resolved strings bundle.
+    ///
+    /// - Parameters:
+    ///   - connectedVMNoProxyFormat: Connected-without-proxy detail format.
+    ///   - suspendedDetailFormat: Suspended reconnect detail format.
+    ///   - reverseRelayUnavailableRetrying: Generic relay retry detail.
+    ///   - reverseRelayPortUnavailableRetrying: Port-conflict retry detail.
+    public init(
+        connectedVMNoProxyFormat: String,
+        suspendedDetailFormat: String,
+        reverseRelayUnavailableRetrying: String,
+        reverseRelayPortUnavailableRetrying: String
+    ) {
         self.connectedVMNoProxyFormat = connectedVMNoProxyFormat
         self.suspendedDetailFormat = suspendedDetailFormat
+        self.reverseRelayUnavailableRetrying =
+            reverseRelayUnavailableRetrying
+        self.reverseRelayPortUnavailableRetrying =
+            reverseRelayPortUnavailableRetrying
     }
 }

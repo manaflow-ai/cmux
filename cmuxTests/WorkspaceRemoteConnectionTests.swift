@@ -983,10 +983,19 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-        workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
+        let resolvedControlPath =
+            "/tmp/cmux-ssh-\(getuid())-" +
+            "0123456789abcdef0123456789abcdef01234567"
+        XCTAssertTrue(workspace.notifyRemoteForegroundAuthenticationReady(
+            token: "token-a",
+            resolvedControlPath: resolvedControlPath
+        ))
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertNil(workspace.activeRemoteSessionControllerID)
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        XCTAssertTrue(workspace.configureRemoteConnection(
+            config,
+            autoConnect: false
+        ))
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
         XCTAssertNotNil(workspace.activeRemoteSessionControllerID)
         workspace.disconnectRemoteConnection(clearConfiguration: true)
