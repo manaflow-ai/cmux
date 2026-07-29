@@ -27,6 +27,15 @@ export default function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // cmux consumes this marker before navigation. If an ordinary browser
+  // reaches the server, canonicalize the URL while preserving every public
+  // query parameter.
+  if (request.nextUrl.searchParams.get("cmux_open_in_browser") === "split-right") {
+    const url = request.nextUrl.clone();
+    url.searchParams.delete("cmux_open_in_browser");
+    return NextResponse.redirect(url, 307);
+  }
+
   // The public site only routes docs traffic to the release/nightly origins.
   // Locale handling belongs to those origins; rewriting it here first causes
   // the origin to normalize the path back through the router in a loop.

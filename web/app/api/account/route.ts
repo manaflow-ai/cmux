@@ -189,6 +189,10 @@ export async function DELETE(request: Request): Promise<Response> {
         },
       },
     );
+    // Do not erase the only user identity and ownership record before every
+    // TestFlight revocation is confirmed. ASC timeouts are ambiguous, so the
+    // deletion tombstone stays retryable with billing entitlements cleared
+    // until this idempotent cleanup succeeds.
     await removeTestFlightAccessForAccountDeletion(
       stackUser,
       originalStackMetadata,

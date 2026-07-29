@@ -96,8 +96,6 @@ export default async function AppProWelcomePage({
                       color: "var(--button-foreground)",
                     }}
                     href={localizedDashboardHref(locale, STEP_PATHS[key])}
-                    rel="noopener"
-                    target="_blank"
                   >
                     {step.action}
                   </a>
@@ -110,8 +108,6 @@ export default async function AppProWelcomePage({
             <a
               className="inline-flex border border-border px-4 py-2 text-sm font-medium text-foreground"
               href={localizedDashboardHref(locale, "/dashboard")}
-              rel="noopener"
-              target="_blank"
             >
               {welcome.done}
             </a>
