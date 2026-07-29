@@ -70,6 +70,43 @@ struct NativeSSHControlMasterResetTests {
         #expect(runner.requestCount == 3)
     }
 
+    @Test("An unresolved reset does not invalidate a different host")
+    func unresolvedResetDoesNotNotifyDifferentHost() async throws {
+        let firstRecorder = ResetEventRecorder()
+        let secondRecorder = ResetEventRecorder()
+        let broker = makeBroker(processRunner: RecordingProcessRunner())
+        let unresolvedOptions = [
+            "ControlMaster=auto",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+        ]
+        let first = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            destination: "first.example.test",
+            options: unresolvedOptions
+        ))
+        let second = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            destination: "second.example.test",
+            options: unresolvedOptions
+        ))
+        let firstObservation = try #require(
+            broker.observeControlMasterResets(for: first) {
+                firstRecorder.record()
+            }
+        )
+        let secondObservation = try #require(
+            broker.observeControlMasterResets(for: second) {
+                secondRecorder.record()
+            }
+        )
+
+        #expect(await broker.resetConflictedControlMaster(for: first) == .reset)
+        #expect(firstRecorder.count == 1)
+        #expect(secondRecorder.count == 0)
+        _ = firstObservation
+        _ = secondObservation
+    }
+
     @Test("Unresolved templates never coalesce distinct effective identities")
     func unresolvedTemplatesUseConservativeKeys() throws {
         let first = configuration(
@@ -90,6 +127,15 @@ struct NativeSSHControlMasterResetTests {
                 "User=bob",
             ]
         )
+        let matchingSibling = configuration(
+            owner: UUID(),
+            destination: "shared-alias",
+            options: [
+                "ControlMaster=auto",
+                "ControlPath=/tmp/cmux-ssh-501-%C",
+                "User=alice",
+            ]
+        )
         let firstKey = try #require(NativeSSHControlMasterResetKey(
             configuration: first,
             sharingOptions: sharingOptions
@@ -98,9 +144,15 @@ struct NativeSSHControlMasterResetTests {
             configuration: second,
             sharingOptions: sharingOptions
         ))
+        let matchingSiblingKey = try #require(NativeSSHControlMasterResetKey(
+            configuration: matchingSibling,
+            sharingOptions: sharingOptions
+        ))
 
         #expect(firstKey != secondKey)
-        #expect(firstKey.impactScope == secondKey.impactScope)
+        #expect(firstKey.impactScope != secondKey.impactScope)
+        #expect(firstKey != matchingSiblingKey)
+        #expect(firstKey.impactScope == matchingSiblingKey.impactScope)
     }
 
     private func makeBroker(
