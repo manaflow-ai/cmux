@@ -688,7 +688,7 @@ struct ApplicationSurfaceTests {
         panel.close()
     }
 
-    @Test func applicationEditingKeyEquivalentReachesPaneBeforeMainMenu() throws {
+    @Test func unavailableApplicationEditingKeyEquivalentFallsThroughToMainMenu() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
         let runtime = FakeApplicationSurfaceRuntime()
@@ -760,7 +760,128 @@ struct ApplicationSurfaceTests {
         }
         #expect(!appDelegate.handleConfiguredShortcutKeyEquivalent(event))
         #expect(window.performKeyEquivalent(with: event))
-        #expect(probe.callCount == 0)
+        #expect(probe.callCount == 1)
+    }
+
+    @Test func explicitCmuxShortcutWinsOverFocusedApplicationPane() throws {
+        _ = NSApplication.shared
+        let runtime = FakeApplicationSurfaceRuntime()
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { nil },
+            onStateChanged: { _, _ in },
+            onMovedToWindow: { _ in }
+        )
+        let windowID = UUID()
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier(
+            "cmux.main.\(windowID.uuidString)"
+        )
+        window.contentView = view
+        #expect(window.makeFirstResponder(view))
+
+        let action = KeyboardShortcutSettings.Action.showNotifications
+        let previousShortcutData = UserDefaults.standard.data(
+            forKey: action.defaultsKey
+        )
+        let previousSettingsFileStore =
+            KeyboardShortcutSettings.installIsolatedTestFileStore(
+                prefix: "cmux-application-shortcut-routing"
+            )
+        KeyboardShortcutSettings.setShortcut(
+            action.defaultShortcut,
+            for: action
+        )
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "i",
+            charactersIgnoringModifiers: "i",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_I)
+        ))
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(applicationSurfaceRuntime: runtime)
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: tabManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.clearConfiguredShortcutChordState()
+        defer {
+            _ = appDelegate.dismissNotificationsPopoverIfShown()
+            appDelegate.clearConfiguredShortcutChordState()
+            AppDelegate.shared = previousAppDelegate
+            KeyboardShortcutSettings.settingsFileStore =
+                previousSettingsFileStore
+            if let previousShortcutData {
+                UserDefaults.standard.set(
+                    previousShortcutData,
+                    forKey: action.defaultsKey
+                )
+            } else {
+                UserDefaults.standard.removeObject(
+                    forKey: action.defaultsKey
+                )
+            }
+            window.contentView = nil
+            window.close()
+        }
+
+        #expect(appDelegate.handleConfiguredShortcutKeyEquivalent(event))
+    }
+
+    @Test func applicationSurfaceRoundTripsThroughSessionPersistence() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let source = Workspace(applicationSurfaceRuntime: runtime)
+        let sourcePane = try #require(
+            source.bonsplitController.allPaneIds.first
+        )
+        let sourcePanel = try #require(source.newApplicationSurface(
+            inPane: sourcePane,
+            windowID: 42,
+            processID: 43,
+            title: "Dictionary",
+            targetFrameRate: 45
+        ))
+        defer { sourcePanel.close() }
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        _ = try #require(
+            snapshot.panels.first { $0.type == .application }
+        )
+
+        let restored = Workspace(applicationSurfaceRuntime: runtime)
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanel = try #require(
+            restored.panels.values
+                .compactMap { $0 as? ApplicationPanel }
+                .first
+        )
+        defer { restoredPanel.close() }
+
+        #expect(restoredPanel.windowID == 42)
+        #expect(restoredPanel.processID == 43)
+        #expect(restoredPanel.selectedWindowTitle == "Dictionary")
+        #expect(restoredPanel.targetFrameRate == 45)
+        #expect(restoredPanel.runtime === runtime)
     }
 
     @Test func restoredWorkspacesKeepApplicationSurfaceRuntime() throws {
