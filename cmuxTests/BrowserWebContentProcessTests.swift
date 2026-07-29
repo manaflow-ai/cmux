@@ -54,6 +54,17 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserAppSessionOutcomesSeparateMissingAuthFromTransientFailure() {
+        let notAuthenticated = BrowserAppSessionRequestOutcome.notAuthenticated
+        let failed = BrowserAppSessionRequestOutcome.failed
+
+        #expect(notAuthenticated.shouldBeginSignIn)
+        #expect(!notAuthenticated.shouldRetry)
+        #expect(!failed.shouldBeginSignIn)
+        #expect(failed.shouldRetry)
+    }
+
+    @Test
     func configuredBrowserPageInstallsWebAuthnBridge() async throws {
         let configuration = WKWebViewConfiguration()
         BrowserPanel.configureWebViewConfiguration(
