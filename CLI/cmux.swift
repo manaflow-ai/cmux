@@ -9196,6 +9196,8 @@ struct CMUXCLI {
             configurationResult.status == 0 ? configurationResult.stdout : nil
         let fallsBackToOpenSSHInteractiveSession =
             usesImplicitManagedInteractiveShell && resolvedUserSSHConfiguration == nil
+        let effectiveTerminalTransport: WorkspaceRemoteTerminalTransport =
+            fallsBackToOpenSSHInteractiveSession ? .ssh : sshOptions.terminalTransport
         if configurationResult.status != 0 {
             cliDebugLog(
                 "cli.ssh.config_resolution unavailable target=\(sshOptions.displayDestination) " +
@@ -9291,7 +9293,7 @@ struct CMUXCLI {
             vmIDForSplitAttach != nil
         let usesPersistentSSHPTY =
             !sshOptions.skipDaemonBootstrap &&
-            sshOptions.terminalTransport == .ssh &&
+            effectiveTerminalTransport == .ssh &&
             sshOptions.extraArguments.isEmpty &&
             remoteTerminalBootstrapScript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
             deferredRemoteReconnectCommandScript != nil
@@ -9356,8 +9358,7 @@ struct CMUXCLI {
             initialSSHStartupCommand = ptyStartupCommand
             remoteTerminalSSHStartupCommand = ptyStartupCommand
         }
-        if sshOptions.terminalTransport == .mosh,
-           !fallsBackToOpenSSHInteractiveSession {
+        if effectiveTerminalTransport == .mosh {
             initialSSHStartupCommand = buildMoshTerminalStartupCommand(
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
@@ -9409,7 +9410,7 @@ struct CMUXCLI {
             "relayPort=\(sshOptions.remoteRelayPort) localSocket=\(sshOptions.localSocketPath) " +
             "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
             "workspaceName=\(sshOptions.workspaceName?.replacingOccurrences(of: " ", with: "_") ?? "nil") " +
-            "terminalTransport=\(sshOptions.terminalTransport.rawValue) " +
+            "terminalTransport=\(effectiveTerminalTransport.rawValue) " +
             "extraArgs=\(sshOptions.extraArguments.count)"
         )
 
@@ -9501,7 +9502,10 @@ struct CMUXCLI {
             var configureParams: [String: Any] = [
                 "workspace_id": workspaceId,
                 "destination": sshOptions.destination,
-                "terminal_transport": sshOptions.terminalTransport.rawValue,
+                // Persist the transport these startup commands actually use;
+                // config-resolution failure turns an implicit Mosh request
+                // into an unmanaged OpenSSH terminal.
+                "terminal_transport": effectiveTerminalTransport.rawValue,
                 "terminal_profile": sshOptions.terminalProfile.kind.rawValue,
                 "auto_connect": deferredRemoteReconnectCommandScript == nil,
             ]
@@ -9628,7 +9632,7 @@ struct CMUXCLI {
             "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
         ]
         payload["remote_relay_port"] = sshOptions.remoteRelayPort
-        payload["terminal_transport"] = sshOptions.terminalTransport.rawValue
+        payload["terminal_transport"] = effectiveTerminalTransport.rawValue
         payload["terminal_profile"] = sshOptions.terminalProfile.kind.rawValue
         if let tmuxSessionName = sshOptions.terminalProfile.tmuxSessionName {
             payload["terminal_tmux_session"] = tmuxSessionName

@@ -146,7 +146,8 @@ extension SessionRemoteWorkspaceSnapshot {
                     destination: normalizedDestination,
                     port: normalizedPort,
                     sshOptions: restoredSSHOptions,
-                    terminalProfile: restoredTerminalProfile
+                    terminalProfile: restoredTerminalProfile,
+                    configuredRemoteCommand: configuredRemoteCommand
                 )
                 guard restoredTerminalTransport == .mosh,
                       let fallbackCommand else {
@@ -190,10 +191,15 @@ extension SessionRemoteWorkspaceSnapshot {
         destination normalizedDestination: String,
         port normalizedPort: Int?,
         sshOptions reconnectSSHOptions: [String]? = nil,
-        terminalProfile: WorkspaceRemoteTerminalProfile = .shell
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
+        configuredRemoteCommand: String? = nil
     ) -> String? {
         let normalizedOptions = reconnectSSHOptions ?? Self.normalizedSSHOptions(sshOptions)
-        let invocationOptions = terminalProfile.remoteCommandArguments.isEmpty
+        let remoteCommandArguments = Self.restoredRemoteCommandArguments(
+            terminalProfile: terminalProfile,
+            configuredRemoteCommand: configuredRemoteCommand
+        )
+        let invocationOptions = remoteCommandArguments.isEmpty
             ? normalizedOptions
             : Self.removingRemoteCommand(from: normalizedOptions)
         var arguments = sshBootstrapArguments(
@@ -203,13 +209,13 @@ extension SessionRemoteWorkspaceSnapshot {
         if !Self.hasSSHOptionKey(normalizedOptions, key: "RequestTTY") {
             arguments.append("-tt")
         }
-        if !terminalProfile.remoteCommandArguments.isEmpty {
+        if !remoteCommandArguments.isEmpty {
             arguments = [arguments[0]]
                 + SSHHostConfiguredRemoteCommand().overrideArguments
                 + arguments.dropFirst()
         }
         arguments.append(normalizedDestination)
-        arguments.append(contentsOf: terminalProfile.remoteCommandArguments)
+        arguments.append(contentsOf: remoteCommandArguments)
         return arguments.map(Self.shellQuote).joined(separator: " ")
     }
 
@@ -229,7 +235,10 @@ extension SessionRemoteWorkspaceSnapshot {
         let moshSSHArguments = [sshArguments[0]]
             + SSHHostConfiguredRemoteCommand().overrideArguments
             + sshArguments.dropFirst()
-        var remoteCommandArguments = terminalProfile.remoteCommandArguments
+        var remoteCommandArguments = Self.restoredRemoteCommandArguments(
+            terminalProfile: terminalProfile,
+            configuredRemoteCommand: configuredRemoteCommand
+        )
         var preparationShellScript: String?
         var effectiveSSHFallbackCommand = sshFallbackCommand
         if let remoteRelayPort {
@@ -263,17 +272,6 @@ extension SessionRemoteWorkspaceSnapshot {
                     sshOptions: invocationSSHOptions
                 )
             }
-        } else if terminalProfile.kind == .shell,
-                  let configuredRemoteCommand = configuredRemoteCommand?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !configuredRemoteCommand.isEmpty {
-            remoteCommandArguments = [
-                "/bin/sh",
-                "-c",
-                #"exec "${SHELL:-/bin/sh}" -c "$1""#,
-                "cmux-remote-command",
-                configuredRemoteCommand,
-            ]
         }
         return MoshTerminalCommandBuilder(
             capabilityProbeSSHArguments: moshSSHArguments,
@@ -299,6 +297,31 @@ extension SessionRemoteWorkspaceSnapshot {
                 defaultValue: "[cmux] Could not verify remote Mosh support; continuing over SSH."
             )
         ).command()
+    }
+
+    /// Returns the single durable program intent used by both Mosh and its
+    /// direct SSH fallback. A terminal profile remains explicit and wins over
+    /// the host-configured interactive command captured in the snapshot.
+    private static func restoredRemoteCommandArguments(
+        terminalProfile: WorkspaceRemoteTerminalProfile,
+        configuredRemoteCommand: String?
+    ) -> [String] {
+        if !terminalProfile.remoteCommandArguments.isEmpty {
+            return terminalProfile.remoteCommandArguments
+        }
+        guard terminalProfile.kind == .shell,
+              let configuredRemoteCommand = configuredRemoteCommand?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !configuredRemoteCommand.isEmpty else {
+            return []
+        }
+        return [
+            "/bin/sh",
+            "-c",
+            #"exec "${SHELL:-/bin/sh}" -c "$1""#,
+            "cmux-remote-command",
+            configuredRemoteCommand,
+        ]
     }
 
     private func stagedSSHFallbackCommand(
