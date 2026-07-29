@@ -652,6 +652,9 @@ import Testing
         )
 
         #expect(shell.foregroundMacDeviceID == nil)
+        #expect(shell.selectedWorkspace != nil)
+        #expect(shell.selectedWorkspace?.macDeviceID == nil)
+        #expect(shell.selectedWorkspace?.rpcWorkspaceID.rawValue == "live-workspace")
         #expect(shell.connections["mac-a"] == nil)
         #expect(shell.secondaryMacSubscriptions["mac-a"]?.client
             === previousClient)

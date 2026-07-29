@@ -914,11 +914,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// One coalesced task drains the pending id set without widening each edge
     /// into a pool-wide workspace refresh.
     private var secondaryPresenceAggregationTask: Task<Void, Never>?
+    private var secondaryPresenceAggregationTaskGeneration = UUID()
     private var secondaryPresencePendingMacIDs: Set<String> = []
     /// Coalesced retry after any control-pool dial or stream failure. One task
     /// covers all online Macs so simultaneous cellular path loss does not fan
     /// out timers.
     private var secondaryAggregationRetryTask: Task<Void, Never>?
+    private var secondaryAggregationRetryMacIDs: Set<String> = []
     private var secondaryAggregationRetryState = MobileControlPoolRetryState()
     /// One timer owner for the whole online control pool. Each tick reasserts
     /// every lightweight subscription, avoiding one long-lived timer per Mac.
@@ -3685,6 +3687,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         secondaryPresencePendingMacIDs.insert(cmxCanonicalDeviceID(macDeviceID))
         guard secondaryPresenceAggregationTask == nil else { return }
+        let taskGeneration = UUID()
+        secondaryPresenceAggregationTaskGeneration = taskGeneration
         secondaryPresenceAggregationTask = Task { @MainActor [weak self] in
             guard let self else { return }
             while !self.secondaryPresencePendingMacIDs.isEmpty,
@@ -3695,6 +3699,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     onlyMacDeviceIDs: macIDs,
                     allowsNewConnections: self.secondaryAggregationRetryTask == nil
                 )
+            }
+            guard self.secondaryPresenceAggregationTaskGeneration
+                    == taskGeneration else {
+                return
             }
             self.secondaryPresenceAggregationTask = nil
         }
@@ -3812,12 +3820,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if onlyMacDeviceIDs == nil, allWantedConnected {
             secondaryAggregationRetryTask?.cancel()
             secondaryAggregationRetryTask = nil
+            secondaryAggregationRetryMacIDs = []
             secondaryAggregationRetryState.reset()
         } else if !wanted.isEmpty, !allWantedConnected {
             // Initial dial failures need the same shared cooldown as ended live
             // streams. Otherwise every presence heartbeat immediately retries all
             // unavailable Macs and defeats the coalesced exponential backoff.
-            scheduleSecondaryAggregationRetry()
+            scheduleSecondaryAggregationRetry(
+                macDeviceIDs: Set(wanted.filter {
+                    secondaryMacSubscriptions[$0] == nil
+                })
+            )
         }
     }
     private func isSecondaryRefreshStillCurrent(
@@ -4195,12 +4208,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryMacSubscriptions[macDeviceID] = nil
         markSecondaryMacUnavailable(macDeviceID)
         await client.disconnect()
-        scheduleSecondaryAggregationRetry()
+        scheduleSecondaryAggregationRetry(macDeviceIDs: [macDeviceID])
     }
 
-    private func scheduleSecondaryAggregationRetry() {
+    private func scheduleSecondaryAggregationRetry(
+        macDeviceIDs: Set<String>
+    ) {
+        secondaryAggregationRetryMacIDs.formUnion(
+            macDeviceIDs.map(cmxCanonicalDeviceID)
+        )
         guard presence != nil,
               secondaryAggregationRetryTask == nil,
+              !secondaryAggregationRetryMacIDs.isEmpty,
               isSignedIn else {
             return
         }
@@ -4217,7 +4236,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self else { return }
             self.secondaryAggregationRetryState.fire()
             self.secondaryAggregationRetryTask = nil
-            self.scheduleSecondaryAggregation()
+            let macDeviceIDs = self.secondaryAggregationRetryMacIDs
+            self.secondaryAggregationRetryMacIDs = []
+            for macDeviceID in macDeviceIDs {
+                self.scheduleSecondaryPresenceAggregation(
+                    forMacDeviceID: macDeviceID
+                )
+            }
         }
     }
 
@@ -4411,9 +4436,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationPending = false
         secondaryPresenceAggregationTask?.cancel()
         secondaryPresenceAggregationTask = nil
+        secondaryPresenceAggregationTaskGeneration = UUID()
         secondaryPresencePendingMacIDs = []
         secondaryAggregationRetryTask?.cancel()
         secondaryAggregationRetryTask = nil
+        secondaryAggregationRetryMacIDs = []
         secondaryAggregationRetryState.reset()
         secondaryControlKeepaliveTask?.cancel()
         secondaryControlKeepaliveTask = nil
@@ -4636,7 +4663,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
     func beginSecondaryRetryBackoffForTesting() {
-        scheduleSecondaryAggregationRetry()
+        scheduleSecondaryAggregationRetry(macDeviceIDs: ["test-retry"])
     }
     func secondaryRetryBackoffIsScheduledForTesting() -> Bool {
         secondaryAggregationRetryTask != nil
@@ -8953,7 +8980,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func remoteWorkspacesPreservingSnapshots(
         from response: MobileSyncWorkspaceListResponse
     ) -> [MobileWorkspacePreview] {
-        let foregroundMacID = foregroundMacDeviceID ?? activeTicket?.macDeviceID
+        let rawForegroundMacID = foregroundMacDeviceID
+            ?? activeTicket?.macDeviceID
+        let foregroundMacID = rawForegroundMacID?.isEmpty == false
+            ? rawForegroundMacID
+            : nil
         let existingWorkspacesByRemoteID = Dictionary(
             workspaces.lazy
                 .filter { workspace in
@@ -8969,7 +9000,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Tag every workspace with the Mac it came from, so the aggregated
             // multi-Mac list can group and filter by machine (P1 of the multi-Mac
             // work). Today there is one connected Mac, so all rows share its id.
-            workspace.macDeviceID = activeTicket?.macDeviceID
+            workspace.macDeviceID = foregroundMacID
             guard let existingWorkspace = existingWorkspacesByRemoteID[workspace.id] else {
                 return workspace
             }
