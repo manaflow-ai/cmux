@@ -303,6 +303,44 @@ struct WorkspaceFloatingDockNamingAndOrderingTests {
     }
 
     @Test
+    func renameAccessoryKeepsEditingAcrossTheDeferredFocusTurn() async throws {
+        _ = NSApplication.shared
+        let owner = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = WorkspaceFloatingDockParkingAccessoryController(
+            dockID: UUID(),
+            onRestore: {},
+            onRename: { _ in true },
+            onReorderDrag: { _, _ in },
+            onReorderStep: { _ in },
+            onEditingEnded: {}
+        )
+        defer {
+            controller.teardown()
+            owner.orderOut(nil)
+            owner.close()
+        }
+
+        owner.makeKeyAndOrderFront(nil)
+        controller.show(
+            attachedTo: owner,
+            title: "Build Notes",
+            anchorFrame: CGRect(x: 900, y: 400, width: 1, height: 44),
+            appearance: .raycast(backgroundColor: .windowBackgroundColor),
+            animated: false
+        )
+        controller.beginRenaming()
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        #expect(controller.isEditing)
+        #expect(controller.window.isKeyWindow)
+    }
+
+    @Test
     func renameValidationAndVisualReorderSharePersistedDockMetadata() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
