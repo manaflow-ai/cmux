@@ -36,7 +36,8 @@ struct GitStatusProvider: Sendable {
         return parseGitStatus(
             output: await runGit(in: repoRoot, arguments: ["status", "--porcelain=v1", "-z"]),
             repoRoot: repoRoot,
-            explorerRoot: directory
+            explorerRoot: directory,
+            resolvesLocalSymlinks: true
         )
     }
 
@@ -59,16 +60,32 @@ struct GitStatusProvider: Sendable {
         let parts = output.components(separatedBy: "---GIT_STATUS---\n")
         guard parts.count == 2 else { return [:] }
         let repoRoot = parts[0].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        return parseGitStatus(output: parts[1], repoRoot: repoRoot, explorerRoot: directory)
+        return parseGitStatus(
+            output: parts[1],
+            repoRoot: repoRoot,
+            explorerRoot: directory,
+            resolvesLocalSymlinks: false
+        )
     }
 
     private func parseGitStatus(
-        output: String?, repoRoot: String, explorerRoot: String
+        output: String?,
+        repoRoot: String,
+        explorerRoot: String,
+        resolvesLocalSymlinks: Bool
     ) -> [String: GitFileStatus] {
         guard let output, !output.isEmpty else { return [:] }
         var statusMap: [String: GitFileStatus] = [:]
-        let normalizedRepoRoot = Self.pathWithoutTrailingSlashes(repoRoot)
-        let normalizedExplorerRoot = Self.pathWithoutTrailingSlashes(explorerRoot)
+        let outputExplorerRoot = Self.standardizedPath(explorerRoot)
+        let comparisonRepoRoot = resolvesLocalSymlinks
+            ? Self.resolvedPath(repoRoot)
+            : Self.standardizedPath(repoRoot)
+        let comparisonExplorerRoot = resolvesLocalSymlinks
+            ? Self.resolvedPath(explorerRoot)
+            : outputExplorerRoot
+        guard Self.relativePath(comparisonExplorerRoot, within: comparisonRepoRoot) != nil else {
+            return [:]
+        }
         let entries = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
 
         var entryIndex = 0
@@ -85,13 +102,25 @@ struct GitStatusProvider: Sendable {
             entryIndex += usesSecondPath ? 2 : 1
             guard let status = parseStatusChars(index: indexStatus, workTree: workTreeStatus) else { continue }
 
-            let absolutePath = Self.absolutePath(repoRoot: normalizedRepoRoot, relativePath: path)
-            guard Self.path(absolutePath, isContainedIn: normalizedExplorerRoot) else { continue }
+            let comparisonAbsolutePath = Self.absolutePath(
+                repoRoot: comparisonRepoRoot,
+                relativePath: path
+            )
+            guard let explorerRelativePath = Self.relativePath(
+                comparisonAbsolutePath,
+                within: comparisonExplorerRoot
+            ) else {
+                continue
+            }
+            let absolutePath = Self.absolutePath(
+                repoRoot: outputExplorerRoot,
+                relativePath: explorerRelativePath
+            )
 
             statusMap[absolutePath] = status
             markParentDirectories(
                 absolutePath: absolutePath,
-                explorerRoot: normalizedExplorerRoot,
+                explorerRoot: outputExplorerRoot,
                 status: status,
                 in: &statusMap
             )
@@ -130,15 +159,40 @@ struct GitStatusProvider: Sendable {
     }
 
     private static func absolutePath(repoRoot: String, relativePath: String) -> String {
-        repoRoot == "/" ? "/" + relativePath : repoRoot + "/" + relativePath
+        guard !relativePath.isEmpty else { return repoRoot }
+        return repoRoot == "/" ? "/" + relativePath : repoRoot + "/" + relativePath
     }
 
     private static func path(_ path: String, isContainedIn root: String) -> Bool {
+        relativePath(path, within: root) != nil
+    }
+
+    private static func relativePath(_ path: String, within root: String) -> String? {
         let normalizedPath = pathWithoutTrailingSlashes(path)
         let normalizedRoot = pathWithoutTrailingSlashes(root)
-        if normalizedPath == normalizedRoot { return true }
-        if normalizedRoot == "/" { return normalizedPath.hasPrefix("/") }
-        return normalizedPath.hasPrefix(normalizedRoot + "/")
+        if normalizedPath == normalizedRoot { return "" }
+        if normalizedRoot == "/" {
+            guard normalizedPath.hasPrefix("/") else { return nil }
+            return String(normalizedPath.dropFirst())
+        }
+        let rootPrefix = normalizedRoot + "/"
+        guard normalizedPath.hasPrefix(rootPrefix) else { return nil }
+        return String(normalizedPath.dropFirst(rootPrefix.count))
+    }
+
+    private static func standardizedPath(_ path: String) -> String {
+        pathWithoutTrailingSlashes(
+            URL(fileURLWithPath: path).standardizedFileURL.path
+        )
+    }
+
+    private static func resolvedPath(_ path: String) -> String {
+        pathWithoutTrailingSlashes(
+            URL(fileURLWithPath: path)
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+                .path
+        )
     }
 
     private static func pathWithoutTrailingSlashes(_ path: String) -> String {
