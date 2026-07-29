@@ -338,7 +338,7 @@ func agentOptionName(argument string) string {
 
 var claudeTeamsManagementCommands = map[string]bool{
 	"auth": true, "auto-mode": true, "doctor": true,
-	"gateway": true, "import": true, "install": true, "kill": true, "logs": true,
+	"gateway": true, "install": true, "kill": true, "logs": true,
 	"mcp": true, "plugin": true, "plugins": true, "project": true,
 	"rm": true, "setup-token": true, "stop": true,
 	"update": true, "upgrade": true,

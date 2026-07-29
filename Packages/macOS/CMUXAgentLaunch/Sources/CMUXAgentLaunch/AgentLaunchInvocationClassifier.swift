@@ -17,7 +17,6 @@ public struct AgentLaunchInvocationClassifier {
             "auto-mode",
             "doctor",
             "gateway",
-            "import",
             "install",
             "kill",
             "logs",
