@@ -273,7 +273,8 @@ struct WorkspaceFloatingDockParkingRegressionTests {
             visibleScreenFrame: CGRect(x: 2_560, y: -358, width: 1_728, height: 1_117)
         )
 
-        controller.showStashed(snapshot: first, animated: true)
+        dock.setStashed(true)
+        controller.stash(snapshot: first, completion: {})
         controller.showStashed(snapshot: latest, animated: false)
         try await Task.sleep(nanoseconds: 350_000_000)
 
