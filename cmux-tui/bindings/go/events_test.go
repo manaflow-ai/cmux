@@ -39,6 +39,17 @@ func TestParseTitleChangedIncludesAuthoritativeTitle(t *testing.T) {
 	}
 }
 
+func TestParseSurfaceExitedExposesHostedRuntime(t *testing.T) {
+	event, ok := parseEvent(map[string]any{
+		"event":      "surface-exited",
+		"surface":    float64(7),
+		"runtime_ms": float64(321),
+	}).(SurfaceEvent)
+	if !ok || event.RuntimeMS == nil || *event.RuntimeMS != 321 {
+		t.Fatalf("surface exit = %#v", event)
+	}
+}
+
 func TestParseResizedAcceptsProtocolV6DataField(t *testing.T) {
 	event, ok := parseEvent(map[string]any{
 		"event":   "resized",

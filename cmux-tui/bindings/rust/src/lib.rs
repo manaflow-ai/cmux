@@ -611,6 +611,8 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SurfaceEvent {
     pub surface: u64,
+    #[serde(default)]
+    pub runtime_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1624,6 +1626,20 @@ mod tests {
         assert!(matches!(
             legacy,
             Event::TitleChanged(TitleChangedEvent { surface: 7, title: None })
+        ));
+    }
+
+    #[test]
+    fn surface_exited_decodes_hosted_runtime() {
+        let event = parse_event(serde_json::json!({
+            "event": "surface-exited",
+            "surface": 7,
+            "runtime_ms": 321,
+        }));
+
+        assert!(matches!(
+            event,
+            Event::SurfaceExited(SurfaceEvent { surface: 7, runtime_ms: Some(321) })
         ));
     }
 

@@ -260,9 +260,12 @@ fn surface_exit_reaps_tree_and_emits_event() {
 
     let got = wait_for(
         || {
-            events
-                .try_iter()
-                .find(|e| matches!(e, MuxEvent::SurfaceExited(id) if *id == surface.id))
+            events.try_iter().find(|event| {
+                matches!(
+                    event,
+                    MuxEvent::SurfaceExited { surface: id, .. } if *id == surface.id
+                )
+            })
         },
         Duration::from_secs(10),
     );

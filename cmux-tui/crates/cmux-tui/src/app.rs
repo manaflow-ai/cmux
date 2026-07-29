@@ -67,7 +67,7 @@ use crate::pty_input::{
 use crate::session::tree::{PaneView, ScreenView};
 use crate::session::{
     CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, Session, SidebarPluginSurface, SurfaceHandle,
-    TreeView, is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
+    TreeView, is_remote_timeout, is_remote_transport_failure, is_surface_unavailable,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
@@ -236,10 +236,9 @@ impl SessionEventSender {
     fn accepts_mux_event(&self, event: &MuxEvent) -> bool {
         let Some(filter) = self.surface_filter else { return true };
         match event {
-            MuxEvent::SurfaceOutput(surface)
-            | MuxEvent::SurfaceExited(surface)
-            | MuxEvent::Bell(surface) => *surface == filter,
-            MuxEvent::SurfaceResized { surface, .. }
+            MuxEvent::SurfaceOutput(surface) | MuxEvent::Bell(surface) => *surface == filter,
+            MuxEvent::SurfaceExited { surface, .. }
+            | MuxEvent::SurfaceResized { surface, .. }
             | MuxEvent::SurfaceResizeFailed { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ScrollChanged { surface, .. } => *surface == filter,
@@ -438,7 +437,7 @@ fn forward_mux_event(
                 Err(_) => ForwardMuxOutcome::Stop,
             };
         }
-        MuxEvent::SurfaceExited(surface) => mux_titles.remove(surface),
+        MuxEvent::SurfaceExited { surface, .. } => mux_titles.remove(surface),
         _ => {}
     }
     let terminal = matches!(event, MuxEvent::Empty);
@@ -1322,7 +1321,7 @@ impl OrderedSession {
                         drop(attach_claims);
                         Ok(())
                     }
-                    Err(error) if retired && is_remote_surface_unavailable(&error, id) => {
+                    Err(error) if retired && is_surface_unavailable(&error, id) => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
@@ -1815,6 +1814,11 @@ impl OrderedSession {
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         Ok(())
                     }
+                    Err(error) if is_surface_unavailable(&error, surface_id) => {
+                        failures.lock().unwrap().remove(&surface_id);
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
+                        Ok(())
+                    }
                     Err(error) => {
                         let transient =
                             is_remote_timeout(&error) || is_remote_transport_failure(&error);
@@ -2255,6 +2259,35 @@ impl OrderedSession {
 
     pub fn close_surface(&self, surface: SurfaceId) {
         self.enqueue_routing("close tab", move |session| session.close_surface(surface));
+    }
+
+    fn close_established_exited_surface(&self, surface: SurfaceId) {
+        self.enqueue_routing("close exited tab", move |session| {
+            let workspace = session.refresh_tree().ok().and_then(|tree| {
+                tree.workspaces.into_iter().find_map(|workspace| {
+                    let contains_surface = workspace
+                        .screens
+                        .iter()
+                        .flat_map(|screen| &screen.panes)
+                        .flat_map(|pane| &pane.tabs)
+                        .any(|tab| tab.surface == surface);
+                    if !contains_surface {
+                        return None;
+                    }
+                    let surface_count = workspace
+                        .screens
+                        .iter()
+                        .flat_map(|screen| &screen.panes)
+                        .map(|pane| pane.tabs.len())
+                        .sum::<usize>();
+                    Some((workspace.id, surface_count))
+                })
+            });
+            match workspace {
+                Some((workspace, 1)) => session.close_workspace(workspace),
+                _ => session.close_surface(surface),
+            }
+        });
     }
 
     pub fn clear_history(
@@ -7700,7 +7733,8 @@ impl App {
             return self.handle_terminal_input(TerminalInput::from_event(input));
         }
         match &event {
-            AppEvent::Mux(MuxEvent::SurfaceExited(_) | MuxEvent::LayoutChanged(_)) => {
+            AppEvent::Mux(MuxEvent::SurfaceExited { .. } | MuxEvent::LayoutChanged(_))
+            | AppEvent::Input(Event::Key(_) | Event::Mouse(_) | Event::Paste(_)) => {
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::Mux(MuxEvent::TreeChanged) => {
@@ -7715,7 +7749,7 @@ impl App {
         if matches!(
             &event,
             AppEvent::Mux(
-                MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_) | MuxEvent::SurfaceExited(_)
+                MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_) | MuxEvent::SurfaceExited { .. }
             )
         ) {
             self.session.clear_surface_sync_failures();
@@ -7811,13 +7845,28 @@ impl App {
                 self.quit = true;
                 Ok(RenderAction::None)
             }
-            AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
-                self.retire_surface_state(id);
-                self.remove_surface_from_tree(id);
-                if self.surface_only == Some(id) {
+            AppEvent::Mux(MuxEvent::SurfaceExited { surface, runtime_ms }) => {
+                if self.surface_only == Some(surface) {
+                    if runtime_ms.is_some_and(|runtime_ms| {
+                        runtime_ms > self.config.abnormal_command_exit_runtime_ms()
+                    }) {
+                        self.session.close_established_exited_surface(surface);
+                    }
+                    self.retire_surface_state(surface);
+                    self.remove_surface_from_tree(surface);
                     self.quit = true;
                     return Ok(RenderAction::None);
                 }
+                if runtime_ms.is_some_and(|runtime_ms| {
+                    runtime_ms <= self.config.abnormal_command_exit_runtime_ms()
+                }) {
+                    return Ok(RenderAction::Draw);
+                }
+                if runtime_ms.is_some() {
+                    self.session.close_established_exited_surface(surface);
+                }
+                self.retire_surface_state(surface);
+                self.remove_surface_from_tree(surface);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows, reservation_id }) => {
@@ -8182,6 +8231,16 @@ impl App {
                 || self.routing_refresh_pending)
             && !self.input_can_update_pending_mutation(&input)
         {
+            let passive = matches!(
+                &input,
+                TerminalInput::Mouse(MouseEvent {
+                    kind: MouseEventKind::Moved | MouseEventKind::Up(_),
+                    ..
+                })
+            );
+            if passive {
+                return Ok(RenderAction::None);
+            }
             self.status_message = Some(
                 localization::catalog()
                     .terminal
@@ -19936,6 +19995,48 @@ mod tests {
     }
 
     #[test]
+    fn resize_of_surface_closed_before_worker_runs_is_not_a_sync_failure() {
+        let mux = Mux::new("surface-closed-during-resize-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("block resize lane", false, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let handle = app.session.surface(surface.id).unwrap();
+        let claim = match app.session.surface_resize_decision(surface.id, (78, 22), true) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("resize must queue"),
+        };
+        assert!(app.session.resize_surface(surface.id, handle, 78, 22, false, claim));
+        mux.close_surface(surface.id).unwrap();
+        app.retire_surface_state(surface.id);
+        release_tx.send(()).unwrap();
+
+        let settled = (0..8)
+            .find_map(|_| {
+                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                matches!(event, AppEvent::SessionMutationSettled { .. }).then_some(event)
+            })
+            .expect("resize must settle");
+        assert!(matches!(
+            &settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::Success { tree: None },
+                ..
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.is_none());
+        assert!(!app.session.surface_resize_failures.lock().unwrap().contains_key(&surface.id));
+    }
+
+    #[test]
     fn retiring_surface_during_queued_attach_is_not_a_sync_failure() {
         let mux = Mux::new("surface-retired-during-attach-test", SurfaceOptions::default());
         let surface = 77;
@@ -20554,7 +20655,8 @@ mod tests {
         });
 
         assert_eq!(
-            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface))).unwrap(),
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited { surface, runtime_ms: None }))
+                .unwrap(),
             RenderAction::Draw
         );
         assert!(!app.tab_locations.contains_key(&surface));
@@ -20570,6 +20672,208 @@ mod tests {
         assert!(!app.session.has_pending_mutations());
         assert_eq!(app.deferred_input.len(), 1);
         assert!(events.try_recv().is_err());
+    }
+    #[test]
+    fn established_child_exit_closes_its_last_surface_workspace() {
+        let mux = Mux::new(
+            "established-child-exit-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: surface.id,
+                runtime_ms: Some(251),
+            }))
+            .unwrap(),
+            RenderAction::Draw
+        );
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().all(|candidate| candidate.id != workspace)
+        }));
+    }
+
+    #[test]
+    fn established_child_exit_preserves_concurrently_added_tab() {
+        let mux = Mux::new(
+            "established-child-exit-multi-tab-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let exited = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let pane = mux.with_state(|state| state.pane_of(exited.id).unwrap());
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let surviving = mux.new_tab(Some(pane), None, Some((20, 8))).unwrap();
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: exited.id,
+                runtime_ms: Some(251),
+            }))
+            .unwrap(),
+            RenderAction::Draw
+        );
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+
+        assert!(mux.surface(exited.id).is_none());
+        assert!(mux.surface(surviving.id).is_some());
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().any(|candidate| candidate.id == workspace)
+        }));
+        mux.close_surface(surviving.id).unwrap();
+    }
+
+    #[test]
+    fn established_child_exit_decides_close_on_ordered_worker() {
+        let mux = Mux::new(
+            "established-child-exit-ordered-close-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let exited = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let pane = mux.with_state(|state| state.pane_of(exited.id).unwrap());
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("blocker", false, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: exited.id,
+                runtime_ms: Some(251),
+            }))
+            .unwrap(),
+            RenderAction::Draw
+        );
+        let surviving = mux.new_tab(Some(pane), None, Some((20, 8))).unwrap();
+        release_tx.send(()).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+
+        assert!(mux.surface(exited.id).is_none());
+        assert!(mux.surface(surviving.id).is_some());
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().any(|candidate| candidate.id == workspace)
+        }));
+        mux.close_surface(surviving.id).unwrap();
+    }
+    #[test]
+    fn surface_only_attach_tombstones_an_established_exited_shell() {
+        let mux = Mux::new(
+            "surface-only-established-exit-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.surface_only = Some(surface.id);
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: surface.id,
+                runtime_ms: Some(251),
+            }))
+            .unwrap(),
+            RenderAction::None
+        );
+        assert!(app.quit);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().all(|candidate| candidate.id != workspace)
+        }));
+    }
+
+    #[test]
+    fn surface_only_startup_failure_quits_without_tombstoning_surface() {
+        let mux = Mux::new(
+            "surface-only-startup-failure-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.surface_only = Some(surface.id);
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: surface.id,
+                runtime_ms: Some(250),
+            }))
+            .unwrap(),
+            RenderAction::None
+        );
+
+        assert!(app.quit);
+        assert!(mux.surface(surface.id).is_some());
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().any(|candidate| candidate.id == workspace)
+        }));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn startup_failure_exit_remains_visible_at_ghostty_threshold() {
+        let mux = Mux::new(
+            "startup-failure-exit-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: surface.id,
+                runtime_ms: Some(250),
+            }))
+            .unwrap(),
+            RenderAction::Draw
+        );
+
+        assert!(app.tab_locations.contains_key(&surface.id));
+        assert!(!app.session.has_pending_mutations());
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -21052,7 +21356,7 @@ mod tests {
     }
 
     #[test]
-    fn pointer_motion_is_discarded_while_a_mutation_can_change_its_target() {
+    fn passive_pointer_events_are_silently_discarded_while_layout_changes() {
         let mux = Mux::new("deferred-motion-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -21064,19 +21368,30 @@ mod tests {
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
+        for kind in [MouseEventKind::Moved, MouseEventKind::Up(MouseButton::Left)] {
+            app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind,
+                column: 9,
+                row: 3,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+            assert!(app.deferred_input.is_empty());
+            assert!(app.status_message.is_none());
+        }
+
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Moved,
+            kind: MouseEventKind::Down(MouseButton::Left),
             column: 9,
             row: 3,
             modifiers: KeyModifiers::NONE,
         })))
         .unwrap();
-
-        assert!(app.deferred_input.is_empty());
         assert_eq!(
             app.status_message.as_deref(),
             Some("Pointer input was discarded while the layout changed")
         );
+
         release_tx.send(()).unwrap();
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         app.handle(settled).unwrap();
