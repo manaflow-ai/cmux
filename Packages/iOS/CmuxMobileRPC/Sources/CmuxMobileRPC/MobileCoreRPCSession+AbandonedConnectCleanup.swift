@@ -36,7 +36,9 @@ extension MobileCoreRPCSession {
         cleanupTimeoutNanoseconds: UInt64,
         lateCloseTimeoutNanoseconds: UInt64
     ) {
-        Task.detached { [connectAttemptRegistry] in
+        let cleanupID = UUID()
+        let cleanupTask = Task.detached {
+            [connectAttemptRegistry, weak self] in
             let taskTimeout = RPCTaskTimeout()
             let cleaner = MobileRPCAbandonedConnectCleaner(
                 registry: connectAttemptRegistry,
@@ -61,14 +63,20 @@ extension MobileCoreRPCSession {
                 if tracksRouteGate {
                     await connectAttemptRegistry.clearTimedOutAbandonedCleanup(lease: lease)
                 }
-                cleaner.closeLateAbandonedCandidate(
+                await cleaner.closeLateAbandonedCandidate(
                     task: task,
                     timeoutNanoseconds: lateCloseTimeoutNanoseconds
                 )
             } catch {
                 await cleaner.clearFinishedConnectGate()
             }
+            await self?.abandonedConnectionCleanupDidFinish(cleanupID)
         }
+        abandonedConnectionCleanupTasks[cleanupID] = cleanupTask
+    }
+
+    private func abandonedConnectionCleanupDidFinish(_ cleanupID: UUID) {
+        abandonedConnectionCleanupTasks[cleanupID] = nil
     }
 }
 
@@ -80,22 +88,23 @@ private struct MobileRPCAbandonedConnectCleaner: Sendable {
     func closeLateAbandonedCandidate(
         task: Task<any CmxByteTransport, any Error>,
         timeoutNanoseconds: UInt64
-    ) {
-        Task.detached {
-            let taskTimeout = RPCTaskTimeout()
-            do {
-                let candidate = try await taskTimeout.value(
-                    task,
-                    timeoutNanoseconds: timeoutNanoseconds
-                )
-                let didClose = await closeCandidate(candidate, timeoutNanoseconds: timeoutNanoseconds)
-                if didClose {
-                    await clearFinishedConnectGate()
-                } else {
-                    await clearTimedOutAbandonedCleanupGate()
-                }
-            } catch {
+    ) async {
+        let taskTimeout = RPCTaskTimeout()
+        do {
+            let candidate = try await taskTimeout.value(
+                task,
+                timeoutNanoseconds: timeoutNanoseconds
+            )
+            let didClose = await closeCandidate(
+                candidate,
+                timeoutNanoseconds: timeoutNanoseconds
+            )
+            if didClose {
+                await clearFinishedConnectGate()
+            } else {
+                await clearTimedOutAbandonedCleanupGate()
             }
+        } catch {
         }
     }
 

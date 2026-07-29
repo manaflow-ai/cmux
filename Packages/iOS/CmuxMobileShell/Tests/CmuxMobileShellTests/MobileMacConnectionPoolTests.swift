@@ -2392,7 +2392,10 @@ import Testing
             ticket: ticket,
             storedInstanceTag: "mmpool",
             authenticatedInstanceTag: "mmpool",
-            supportedHostCapabilities: ["events.v1"],
+            supportedHostCapabilities: [
+                "events.v1",
+                "notification.feed.v1",
+            ],
             actionCapabilities: .none,
             displayName: "Mac B"
         )
@@ -2456,11 +2459,18 @@ import Testing
         #expect(await router.count(of: "workspace.list") == 3)
         #expect(subscription.deferredRefreshTask == nil)
         #expect(subscription.refreshPending)
+        let feedFetchesBeforeResume = await router.count(
+            of: "notification.feed.list"
+        )
 
         await shell.resumeSecondarySubscriptionAfterAbortedPromotion(
             subscription,
             macDeviceID: "mac-b"
         )
+        #expect(await router.waitForCount(
+            of: "notification.feed.list",
+            atLeast: feedFetchesBeforeResume + 1
+        ))
         #expect(try await pollUntil {
             subscription.deferredRefreshTask != nil
         })

@@ -5172,6 +5172,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         subscription.isTransitioningToFocus = false
+        // Control events are consumed while the promotion fence is active, but
+        // notification routing deliberately rejects that transitioning owner.
+        // One coalesced list fetch repairs any invalidation consumed in that gap.
+        scheduleSecondaryNotificationFeedRefresh(
+            macDeviceID: macDeviceID,
+            client: subscription.client,
+            displayName: subscription.displayName
+        )
         if subscription.refreshPending,
            subscription.refreshTask == nil,
            subscription.deferredRefreshTask == nil {

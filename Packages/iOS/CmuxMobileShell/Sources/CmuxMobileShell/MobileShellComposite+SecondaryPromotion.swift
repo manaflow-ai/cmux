@@ -134,11 +134,46 @@ extension MobileShellComposite {
         guard secondaryMacSubscriptions[macDeviceID] === subscription else {
             return
         }
+        subscription.isTransitioningToFocus = true
         subscription.detachKeepingClient()
         subscription.client.retire()
+        let drain = await Self.raceAgainstDeadline(
+            nanoseconds: connectionHandoffDrainTimeoutNanoseconds
+        ) {
+            await subscription.client
+                .disconnectAndWaitForTransportDrain()
+            return true
+        }
+        if drain.value == true, !drain.wasCancelled {
+            finishRetiredSecondaryPromotionCandidate(
+                subscription,
+                macDeviceID: macDeviceID
+            )
+        } else {
+            // Keep the retired entry as a same-peer reservation. The fresh
+            // fallback path will find it and await the same physical drain
+            // before dialing. Complete registry cleanup independently if the
+            // switch itself is cancelled before reaching that fallback.
+            Task { @MainActor [weak self] in
+                await subscription.client
+                    .disconnectAndWaitForTransportDrain()
+                self?.finishRetiredSecondaryPromotionCandidate(
+                    subscription,
+                    macDeviceID: macDeviceID
+                )
+            }
+        }
+    }
+
+    private func finishRetiredSecondaryPromotionCandidate(
+        _ subscription: SecondaryMacSubscription,
+        macDeviceID: String
+    ) {
+        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+            return
+        }
         secondaryMacSubscriptions[macDeviceID] = nil
         markSecondaryMacUnavailable(macDeviceID)
-        await subscription.client.disconnect()
     }
 
     /// Reuse a live secondary client only while both pre- and post-probe store

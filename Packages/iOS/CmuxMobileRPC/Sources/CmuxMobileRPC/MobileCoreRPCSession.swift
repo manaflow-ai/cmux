@@ -97,6 +97,7 @@ actor MobileCoreRPCSession {
     private var transportCloseTask: Task<Void, Never>?
     private var transportCloseTaskID: UUID?
     private var pendingTransportCloses: [any CmxByteTransport] = []
+    var abandonedConnectionCleanupTasks: [UUID: Task<Void, Never>] = [:]
 
     init(
         connectAttemptKey: String? = nil,
@@ -264,8 +265,15 @@ actor MobileCoreRPCSession {
     /// `close()`. Ordinary reconnects intentionally do not block on this, but a
     /// same-peer ownership handoff must observe the release before redialing.
     func waitForTransportDrain() async {
-        while let transportCloseTask {
-            await transportCloseTask.value
+        while transportCloseTask != nil
+            || !abandonedConnectionCleanupTasks.isEmpty {
+            let installedTransportClose = transportCloseTask
+            let abandonedConnectCleanups =
+                Array(abandonedConnectionCleanupTasks.values)
+            await installedTransportClose?.value
+            for cleanup in abandonedConnectCleanups {
+                await cleanup.value
+            }
         }
     }
 
