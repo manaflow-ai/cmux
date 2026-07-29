@@ -77,6 +77,6 @@ struct BrowserUserAgentPolicyWebKitTests {
         let request = URLRequest(url: URL(fileURLWithPath: "/tmp/example.html"))
 
         #expect(webView.browserUserAgentPolicyRestartRequest(for: request) == nil)
-        #expect(webView.customUserAgent == nil)
+        #expect(webView.customUserAgent?.isEmpty != false)
     }
 }

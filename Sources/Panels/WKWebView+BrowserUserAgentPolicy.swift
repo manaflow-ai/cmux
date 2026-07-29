@@ -17,7 +17,8 @@ extension WKWebView {
             return false
         }
 
-        guard customUserAgent != resolvedUserAgent else { return false }
+        let currentUserAgent = customUserAgent.flatMap { $0.isEmpty ? nil : $0 }
+        guard currentUserAgent != resolvedUserAgent else { return false }
         customUserAgent = resolvedUserAgent
         return true
     }
