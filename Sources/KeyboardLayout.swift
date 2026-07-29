@@ -2,6 +2,35 @@ import AppKit
 import Carbon
 
 class KeyboardLayout {
+    /// Whether the selected source is an input method rather than a direct
+    /// keyboard layout.
+    ///
+    /// This uses Carbon's semantic input-source type. It deliberately avoids
+    /// source identifiers, languages, scripts, and layout names.
+    static var currentInputSourceUsesInputMethod: Bool {
+        guard let source = TISCopyCurrentKeyboardInputSource()?
+            .takeRetainedValue(),
+              let typePointer = TISGetInputSourceProperty(
+                  source,
+                  kTISPropertyInputSourceType
+              ) else {
+            return false
+        }
+
+        let sourceType = Unmanaged<CFString>
+            .fromOpaque(typePointer)
+            .takeUnretainedValue()
+        return CFEqual(
+            sourceType,
+            kTISTypeKeyboardInputMethodWithoutModes
+        ) ||
+            CFEqual(
+                sourceType,
+                kTISTypeKeyboardInputMethodModeEnabled
+            ) ||
+            CFEqual(sourceType, kTISTypeKeyboardInputMode)
+    }
+
     /// Translate a physical keyCode to the character AppKit would use for shortcut matching,
     /// preserving command-aware layouts. Sources without a directly usable ASCII
     /// character fall back to the system's ASCII-capable shortcut layout.

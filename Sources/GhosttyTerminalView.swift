@@ -4995,8 +4995,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // For NSTextInputClient - accumulates text during key events
     private(set) var keyTextAccumulator: [String]? = nil
     private var textInputCommandPerformed: Bool?
-    private var markedText = NSMutableAttributedString()
-    private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
+    private var textInputEditSession = TerminalTextInputEditSession()
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
     private let terminalKeyInputPlanner = TerminalKeyInputPlanner()
@@ -5049,6 +5048,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
         return inputContext.handleEvent(event)
+    }
+
+    /// Classifies the selected source by its platform input contract.
+    ///
+    /// Subclasses may override this semantic boundary in integration tests
+    /// without replacing AppKit callbacks globally.
+    func currentTextInputSourceKind() -> TerminalTextInputSourceKind {
+        KeyboardLayout.currentInputSourceUsesInputMethod
+            ? .inputMethod
+            : .keyboardLayout
     }
 
     /// Some third-party voice input apps inject committed text by sending the
@@ -5456,12 +5465,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Capture every semantic callback AppKit emits for this native key.
         keyTextAccumulator = []
         textInputCommandPerformed = false
+        textInputEditSession.beginEvent(
+            sourceKind: currentTextInputSourceKind()
+        )
         defer {
             keyTextAccumulator = nil
             textInputCommandPerformed = nil
         }
 
-        let markedTextBefore = markedText.length > 0
+        let markedTextBefore = textInputEditSession.hasMarkedText
 
         // AppKit may redispatch a command event from performKeyEquivalent.
         // Interpretation now owns this event, so it must not remain replayable.
@@ -5474,6 +5486,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
         let textInputConsumed = handleTextInputEvent(textInputEvent)
+        keyTextAccumulator?.append(
+            contentsOf: textInputEditSession.finishEvent(
+                consumedByTextInput: textInputConsumed
+            )
+        )
 #if DEBUG
         textInputMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -5493,7 +5510,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let inputSnapshot = TerminalKeyInputSnapshot(
             hadMarkedText: markedTextBefore,
-            hasMarkedText: markedText.length > 0,
+            hasMarkedText: textInputEditSession.hasMarkedText,
             textInputConsumed: textInputConsumed,
             textInputCommandPerformed: textInputCommandPerformed ?? false,
             committedText: keyTextAccumulator ?? [],
@@ -11397,20 +11414,28 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func hasMarkedText() -> Bool {
-        return markedText.length > 0
+        textInputEditSession.hasMarkedText
     }
 
     func markedRange() -> NSRange {
-        guard markedText.length > 0 else { return NSRange(location: NSNotFound, length: 0) }
-        return NSRange(location: 0, length: markedText.length)
+        guard textInputEditSession.hasMarkedText else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+        return NSRange(
+            location: 0,
+            length: (textInputEditSession.markedText as NSString).length
+        )
     }
 
     func selectedRange() -> NSRange {
-        if markedText.length > 0 {
+        if textInputEditSession.hasMarkedText {
 #if DEBUG
-            assert(markedSelectedRange.location != NSNotFound, "markedSelectedRange must be valid")
+            assert(
+                textInputEditSession.markedSelection.location != NSNotFound,
+                "markedSelection must be valid"
+            )
 #endif
-            return markedSelectedRange
+            return textInputEditSession.markedSelection
         }
         return readSelectionSnapshot()?.range ?? NSRange(location: 0, length: 0)
     }
@@ -11422,19 +11447,23 @@ extension GhosttyNSView: NSTextInputClient {
             CmuxTypingTiming.logDuration(
                 path: "terminal.setMarkedText",
                 startedAt: typingTimingStart,
-                extra: "markedLength=\(markedText.length)"
+                extra: "markedLength=\((textInputEditSession.markedText as NSString).length)"
             )
         }
 #endif
+        let text: String
         switch string {
         case let v as NSAttributedString:
-            markedText = NSMutableAttributedString(attributedString: v)
+            text = v.string
         case let v as String:
-            markedText = NSMutableAttributedString(string: v)
+            text = v
         default:
             return
         }
-        markedSelectedRange = normalizedMarkedSelectionRange(selectedRange, markedLength: markedText.length)
+        textInputEditSession.setMarkedText(
+            text,
+            selectedRange: selectedRange
+        )
 
         // If we're not in a keyDown event, sync preedit immediately.
         // This can happen due to external events like changing keyboard layouts
@@ -11447,7 +11476,7 @@ extension GhosttyNSView: NSTextInputClient {
 
     func unmarkText() {
 #if DEBUG
-        let hadMarkedText = markedText.length > 0
+        let hadMarkedText = textInputEditSession.hasMarkedText
         let typingTimingStart = CmuxTypingTiming.start()
         defer {
             CmuxTypingTiming.logDuration(
@@ -11457,17 +11486,19 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
-        if markedText.length > 0 {
-            markedText.mutableString.setString("")
-            markedSelectedRange = NSRange(location: NSNotFound, length: 0)
+        let committedText = textInputEditSession.unmarkText()
+        if hadMarkedText, keyTextAccumulator == nil {
             syncPreedit()
             invalidateTextInputCoordinates(selectionChanged: true)
         }
+        for text in committedText {
+            deliverCommittedText(text, isExternal: false)
+        }
     }
 
-    /// Sync the preedit state based on the markedText value to libghostty.
-    /// This tells Ghostty about IME composition text so it can render the
-    /// preedit overlay (e.g. for Korean, Japanese, Chinese input).
+    /// Sync the preedit state based on the edit session to libghostty.
+    /// This tells Ghostty about composition text so it can render the preedit
+    /// overlay.
     private func syncPreedit(clearIfNeeded: Bool = true) {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -11475,14 +11506,14 @@ extension GhosttyNSView: NSTextInputClient {
             CmuxTypingTiming.logDuration(
                 path: "terminal.syncPreedit",
                 startedAt: typingTimingStart,
-                extra: "markedLength=\(markedText.length) clearIfNeeded=\(clearIfNeeded ? 1 : 0)"
+                extra: "markedLength=\((textInputEditSession.markedText as NSString).length) clearIfNeeded=\(clearIfNeeded ? 1 : 0)"
             )
         }
 #endif
         guard let surface = surface else { return }
 
-        if markedText.length > 0 {
-            let str = markedText.string
+        if textInputEditSession.hasMarkedText {
+            let str = textInputEditSession.markedText
             let len = str.utf8CString.count
             if len > 0 {
                 str.withCString { ptr in
@@ -11502,8 +11533,16 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        if markedText.length > 0 {
-            guard let substringRange = clampedMarkedTextRange(range, markedLength: markedText.length) else { return nil }
+        if textInputEditSession.hasMarkedText {
+            let markedText = NSAttributedString(
+                string: textInputEditSession.markedText
+            )
+            guard let substringRange = clampedMarkedTextRange(
+                range,
+                markedLength: markedText.length
+            ) else {
+                return nil
+            }
             actualRange?.pointee = substringRange
             return markedText.attributedSubstring(from: substringRange)
         }
@@ -11570,8 +11609,10 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func attributedString() -> NSAttributedString {
-        if markedText.length > 0 {
-            return NSAttributedString(attributedString: markedText)
+        if textInputEditSession.hasMarkedText {
+            return NSAttributedString(
+                string: textInputEditSession.markedText
+            )
         }
         if let snapshot = readSelectionSnapshot(), !snapshot.string.isEmpty {
             return NSAttributedString(string: snapshot.string)
@@ -11616,55 +11657,80 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
 
-        // AppKit defines insertText as committed text. The replacement range
-        // describes an edit to a document; it is not a composition boundary.
-        // Terminals have no editable backing document, so we follow Ghostty and
-        // commit the supplied text while AppKit owns provisional state through
-        // setMarkedText.
-        unmarkText()
-
-        // Some IME/input-method paths call insertText with an empty payload to
-        // flush state. There is no terminal text to send in that case.
-        guard !chars.isEmpty else { return }
-
 #if DEBUG
         if NSApp.currentEvent == nil {
             cmuxDebugLog("ime.insertText.noEvent len=\(chars.count)")
         }
 #endif
 
-        // If we have an accumulator, we're in a keyDown event - accumulate the text
+        let previousMarkedText = textInputEditSession.markedText
+        let previousMarkedSelection = textInputEditSession.markedSelection
+        let isExternalCommittedText = externalCommittedTextDepth > 0
+        let committedText: [String]
+        if isExternalCommittedText {
+            // AX and dictation integrations explicitly supply committed text.
+            // They replace any active provisional input rather than extending
+            // its editable suffix.
+            textInputEditSession.discardMarkedText()
+            committedText = chars.isEmpty ? [] : [chars]
+        } else {
+            committedText = textInputEditSession.insertText(
+                chars,
+                replacementRange: replacementRange
+            )
+        }
+
+        let markedStateChanged =
+            previousMarkedText != textInputEditSession.markedText ||
+            previousMarkedSelection != textInputEditSession.markedSelection
+        if keyTextAccumulator == nil, markedStateChanged {
+            syncPreedit(clearIfNeeded: !previousMarkedText.isEmpty)
+            invalidateTextInputCoordinates(selectionChanged: true)
+        }
+
+        for text in committedText {
+            deliverCommittedText(
+                text,
+                isExternal: isExternalCommittedText
+            )
+        }
+    }
+
+    private func deliverCommittedText(
+        _ text: String,
+        isExternal: Bool
+    ) {
+        guard !text.isEmpty else { return }
+
         if keyTextAccumulator != nil {
-            keyTextAccumulator?.append(chars)
+            keyTextAccumulator?.append(text)
             return
         }
 
-        let isExternalCommittedText = externalCommittedTextDepth > 0
-        let sanitizedChars = if isExternalCommittedText {
+        let sanitizedText = if isExternal {
             // Only sanitize explicit external committed-text paths used by
             // AX/dictation integrations. Programmatic NSTextInputClient callers
             // may intentionally start with ESC/CSI bytes.
-            Self.sanitizeExternalCommittedText(chars)
+            Self.sanitizeExternalCommittedText(text)
         } else {
-            chars
+            text
         }
 
 #if DEBUG
-        if sanitizedChars != chars {
+        if sanitizedText != text {
             cmuxDebugLog(
-                "ime.insertText.sanitized originalBytes=\(chars.utf8.count) " +
-                "sanitizedBytes=\(sanitizedChars.utf8.count)"
+                "ime.insertText.sanitized originalBytes=\(text.utf8.count) " +
+                "sanitizedBytes=\(sanitizedText.utf8.count)"
             )
         }
 #endif
 
-        guard !sanitizedChars.isEmpty else { return }
+        guard !sanitizedText.isEmpty else { return }
         terminalSurface?.didReceiveExplicitInput()
-        // Otherwise send directly to the terminal
         recordDirectAgentHibernationTerminalInput()
         sendTextToSurface(
-            sanitizedChars,
-            preserveLiteralEscape: !isExternalCommittedText
+            sanitizedText,
+            preserveLiteralEscape: !isExternal
         )
     }
 }

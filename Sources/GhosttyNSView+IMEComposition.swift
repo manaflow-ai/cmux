@@ -2,20 +2,6 @@ import AppKit
 import Carbon.HIToolbox
 
 extension GhosttyNSView {
-    /// Clamps AppKit's marked-text selection into the active preedit buffer.
-    func normalizedMarkedSelectionRange(_ range: NSRange, markedLength: Int) -> NSRange {
-        guard markedLength > 0 else {
-            return NSRange(location: NSNotFound, length: 0)
-        }
-        guard range.location != NSNotFound else {
-            return NSRange(location: markedLength, length: 0)
-        }
-
-        let clampedLocation = min(max(range.location, 0), markedLength)
-        let clampedLength = min(max(range.length, 0), markedLength - clampedLocation)
-        return NSRange(location: clampedLocation, length: clampedLength)
-    }
-
     /// Clamps an AppKit substring query so it can be served from marked text.
     func clampedMarkedTextRange(_ range: NSRange, markedLength: Int) -> NSRange? {
         guard range.length > 0, range.location != NSNotFound else { return nil }

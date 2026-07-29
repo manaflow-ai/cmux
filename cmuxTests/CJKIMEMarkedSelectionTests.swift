@@ -18,6 +18,11 @@ struct CJKIMEMarkedSelectionTests {
         override func handleTextInputEvent(_ event: NSEvent) -> Bool {
             textInputEventHandler?(event) ?? super.handleTextInputEvent(event)
         }
+
+        override func currentTextInputSourceKind()
+            -> TerminalTextInputSourceKind {
+            .inputMethod
+        }
     }
 
     private struct ReplacementEditingSurfaceViewFactory: TerminalSurfaceViewProviding {
@@ -326,7 +331,9 @@ struct CJKIMEMarkedSelectionTests {
             keyCode: keyCode
         ))
         #expect(terminal.window.makeFirstResponder(terminal.surfaceView))
-        terminal.window.sendEvent(event)
+        withExtendedLifetime(terminal.surface) {
+            terminal.surfaceView.keyDown(with: event)
+        }
     }
 
 }
