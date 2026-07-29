@@ -497,6 +497,141 @@ struct AgentChatSessionRegistryLifecycleTests {
         #expect(resolved.sessionID == newer.sessionID)
     }
 
+    @MainActor
+    @Test func ompHistoryUsesPiParserAndFirstRealUserPromptAfterRestart() async throws {
+        let home = try temporaryHomeDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let sessionID = "019f0000-0000-7000-8000-000000000201"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let transcript = home
+            .appendingPathComponent(".omp/agent/sessions/-project", isDirectory: true)
+            .appendingPathComponent("2026-02-16T10-20-30_\(sessionID).jsonl")
+        try FileManager.default.createDirectory(
+            at: transcript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let transcriptBody = """
+        {"type":"session","version":3,"id":"019f0000-0000-7000-8000-000000000201","timestamp":"2026-02-16T10:20:30.000Z","cwd":"/project","title":"Header title must not win"}
+        {"type":"message","id":"a-preface","parentId":null,"timestamp":"2026-02-16T10:20:31.000Z","message":{"role":"assistant","content":[{"type":"text","text":"OMP assistant preface."}],"api":"anthropic-messages","provider":"anthropic","model":"claude-sonnet-4-5","usage":{"input":10,"output":5,"cacheRead":0,"cacheWrite":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1771236031000}}
+        {"type":"message","id":"u-synthetic","parentId":"a-preface","timestamp":"2026-02-16T10:20:32.000Z","message":{"role":"user","content":[{"type":"text","text":"Continue automatically"}],"synthetic":true,"timestamp":1771236032000}}
+        {"type":"message","id":"u-real","parentId":"u-synthetic","timestamp":"2026-02-16T10:20:33.000Z","message":{"role":"user","content":[{"type":"text","text":"Implement mobile OMP history."}],"timestamp":1771236033000}}
+        {"type":"assistant","uuid":"claude-only","parentUuid":null,"isSidechain":false,"timestamp":"2026-02-16T10:20:34.000Z","message":{"role":"assistant","content":[{"type":"text","text":"CLAUDE PARSER SENTINEL"}]}}
+        """
+        try (transcriptBody + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        try writeOmpHookStore(
+            home: home,
+            sessionID: sessionID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            transcriptPath: transcript.path,
+            pid: Int(ProcessInfo.processInfo.processIdentifier)
+        )
+
+        let registry = AgentChatSessionRegistry(
+            hookStore: AgentChatHookSessionStore(homeDirectory: home)
+        )
+        await registry.seedFromHookStores()
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
+        )
+
+        let restored = try #require(registry.record(sessionID: sessionID))
+        #expect(restored.agentKind == .omp)
+        let history = await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50)
+        let page = try #require(history)
+        let prose = page.messages.compactMap { message -> String? in
+            guard case .prose(let value) = message.kind else { return nil }
+            return value.text
+        }
+        #expect(prose == ["OMP assistant preface.", "Implement mobile OMP history."])
+        #expect(!prose.contains("CLAUDE PARSER SENTINEL"))
+        #expect(service.sessionRecord(sessionID: sessionID)?.title == "Implement mobile OMP history.")
+
+        _ = service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionEnd,
+            source: "omp",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            transcriptPath: transcript.path,
+            cwd: "/project",
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 300)
+        ))
+    }
+
+    @MainActor
+    @Test func ompMobileListEligibilityIsSharedByGlobalAndWorkspaceQueries() throws {
+        let home = try temporaryHomeDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let workspaceID = UUID().uuidString
+        let restorableID = "019f0000-0000-7000-8000-000000000211"
+        let missingID = "019f0000-0000-7000-8000-000000000212"
+        let liveUnboundID = "019f0000-0000-7000-8000-000000000213"
+        let transcript = home
+            .appendingPathComponent(".omp/agent/sessions/-project", isDirectory: true)
+            .appendingPathComponent("2026-02-16T10-20-30_\(restorableID).jsonl")
+        try FileManager.default.createDirectory(
+            at: transcript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try (#"{"type":"session","version":3,"id":"019f0000-0000-7000-8000-000000000211","timestamp":"2026-02-16T10:20:30.000Z","cwd":"/project"}"# + "\n")
+            .write(to: transcript, atomically: true, encoding: .utf8)
+        let registry = AgentChatSessionRegistry()
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
+        )
+        let endedEvents = [
+            WorkstreamEvent(
+                sessionId: restorableID,
+                hookEventName: .sessionEnd,
+                source: "omp",
+                workspaceId: workspaceID,
+                surfaceId: UUID().uuidString,
+                transcriptPath: transcript.path,
+                cwd: "/project",
+                ppid: nil,
+                receivedAt: Date(timeIntervalSince1970: 400)
+            ),
+            WorkstreamEvent(
+                sessionId: missingID,
+                hookEventName: .sessionEnd,
+                source: "omp",
+                workspaceId: workspaceID,
+                surfaceId: UUID().uuidString,
+                transcriptPath: home.appendingPathComponent("missing/\(missingID).jsonl").path,
+                cwd: "/project",
+                ppid: nil,
+                receivedAt: Date(timeIntervalSince1970: 399)
+            ),
+        ]
+        for event in endedEvents {
+            _ = service.noteHookEvent(event)
+        }
+        _ = service.noteHookEvent(WorkstreamEvent(
+            sessionId: liveUnboundID,
+            hookEventName: .sessionStart,
+            source: "omp",
+            workspaceId: workspaceID,
+            surfaceId: nil,
+            transcriptPath: nil,
+            cwd: "/project",
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 398)
+        ))
+        let global = Set(service.listableSessionRecords(workspaceID: nil).map(\.sessionID))
+        let workspace = Set(service.listableSessionRecords(workspaceID: workspaceID).map(\.sessionID))
+        let expected = Set([restorableID, liveUnboundID])
+
+        #expect(global == expected)
+        #expect(workspace == expected)
+        #expect(global == workspace)
+        #expect(!global.contains(missingID))
+    }
+
     private func temporaryHomeDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-chat-\(UUID().uuidString)", isDirectory: true)
@@ -529,4 +664,30 @@ struct AgentChatSessionRegistryLifecycleTests {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         try data.write(to: directory.appendingPathComponent("claude-hook-sessions.json"))
     }
+    private func writeOmpHookStore(
+        home: URL,
+        sessionID: String,
+        workspaceID: String,
+        surfaceID: String,
+        transcriptPath: String,
+        pid: Int
+    ) throws {
+        let directory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let payload: [String: Any] = [
+            "sessions": [
+                sessionID: [
+                    "workspaceId": workspaceID,
+                    "surfaceId": surfaceID,
+                    "cwd": "/project",
+                    "transcriptPath": transcriptPath,
+                    "pid": pid,
+                    "updatedAt": 200.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        try data.write(to: directory.appendingPathComponent("omp-hook-sessions.json"))
+    }
+
 }
