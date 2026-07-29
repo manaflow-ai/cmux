@@ -1,4 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+#[cfg(unix)]
+use std::fs::File;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -255,7 +257,8 @@ impl ClientIdentityStore {
         let fingerprint = public_key_fingerprint(&public_key);
         let now = unix_time()?;
         let mut state = self.state.lock().await;
-        if let Some(existing) = state.daemons.get_mut(&fingerprint) {
+        let mut candidate = state.clone();
+        if let Some(existing) = candidate.daemons.get_mut(&fingerprint) {
             if decode_key(&existing.public_key)? != public_key {
                 return Err(IdentityError::Invalid("known daemon fingerprint collision".into()));
             }
@@ -273,7 +276,7 @@ impl ClientIdentityStore {
                 existing.route_hints = route_hints;
             }
             let record = existing.clone();
-            self.persist_client_locked(&state)?;
+            self.commit_client_state_locked(&mut state, candidate)?;
             return Ok(record);
         }
         let record = KnownDaemon {
@@ -285,8 +288,8 @@ impl ClientIdentityStore {
             first_seen_at_unix: now,
             last_used_at_unix: now,
         };
-        state.daemons.insert(fingerprint, record.clone());
-        self.persist_client_locked(&state)?;
+        candidate.daemons.insert(fingerprint, record.clone());
+        self.commit_client_state_locked(&mut state, candidate)?;
         Ok(record)
     }
 
@@ -298,7 +301,8 @@ impl ClientIdentityStore {
         let route = credential_free_route_hint(route)?;
         let now = unix_time()?;
         let mut state = self.state.lock().await;
-        let Some(existing) = state.daemons.get_mut(fingerprint) else {
+        let mut candidate = state.clone();
+        let Some(existing) = candidate.daemons.get_mut(fingerprint) else {
             return Ok(None);
         };
         existing.last_used_at_unix = now;
@@ -306,7 +310,7 @@ impl ClientIdentityStore {
             existing.route_hints.push(route);
         }
         let record = existing.clone();
-        self.persist_client_locked(&state)?;
+        self.commit_client_state_locked(&mut state, candidate)?;
         Ok(Some(record))
     }
 
@@ -322,11 +326,22 @@ impl ClientIdentityStore {
 
     pub async fn forget_daemon(&self, fingerprint: &str) -> Result<bool, IdentityError> {
         let mut state = self.state.lock().await;
-        let removed = state.daemons.remove(fingerprint).is_some();
+        let mut candidate = state.clone();
+        let removed = candidate.daemons.remove(fingerprint).is_some();
         if removed {
-            self.persist_client_locked(&state)?;
+            self.commit_client_state_locked(&mut state, candidate)?;
         }
         Ok(removed)
+    }
+
+    fn commit_client_state_locked(
+        &self,
+        state: &mut PersistedClientState,
+        candidate: PersistedClientState,
+    ) -> Result<(), IdentityError> {
+        self.persist_client_locked(&candidate)?;
+        *state = candidate;
+        Ok(())
     }
 
     fn persist_client_locked(&self, state: &PersistedClientState) -> Result<(), IdentityError> {
@@ -334,7 +349,7 @@ impl ClientIdentityStore {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct PersistedClientState {
     version: u32,
     #[serde(default)]
@@ -1415,12 +1430,27 @@ fn atomic_json(path: &Path, value: &impl Serialize) -> Result<(), IdentityError>
         file.sync_all().map_err(IdentityError::Io)?;
         fs::rename(&temporary, path).map_err(IdentityError::Io)?;
         restrict_file(path)?;
+        sync_parent_directory(parent)?;
         Ok(())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
     result
+}
+
+fn sync_parent_directory(path: &Path) -> Result<(), IdentityError> {
+    #[cfg(unix)]
+    File::open(path).and_then(|directory| directory.sync_all()).map_err(IdentityError::Io)?;
+    #[cfg(test)]
+    if FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.replace(false)) {
+        return Err(IdentityError::Io(std::io::Error::other(
+            "injected parent directory sync failure",
+        )));
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 fn secure_directory(path: &Path) -> Result<(), IdentityError> {
@@ -1794,6 +1824,7 @@ mod tests {
         assert_eq!(store.daemon_key(&known.fingerprint).await.unwrap(), None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn atomic_json_propagates_parent_directory_sync_failure() {
         let temp = tempfile::tempdir().unwrap();
@@ -1802,6 +1833,28 @@ mod tests {
         FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.set(false));
 
         assert!(result.is_err(), "atomic state replacement ignored directory sync failure");
+    }
+
+    #[tokio::test]
+    async fn failed_known_daemon_route_refresh_keeps_live_state_unchanged() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let public_key = StaticIdentity::generate().unwrap().public_key();
+        let known = store
+            .pin_daemon("host".into(), public_key, vec!["wss://old.example/v1/link".into()])
+            .await
+            .unwrap();
+        let state_path = temp.path().join("known-daemons.json");
+        fs::remove_file(&state_path).unwrap();
+        fs::create_dir(&state_path).unwrap();
+
+        assert!(
+            store
+                .remember_verified_route(&known.fingerprint, "wss://new.example/v1/link")
+                .await
+                .is_err()
+        );
+        assert_eq!(store.known_daemons().await, [known]);
     }
 
     #[tokio::test]

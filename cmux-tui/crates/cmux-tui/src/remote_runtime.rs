@@ -1161,22 +1161,11 @@ async fn prepare_client_socket(path: &Path) -> anyhow::Result<()> {
         ));
     }
     let parent = path.parent().ok_or_else(|| anyhow!("client socket path has no parent"))?;
-    let parent_existed = parent.exists();
-    fs::create_dir_all(parent)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-        if !parent_existed {
-            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
-        } else {
-            let mode = fs::metadata(parent)?.permissions().mode();
-            if mode & 0o022 != 0 && mode & 0o1000 == 0 {
-                return Err(anyhow!(
-                    "client socket directory {} is writable by other users and is not sticky",
-                    parent.display()
-                ));
-            }
-        }
+        use std::os::unix::fs::FileTypeExt;
+
+        prepare_client_socket_directory(parent)?;
         if let Ok(metadata) = fs::symlink_metadata(path) {
             if !metadata.file_type().is_socket() {
                 return Err(anyhow!(
@@ -1189,6 +1178,48 @@ async fn prepare_client_socket(path: &Path) -> anyhow::Result<()> {
             }
             fs::remove_file(path)?;
         }
+    }
+    #[cfg(not(unix))]
+    fs::create_dir_all(parent)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn prepare_client_socket_directory(path: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true).mode(0o700);
+    builder.create(path)?;
+    let metadata = fs::symlink_metadata(path)?;
+    validate_client_socket_directory(path, &metadata, unsafe { libc::geteuid() })
+}
+
+#[cfg(unix)]
+fn validate_client_socket_directory(
+    path: &Path,
+    metadata: &fs::Metadata,
+    effective_uid: u32,
+) -> anyhow::Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    if metadata.file_type().is_symlink() {
+        return Err(anyhow!("client socket directory {} must not be a symlink", path.display()));
+    }
+    if !metadata.is_dir() {
+        return Err(anyhow!("client socket directory {} is not a directory", path.display()));
+    }
+    if metadata.uid() != effective_uid {
+        return Err(anyhow!(
+            "client socket directory {} is not owned by the effective user",
+            path.display()
+        ));
+    }
+    if metadata.permissions().mode() & 0o022 != 0 {
+        return Err(anyhow!(
+            "client socket directory {} is writable by another user",
+            path.display()
+        ));
     }
     Ok(())
 }
@@ -3174,6 +3205,34 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("symlink"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn client_socket_creates_a_private_owned_parent_directory() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path().join("private");
+        prepare_client_socket(&parent.join("mux.sock")).await.unwrap();
+
+        let metadata = fs::symlink_metadata(parent).unwrap();
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.permissions().mode() & 0o077, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn client_socket_rejects_a_parent_owned_by_another_user() {
+        use std::os::unix::fs::MetadataExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let metadata = fs::symlink_metadata(directory.path()).unwrap();
+        let other_uid = metadata.uid() ^ 1;
+
+        let error =
+            validate_client_socket_directory(directory.path(), &metadata, other_uid).unwrap_err();
+        assert!(error.to_string().contains("not owned by the effective user"));
     }
 
     #[cfg(unix)]
