@@ -26,6 +26,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "no route to host",
             "operation timed out",
             "connection timed out",
+            "timeout, server .* not responding",
             "connection refused",
             "connection reset by peer",
             "connection reset by .* port [0-9]+",
