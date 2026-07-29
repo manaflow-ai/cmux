@@ -29,18 +29,16 @@ enum SurfaceSwitcherPreviewFixture {
         )
     }
 
-    static var actions: TerminalPickerMenuActions {
-        TerminalPickerMenuActions(
-            preparePresentation: {},
-            selectTerminal: { _ in },
-            createTerminal: {},
-            openBrowser: {},
-            selectBrowserStream: { _ in },
-            openChat: { _ in },
-            openLocalBrowser: {},
-            retryBrowserStreamRefresh: {}
-        )
-    }
+    static let actions = TerminalPickerMenuActions(
+        preparePresentation: {},
+        selectTerminal: { _ in },
+        createTerminal: {},
+        openBrowser: {},
+        selectBrowserStream: { _ in },
+        openChat: { _ in },
+        openLocalBrowser: {},
+        retryBrowserStreamRefresh: {}
+    )
 
     private static let chatDestination = SurfaceSwitcherDestination(
         kind: .chat("agent-chat-main"),
@@ -64,10 +62,7 @@ enum SurfaceSwitcherPreviewFixture {
             let suffix = index == 8
                 ? "Active build log with a deliberately long title"
                 : "Terminal \(index)"
-            return MobileTerminalPreview(
-                id: MobileTerminalPreview.ID(rawValue: "terminal-\(index)"),
-                name: suffix
-            )
+            return MobileTerminalPreview(id: "terminal-\(index)", name: suffix)
         }
     }
 

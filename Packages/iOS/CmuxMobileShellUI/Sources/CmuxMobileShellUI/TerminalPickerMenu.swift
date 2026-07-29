@@ -1,6 +1,4 @@
-import CMUXMobileCore
 import CmuxMobileSupport
-import CmuxMobileTerminal
 import SwiftUI
 
 /// Snapshot-isolated switcher for terminals, chat, local browser, and streamed Mac browsers.

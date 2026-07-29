@@ -1,6 +1,4 @@
-import CMUXMobileCore
 import CmuxMobileSupport
-import CmuxMobileTerminal
 import SwiftUI
 
 struct SurfaceSwitcherSheet: View {
@@ -55,7 +53,6 @@ struct SurfaceSwitcherSheet: View {
             )
         }
         .background(terminalTheme.terminalBackgroundColor)
-        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileSurfaceSwitcher")
     }
 
@@ -205,9 +202,9 @@ private struct SurfaceSwitcherDestinationList: View {
                 .padding(.bottom, SurfaceSwitcherMetrics.contentBottomInset)
             }
             .accessibilityIdentifier("MobileSurfaceSwitcherList")
-            .onAppear { scheduleAutoScroll(proxy) }
+            .onAppear { autoScroll(proxy) }
             .onChange(of: activeDestinationID) { _, _ in
-                scheduleAutoScroll(proxy)
+                autoScroll(proxy)
             }
         }
     }
@@ -293,20 +290,15 @@ private struct SurfaceSwitcherDestinationList: View {
         }
     }
 
-    private func scheduleAutoScroll(_ proxy: ScrollViewProxy) {
-        guard let destinationID = activeDestinationID else {
+    private func autoScroll(_ proxy: ScrollViewProxy) {
+        guard let activeDestinationID else {
             lastAutoScrolledDestinationID = nil
             return
         }
-        guard lastAutoScrolledDestinationID != destinationID else { return }
-        Task { @MainActor in
-            await Task.yield()
-            guard activeDestinationID == destinationID,
-                  lastAutoScrolledDestinationID != destinationID else { return }
-            withAnimation(.snappy(duration: 0.2)) {
-                proxy.scrollTo(destinationID, anchor: .center)
-            }
-            lastAutoScrolledDestinationID = destinationID
+        guard lastAutoScrolledDestinationID != activeDestinationID else { return }
+        lastAutoScrolledDestinationID = activeDestinationID
+        withAnimation(.snappy(duration: 0.2)) {
+            proxy.scrollTo(activeDestinationID, anchor: .center)
         }
     }
 }
