@@ -1368,8 +1368,15 @@ where
         if pid <= 1 {
             continue;
         }
-        let Some(current_session) = process_session(pid)? else {
-            continue;
+        let current_session = match process_session(pid) {
+            Ok(Some(current_session)) => current_session,
+            Ok(None) => continue,
+            Err(error)
+                if error.kind() == io::ErrorKind::PermissionDenied && !sessions.contains(&pid) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
         };
         ensure_before_deadline(deadline)?;
         if let Some(session_members) = members.get_mut(&current_session) {
