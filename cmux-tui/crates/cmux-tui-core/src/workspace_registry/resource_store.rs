@@ -105,6 +105,7 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          CREATE TABLE IF NOT EXISTS resource_browsers (
            public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
            url TEXT NOT NULL,
+           metadata_json TEXT NOT NULL,
            lifecycle TEXT NOT NULL CHECK(lifecycle IN ('running','tombstoned')),
            created_revision INTEGER NOT NULL,
            updated_revision INTEGER NOT NULL,
@@ -154,6 +155,36 @@ pub(super) fn migrate_resource_mutations_to_session_scope(
          FROM resource_mutations_by_origin;
          DROP TABLE resource_mutations_by_origin;",
     )?;
+    Ok(())
+}
+
+pub(super) fn migrate_resource_browser_metadata(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let columns = {
+        let mut statement = transaction.prepare("PRAGMA table_info(resource_browsers)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
+    if columns.contains("metadata_json") {
+        return Ok(());
+    }
+    transaction.execute("ALTER TABLE resource_browsers ADD COLUMN metadata_json TEXT", [])?;
+    let rows = {
+        let mut statement = transaction.prepare("SELECT public_id, url FROM resource_browsers")?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for (public_id, url) in rows {
+        let browser =
+            RegistryBrowser::recreate(BrowserPublicId::parse(public_id.clone())?, url, 80, 24);
+        transaction.execute(
+            "UPDATE resource_browsers SET metadata_json = ?1 WHERE public_id = ?2",
+            params![canonical_json(&serde_json::to_value(browser)?)?, public_id],
+        )?;
+    }
     Ok(())
 }
 
@@ -361,6 +392,35 @@ impl WorkspaceRegistry {
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?
         };
+        let browsers = {
+            let mut statement = self.connection.prepare(
+                "SELECT public_id, url, metadata_json
+                 FROM resource_browsers
+                 WHERE deleted_revision IS NULL
+                 ORDER BY public_id ASC",
+            )?;
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })?
+                .map(|row| {
+                    let (public_id, url, metadata) = row?;
+                    let browser: RegistryBrowser = serde_json::from_str(&metadata)
+                        .with_context(|| format!("invalid metadata for browser {public_id}"))?;
+                    validate_registry_browser(&browser)?;
+                    if browser.public_id.as_str() != public_id || browser.url != url {
+                        anyhow::bail!(
+                            "browser {public_id} metadata does not match its indexed fields"
+                        );
+                    }
+                    Ok(browser)
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?
+        };
         Ok(ResourceTopologySnapshot {
             session_id: self.session_id.clone(),
             generation: self.generation.clone(),
@@ -370,6 +430,7 @@ impl WorkspaceRegistry {
             screens,
             panes,
             tabs,
+            browsers,
         })
     }
 
@@ -482,6 +543,78 @@ pub struct RegistryScreen {
     pub viewport: RegistryViewport,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryBrowserSource {
+    Unknown,
+    External,
+    Launched,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryBrowserLaunch {
+    Create,
+    Adopted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryBrowserReconnect {
+    Recreate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryBrowserStatus {
+    Starting,
+    Live,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegistryBrowser {
+    pub public_id: BrowserPublicId,
+    pub url: String,
+    pub source: RegistryBrowserSource,
+    pub launch: RegistryBrowserLaunch,
+    pub reconnect: RegistryBrowserReconnect,
+    pub status: RegistryBrowserStatus,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+impl RegistryBrowser {
+    pub fn recreate(public_id: BrowserPublicId, url: String, cols: u16, rows: u16) -> Self {
+        Self {
+            public_id,
+            url,
+            source: RegistryBrowserSource::Unknown,
+            launch: RegistryBrowserLaunch::Create,
+            reconnect: RegistryBrowserReconnect::Recreate,
+            status: RegistryBrowserStatus::Starting,
+            cols,
+            rows,
+        }
+    }
+}
+
+fn validate_registry_browser(browser: &RegistryBrowser) -> anyhow::Result<()> {
+    if browser.url.is_empty() {
+        anyhow::bail!("browser URL cannot be empty");
+    }
+    if !(1..=10_000).contains(&browser.cols) || !(1..=10_000).contains(&browser.rows) {
+        anyhow::bail!(
+            "browser {} has invalid size {}x{}",
+            browser.public_id,
+            browser.cols,
+            browser.rows
+        );
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RegistryViewport {
@@ -547,6 +680,7 @@ pub struct ResourceTopologySnapshot {
     pub screens: Vec<RegistryScreen>,
     pub panes: Vec<RegistryPane>,
     pub tabs: Vec<RegistryTab>,
+    pub browsers: Vec<RegistryBrowser>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -598,10 +732,7 @@ pub enum ResourceChange {
         public_id: TerminalPublicId,
         expected_incarnation: Option<String>,
     },
-    UpsertBrowser {
-        public_id: BrowserPublicId,
-        url: String,
-    },
+    UpsertBrowser(RegistryBrowser),
     TombstoneBrowser {
         public_id: BrowserPublicId,
     },
@@ -755,10 +886,11 @@ pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<(
                 }
                 format!("terminal:{public_id}")
             }
-            ResourceChange::UpsertBrowser { public_id, .. }
-            | ResourceChange::TombstoneBrowser { public_id } => {
-                format!("browser:{public_id}")
+            ResourceChange::UpsertBrowser(browser) => {
+                validate_registry_browser(browser)?;
+                format!("browser:{}", browser.public_id)
             }
+            ResourceChange::TombstoneBrowser { public_id } => format!("browser:{public_id}"),
         };
         if target.starts_with("singleton:") {
             if !singleton_changes.insert(target.clone()) {
@@ -984,8 +1116,8 @@ pub(super) fn apply_resource_patch(
             ResourceChange::UpsertTerminal { public_id, terminal } => {
                 upsert_resource_terminal(transaction, public_id, terminal, revision)?;
             }
-            ResourceChange::UpsertBrowser { public_id, url } => {
-                upsert_resource_browser(transaction, public_id, url, revision)?;
+            ResourceChange::UpsertBrowser(browser) => {
+                upsert_resource_browser(transaction, browser, revision)?;
             }
             _ => {}
         }
@@ -1692,23 +1824,23 @@ fn upsert_resource_terminal(
 
 fn upsert_resource_browser(
     transaction: &Transaction<'_>,
-    public_id: &BrowserPublicId,
-    url: &str,
+    browser: &RegistryBrowser,
     revision: i64,
 ) -> anyhow::Result<()> {
-    if url.is_empty() {
-        anyhow::bail!("browser URL cannot be empty");
-    }
-    upsert_resource_identity(transaction, public_id.as_str(), "browser", revision)?;
+    validate_registry_browser(browser)?;
+    let metadata = canonical_json(&serde_json::to_value(browser)?)?;
+    upsert_resource_identity(transaction, browser.public_id.as_str(), "browser", revision)?;
     transaction.execute(
         "INSERT INTO resource_browsers(
-           public_id, url, lifecycle, created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, ?2, 'running', ?3, ?3, NULL)
+           public_id, url, metadata_json, lifecycle,
+           created_revision, updated_revision, deleted_revision
+         ) VALUES(?1, ?2, ?3, 'running', ?4, ?4, NULL)
          ON CONFLICT(public_id) DO UPDATE SET
            url=excluded.url,
+           metadata_json=excluded.metadata_json,
            lifecycle='running',
            updated_revision=excluded.updated_revision",
-        params![public_id.as_str(), url, revision],
+        params![browser.public_id.as_str(), browser.url.as_str(), metadata, revision],
     )?;
     Ok(())
 }
@@ -2258,8 +2390,16 @@ fn validate_touched_resource_invariants(
                 terminals.insert(public_id.to_string());
                 collect_content_tab_scope(transaction, public_id.as_str(), &mut tabs, &mut panes)?;
             }
-            ResourceChange::UpsertBrowser { public_id, .. }
-            | ResourceChange::TombstoneBrowser { public_id } => {
+            ResourceChange::UpsertBrowser(browser) => {
+                browsers.insert(browser.public_id.to_string());
+                collect_content_tab_scope(
+                    transaction,
+                    browser.public_id.as_str(),
+                    &mut tabs,
+                    &mut panes,
+                )?;
+            }
+            ResourceChange::TombstoneBrowser { public_id } => {
                 browsers.insert(public_id.to_string());
                 collect_content_tab_scope(transaction, public_id.as_str(), &mut tabs, &mut panes)?;
             }
@@ -2663,13 +2803,20 @@ fn validate_touched_terminal(
 fn validate_touched_browser(transaction: &Transaction<'_>, browser_id: &str) -> anyhow::Result<()> {
     let stored = transaction
         .query_row(
-            "SELECT lifecycle, deleted_revision
+            "SELECT url, metadata_json, lifecycle, deleted_revision
              FROM resource_browsers WHERE public_id = ?1",
             [browser_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                ))
+            },
         )
         .optional()?;
-    let Some((lifecycle, deleted)) = stored else {
+    let Some((url, metadata, lifecycle, deleted)) = stored else {
         anyhow::bail!("unknown browser resource {browser_id}");
     };
     validate_identity_state(transaction, browser_id, "browser", deleted.is_none())?;
@@ -2677,6 +2824,16 @@ fn validate_touched_browser(transaction: &Transaction<'_>, browser_id: &str) -> 
         || (deleted.is_some() && lifecycle != "tombstoned")
     {
         anyhow::bail!("browser {browser_id} has inconsistent lifecycle {lifecycle}");
+    }
+    if deleted.is_none() {
+        let metadata =
+            metadata.ok_or_else(|| anyhow::anyhow!("browser {browser_id} has no metadata"))?;
+        let browser: RegistryBrowser = serde_json::from_str(&metadata)
+            .with_context(|| format!("invalid metadata for browser {browser_id}"))?;
+        validate_registry_browser(&browser)?;
+        if browser.public_id.as_str() != browser_id || browser.url != url {
+            anyhow::bail!("browser {browser_id} metadata does not match its indexed fields");
+        }
     }
     Ok(())
 }
@@ -3010,16 +3167,34 @@ pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
             anyhow::bail!("terminal resource {public_id} has no live placement");
         }
     }
-    let closed_browser = transaction
-        .query_row(
-            "SELECT public_id FROM resource_browsers
-             WHERE deleted_revision IS NULL AND lifecycle != 'running' LIMIT 1",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    if let Some(browser_id) = closed_browser {
-        anyhow::bail!("live browser {browser_id} is not running");
+    let browsers = {
+        let mut statement = transaction.prepare(
+            "SELECT public_id, url, metadata_json, lifecycle
+             FROM resource_browsers WHERE deleted_revision IS NULL",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for (browser_id, url, metadata, lifecycle) in browsers {
+        if lifecycle != "running" {
+            anyhow::bail!("live browser {browser_id} is not running");
+        }
+        let metadata =
+            metadata.ok_or_else(|| anyhow::anyhow!("browser {browser_id} has no metadata"))?;
+        let browser: RegistryBrowser = serde_json::from_str(&metadata)
+            .with_context(|| format!("invalid metadata for browser {browser_id}"))?;
+        validate_registry_browser(&browser)?;
+        if browser.public_id.as_str() != browser_id || browser.url != url {
+            anyhow::bail!("browser {browser_id} metadata does not match its indexed fields");
+        }
     }
     Ok(())
 }

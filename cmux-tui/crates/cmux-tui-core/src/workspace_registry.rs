@@ -27,16 +27,18 @@ mod resource_store;
 pub(crate) use resource_store::validate_registry_screen_projection;
 #[allow(unused_imports)]
 pub use resource_store::{
-    RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
-    RegistryViewportColumn, ResourceChange, ResourcePatch, ResourcePatchCommit,
+    RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserReconnect, RegistryBrowserSource,
+    RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab,
+    RegistryViewport, RegistryViewportColumn, ResourceChange, ResourcePatch, ResourcePatchCommit,
     ResourceTopologySnapshot,
 };
 use resource_store::{
     collect_screen_split_public_ids, create_resource_schema,
-    migrate_resource_mutations_to_session_scope, validate_resource_invariants,
+    migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
+    validate_resource_invariants,
 };
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
 const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
@@ -276,12 +278,25 @@ impl WorkspaceRegistry {
                 backfill_workspace_public_ids(&tx)?;
                 tx.commit()?;
             }
+            Some(value) if value.parse::<i64>()? == 4 => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                migrate_resource_browser_metadata(&tx)?;
+                tx.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
+                tx.commit()?;
+            }
             Some(value) if value.parse::<i64>()? == 3 => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
                 migrate_resource_mutations_to_session_scope(&tx)?;
+                migrate_resource_browser_metadata(&tx)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
                     [SCHEMA_VERSION.to_string()],
@@ -293,6 +308,7 @@ impl WorkspaceRegistry {
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
+                migrate_resource_browser_metadata(&tx)?;
                 tx.execute(
                     "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
                     [],
@@ -311,7 +327,7 @@ impl WorkspaceRegistry {
             }
             Some(value) => {
                 anyhow::bail!(
-                    "unsupported workspace registry schema {value}; expected 1, 2, 3, or {SCHEMA_VERSION}"
+                    "unsupported workspace registry schema {value}; expected 1, 2, 3, 4, or {SCHEMA_VERSION}"
                 );
             }
             None => {

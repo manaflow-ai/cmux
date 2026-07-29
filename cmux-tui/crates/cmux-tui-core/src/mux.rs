@@ -39,10 +39,11 @@ use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
-    FrontendProjection, ProjectionCommit, RegistryCommit, RegistryLayoutNode, RegistrySnapshot,
-    RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace, ResourceChange,
-    ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot, TerminalLifecycle,
-    TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+    FrontendProjection, ProjectionCommit, RegistryBrowser, RegistryBrowserReconnect,
+    RegistryCommit, RegistryLayoutNode, RegistrySnapshot, RegistryTab, RegistryTerminal,
+    RegistryViewport, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
+    ResourceTopologySnapshot, TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation,
+    WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -956,7 +957,7 @@ struct RestoredResourceContent {
     slot: SurfaceId,
     identity: TabResourceIdentity,
     name: Option<String>,
-    browser_url: Option<String>,
+    browser: Option<RegistryBrowser>,
 }
 
 struct RestoredResourceState {
@@ -1192,8 +1193,9 @@ impl Mux {
         let opts = self.surface_options.lock().unwrap().clone();
         let cell_pixels = *self.cell_pixels.lock().unwrap();
         for content in contents {
-            let Some(url) = content.browser_url.clone() else { continue };
-            let size = (opts.cols.max(1), opts.rows.max(1));
+            let Some(browser) = content.browser.clone() else { continue };
+            let size = (browser.cols, browser.rows);
+            let url = browser.url;
             let surface = browser::new_surface_with_resource_identity(
                 content.slot,
                 url.clone(),
@@ -1205,7 +1207,11 @@ impl Mux {
             )?;
             surface.set_name(content.name.clone());
             insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
-            self.start_browser_bootstrap(surface, BrowserBootstrap::Create { url }, None);
+            match browser.reconnect {
+                RegistryBrowserReconnect::Recreate => {
+                    self.start_browser_bootstrap(surface, BrowserBootstrap::Create { url }, None);
+                }
+            }
         }
         Ok(())
     }
@@ -8994,14 +9000,36 @@ fn restore_resource_state(
         indexes.pane_ids.insert(*slot, public_id.clone());
     }
 
+    let mut browsers_by_id = topology
+        .browsers
+        .iter()
+        .cloned()
+        .map(|browser| (browser.public_id.clone(), browser))
+        .collect::<HashMap<_, _>>();
+    anyhow::ensure!(
+        browsers_by_id.len() == topology.browsers.len(),
+        "resource topology contains duplicate browser metadata"
+    );
     let mut tabs_by_pane = HashMap::<PanePublicId, Vec<RegistryTab>>::new();
     let mut contents = Vec::with_capacity(topology.tabs.len());
     for tab in topology.tabs {
-        match (&tab.content_id, &tab.browser_url, &tab.terminal_id) {
-            (ContentPublicId::Terminal(_), None, Some(_))
-            | (ContentPublicId::Browser(_), Some(_), None) => {}
-            _ => anyhow::bail!("tab {} has inconsistent persisted content metadata", tab.public_id),
-        }
+        let browser = match (&tab.content_id, &tab.browser_url, &tab.terminal_id) {
+            (ContentPublicId::Terminal(_), None, Some(_)) => None,
+            (ContentPublicId::Browser(browser_id), Some(url), None) => {
+                let browser = browsers_by_id.remove(browser_id).ok_or_else(|| {
+                    anyhow::anyhow!("browser tab {} has no restart metadata", tab.public_id)
+                })?;
+                anyhow::ensure!(
+                    &browser.url == url,
+                    "browser tab {} URL disagrees with its restart metadata",
+                    tab.public_id
+                );
+                Some(browser)
+            }
+            _ => {
+                anyhow::bail!("tab {} has inconsistent persisted content metadata", tab.public_id)
+            }
+        };
         let slot = tab_slots[&tab.public_id];
         let identity = TabResourceIdentity::new(tab.public_id.clone(), tab.content_id.clone());
         anyhow::ensure!(
@@ -9016,14 +9044,13 @@ fn restore_resource_state(
             tab.content_id.as_str()
         );
         indexes.content_ids.insert(slot, tab.content_id.clone());
-        contents.push(RestoredResourceContent {
-            slot,
-            identity,
-            name: tab.name.clone(),
-            browser_url: tab.browser_url.clone(),
-        });
+        contents.push(RestoredResourceContent { slot, identity, name: tab.name.clone(), browser });
         tabs_by_pane.entry(tab.pane_id.clone()).or_default().push(tab);
     }
+    anyhow::ensure!(
+        browsers_by_id.is_empty(),
+        "resource topology contains orphan browser metadata"
+    );
     for tabs in tabs_by_pane.values_mut() {
         tabs.sort_by_key(|tab| tab.position);
     }
@@ -10015,6 +10042,37 @@ mod tests {
                     terminal_id: None,
                 }
             })
+            .collect::<Vec<_>>();
+        let browsers = registry_tabs
+            .iter()
+            .enumerate()
+            .map(|(index, tab)| {
+                let ContentPublicId::Browser(public_id) = &tab.content_id else {
+                    unreachable!("restart fixture uses browser tabs");
+                };
+                RegistryBrowser {
+                    public_id: public_id.clone(),
+                    url: tab.browser_url.clone().unwrap(),
+                    source: if index % 2 == 0 {
+                        crate::workspace_registry::RegistryBrowserSource::Launched
+                    } else {
+                        crate::workspace_registry::RegistryBrowserSource::External
+                    },
+                    launch: if index % 2 == 0 {
+                        crate::workspace_registry::RegistryBrowserLaunch::Create
+                    } else {
+                        crate::workspace_registry::RegistryBrowserLaunch::Adopted
+                    },
+                    reconnect: RegistryBrowserReconnect::Recreate,
+                    status: if index % 2 == 0 {
+                        crate::workspace_registry::RegistryBrowserStatus::Live
+                    } else {
+                        crate::workspace_registry::RegistryBrowserStatus::Failed
+                    },
+                    cols: 90 + index as u16,
+                    rows: 30 + index as u16,
+                }
+            })
             .collect();
         let session_id =
             SessionPublicId::parse("session_00000000000000000000000000000001").unwrap();
@@ -10040,6 +10098,7 @@ mod tests {
                 screens,
                 panes: registry_panes,
                 tabs: registry_tabs,
+                browsers,
             },
         )
     }
@@ -10104,6 +10163,41 @@ mod tests {
                 .unwrap()
                 .to_string()
                 .contains("unknown active tab")
+        );
+    }
+
+    #[test]
+    fn resource_startup_requires_exact_browser_restart_metadata_coverage() {
+        let (snapshot, mut topology) = resource_restore_fixture();
+        topology.browsers.pop();
+        assert!(
+            restore_resource_state(snapshot.clone(), topology)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("has no restart metadata")
+        );
+
+        let (_, mut topology) = resource_restore_fixture();
+        let mut orphan = topology.browsers[0].clone();
+        orphan.public_id = restore_browser_id(999);
+        topology.browsers.push(orphan);
+        assert!(
+            restore_resource_state(snapshot.clone(), topology)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("orphan browser metadata")
+        );
+
+        let (_, mut topology) = resource_restore_fixture();
+        topology.browsers.push(topology.browsers[0].clone());
+        assert!(
+            restore_resource_state(snapshot, topology)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("duplicate browser metadata")
         );
     }
 
@@ -10407,14 +10501,11 @@ mod tests {
         }
         changes.extend(topology.screens.iter().cloned().map(ResourceChange::UpsertScreen));
         changes.extend(topology.panes.iter().cloned().map(ResourceChange::UpsertPane));
+        changes.extend(topology.browsers.iter().cloned().map(ResourceChange::UpsertBrowser));
         for tab in &topology.tabs {
-            let ContentPublicId::Browser(browser) = &tab.content_id else {
+            let ContentPublicId::Browser(_) = &tab.content_id else {
                 panic!("restart fixture uses browser tabs");
             };
-            changes.push(ResourceChange::UpsertBrowser {
-                public_id: browser.clone(),
-                url: tab.browser_url.clone().unwrap(),
-            });
             changes.push(ResourceChange::UpsertTab(tab.clone()));
         }
         changes.push(ResourceChange::SetWorkspaceOrder {
@@ -10493,9 +10584,19 @@ mod tests {
             for tab in &fixture_topology.tabs {
                 let slot = state.resource_indexes.tabs[&tab.public_id];
                 let surface = &state.surfaces[&slot];
+                let ContentPublicId::Browser(browser_id) = &tab.content_id else {
+                    unreachable!("restart fixture uses browser tabs");
+                };
+                let expected_browser = fixture_topology
+                    .browsers
+                    .iter()
+                    .find(|browser| &browser.public_id == browser_id)
+                    .unwrap();
                 assert_eq!(surface.resource_identity().unwrap().tab_id, tab.public_id);
                 assert_eq!(surface.resource_identity().unwrap().content_id, tab.content_id);
                 assert_eq!(surface.name(), tab.name);
+                assert_eq!(surface.browser_url().as_deref(), Some(expected_browser.url.as_str()));
+                assert_eq!(surface.size(), (expected_browser.cols, expected_browser.rows));
             }
         });
         mux.shutdown();

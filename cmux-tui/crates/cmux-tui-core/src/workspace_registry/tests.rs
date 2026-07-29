@@ -336,6 +336,71 @@ fn commit_terminal_topology(
         .unwrap()
 }
 
+fn commit_browser_topology(
+    registry: &mut WorkspaceRegistry,
+    mutation_id: &str,
+    browser: RegistryBrowser,
+) -> ResourcePatchCommit {
+    let workspace_public_id = workspace(1, "one", "One").public_id;
+    let screen = screen_id(1);
+    let first_pane = pane_id(1);
+    let second_pane = pane_id(2);
+    let second_tab = tab_id(2);
+    let split = split_id(1);
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new(mutation_id, "test").unwrap(),
+            "tab.create_browser",
+            &json!({"operation":"tab.create_browser"}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertScreen(RegistryScreen {
+                        public_id: screen.clone(),
+                        workspace_id: workspace_public_id,
+                        position: 0,
+                        name: Some("Main".into()),
+                        layout: RegistryLayoutNode::Split {
+                            split,
+                            direction: "right".into(),
+                            ratio: 0.5,
+                            first: Box::new(RegistryLayoutNode::Leaf { pane: first_pane.clone() }),
+                            second: Box::new(RegistryLayoutNode::Leaf {
+                                pane: second_pane.clone(),
+                            }),
+                        },
+                        active_pane: first_pane,
+                        zoomed_pane: None,
+                        auto_layout: None,
+                        viewport: RegistryViewport::default(),
+                    }),
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: second_pane.clone(),
+                        screen_id: screen,
+                        name: Some("Docs".into()),
+                        active_tab: Some(second_tab.clone()),
+                        creation_ordinal: 2,
+                    }),
+                    ResourceChange::UpsertBrowser(browser.clone()),
+                    ResourceChange::UpsertTab(RegistryTab {
+                        public_id: second_tab.clone(),
+                        pane_id: second_pane.clone(),
+                        position: 0,
+                        content_id: ContentPublicId::Browser(browser.public_id),
+                        name: Some("Docs".into()),
+                        browser_url: Some(browser.url),
+                        terminal_id: None,
+                    }),
+                    ResourceChange::SetTabOrder { pane_id: second_pane, tab_ids: vec![second_tab] },
+                ],
+            },
+            &json!({"created":true}),
+            &json!([{"kind":"tab.created"}]),
+        )
+        .unwrap()
+}
+
 #[test]
 fn resource_patch_commits_terminal_and_topology_in_one_revision() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
@@ -643,7 +708,137 @@ fn resource_ids_survive_registry_restart() {
     assert_eq!(after.screens, before.screens);
     assert_eq!(after.panes, before.panes);
     assert_eq!(after.tabs, before.tabs);
+    assert_eq!(after.browsers, before.browsers);
     assert_ne!(after.generation, before.generation);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn browser_restart_metadata_is_safe_and_exact() {
+    let browser = RegistryBrowser {
+        public_id: browser_id(1),
+        url: "https://cmux.dev/docs".into(),
+        source: RegistryBrowserSource::External,
+        launch: RegistryBrowserLaunch::Adopted,
+        reconnect: RegistryBrowserReconnect::Recreate,
+        status: RegistryBrowserStatus::Live,
+        cols: 117,
+        rows: 43,
+    };
+    let encoded = serde_json::to_string(&browser).unwrap();
+    for forbidden in
+        ["target_id", "session_id", "websocket", "access_token", "authorization", "cdp"]
+    {
+        assert!(!encoded.contains(forbidden), "browser metadata leaked {forbidden}");
+    }
+
+    let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+    commit_terminal_topology(&mut registry, "create");
+    commit_browser_topology(&mut registry, "browser", browser.clone());
+    assert_eq!(registry.resource_topology_snapshot().unwrap().browsers, vec![browser]);
+}
+
+#[test]
+fn invalid_browser_restart_metadata_is_rejected_before_commit() {
+    let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+    commit_terminal_topology(&mut registry, "create");
+    let error = commit_browser_topology_unchecked(
+        &mut registry,
+        RegistryBrowser::recreate(browser_id(1), "https://cmux.dev".into(), 0, 24),
+    );
+    assert!(error.to_string().contains("invalid size 0x24"));
+    assert_eq!(registry.resource_topology_snapshot().unwrap().revision, 1);
+}
+
+fn commit_browser_topology_unchecked(
+    registry: &mut WorkspaceRegistry,
+    browser: RegistryBrowser,
+) -> anyhow::Error {
+    let workspace_public_id = workspace(1, "one", "One").public_id;
+    let screen = screen_id(1);
+    let first_pane = pane_id(1);
+    let second_pane = pane_id(2);
+    let second_tab = tab_id(2);
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("invalid-browser", "test").unwrap(),
+            "tab.create_browser",
+            &json!({"operation":"tab.create_browser"}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertScreen(RegistryScreen {
+                        public_id: screen.clone(),
+                        workspace_id: workspace_public_id,
+                        position: 0,
+                        name: Some("Main".into()),
+                        layout: RegistryLayoutNode::Split {
+                            split: split_id(1),
+                            direction: "right".into(),
+                            ratio: 0.5,
+                            first: Box::new(RegistryLayoutNode::Leaf { pane: first_pane.clone() }),
+                            second: Box::new(RegistryLayoutNode::Leaf {
+                                pane: second_pane.clone(),
+                            }),
+                        },
+                        active_pane: first_pane,
+                        zoomed_pane: None,
+                        auto_layout: None,
+                        viewport: RegistryViewport::default(),
+                    }),
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: second_pane.clone(),
+                        screen_id: screen,
+                        name: None,
+                        active_tab: Some(second_tab.clone()),
+                        creation_ordinal: 2,
+                    }),
+                    ResourceChange::UpsertBrowser(browser.clone()),
+                    ResourceChange::UpsertTab(RegistryTab {
+                        public_id: second_tab.clone(),
+                        pane_id: second_pane.clone(),
+                        position: 0,
+                        content_id: ContentPublicId::Browser(browser.public_id),
+                        name: None,
+                        browser_url: Some(browser.url),
+                        terminal_id: None,
+                    }),
+                    ResourceChange::SetTabOrder { pane_id: second_pane, tab_ids: vec![second_tab] },
+                ],
+            },
+            &json!({}),
+            &json!([]),
+        )
+        .unwrap_err()
+}
+
+#[test]
+fn corrupt_browser_restart_metadata_fails_closed_on_open() {
+    let root = temp_root("browser-metadata-corrupt");
+    let browser = browser_id(1);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "create");
+        commit_browser_topology(
+            &mut registry,
+            "browser",
+            RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 91, 31),
+        );
+    }
+    let session_dir = root.join(session_storage_component("session"));
+    let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    connection
+        .execute(
+            "UPDATE resource_browsers
+             SET metadata_json = '{\"public_id\":\"browser_00000000000000000000000000000001\",\"url\":\"https://cmux.dev\",\"source\":\"unknown\",\"launch\":\"create\",\"reconnect\":\"recreate\",\"status\":\"starting\",\"cols\":91,\"rows\":31,\"target_id\":\"secret\"}'
+             WHERE public_id = ?1",
+            [browser.as_str()],
+        )
+        .unwrap();
+    drop(connection);
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert!(error.to_string().contains("invalid metadata for browser"));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -693,10 +888,12 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         active_tab: Some(second_tab.clone()),
                         creation_ordinal: 2,
                     }),
-                    ResourceChange::UpsertBrowser {
-                        public_id: browser.clone(),
-                        url: "https://cmux.dev".into(),
-                    },
+                    ResourceChange::UpsertBrowser(RegistryBrowser::recreate(
+                        browser.clone(),
+                        "https://cmux.dev".into(),
+                        80,
+                        24,
+                    )),
                     ResourceChange::UpsertTab(RegistryTab {
                         public_id: second_tab.clone(),
                         pane_id: second_pane.clone(),
@@ -1464,6 +1661,70 @@ fn terminal_reserve_after_workspace_close_fails_referentially() {
 }
 
 #[test]
+fn schema_four_backfills_safe_browser_restart_metadata() {
+    let root = temp_root("schema-four-browser");
+    let browser = browser_id(1);
+    let session_dir = root.join(session_storage_component("session"));
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "create");
+        commit_browser_topology(
+            &mut registry,
+            "browser",
+            RegistryBrowser {
+                public_id: browser.clone(),
+                url: "https://cmux.dev/migrate".into(),
+                source: RegistryBrowserSource::External,
+                launch: RegistryBrowserLaunch::Adopted,
+                reconnect: RegistryBrowserReconnect::Recreate,
+                status: RegistryBrowserStatus::Live,
+                cols: 111,
+                rows: 42,
+            },
+        );
+    }
+    {
+        let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys=OFF;
+                 BEGIN IMMEDIATE;
+                 ALTER TABLE resource_browsers RENAME TO resource_browsers_v5;
+                 CREATE TABLE resource_browsers (
+                   public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+                   url TEXT NOT NULL,
+                   lifecycle TEXT NOT NULL CHECK(lifecycle IN ('running','tombstoned')),
+                   created_revision INTEGER NOT NULL,
+                   updated_revision INTEGER NOT NULL,
+                   deleted_revision INTEGER,
+                   CHECK (
+                     (deleted_revision IS NULL AND lifecycle = 'running') OR
+                     (deleted_revision IS NOT NULL AND lifecycle = 'tombstoned')
+                   )
+                 );
+                 INSERT INTO resource_browsers(
+                   public_id, url, lifecycle, created_revision, updated_revision, deleted_revision
+                 )
+                 SELECT public_id, url, lifecycle, created_revision, updated_revision,
+                        deleted_revision
+                 FROM resource_browsers_v5;
+                 DROP TABLE resource_browsers_v5;
+                 UPDATE meta SET value = '4' WHERE key = 'schema_version';
+                 COMMIT;
+                 PRAGMA foreign_keys=ON;",
+            )
+            .unwrap();
+    }
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "5");
+    assert_eq!(
+        migrated.resource_topology_snapshot().unwrap().browsers,
+        vec![RegistryBrowser::recreate(browser, "https://cmux.dev/migrate".into(), 80, 24,)]
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn schema_one_migrates_transactionally_to_terminal_registry() {
     let root = temp_root("schema-one");
     let session_dir = root.join(session_storage_component("session"));
@@ -1484,7 +1745,7 @@ fn schema_one_migrates_transactionally_to_terminal_registry() {
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
     assert_eq!(migrated.terminal_snapshot().unwrap().revision, 0);
     assert!(migrated.terminal_snapshot().unwrap().terminals.is_empty());
-    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "4");
+    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "5");
     fs::remove_dir_all(root).unwrap();
 }
 
