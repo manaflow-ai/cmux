@@ -34,6 +34,7 @@ struct RecoveryHarness {
     state: PathBuf,
     session: String,
     host_ready_delay_ms: Option<u64>,
+    reconnect_completion_failures: Option<u64>,
 }
 
 impl RecoveryHarness {
@@ -48,6 +49,7 @@ impl RecoveryHarness {
             state: dir.join("state"),
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
+            reconnect_completion_failures: None,
             dir,
         };
         harness.restart();
@@ -57,6 +59,13 @@ impl RecoveryHarness {
     fn start_with_host_ready_delay(name: &str, delay_ms: u64) -> Self {
         let mut harness = Self::start_unstarted(name);
         harness.host_ready_delay_ms = Some(delay_ms);
+        harness.restart();
+        harness
+    }
+
+    fn start_with_reconnect_completion_failures(name: &str, failures: u64) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.reconnect_completion_failures = Some(failures);
         harness.restart();
         harness
     }
@@ -97,6 +106,7 @@ impl RecoveryHarness {
             state: dir.join("state"),
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
+            reconnect_completion_failures: None,
             dir,
         }
     }
@@ -119,6 +129,10 @@ impl RecoveryHarness {
             .stderr(Stdio::null());
         if let Some(delay_ms) = self.host_ready_delay_ms {
             command.env("CMUX_TUI_TEST_HOST_READY_DELAY_MS", delay_ms.to_string());
+        }
+        if let Some(failures) = self.reconnect_completion_failures {
+            command.env("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES", failures.to_string());
+            command.env("CMUX_TUI_TEST_DISCONNECT_HOST_AFTER_SPAWN_MS", "1000");
         }
         command
     }
@@ -1863,6 +1877,75 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     let _ = renderer_writer.shutdown(std::net::Shutdown::Both);
     drain.join().unwrap();
     request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn failed_reconnect_completion_disconnects_and_retries_without_freezing() {
+    let harness = RecoveryHarness::start_with_reconnect_completion_failures("completion-retry", 1);
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/sh"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    let before_record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    let terminal_snapshot =
+        request(&harness.socket, serde_json::json!({"id":2,"cmd":"list-terminals"}));
+    let before_revision = terminal_snapshot["terminal_revision"].as_u64().unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let kinds = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        let lifecycle_events = request(
+            &harness.socket,
+            serde_json::json!({
+                "id":4,"cmd":"terminal-events","after_revision":before_revision,
+            }),
+        );
+        let kinds = lifecycle_events["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["kind"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        let adopting = kinds.iter().filter(|kind| kind.as_str() == "terminal-adopting").count();
+        let ready = kinds.iter().filter(|kind| kind.as_str() == "terminal-ready").count();
+        if resolved["lifecycle"] == "running" && adopting == 2 && ready == 2 {
+            assert_eq!(resolved["terminal_incarnation"], incarnation);
+            break kinds;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "terminal never completed its reconnect retry: lifecycle={}, events={kinds:?}",
+            resolved["lifecycle"]
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    assert_eq!(kinds.iter().filter(|kind| kind.as_str() == "terminal-adopting").count(), 2);
+    assert_eq!(kinds.iter().filter(|kind| kind.as_str() == "terminal-ready").count(), 2);
+
+    let marker = format!("completion-retry-live-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id":5,"cmd":"send","surface":surface,"text":format!("printf '{marker}\\n'\n"),
+        }),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    let after_record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(after_record.host_pid, before_record.host_pid);
+    assert_eq!(after_record.host_start_nonce, before_record.host_start_nonce);
+    assert_eq!(after_record.incarnation, before_record.incarnation);
+
+    request(&harness.socket, serde_json::json!({"id":6,"cmd":"close-surface","surface":surface}));
     wait_for_no_host_records(&harness.host_root());
 }
 
