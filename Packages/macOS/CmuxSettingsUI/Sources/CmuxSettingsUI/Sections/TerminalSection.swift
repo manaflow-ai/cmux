@@ -8,6 +8,7 @@ import SwiftUI
 /// the JSON-backed Resume Commands editor.
 @MainActor
 public struct TerminalSection: View {
+    private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
@@ -23,7 +24,6 @@ public struct TerminalSection: View {
     @State private var sessionContentAlignment: DefaultsValueModel<SessionContentAlignment>
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
-    @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
     @State private var maxLive: DefaultsValueModel<Int>
@@ -39,6 +39,7 @@ public struct TerminalSection: View {
         catalog: SettingCatalog,
         hostActions: SettingsHostActions
     ) {
+        self.defaultsStore = defaultsStore
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
@@ -49,7 +50,6 @@ public struct TerminalSection: View {
         _sessionContentAlignment = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.sessionContentAlignment))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
-        _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
         _maxLive = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals))
@@ -77,7 +77,6 @@ public struct TerminalSection: View {
             sessionContentAlignment,
             scrollBar,
             copyOnSelect,
-            autoResume,
             hibernation,
             idleSeconds,
             maxLive,
@@ -368,18 +367,11 @@ public struct TerminalSection: View {
                     .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
             }
             SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .json("terminal.autoResumeAgentSessions"),
-                String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"),
-                subtitle: autoResume.current
-                    ? String(localized: "settings.terminal.agentAutoResume.subtitleOn", defaultValue: "When cmux reopens after quit, restored agent terminals automatically run their resume command.")
-                    : String(localized: "settings.terminal.agentAutoResume.subtitleOff", defaultValue: "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually.")
-            ) {
-                Toggle("", isOn: Binding(get: { autoResume.current }, set: { autoResume.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .accessibilityIdentifier("SettingsTerminalAgentAutoResumeToggle")
-            }
+            AgentRecoverySettingsRows(
+                defaultsStore: defaultsStore,
+                catalog: catalog,
+                hostActions: hostActions
+            )
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),
