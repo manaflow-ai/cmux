@@ -4051,6 +4051,19 @@ mod tests {
     }
 
     #[test]
+    fn history_epoch_ignores_kitty_content_updates_that_do_not_move_history() {
+        let mut terminal = Terminal::new(8, 2, 1_000, Callbacks::default()).unwrap();
+        terminal.vt_write(b"first\r\nsecond\r\nthird");
+        assert!(terminal.history_rows() > 0);
+        let history_epoch = terminal.history_epoch();
+
+        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=8,p=1,s=1,v=1,c=1,r=1,C=1,q=2;/wAA\x1b\\");
+        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=8,p=1,s=1,v=1,c=1,r=1,C=1,q=2;AP8A\x1b\\");
+
+        assert_eq!(terminal.history_epoch(), history_epoch);
+    }
+
+    #[test]
     fn history_epochs_change_across_mutations_and_terminal_instances() {
         let mut first = Terminal::new(8, 2, 1_000, Callbacks::default()).unwrap();
         let initial = first.history_epoch();
