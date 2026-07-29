@@ -1384,7 +1384,11 @@ mod tests {
         let cases = [
             (
                 "confirmation.required",
-                json!({"revision":"4","closes_panes":[format!("pane_{}", "0".repeat(32))]}),
+                json!({
+                    "confirmation_token":"layout-confirmation-token",
+                    "revision":"4",
+                    "closes_panes":[format!("pane_{}", "0".repeat(32))]
+                }),
                 false,
             ),
             (
