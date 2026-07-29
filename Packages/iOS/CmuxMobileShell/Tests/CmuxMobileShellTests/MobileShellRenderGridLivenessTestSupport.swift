@@ -41,6 +41,7 @@ actor LivenessHostRouter {
     private var workspaceListErrorCodesByRequestNumber: [Int: String] = [:]
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
+    private var delayedSubscribeRequestNumbers: Set<Int> = []
     private var invalidSubscribeRequestNumbers: Set<Int> = []
     private var subscribeErrorCodesByRequestNumber: [Int: String] = [:]
     private var holdSubscribe = false
@@ -312,6 +313,12 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers.insert(number)
     }
 
+    /// Delay a subscribe acknowledgement until released, then return the
+    /// ordinary successful payload.
+    func delaySubscribeRequest(number: Int) {
+        delayedSubscribeRequestNumbers.insert(number)
+    }
+
     /// Return an acknowledgement without the requested stream id.
     func invalidateSubscribeRequest(number: Int) {
         invalidSubscribeRequestNumbers.insert(number)
@@ -372,6 +379,7 @@ actor LivenessHostRouter {
         delayedHostStatusRequestNumbers = []
         heldWorkspaceListRequestNumbers = []
         heldSubscribeRequestNumbers = []
+        delayedSubscribeRequestNumbers = []
         heldUnsubscribeRequestNumbers = []
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
@@ -463,6 +471,9 @@ actor LivenessHostRouter {
             if holdSubscribe || heldSubscribeRequestNumbers.contains(subscribeRequestCount) {
                 await park()
                 return nil
+            }
+            if delayedSubscribeRequestNumbers.contains(subscribeRequestCount) {
+                await park()
             }
             if let errorCode =
                 subscribeErrorCodesByRequestNumber[subscribeRequestCount] {

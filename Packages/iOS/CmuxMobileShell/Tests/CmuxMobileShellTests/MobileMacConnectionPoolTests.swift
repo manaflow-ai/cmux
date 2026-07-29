@@ -1722,6 +1722,50 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func focusedHandoffDrainsSubscribeBeforeFinalUnsubscribe()
+        async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let shell = try await makeConnectedStore(
+            router: router,
+            box: box,
+            clock: TestClock(),
+            probeTimeoutNanoseconds: 1_000_000_000
+        )
+        let macDeviceID = try #require(shell.foregroundMacDeviceID)
+        let connection = try #require(shell.connections[macDeviceID])
+        let initialSubscribeCount =
+            await router.count(of: "mobile.events.subscribe")
+        await router.delaySubscribeRequest(
+            number: initialSubscribeCount + 1
+        )
+        shell.resyncTerminalOutput(
+            reason: "handoff_drain_test",
+            restartEventStream: false
+        )
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: initialSubscribeCount + 1
+        ))
+        #expect(try await pollUntil {
+            await router.heldRequestCount() == 1
+        })
+
+        let handoff = Task { @MainActor in
+            await shell.prepareFocusedConnectionForHandoff(connection)
+        }
+        for _ in 0 ..< 20 { await Task.yield() }
+        #expect(await router.count(of: "mobile.events.unsubscribe") == 0)
+
+        await router.releaseNextHeld()
+        #expect(await router.waitForCount(
+            of: "mobile.events.unsubscribe",
+            atLeast: 1
+        ))
+        #expect(await handoff.value)
+        await connection.client.disconnect()
+    }
+
     @Test func malformedControlSubscribeAckTearsDownFalseReadyState() async throws {
         let router = LivenessHostRouter()
         await router.invalidateSubscribeRequest(number: 1)
@@ -2410,6 +2454,77 @@ import Testing
         ))
         #expect(await router.count(of: "mobile.events.subscribe") == 1)
 
+        subscription.detachKeepingClient()
+        shell.secondaryMacSubscriptions["mac-b"] = nil
+        await client.disconnect()
+    }
+
+    @Test func promotionFenceTimesOutBlockedControlReassertion() async throws {
+        let router = LivenessHostRouter()
+        await router.holdSubscribeRequest(number: 1)
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() },
+            livenessProbeTimeoutNanoseconds: 1_000_000_000
+        )
+        let route = try CmxAttachRoute(
+            id: "bounded-promotion-reassertion",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-b",
+            macDisplayName: "Mac B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "mmpool",
+            authenticatedInstanceTag: "mmpool",
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none,
+            displayName: "Mac B"
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionHandoffDrainTimeoutNanoseconds: 20_000_000
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = subscription
+        shell.startSecondaryEventConsumer(
+            subscription,
+            displayName: "Mac B"
+        )
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 1
+        ))
+        #expect(try await pollUntil {
+            await router.heldRequestCount() == 1
+        })
+
+        #expect(!(await shell.prepareSecondarySubscriptionForPromotion(
+            subscription,
+            macDeviceID: "mac-b"
+        )))
+        #expect(subscription.isTransitioningToFocus)
+
+        await router.releaseAllHeld()
         subscription.detachKeepingClient()
         shell.secondaryMacSubscriptions["mac-b"] = nil
         await client.disconnect()

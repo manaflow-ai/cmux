@@ -20,6 +20,14 @@ extension MobileShellComposite {
         // run while the acknowledgement is being delivered, and restoration
         // must never accept this focus after the host removed its render stream.
         focusedHandoffPreparedGenerations.insert(connection.generation)
+        guard await prepareTerminalSubscriptionHandoff(
+            on: connection.client
+        ) else {
+            if isFocusedConnectionCurrent(connection) {
+                await connection.client.disconnect()
+            }
+            return false
+        }
         let terminalStopped = await unsubscribeTerminalEventStream(
             on: connection.client
         )
@@ -251,8 +259,6 @@ extension MobileShellComposite {
             )
             return false
         }
-        stopTerminalRefreshPolling()
-        cancelRemoteOperationTasks()
         clearPendingTerminalInputForFocusChange()
         // The old foreground can stay warm only after the Mac proves its
         // terminal registration is gone.

@@ -778,6 +778,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connection. This generation record closes the race where the ack arrives
     /// before the stored-Mac redial task returns from `connect`.
     var lastSuccessfulTerminalSubscriptionGeneration: UUID?
+    /// The focused client whose terminal subscribe/reassert operations are
+    /// fenced while its final unsubscribe is prepared. Existing wire requests
+    /// drain before unsubscribe; new ones cannot start.
+    private var terminalSubscriptionHandoffFenceClientID: ObjectIdentifier?
     // Liveness watchdog for the render-grid push subscription. The `for await`
     // listener loop blocks indefinitely if the underlying connection half-dies
     // (network blip, Mac stops pushing, background/foreground cycle): the
@@ -841,6 +845,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored let workspaceChangesSchedulingClock: any Clock<Duration>
     /// Injected clock for control-pool keepalives and bounded reconnect backoff.
     @ObservationIgnored let controlPlaneSchedulingClock: any Clock<Duration>
+    /// Whole-operation deadline for draining subscription reassertions during
+    /// a user-visible role handoff.
+    @ObservationIgnored let connectionHandoffDrainTimeoutNanoseconds: UInt64
     /// Mobile state sync v2 (docs/mobile-state-sync-v2.md): full-record mirror
     /// of the foreground Mac's workspace/group collections plus its cursor.
     /// Never reset on reconnect; the epoch in every frame invalidates stale
@@ -1140,6 +1147,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore = MobileWorkspaceChangesHintDismissalStore(),
         workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock(),
         controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
+        connectionHandoffDrainTimeoutNanoseconds: UInt64 = 3_000_000_000,
         taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
         storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
@@ -1149,6 +1157,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.workspaceChangesHintDismissalStore = workspaceChangesHintDismissalStore
         self.workspaceChangesSchedulingClock = workspaceChangesSchedulingClock
         self.controlPlaneSchedulingClock = controlPlaneSchedulingClock
+        self.connectionHandoffDrainTimeoutNanoseconds =
+            connectionHandoffDrainTimeoutNanoseconds
         self.taskTemplateStore = taskTemplateStore
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore
@@ -3079,14 +3089,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for: previousActive.macDeviceID,
             instanceTag: previousActive.instanceTag
         ))
-        let foregroundHandoffNeedsRepair = foregroundMacDeviceID.flatMap {
+        let focusedForegroundConnection = foregroundMacDeviceID.flatMap {
             connections[$0]
-        }.map {
-            focusedHandoffPreparedGenerations.contains($0.generation)
-        } ?? false
+        }
+        let foregroundHandoffNeedsRepair =
+            focusedForegroundConnection == nil
+            || focusedForegroundConnection.map {
+                focusedHandoffPreparedGenerations.contains($0.generation)
+            } == true
         let previousStillForeground = connectionState == .connected
             && remoteClient != nil
             && !foregroundHandoffNeedsRepair
+            && focusedForegroundConnection?.client === remoteClient
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
             && (previousActive.instanceTag == nil
                 || MobileMacInstanceTagAuthority.sameStoredAuthority(
@@ -4923,9 +4937,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Drain the target's current reassertion while its timer owner remains
         // uncancelled. Canceling first can make an RPC await return locally
         // before the server has finished applying the subscribe.
-        let reassertion =
-            secondaryControlReassertionTasksByMacID[macDeviceID]
-        _ = await reassertion?.value
+        if let reassertion =
+            secondaryControlReassertionTasksByMacID[macDeviceID] {
+            let drain = await Self.raceAgainstDeadline(
+                nanoseconds: connectionHandoffDrainTimeoutNanoseconds
+            ) {
+                _ = await reassertion.value
+                return true
+            }
+            guard drain.value == true,
+                  !drain.wasCancelled,
+                  secondaryMacSubscriptions[macDeviceID] === subscription else {
+                return false
+            }
+        }
         let keepalive = secondaryControlKeepaliveTask
         secondaryControlKeepaliveTaskGeneration = UUID()
         secondaryControlKeepaliveTask = nil
@@ -7004,7 +7029,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         // the new focused client. A different or anonymous
                         // target can retain the old client as control-only; a
                         // same-Mac redial must disconnect the superseded client.
-                        stopTerminalRefreshPolling()
                         clearPendingTerminalInputForFocusChange()
                         let terminalStopped = await prepareFocusedConnectionForHandoff(
                             previousFocusedConnection
@@ -7407,6 +7431,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if newValue != nil, previous !== newValue {
             chatEventSourceGeneration = UUID()
         }
+        if previous !== newValue {
+            terminalSubscriptionHandoffFenceClientID = nil
+        }
         if let previous, previous !== newValue {
             Task { await previous.disconnect() }
         }
@@ -7427,6 +7454,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // begun during staging cannot cross onto the target connection.
         connectionGeneration = UUID()
         remoteClient = newValue
+        terminalSubscriptionHandoffFenceClientID = nil
         chatEventSourceGeneration = UUID()
         return connectionGeneration
     }
@@ -8724,6 +8752,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func refreshTerminalEventSubscription(reason: String) {
         guard let client = remoteClient, connectionState == .connected else { return }
+        guard terminalSubscriptionHandoffFenceClientID
+                != ObjectIdentifier(client) else {
+            return
+        }
         guard runtime?.supportsServerPushEvents ?? true else { return }
         guard terminalSubscriptionRefreshTask == nil else { return }
         terminalSubscriptionRefreshTask = Task { @MainActor [weak self] in
@@ -8750,6 +8782,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 Task { await subscriptionReadiness.resolve(false) }
             }
             return
+        }
+        if terminalSubscriptionHandoffFenceClientID
+            == ObjectIdentifier(client) {
+            let focusedConnection = foregroundMacDeviceID.flatMap {
+                connections[$0]
+            }
+            guard focusedConnection?.client === client,
+                  focusedConnection.map({
+                      !focusedHandoffPreparedGenerations.contains($0.generation)
+                  }) == true else {
+                if let subscriptionReadiness {
+                    Task { await subscriptionReadiness.resolve(false) }
+                }
+                return
+            }
+            terminalSubscriptionHandoffFenceClientID = nil
         }
         let listenerID = UUID()
         terminalEventListenerID = listenerID
@@ -8880,6 +8928,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         recoversConnectionOnFailure: Bool
     ) {
         guard terminalEventListenerID == listenerID else {
+            if let subscriptionReadiness {
+                Task { await subscriptionReadiness.resolve(false) }
+            }
+            return
+        }
+        guard terminalSubscriptionHandoffFenceClientID
+                != ObjectIdentifier(client) else {
             if let subscriptionReadiness {
                 Task { await subscriptionReadiness.resolve(false) }
             }
@@ -9091,6 +9146,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func checkRenderGridLiveness(listenerID: UUID) {
         guard renderGridLivenessListenerID == listenerID else { return }
         guard let client = remoteClient, connectionState == .connected else { return }
+        guard terminalSubscriptionHandoffFenceClientID
+                != ObjectIdentifier(client) else {
+            return
+        }
         guard terminalEventListenerID == listenerID else { return }
         let now = runtime?.now() ?? Date()
         let last = lastTerminalEventAt ?? now
@@ -10116,6 +10175,52 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionStartTask?.cancel()
         terminalSubscriptionStartTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
+    }
+
+    /// Stop admitting terminal subscription work, then await every request that
+    /// may already have reached the Mac. The final unsubscribe is safe only
+    /// after this drain, because the host executes request handlers
+    /// concurrently and a late subscribe could otherwise recreate render
+    /// ownership after demotion.
+    func prepareTerminalSubscriptionHandoff(
+        on client: MobileCoreRPCClient
+    ) async -> Bool {
+        guard remoteClient === client else { return false }
+        let clientID = ObjectIdentifier(client)
+        terminalSubscriptionHandoffFenceClientID = clientID
+
+        terminalEventListenerTask?.cancel()
+        terminalEventListenerTask = nil
+        terminalEventListenerID = nil
+        renderGridLivenessTimer?.cancel()
+        renderGridLivenessTimer = nil
+        renderGridLivenessListenerID = nil
+        renderGridLivenessConsecutiveProbeFailures = 0
+
+        let start = terminalSubscriptionStartTask
+        let refresh = terminalSubscriptionRefreshTask
+        let probe = renderGridLivenessProbeTask
+        let drain = await Self.raceAgainstDeadline(
+            nanoseconds: connectionHandoffDrainTimeoutNanoseconds
+        ) {
+            await start?.value
+            await refresh?.value
+            await probe?.value
+            return true
+        }
+        guard drain.value == true,
+              !drain.wasCancelled,
+              remoteClient === client,
+              terminalSubscriptionHandoffFenceClientID == clientID else {
+            return false
+        }
+        // The fence prevented replacement tasks from occupying these slots
+        // while their captured owners drained.
+        terminalSubscriptionStartTask = nil
+        terminalSubscriptionRefreshTask = nil
+        renderGridLivenessProbeTask = nil
+        renderGridLivenessProbeID = nil
+        return true
     }
 
     func setSelectedWorkspaceID(_ id: MobileWorkspacePreview.ID?) {

@@ -719,7 +719,11 @@ extension MobileShellComposite {
         if normalizedForegroundNotificationFeedMacID() == macDeviceID {
             return remoteClient
         }
-        return secondaryMacSubscriptions[macDeviceID]?.client
+        guard let subscription = secondaryMacSubscriptions[macDeviceID],
+              !subscription.isTransitioningToFocus else {
+            return nil
+        }
+        return subscription.client
     }
 
     private func notificationFeedClientSupportsCapability(macDeviceID: String) -> Bool {
