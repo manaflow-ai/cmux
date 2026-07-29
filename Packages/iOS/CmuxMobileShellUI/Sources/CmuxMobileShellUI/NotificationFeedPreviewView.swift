@@ -3,6 +3,7 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import os
 import SwiftUI
+import UIKit
 
 /// Deterministic real-app fixture for notification-feed interaction and visual
 /// verification. It mounts the production tab scaffold and production feed.
@@ -225,6 +226,8 @@ public struct NotificationFeedPreviewView: View {
             category: "NotificationFeedScrollStress"
         )
         signposter.emitEvent("scrollStressStart", "\(ids.count) rows")
+        let monitor = NotificationFeedScrollStressFrameMonitor()
+        monitor.start()
         let hop = 10
         let downState = signposter.beginInterval("scrollDown")
         for index in stride(from: 0, to: ids.count, by: hop) {
@@ -238,7 +241,11 @@ public struct NotificationFeedPreviewView: View {
             do { try await clock.sleep(for: .milliseconds(150)) } catch { return }
         }
         signposter.endInterval("scrollUp", upState)
+        monitor.stop()
         signposter.emitEvent("scrollStressComplete")
+        Logger(subsystem: "dev.cmux.ios", category: "NotificationFeedScrollStress").notice(
+            "NFSCROLLSTRESS result rows=\(ids.count) frames=\(monitor.frameCount) hitches=\(monitor.hitchCount) hitchTotalMs=\(Int(monitor.hitchTotal * 1000)) worstHitchMs=\(Int(monitor.worstHitch * 1000))"
+        )
     }
 
 }
@@ -391,6 +398,44 @@ private func makeNotificationFeedPreviewFixtureItems(referenceDate: Date) -> [Mo
             connectionStatus: .reconnecting
         ),
     ]
+}
+
+/// DEBUG frame-pacing monitor for the profiling scroll driver: counts
+/// display-link ticks arriving later than 1.5x the frame interval (the hitch
+/// definition Instruments uses for "frame delay"). It exists only inside the
+/// env-gated stress harness; production code paths never install it.
+@MainActor
+private final class NotificationFeedScrollStressFrameMonitor: NSObject {
+    private var displayLink: CADisplayLink?
+    private var lastTimestamp: CFTimeInterval?
+    private(set) var frameCount = 0
+    private(set) var hitchCount = 0
+    private(set) var hitchTotal: CFTimeInterval = 0
+    private(set) var worstHitch: CFTimeInterval = 0
+
+    func start() {
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    func stop() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        defer { lastTimestamp = link.timestamp }
+        guard let lastTimestamp else { return }
+        let delta = link.timestamp - lastTimestamp
+        let expected = link.duration > 0 ? link.duration : 1.0 / 60.0
+        frameCount += 1
+        if delta > expected * 1.5 {
+            hitchCount += 1
+            hitchTotal += delta - expected
+            worstHitch = max(worstHitch, delta - expected)
+        }
+    }
 }
 
 /// Builds `count` deterministic synthetic feed items for scroll-perf stress
