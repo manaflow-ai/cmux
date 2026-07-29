@@ -4985,6 +4985,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
         if result {
+            let pendingText = textInputEditSession.commitPendingText()
+            if !pendingText.isEmpty, let surface {
+                syncPreedit()
+                terminalSurface?.didReceiveExplicitInput()
+                recordDirectAgentHibernationTerminalInput()
+                for text in pendingText {
+                    sendCommittedText(
+                        text,
+                        action: GHOSTTY_ACTION_PRESS,
+                        surface: surface
+                    )
+                }
+            }
             resetTerminalKeyInputLifecycle()
             desiredFocus = false
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
@@ -5503,7 +5516,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         keyTextAccumulator?.append(
             contentsOf: textInputEditSession.finishEvent(
-                consumedByTextInput: textInputConsumed
+                consumedByTextInput: textInputConsumed,
+                commandPerformed: textInputCommandPerformed ?? false
             )
         )
         let markedTextAfter = textInputEditSession.markedText
@@ -11507,8 +11521,8 @@ extension GhosttyNSView: NSTextInputClient {
         if textInputCallbackPerformed != nil {
             textInputCallbackPerformed = true
         }
-#if DEBUG
         let hadMarkedText = textInputEditSession.hasMarkedText
+#if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         defer {
             CmuxTypingTiming.logDuration(

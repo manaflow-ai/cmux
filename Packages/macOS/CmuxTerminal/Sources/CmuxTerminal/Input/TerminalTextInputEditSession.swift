@@ -63,35 +63,49 @@ public struct TerminalTextInputEditSession: Sendable {
     /// Finishes one native key and resolves otherwise ambiguous `insertText`
     /// callbacks.
     ///
-    /// A consumed callback whose text differs from the key's translated text
-    /// is an edit supplied by the text system, rather than direct keyboard
-    /// layout output. An initial insertion followed by replacement ranges is
-    /// retained as an editable suffix until the replacement covers that suffix.
+    /// A transformed callback without an explicit marked-text lifecycle is
+    /// ambiguous: it can be a one-shot commit or the first edit in a document
+    /// replacement sequence. The session keeps that suffix reversible, then
+    /// flushes it at the next direct or unowned native key. Replacement edits
+    /// can continue until a full replacement supplies the committed candidate.
     ///
-    /// - Parameter consumedByTextInput: Whether AppKit claimed the native key.
+    /// - Parameters:
+    ///   - consumedByTextInput: Whether AppKit claimed the native key.
+    ///   - commandPerformed: Whether AppKit delegated a command back to the
+    ///     terminal client.
     /// - Returns: Text that is safe to send irreversibly to the terminal.
     public mutating func finishEvent(
-        consumedByTextInput: Bool
+        consumedByTextInput: Bool,
+        commandPerformed: Bool = false
     ) -> [String] {
         guard let completedEvent = event else { return [] }
         event = nil
 
-        let insertions = completedEvent.pendingInsertions.filter {
-            !$0.text.isEmpty
+        let insertions = completedEvent.pendingInsertions
+        guard !insertions.isEmpty else {
+            guard markedTextOrigin == .replacementEdits,
+                  (!consumedByTextInput || commandPerformed) else {
+                return []
+            }
+            return commitPendingText()
         }
-        guard !insertions.isEmpty else { return [] }
 
         let insertedText = insertions.map(\.text).joined()
         let correspondsToNativeKey =
             completedEvent.translatedText == insertedText ||
             completedEvent.rawText == insertedText
+        let isControlCallback =
+            TerminalTextInputText.isSingleC0OrDelete(insertedText)
+        let committedInsertions = insertions.compactMap {
+            $0.text.isEmpty ? nil : $0.text
+        }
+
         guard consumedByTextInput,
               !correspondsToNativeKey,
-              !TerminalTextInputText.isSingleC0OrDelete(insertedText),
+              !isControlCallback,
               !completedEvent.receivedExplicitCompositionCallback,
-              markedTextOrigin == nil,
               insertions[0].replacementRange.location == NSNotFound else {
-            return insertions.map(\.text)
+            return committedInsertions
         }
 
         markedTextOrigin = .replacementEdits
@@ -146,6 +160,14 @@ public struct TerminalTextInputEditSession: Sendable {
             return text.isEmpty ? [] : [text]
 
         case .replacementEdits:
+            if let event,
+               event.translatedText == text ||
+               event.rawText == text ||
+               TerminalTextInputText.isSingleC0OrDelete(text) {
+                let pendingText = commitPendingText()
+                let directText = directText(for: text, event: event)
+                return pendingText + (directText.isEmpty ? [] : [directText])
+            }
             return applyReplacementEdit(
                 text,
                 replacementRange: replacementRange
@@ -172,6 +194,25 @@ public struct TerminalTextInputEditSession: Sendable {
     public mutating func discardMarkedText() {
         event?.receivedExplicitCompositionCallback = true
         clearMarkedText()
+    }
+
+    /// Commits any reversible suffix at an external semantic boundary such as
+    /// focus loss.
+    public mutating func commitPendingText() -> [String] {
+        let committedText = markedText.isEmpty ? [] : [markedText]
+        clearMarkedText()
+        return committedText
+    }
+
+    private func directText(for text: String, event: Event) -> String {
+        guard text == event.rawText,
+              TerminalTextInputText.isSingleC0OrDelete(text),
+              let translatedText = event.translatedText,
+              !translatedText.isEmpty,
+              !TerminalTextInputText.isSingleC0OrDelete(translatedText) else {
+            return text
+        }
+        return translatedText
     }
 
     private mutating func applyReplacementEdit(

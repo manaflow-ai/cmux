@@ -88,6 +88,59 @@ import Testing
         #expect(!session.hasMarkedText)
     }
 
+    @Test func oneShotTransformationFlushesBeforeDelegatedCommand() {
+        var session = TerminalTextInputEditSession()
+        session.beginEvent(translatedText: "x", rawText: "x")
+        #expect(session.insertText(
+            "opaque",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        ).isEmpty)
+        #expect(session.finishEvent(consumedByTextInput: true).isEmpty)
+
+        session.beginEvent(translatedText: "\r", rawText: "\r")
+        #expect(session.finishEvent(
+            consumedByTextInput: true,
+            commandPerformed: true
+        ) == ["opaque"])
+        #expect(!session.hasMarkedText)
+    }
+
+    @Test func oneShotTransformationFlushesBeforeDirectText() {
+        var session = TerminalTextInputEditSession()
+        session.beginEvent(translatedText: "x", rawText: "x")
+        #expect(session.insertText(
+            "opaque",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        ).isEmpty)
+        #expect(session.finishEvent(consumedByTextInput: true).isEmpty)
+
+        session.beginEvent(translatedText: "z", rawText: "z")
+        #expect(session.insertText(
+            "z",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        ) == ["opaque", "z"])
+        #expect(session.finishEvent(consumedByTextInput: true).isEmpty)
+        #expect(!session.hasMarkedText)
+    }
+
+    @Test func pendingTransformationPreservesRecoveredNativeText() {
+        var session = TerminalTextInputEditSession()
+        session.beginEvent(translatedText: "x", rawText: "x")
+        #expect(session.insertText(
+            "opaque",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        ).isEmpty)
+        #expect(session.finishEvent(consumedByTextInput: true).isEmpty)
+
+        session.beginEvent(translatedText: "~", rawText: "\u{001B}")
+        #expect(session.insertText(
+            "\u{001B}",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        ) == ["opaque", "~"])
+        #expect(session.finishEvent(consumedByTextInput: true).isEmpty)
+        #expect(!session.hasMarkedText)
+    }
+
     @Test func consumedReplacementEditsRemainProvisionalUntilCommit() {
         var session = TerminalTextInputEditSession()
 
@@ -213,4 +266,16 @@ import Testing
         #expect(session.unmarkText().isEmpty)
     }
 
+    @Test func externalBoundaryCommitsPendingReplacementText() {
+        var session = TerminalTextInputEditSession()
+        session.beginEvent(translatedText: "x")
+        #expect(session.insertText(
+            "opaque",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        ).isEmpty)
+        #expect(session.finishEvent(consumedByTextInput: true).isEmpty)
+
+        #expect(session.commitPendingText() == ["opaque"])
+        #expect(!session.hasMarkedText)
+    }
 }
