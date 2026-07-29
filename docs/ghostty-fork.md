@@ -12,18 +12,20 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `8b1781336`, the reviewed head of the
-merged https://github.com/manaflow-ai/ghostty/pull/165 follow-up to
-https://github.com/manaflow-ai/ghostty/pull/153. It adds lossless hidden-tab
-renderer reclamation and forced renderer rebuild transactions. The original
-PR landed in merge commit `1e86b46e2`; its retry-race correction landed in
-merge commit `4dab6fd6c`.
+The submodule pinned by this branch is `ed67f2b59`, the reviewed head of
+https://github.com/manaflow-ai/ghostty/pull/166, following the merged
+https://github.com/manaflow-ai/ghostty/pull/153 and
+https://github.com/manaflow-ai/ghostty/pull/165. It adds lossless hidden-tab
+renderer reclamation, forced renderer rebuild transactions, shared custom
+Metal pipelines, and one observation owner per native tab group. The three
+PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`, and `2fc66ed15`.
 
 ### Hidden macOS renderer reclamation
 
 - Pull request:
   - https://github.com/manaflow-ai/ghostty/pull/153
   - https://github.com/manaflow-ai/ghostty/pull/165
+  - https://github.com/manaflow-ai/ghostty/pull/166
 - Commits:
   - `1de584d1e` (test: require lossless renderer realization requests)
   - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
@@ -64,6 +66,13 @@ merge commit `4dab6fd6c`.
   - `2013a9c3d` (renderer: reject stale realization retry delivery)
   - `41aeef311` (test: invalidate retry while claiming request)
   - `8b1781336` (renderer: invalidate retry while claiming request)
+  - `a255f34f2` (test: cover custom shader and tab observer reuse)
+  - `f010d69af` (renderer: share custom pipelines and tab observers)
+  - `7e783145b` (renderer: harden shared shader cache diagnostics)
+  - `357f582b3` (test: cover stale tab callbacks and shader retries)
+  - `074c0f7b7` (fix renderer cache and tab callback races)
+  - `b88d39586` (test: classify custom shader failures as recoverable)
+  - `ed67f2b59` (merge current fork main and preserve the Zig 0.16 port)
 - Files:
   - `include/ghostty.h`
   - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
@@ -104,16 +113,24 @@ merge commit `4dab6fd6c`.
     external-render state.
   - Shares immutable standard shader pipelines by Metal device and pixel
     format while preserving renderer-owned resources and transactional cleanup.
+  - Shares custom shader pipelines by device, pixel format, and source across
+    renderer handoffs, retains one idle custom configuration, evicts older
+    configurations, and retries recoverable compiler failures.
+  - Elects one native-tab observation owner per tab group and binds queued
+    callbacks to the group that emitted them, avoiding quadratic callbacks and
+    stale callbacks that could orphan observation ownership.
   - Observes native tab selection conservatively and avoids synchronous
     renderer-to-main waits during teardown.
   - Conflict note: future renderer lifecycle work must preserve lossless
     realization publication, forced rebuild transactions, bounded recovery,
     compositor-owned IOSurface lifetimes, loop-owned retry timers,
-    generation-checked retry delivery, atomic request claiming, conservative
-    tab selection, and off-main teardown without synchronous main-queue waits.
+    generation-checked retry delivery, atomic request claiming, bounded shared
+    custom-pipeline retention, single-owner tab observation, conservative tab
+    selection, and off-main teardown without synchronous main-queue waits.
 
-The pinned `8b1781336` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-8b178133645dade48828257cf8134410ef92bead-crashsubdir-cmux-crash-v1
+The pinned `ed67f2b59` universal ReleaseFast GhosttyKit archive was built with
+Zig 0.16.0 on macOS 15.6.1 and Xcode 16.4. It is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ed67f2b59af2fa4bc4c26c5760bc3eb993b90402-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### `os/open` stderr drain spin and zombie leak
