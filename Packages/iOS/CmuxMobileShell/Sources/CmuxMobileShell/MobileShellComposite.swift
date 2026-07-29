@@ -951,6 +951,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var secondaryPresenceAggregationTask: Task<Void, Never>?
     private var secondaryPresenceAggregationTaskGeneration = UUID()
     private var secondaryPresencePendingMacIDs: Set<String> = []
+    private enum SecondaryStoredAuthorityValidation {
+        case cached
+        case store
+    }
+    /// Scope-bound index backing targeted presence reconciliation. Route writes
+    /// refresh this cache before enqueueing their presence edge, so one Mac's
+    /// heartbeat can inspect that Mac plus the bounded live pool without
+    /// reloading and sorting every paired row on the main actor.
+    @ObservationIgnored
+    private var storedPairedMacsByCanonicalDeviceID:
+        [String: [MobilePairedMac]] = [:]
+    @ObservationIgnored
+    private var storedPairedMacCacheScope: MobileShellScopeSnapshot?
     /// Coalesced retry after any control-pool dial or stream failure. One task
     /// covers all online Macs so simultaneous cellular path loss does not fan
     /// out timers.
@@ -1414,7 +1427,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Drop the cached paired Macs so the next signed-in user never sees the
         // previous user's hosts in the switcher.
         storedPairedMacs = []
-        storedPairedMacsIncludingHidden = []
+        clearStoredPairedMacCache()
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         pairedMacLoadState = .notLoaded
@@ -1530,7 +1543,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // new team. The foreground workspace list (derived from the kept entry) is
         // unaffected.
         storedPairedMacs = []
-        storedPairedMacsIncludingHidden = []
+        clearStoredPairedMacCache()
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         pairedMacLoadState = .notLoaded
@@ -2366,6 +2379,63 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
     }
+
+    private func installStoredPairedMacCache(
+        _ macs: [MobilePairedMac],
+        scope: MobileShellScopeSnapshot
+    ) {
+        storedPairedMacsIncludingHidden = macs
+        storedPairedMacsByCanonicalDeviceID = Dictionary(
+            grouping: macs,
+            by: { cmxCanonicalDeviceID($0.macDeviceID) }
+        )
+        storedPairedMacCacheScope = scope
+    }
+
+    private func clearStoredPairedMacCache() {
+        storedPairedMacsIncludingHidden = []
+        storedPairedMacsByCanonicalDeviceID = [:]
+        storedPairedMacCacheScope = nil
+    }
+
+    /// Return only rows that can affect one targeted pool decision: the
+    /// requested physical Macs, current control owners, and current foreground
+    /// owner. That bounded context still detects endpoint aliases and a full
+    /// pool, without an account-wide scan or sort.
+    private func targetedStoredPairedMacs(
+        requestedCanonicalIDs: Set<String>,
+        scope: MobileShellScopeSnapshot
+    ) -> [MobilePairedMac]? {
+        guard storedPairedMacCacheScope == scope else { return nil }
+        var relevantIDs = requestedCanonicalIDs
+        relevantIDs.formUnion(
+            secondaryMacSubscriptions.keys.map(cmxCanonicalDeviceID)
+        )
+        if let foregroundMacDeviceID {
+            relevantIDs.insert(cmxCanonicalDeviceID(foregroundMacDeviceID))
+        }
+        return relevantIDs.flatMap {
+            storedPairedMacsByCanonicalDeviceID[$0] ?? []
+        }
+    }
+
+    private func cachedStoredPairedMac(
+        macDeviceID: String,
+        instanceTag: String?,
+        scope: MobileShellScopeSnapshot
+    ) -> MobilePairedMac? {
+        guard storedPairedMacCacheScope == scope else { return nil }
+        return storedPairedMacsByCanonicalDeviceID[
+            cmxCanonicalDeviceID(macDeviceID)
+        ]?.first {
+            $0.macDeviceID == macDeviceID
+                && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                    $0.instanceTag,
+                    instanceTag
+                )
+        }
+    }
+
     // MARK: - Device registry tree
 
     /// The team's registered devices and their cmux app instances (tags), for the
@@ -2717,7 +2787,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore,
               let scope = await currentScopeSnapshot() else {
             storedPairedMacs = []
-            storedPairedMacsIncludingHidden = []
+            clearStoredPairedMacCache()
             pairedMacAliasIDsByRepresentativeID = [:]
             pairedMacs = []
             pairedMacLoadState = .failed
@@ -2757,7 +2827,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isScopeCurrent(scope) else {
             return
         }
-        storedPairedMacsIncludingHidden = loaded
+        installStoredPairedMacCache(loaded, scope: scope)
         updateHiddenComputers(loadedMacs: loaded, hiddenIDs: hiddenIDs)
         if hasHiddenComputers, !hasKnownPairedMac {
             // Self-heal installs where an older build cleared the persisted hint
@@ -4097,12 +4167,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
         }
         guard await isAggregationScopeValid(scope) else { return }
-        let loadedMacs = (try? await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)) ?? []
+        let requestedCanonicalIDs = onlyMacDeviceIDs.map {
+            Set($0.map(cmxCanonicalDeviceID))
+        }
+        let loadedMacs: [MobilePairedMac]
+        let authorityValidation: SecondaryStoredAuthorityValidation
+        if let requestedCanonicalIDs {
+            guard let targetedMacs = targetedStoredPairedMacs(
+                requestedCanonicalIDs: requestedCanonicalIDs,
+                scope: scope
+            ) else {
+                // Startup and scope transitions have no trusted index yet. One
+                // coalesced full pass establishes it for following edges.
+                scheduleSecondaryAggregation()
+                return
+            }
+            loadedMacs = targetedMacs
+            authorityValidation = .cached
+        } else {
+            loadedMacs = (try? await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )) ?? []
+            authorityValidation = .store
+        }
         guard await isAggregationScopeValid(scope) else { return }
         let visibleLoadedMacs = await visibleStoredPairedMacs(from: loadedMacs, scope: scope)
         guard await isAggregationScopeValid(scope) else { return }
-        let requestedCanonicalIDs = onlyMacDeviceIDs.map {
-            Set($0.map(cmxCanonicalDeviceID))
+        if onlyMacDeviceIDs == nil {
+            installStoredPairedMacCache(loadedMacs, scope: scope)
         }
         func isRequested(_ macDeviceID: String) -> Bool {
             requestedCanonicalIDs?.contains(cmxCanonicalDeviceID(macDeviceID))
@@ -4124,6 +4217,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let wanted = Set(macs.map(\.macDeviceID))
         let visibleMacIDs = Set(visibleLoadedMacs.map(\.macDeviceID))
         let canonicalForegroundMacID = foregroundMacDeviceID.map(cmxCanonicalDeviceID)
+        var retiredControlSlot = false
         // Tear down subscriptions for Macs that are gone or are now the foreground.
         // A focused client becomes a registry control owner before its transport
         // purpose update completes. It remains `remoteClient` until the target
@@ -4135,6 +4229,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && !subscription.isTransitioningToFocus {
             subscription.cancel()
             secondaryMacSubscriptions[macID] = nil
+            retiredControlSlot = true
             if !visibleMacIDs.contains(macID) {
                 // Pairing removal and hiding are authoritative deletion events.
                 workspacesByMac[macID] = nil
@@ -4171,7 +4266,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         recordEstablishmentOutcome(
                             await establishSecondaryMacSubscription(
                                 for: mac,
-                                scope: scope
+                                scope: scope,
+                                authorityValidation: authorityValidation
                             ),
                             macDeviceID: mac.macDeviceID
                         )
@@ -4180,18 +4276,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 let refresh = enqueueSecondaryWorkspaceRefresh(
                     existing,
-                    displayName: mac.displayName
+                    displayName: mac.displayName,
+                    authorityValidation: authorityValidation
                 )
                 await refresh?.value
             } else if allowsNewConnections {
                 recordEstablishmentOutcome(
                     await establishSecondaryMacSubscription(
                         for: mac,
-                        scope: scope
+                        scope: scope,
+                        authorityValidation: authorityValidation
                     ),
                     macDeviceID: mac.macDeviceID
                 )
             }
+        }
+        if onlyMacDeviceIDs != nil, retiredControlSlot {
+            // Only an actual owner retirement widens an incremental edge into
+            // a full pass, so a newly free bounded slot gets its next-best
+            // online Mac without repeated global work for duplicate edges.
+            scheduleSecondaryAggregation()
         }
         if !allowsNewConnections {
             // A shared cooldown suppresses dialing, not ownership of the work.
@@ -4232,32 +4336,46 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func isSecondaryRefreshStillCurrent(
         macDeviceID: String,
         subscription: SecondaryMacSubscription,
-        scope: MobileShellScopeSnapshot
+        scope: MobileShellScopeSnapshot,
+        authorityValidation: SecondaryStoredAuthorityValidation
     ) async -> Bool {
-        guard let pairedMacStore,
-              await isAggregationScopeValid(scope),
+        guard await isAggregationScopeValid(scope),
               secondaryMacSubscriptions[macDeviceID] === subscription,
               await !isHiddenMacDeviceID(
                   macDeviceID,
                   instanceTag: subscription.storedInstanceTag,
                   scope: scope
               ),
-              secondaryMacSubscriptions[macDeviceID] === subscription,
-              let currentMac = try? await pairedMacStore.loadAll(
-                  stackUserID: scope.userID,
-                  teamID: scope.teamID
-              ).first(where: {
-                  $0.macDeviceID == macDeviceID
-                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
-                          $0.instanceTag,
-                          subscription.storedInstanceTag
-                      )
-              }),
-              secondaryMacSubscriptions[macDeviceID] === subscription,
+              secondaryMacSubscriptions[macDeviceID] === subscription else {
+            return false
+        }
+        let currentMac: MobilePairedMac?
+        switch authorityValidation {
+        case .cached:
+            currentMac = cachedStoredPairedMac(
+                macDeviceID: macDeviceID,
+                instanceTag: subscription.storedInstanceTag,
+                scope: scope
+            )
+        case .store:
+            guard let pairedMacStore else { return false }
+            currentMac = try? await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            ).first(where: {
+                $0.macDeviceID == macDeviceID
+                    && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                        $0.instanceTag,
+                        subscription.storedInstanceTag
+                    )
+            })
+        }
+        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+              let currentMac,
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   currentMac.instanceTag,
                   subscription.storedInstanceTag
-        ) else {
+              ) else {
             return false
         }
         return true
@@ -4429,7 +4547,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// a secondary subscription can never crash or block the foreground.
     private func establishSecondaryMacSubscription(
         for mac: MobilePairedMac,
-        scope: MobileShellScopeSnapshot
+        scope: MobileShellScopeSnapshot,
+        authorityValidation: SecondaryStoredAuthorityValidation
     ) async -> SecondaryMacEstablishmentOutcome {
         let macID = mac.macDeviceID
         guard let pairedMacStore,
@@ -4477,16 +4596,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
             return .superseded
         }
-        guard let currentMac = try? await pairedMacStore.loadAll(
-                  stackUserID: scope.userID,
-                  teamID: scope.teamID
-              ).first(where: {
-                  $0.macDeviceID == macID
-                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
-                          $0.instanceTag,
-                          handle.storedInstanceTag
-                      )
-              }),
+        let currentMac: MobilePairedMac?
+        switch authorityValidation {
+        case .cached:
+            currentMac = cachedStoredPairedMac(
+                macDeviceID: macID,
+                instanceTag: handle.storedInstanceTag,
+                scope: scope
+            )
+        case .store:
+            currentMac = try? await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            ).first(where: {
+                $0.macDeviceID == macID
+                    && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                        $0.instanceTag,
+                        handle.storedInstanceTag
+                    )
+            })
+        }
+        guard let currentMac,
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   currentMac.instanceTag,
                   handle.storedInstanceTag
@@ -4524,7 +4654,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let displayName = mac.displayName
         guard let initialRefresh = enqueueSecondaryWorkspaceRefresh(
             subscription,
-            displayName: displayName
+            displayName: displayName,
+            authorityValidation: authorityValidation
         ) else {
             return .superseded
         }
@@ -5097,7 +5228,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     private func enqueueSecondaryWorkspaceRefresh(
         _ subscription: SecondaryMacSubscription,
-        displayName: String?
+        displayName: String?,
+        authorityValidation: SecondaryStoredAuthorityValidation = .store
     ) -> Task<Void, Never>? {
         let macID = subscription.macDeviceID
         guard secondaryMacSubscriptions[macID] === subscription,
@@ -5148,7 +5280,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard await self.isSecondaryRefreshStillCurrent(
                     macDeviceID: macID,
                     subscription: subscription,
-                    scope: scope
+                    scope: scope,
+                    authorityValidation: authorityValidation
                 ) else {
                     refreshFailed = true
                     break
@@ -5202,7 +5335,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if needsDeferredRefresh {
                 self.scheduleDeferredSecondaryWorkspaceRefresh(
                     subscription,
-                    displayName: displayName
+                    displayName: displayName,
+                    authorityValidation: authorityValidation
                 )
             }
             guard refreshFailed,
@@ -5229,7 +5363,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// half-second while guaranteeing a post-edge snapshot.
     private func scheduleDeferredSecondaryWorkspaceRefresh(
         _ subscription: SecondaryMacSubscription,
-        displayName: String?
+        displayName: String?,
+        authorityValidation: SecondaryStoredAuthorityValidation = .store
     ) {
         let macDeviceID = subscription.macDeviceID
         guard secondaryMacSubscriptions[macDeviceID] === subscription,
@@ -5267,7 +5402,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             subscription.refreshPending = false
             let refresh = self.enqueueSecondaryWorkspaceRefresh(
                 subscription,
-                displayName: displayName
+                displayName: displayName,
+                authorityValidation: authorityValidation
             )
             await refresh?.value
         }

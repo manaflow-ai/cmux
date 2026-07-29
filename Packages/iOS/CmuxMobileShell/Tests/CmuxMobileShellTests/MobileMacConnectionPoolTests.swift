@@ -287,6 +287,35 @@ import Testing
         #expect(!candidates.contains { $0.macDeviceID == "mac-0" })
     }
 
+    @Test func targetedPresenceRefreshUsesCachedPerMacIndex() async throws {
+        let records = try (0 ..< 1_000).map { index in
+            try Self.pairedMac(
+                id: "mac-\(index)",
+                instanceTag: "tag-\(index)"
+            )
+        }
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["team-1": records],
+            blockedTeams: []
+        )
+        let shell = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        await shell.loadPairedMacs()
+        await pairedStore.resetLoadAllCount()
+
+        await shell.refreshSecondaryMacWorkspaces(
+            onlyMacDeviceIDs: ["mac-999"],
+            allowsNewConnections: false
+        )
+
+        #expect(await pairedStore.currentLoadAllCount() == 0)
+    }
+
     @Test func incrementalOfflineEdgeBackfillsFreedControlSlot() throws {
         let router = LivenessHostRouter()
         let runtime = LivenessTestRuntime(
