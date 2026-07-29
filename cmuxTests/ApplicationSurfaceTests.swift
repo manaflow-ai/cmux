@@ -696,8 +696,9 @@ struct ApplicationSurfaceTests {
             windowID: 42,
             processID: 43,
             title: "Dictionary",
-            focus: false
+            focus: true
         ))
+        workspace.bonsplitController.focusPane(rootPane)
 
         let target = workspace.controlDefaultSurfaceTarget(
             paneID: applicationPane.id
