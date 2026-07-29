@@ -154,6 +154,31 @@ struct RendererRealizationPlannerTests {
         #expect(deadline == now + settings.idleSeconds)
     }
 
+    @Test func deadlineSchedulerIgnoresAlreadyEligibleWarmRenderer() {
+        let now: TimeInterval = 1000
+        let deadline = RendererRealizationController.nextScheduledReclaimDeadline(
+            inputs: [input(UUID(), lastVisibleAt: now - 100)],
+            settings: settings(idle: 5, warm: 1),
+            now: now
+        )
+
+        #expect(deadline == nil)
+    }
+
+    @Test func deadlineSchedulerIgnoresVisibleAndReleasedRenderers() {
+        let now: TimeInterval = 1000
+        let deadline = RendererRealizationController.nextScheduledReclaimDeadline(
+            inputs: [
+                input(UUID(), visible: true, lastVisibleAt: now),
+                input(UUID(), realized: false, lastVisibleAt: now),
+            ],
+            settings: settings(idle: 5, warm: 1),
+            now: now
+        )
+
+        #expect(deadline == nil)
+    }
+
     @Test func onlyRealizedSurfacesAreConsidered() {
         let now: TimeInterval = 1000
         let unrealized = UUID()
