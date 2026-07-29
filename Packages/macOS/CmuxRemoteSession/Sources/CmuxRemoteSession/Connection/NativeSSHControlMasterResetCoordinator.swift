@@ -77,7 +77,8 @@ final class NativeSSHControlMasterResetCoordinator {
     }
 
     func reset(
-        for configuration: WorkspaceRemoteConfiguration
+        for configuration: WorkspaceRemoteConfiguration,
+        resolvedControlPath: String
     ) async -> NativeSSHControlMasterResetOutcome {
         guard let ownerWorkspaceID = configuration.ownerWorkspaceID,
               let generation = configuration.sshControlMasterLeaseGeneration,
@@ -93,38 +94,21 @@ final class NativeSSHControlMasterResetCoordinator {
             return .ignored("workspace no longer owns this cmux SSH master")
         }
 
+        guard !resolvedControlPath.contains("%"),
+              sharingOptions.cmuxOwnedControlPath(in: [
+                  "ControlMaster=auto",
+                  "ControlPath=\(resolvedControlPath)",
+              ]) == resolvedControlPath else {
+            return .ignored("could not identify the cmux SSH master socket")
+        }
         let effectiveOptions = sharingOptions.mergingDefaults(
             into: configuration.sshOptions
         )
         let pathResolver = NativeSSHControlPathResolver(
             sharingOptions: sharingOptions
         )
-        let resolvedControlPath: String?
-        if let exactPath = pathResolver.resolvedControlPath(
-            effectiveOptions: effectiveOptions
-        ) {
-            resolvedControlPath = exactPath
-        } else {
-            let resolution = await Self.resolveControlPath(
-                configuration: configuration,
-                effectiveOptions: effectiveOptions,
-                resolver: pathResolver,
-                processRunner: processRunner
-            )
-            switch resolution {
-            case .resolved(let path):
-                resolvedControlPath = path
-            case .unavailable:
-                return .ignored("could not resolve the cmux SSH master socket")
-            case .retry(let detail):
-                return .deferred(detail)
-            }
-        }
         guard !Task.isCancelled else {
             return .deferred("control-master reset cancelled")
-        }
-        guard let resolvedControlPath else {
-            return .ignored("could not resolve the cmux SSH master socket")
         }
         guard ownsLease(
             ownerWorkspaceID: ownerWorkspaceID,
@@ -202,54 +186,6 @@ final class NativeSSHControlMasterResetCoordinator {
         key: NativeSSHControlMasterResetKey
     ) -> Bool {
         leases[ownerWorkspaceID]?[key]?.sshControlMasterLeaseGeneration == generation
-    }
-
-    private nonisolated static func resolveControlPath(
-        configuration: WorkspaceRemoteConfiguration,
-        effectiveOptions: [String],
-        resolver: NativeSSHControlPathResolver,
-        processRunner: any RemoteSessionProcessRunning
-    ) async -> ControlPathResolutionOutcome {
-        let cancellation = RemoteProcessCancellationOperation()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                DispatchQueue.global(qos: .utility).async {
-                    let request = RemoteProcessRequest(
-                        executable: "/usr/bin/ssh",
-                        arguments: resolver.resolutionArguments(
-                            configuration: configuration,
-                            effectiveOptions: effectiveOptions
-                        ),
-                        environment: configuration.sshProcessEnvironment,
-                        timeout: 5
-                    )
-                    do {
-                        let result = try processRunner.run(
-                            request,
-                            operation: cancellation
-                        )
-                        guard result.status == 0 else {
-                            continuation.resume(returning: .unavailable)
-                            return
-                        }
-                        if let path = resolver.resolvedControlPath(
-                            effectiveOptions: effectiveOptions,
-                            sshConfigOutput: result.stdout
-                        ) {
-                            continuation.resume(returning: .resolved(path))
-                        } else {
-                            continuation.resume(returning: .unavailable)
-                        }
-                    } catch {
-                        continuation.resume(returning: .retry(
-                            error.localizedDescription
-                        ))
-                    }
-                }
-            }
-        } onCancel: {
-            cancellation.cancel()
-        }
     }
 
     private nonisolated static func runReset(

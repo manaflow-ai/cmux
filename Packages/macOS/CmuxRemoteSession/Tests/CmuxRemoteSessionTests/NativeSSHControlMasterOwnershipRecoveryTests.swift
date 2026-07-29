@@ -11,6 +11,8 @@ import Testing
 struct NativeSSHControlMasterOwnershipRecoveryTests {
     @Test("A live foreign owner prevents destructive reset")
     func foreignOwnerFailsClosed() async {
+        let controlPath =
+            "/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567"
         let runner = RecordingProcessRunner()
         let broker = NativeSSHConnectionBroker(
             sharingOptions: SSHConnectionSharingOptions(userID: 501),
@@ -28,7 +30,7 @@ struct NativeSSHControlMasterOwnershipRecoveryTests {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567",
+                "ControlPath=\(controlPath)",
             ],
             localProxyPort: nil,
             relayPort: 64_001,
@@ -42,7 +44,10 @@ struct NativeSSHControlMasterOwnershipRecoveryTests {
         ))
 
         guard case .deferred =
-            await broker.resetConflictedControlMaster(for: lease) else {
+            await broker.resetConflictedControlMaster(
+                for: lease,
+                resolvedControlPath: controlPath
+            ) else {
             Issue.record("Expected a live foreign owner to defer reset")
             return
         }
@@ -69,7 +74,7 @@ struct NativeSSHControlMasterOwnershipRecoveryTests {
         )
         let broker = NativeSSHConnectionBroker(
             sharingOptions: sharingOptions,
-            clock: RecordingImmediateClock(),
+            clock: SystemRemoteProxyRetryClock(),
             jitterMilliseconds: { 200 },
             cleanupLauncher: { _ in },
             controlMasterOwnershipRegistry: firstRegistry

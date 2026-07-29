@@ -32,6 +32,7 @@ extension NativeSSHConnectionBroker {
         return NativeSSHControlMasterAdoptionHandoff(
             controlPath: controlPath,
             lease: lease,
+            clock: clock,
             releaseHandler: {
                 ownershipRegistry.release(lease: lease)
             }

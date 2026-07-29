@@ -85,6 +85,26 @@ struct SSHConnectionSharingOptionsTests {
         )
     }
 
+    @Test("Shared option parsing follows OpenSSH's first-value rule")
+    func optionResolverUsesFirstValue() {
+        let resolver = SSHAgentSocketResolver()
+
+        #expect(resolver.optionValue(
+            named: "ControlMaster",
+            in: [
+                "ControlMaster=no",
+                "ControlMaster=auto",
+            ]
+        ) == "no")
+        #expect(resolver.optionValue(
+            named: "ControlPersist",
+            in: [
+                "ControlPersist=600",
+                "ControlPersist=no",
+            ]
+        ) == "600")
+    }
+
     @Test("Effective custom ssh_config control settings replace cmux defaults")
     func preservesResolvedSSHConfigSettings() {
         let output = """

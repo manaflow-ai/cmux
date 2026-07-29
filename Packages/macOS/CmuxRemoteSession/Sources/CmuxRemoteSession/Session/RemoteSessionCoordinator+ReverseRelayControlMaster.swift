@@ -6,7 +6,7 @@ internal import Foundation
 enum ReverseRelayControlMasterStartOutcome: Sendable {
     case started
     case unavailable
-    case bindingConflict(String)
+    case bindingConflict(String, controlPath: String?)
 }
 
 extension RemoteSessionCoordinator {
@@ -70,7 +70,18 @@ extension RemoteSessionCoordinator {
                     debugConfigSummary()
                 )
                 if let bindingConflict {
-                    return .bindingConflict(bindingConflict)
+                    let ownedControlPath =
+                        connectionBroker.sharingOptions.cmuxOwnedControlPath(
+                            in: effectiveSSHOptions
+                        )
+                    let resolvedControlPath =
+                        ownedControlPath?.contains("%") == false
+                        ? ownedControlPath
+                        : nil
+                    return .bindingConflict(
+                        bindingConflict,
+                        controlPath: resolvedControlPath
+                    )
                 }
                 return .unavailable
             }

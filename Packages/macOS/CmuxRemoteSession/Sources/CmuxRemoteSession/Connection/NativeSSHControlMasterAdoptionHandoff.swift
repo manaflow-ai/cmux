@@ -1,8 +1,10 @@
+internal import CmuxRemoteWorkspace
 internal import Foundation
 
 /// A temporary ownership lease that bridges foreground SSH authentication to
-/// installation of the workspace's durable ControlMaster lease.
-// SAFETY: `lock` serializes every read and mutation of the release closure.
+/// installation of the workspace's durable ControlMaster lease. Unconsumed
+/// handoffs expire so an interrupted restore cannot retain ownership forever.
+// SAFETY: `lock` serializes the release closure and expiration task.
 public final class NativeSSHControlMasterAdoptionHandoff:
     @unchecked Sendable,
     Equatable
@@ -12,22 +14,38 @@ public final class NativeSSHControlMasterAdoptionHandoff:
     // lint:allow lock - transfer, cancellation, and deinit race to release once.
     private let lock = NSLock()
     private var releaseHandler: (@Sendable () -> Void)?
+    private var expirationTask: Task<Void, Never>? = nil
 
     init(
         controlPath: String,
         lease: NativeSSHControlMasterLeaseIdentity,
+        clock: any RemoteProxyRetryClock,
+        expirationMilliseconds: Int = 30_000,
         releaseHandler: @escaping @Sendable () -> Void
     ) {
         self.controlPath = controlPath
         self.lease = lease
         self.releaseHandler = releaseHandler
+        self.expirationTask = Task { [weak self, clock] in
+            do {
+                try await clock.sleep(
+                    forMilliseconds: expirationMilliseconds
+                )
+            } catch {
+                return
+            }
+            self?.release()
+        }
     }
 
     func release() {
-        let handler = lock.withLock {
-            defer { releaseHandler = nil }
-            return releaseHandler
+        let (handler, expirationTask) = lock.withLock {
+            let result = (releaseHandler, self.expirationTask)
+            releaseHandler = nil
+            self.expirationTask = nil
+            return result
         }
+        expirationTask?.cancel()
         handler?()
     }
 

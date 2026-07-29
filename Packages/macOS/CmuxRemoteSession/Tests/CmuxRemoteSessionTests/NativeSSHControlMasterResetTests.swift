@@ -49,7 +49,10 @@ struct NativeSSHControlMasterResetTests {
             }
         )
 
-        #expect(await broker.resetConflictedControlMaster(for: first) == .reset)
+        #expect(await broker.resetConflictedControlMaster(
+            for: first,
+            resolvedControlPath: firstResolvedPath
+        ) == .reset)
         #expect(recorder.count == 2)
         _ = firstObservation
         _ = secondObservation
@@ -66,7 +69,10 @@ struct NativeSSHControlMasterResetTests {
         ))
 
         let reset = Task { @MainActor in
-            await broker.resetConflictedControlMaster(for: lease)
+            await broker.resetConflictedControlMaster(
+                for: lease,
+                resolvedControlPath: firstResolvedPath
+            )
         }
         #expect(await clock.nextRequestedDelay() == 2_000)
         await clock.resumeNextSleep()
@@ -90,7 +96,10 @@ struct NativeSSHControlMasterResetTests {
         ))
 
         let reset = Task { @MainActor in
-            await broker.resetConflictedControlMaster(for: lease)
+            await broker.resetConflictedControlMaster(
+                for: lease,
+                resolvedControlPath: firstResolvedPath
+            )
         }
         #expect(await clock.nextRequestedDelay() == 2_000)
         await clock.resumeNextSleep()
@@ -105,10 +114,7 @@ struct NativeSSHControlMasterResetTests {
     func expandedPathsDoNotNotifyDifferentHost() async throws {
         let firstRecorder = ResetEventRecorder()
         let secondRecorder = ResetEventRecorder()
-        let runner = ResolvingResetRunner(pathsByDestination: [
-            "first.example.test": firstResolvedPath,
-            "second.example.test": secondResolvedPath,
-        ])
+        let runner = RecordingProcessRunner()
         let broker = makeBroker(processRunner: runner)
         let first = broker.retainWorkspace(configuration(
             owner: UUID(),
@@ -131,14 +137,17 @@ struct NativeSSHControlMasterResetTests {
             }
         )
 
-        #expect(await broker.resetConflictedControlMaster(for: first) == .reset)
+        #expect(await broker.resetConflictedControlMaster(
+            for: first,
+            resolvedControlPath: firstResolvedPath
+        ) == .reset)
         #expect(firstRecorder.count == 1)
         #expect(secondRecorder.count == 0)
-        #expect(runner.exitRequests.count == 1)
-        #expect(runner.exitRequests[0].arguments.contains(
+        #expect(runner.requests.count == 1)
+        #expect(runner.requests[0].arguments.contains(
             "ControlPath=\(firstResolvedPath)"
         ))
-        #expect(!runner.exitRequests[0].arguments.contains(
+        #expect(!runner.requests[0].arguments.contains(
             "ControlPath=/tmp/cmux-ssh-501-%C"
         ))
         _ = firstObservation
@@ -148,10 +157,7 @@ struct NativeSSHControlMasterResetTests {
     @Test("Different aliases resolving to one socket share reset fanout")
     func aliasesResolvingToSamePathShareFanout() async throws {
         let recorder = ResetEventRecorder()
-        let runner = ResolvingResetRunner(pathsByDestination: [
-            "first-alias": firstResolvedPath,
-            "second-alias": firstResolvedPath,
-        ])
+        let runner = RecordingProcessRunner()
         let broker = makeBroker(processRunner: runner)
         let first = broker.retainWorkspace(configuration(
             owner: UUID(),
@@ -174,18 +180,19 @@ struct NativeSSHControlMasterResetTests {
             }
         )
 
-        #expect(await broker.resetConflictedControlMaster(for: first) == .reset)
+        #expect(await broker.resetConflictedControlMaster(
+            for: first,
+            resolvedControlPath: firstResolvedPath
+        ) == .reset)
         #expect(recorder.count == 2)
-        #expect(runner.exitRequests.count == 1)
+        #expect(runner.requests.count == 1)
         _ = firstObservation
         _ = secondObservation
     }
 
-    @Test("Concurrent aliases coalesce only after exact path resolution")
+    @Test("Concurrent aliases coalesce by their authoritative exact path")
     func concurrentAliasesCoalesceByResolvedPath() async {
-        let runner = BlockingResolvingResetRunner(
-            resolvedPath: firstResolvedPath
-        )
+        let runner = BlockingControlMasterResetRunner()
         let broker = makeBroker(processRunner: runner)
         let first = broker.retainWorkspace(configuration(
             owner: UUID(),
@@ -199,65 +206,27 @@ struct NativeSSHControlMasterResetTests {
         ))
 
         let firstReset = Task { @MainActor in
-            await broker.resetConflictedControlMaster(for: first)
+            await broker.resetConflictedControlMaster(
+                for: first,
+                resolvedControlPath: firstResolvedPath
+            )
         }
         let secondReset = Task { @MainActor in
-            await broker.resetConflictedControlMaster(for: second)
+            await broker.resetConflictedControlMaster(
+                for: second,
+                resolvedControlPath: firstResolvedPath
+            )
         }
-        var resolutions = runner.resolutions.makeAsyncIterator()
-        #expect(await resolutions.next() != nil)
-        #expect(await resolutions.next() != nil)
-        var exits = runner.exits.makeAsyncIterator()
-        #expect(await exits.next() != nil)
-        runner.finishExit()
+        var starts = runner.starts.makeAsyncIterator()
+        #expect(await starts.next() != nil)
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        runner.finish()
 
         #expect(await firstReset.value == .reset)
         #expect(await secondReset.value == .reset)
-        #expect(runner.exitCount == 1)
-    }
-
-    @Test("A coalesced alias keeps its resolved-socket reset alive")
-    func coalescedAliasKeepsResetAlive() async throws {
-        let runner = BlockingResolvingResetRunner(
-            resolvedPath: firstResolvedPath
-        )
-        let recorder = ResetEventRecorder()
-        let broker = makeBroker(processRunner: runner)
-        let first = broker.retainWorkspace(configuration(
-            owner: UUID(),
-            destination: "first-alias",
-            options: unresolvedOptions
-        ))
-        let second = broker.retainWorkspace(configuration(
-            owner: UUID(),
-            destination: "second-alias",
-            options: unresolvedOptions
-        ))
-        let observation = try #require(
-            broker.observeControlMasterResets(controlPath: firstResolvedPath) {
-                recorder.record()
-            }
-        )
-
-        let firstReset = Task { @MainActor in
-            await broker.resetConflictedControlMaster(for: first)
-        }
-        var resolutions = runner.resolutions.makeAsyncIterator()
-        #expect(await resolutions.next() != nil)
-        var exits = runner.exits.makeAsyncIterator()
-        #expect(await exits.next() != nil)
-        let secondReset = Task { @MainActor in
-            await broker.resetConflictedControlMaster(for: second)
-        }
-        #expect(await resolutions.next() != nil)
-        await Task.yield()
-        broker.releaseWorkspace(first)
-        runner.finishExit()
-
-        #expect(await firstReset.value == .reset)
-        #expect(await secondReset.value == .reset)
-        #expect(recorder.count == 1)
-        _ = observation
+        #expect(runner.requests.count == 1)
     }
 
     @Test("A successful exit still invalidates after its lease is released")
@@ -276,7 +245,10 @@ struct NativeSSHControlMasterResetTests {
         )
 
         let reset = Task { @MainActor in
-            await broker.resetConflictedControlMaster(for: lease)
+            await broker.resetConflictedControlMaster(
+                for: lease,
+                resolvedControlPath: firstResolvedPath
+            )
         }
         var starts = runner.starts.makeAsyncIterator()
         #expect(await starts.next() != nil)
@@ -288,33 +260,25 @@ struct NativeSSHControlMasterResetTests {
         _ = observation
     }
 
-    @Test("ControlPath resolution failure never exits a master")
-    func resolutionFailureFailsClosed() async {
-        let runner = RecordingProcessRunner { request in
-            if request.arguments.contains("-G") {
-                return RemoteCommandResult(
-                    status: 255,
-                    stdout: "",
-                    stderr: "configuration resolution failed"
-                )
-            }
-            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
-        }
+    @Test("An unresolved reset identity never exits a master")
+    func unresolvedResetIdentityFailsClosed() async {
+        let runner = RecordingProcessRunner()
         let broker = makeBroker(processRunner: runner)
         let lease = broker.retainWorkspace(configuration(
             owner: UUID(),
             options: unresolvedOptions
         ))
 
-        let outcome = await broker.resetConflictedControlMaster(for: lease)
+        let outcome = await broker.resetConflictedControlMaster(
+            for: lease,
+            resolvedControlPath: "/tmp/cmux-ssh-501-%C"
+        )
 
         guard case .ignored = outcome else {
-            Issue.record("Expected resolution failure to be ignored")
+            Issue.record("Expected unresolved identity to be ignored")
             return
         }
-        #expect(!runner.requests.contains(where: {
-            $0.arguments.contains("-O") && $0.arguments.contains("exit")
-        }))
+        #expect(runner.requests.isEmpty)
     }
 
     @Test("A reset-wrapper no-op remains deferred and emits no reset")
@@ -336,7 +300,10 @@ struct NativeSSHControlMasterResetTests {
         )
 
         let reset = Task { @MainActor in
-            await broker.resetConflictedControlMaster(for: lease)
+            await broker.resetConflictedControlMaster(
+                for: lease,
+                resolvedControlPath: firstResolvedPath
+            )
         }
         #expect(await clock.nextRequestedDelay() == 2_000)
         await clock.resumeNextSleep()

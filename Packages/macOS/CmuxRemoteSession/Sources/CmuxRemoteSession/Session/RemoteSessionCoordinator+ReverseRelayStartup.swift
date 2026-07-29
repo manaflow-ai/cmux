@@ -12,7 +12,8 @@ extension RemoteSessionCoordinator {
     func beginConflictedControlMasterExitIfNeededLocked(
         startupFailure: String,
         remotePath: String,
-        relayPort: Int
+        relayPort: Int,
+        resolvedControlPath: String?
     ) -> Bool {
         guard Self.isReverseRelayPortBindingFailure(
             startupFailure,
@@ -31,6 +32,9 @@ extension RemoteSessionCoordinator {
             )
             return false
         }
+        guard let resolvedControlPath else {
+            return false
+        }
 
         let token = UUID()
         let configuration = self.configuration
@@ -38,7 +42,8 @@ extension RemoteSessionCoordinator {
 
         let task = Task { [weak self] in
             let outcome = await connectionBroker.resetConflictedControlMaster(
-                for: configuration
+                for: configuration,
+                resolvedControlPath: resolvedControlPath
             )
             guard !Task.isCancelled else { return }
             self?.queue.async { [weak self] in

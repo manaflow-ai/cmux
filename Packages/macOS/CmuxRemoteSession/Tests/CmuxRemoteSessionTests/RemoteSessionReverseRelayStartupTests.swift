@@ -53,7 +53,8 @@ struct RemoteSessionReverseRelayStartupTests {
             coordinator.beginConflictedControlMasterExitIfNeededLocked(
                 startupFailure: "Connection refused",
                 remotePath: "/tmp/cmuxd-remote",
-                relayPort: 64_044
+                relayPort: 64_044,
+                resolvedControlPath: ResolvedControlPathFixture.path
             )
         }
         #expect(!ignoredUnrelatedFailure)
@@ -63,7 +64,8 @@ struct RemoteSessionReverseRelayStartupTests {
             coordinator.beginConflictedControlMasterExitIfNeededLocked(
                 startupFailure: "Error: remote port forwarding failed for listen port 64044",
                 remotePath: "/tmp/cmuxd-remote",
-                relayPort: 64_044
+                relayPort: 64_044,
+                resolvedControlPath: ResolvedControlPathFixture.path
             )
         }
         #expect(beganRecovery)
@@ -89,7 +91,8 @@ struct RemoteSessionReverseRelayStartupTests {
             coordinator.beginConflictedControlMasterExitIfNeededLocked(
                 startupFailure: "remote port forwarding failed for listen port 64044",
                 remotePath: "/tmp/cmuxd-remote",
-                relayPort: 64_044
+                relayPort: 64_044,
+                resolvedControlPath: ResolvedControlPathFixture.path
             )
         }
         #expect(!beganSecondRecovery)
@@ -117,7 +120,8 @@ struct RemoteSessionReverseRelayStartupTests {
             _ = coordinator.beginConflictedControlMasterExitIfNeededLocked(
                 startupFailure: "Error: remote port forwarding failed for listen port \(relayPort)",
                 remotePath: "/tmp/cmuxd-remote",
-                relayPort: relayPort
+                relayPort: relayPort,
+                resolvedControlPath: ResolvedControlPathFixture.path
             )
         }
 
@@ -144,7 +148,8 @@ struct RemoteSessionReverseRelayStartupTests {
             _ = coordinator.beginConflictedControlMasterExitIfNeededLocked(
                 startupFailure: "remote port forwarding failed for listen port 64044",
                 remotePath: "/tmp/cmuxd-remote",
-                relayPort: 64_044
+                relayPort: 64_044,
+                resolvedControlPath: ResolvedControlPathFixture.path
             )
         }
 

@@ -9,7 +9,8 @@ final class BlockingControlMasterResetRunner:
     private let startsContinuation: AsyncStream<Void>.Continuation
     private let lock = NSLock()
     private var _requests: [RemoteProcessRequest] = []
-    private let release = DispatchSemaphore(value: 0)
+    private let releaseCondition = NSCondition()
+    private var finished = false
 
     init() {
         (starts, startsContinuation) = AsyncStream.makeStream()
@@ -25,12 +26,19 @@ final class BlockingControlMasterResetRunner:
     ) throws -> RemoteCommandResult {
         lock.withLock { _requests.append(request) }
         startsContinuation.yield()
-        release.wait()
+        releaseCondition.lock()
+        while !finished {
+            releaseCondition.wait()
+        }
+        releaseCondition.unlock()
         try operation?.throwIfCancelled()
         return RemoteCommandResult(status: 0, stdout: "", stderr: "")
     }
 
     func finish() {
-        release.signal()
+        releaseCondition.lock()
+        finished = true
+        releaseCondition.broadcast()
+        releaseCondition.unlock()
     }
 }

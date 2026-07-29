@@ -91,14 +91,15 @@ extension RemoteSessionCoordinator {
                     "target=\(configuration.displayTarget) controlMaster=1"
                 )
                 return
-            case .bindingConflict(let detail):
+            case .bindingConflict(let detail, let controlPath):
                 debugLog(
                     "remote.relay.startFailed relayPort=\(relayPort) error=\(detail)"
                 )
                 if beginConflictedControlMasterExitIfNeededLocked(
                     startupFailure: detail,
                     remotePath: remotePath,
-                    relayPort: relayPort
+                    relayPort: relayPort,
+                    resolvedControlPath: controlPath
                 ) {
                     return
                 }

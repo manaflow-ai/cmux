@@ -220,9 +220,13 @@ public final class NativeSSHConnectionBroker {
 
     /// Coalesces an inherited-master reset after OpenSSH confirms a relay bind conflict.
     func resetConflictedControlMaster(
-        for configuration: WorkspaceRemoteConfiguration
+        for configuration: WorkspaceRemoteConfiguration,
+        resolvedControlPath: String
     ) async -> NativeSSHControlMasterResetOutcome {
-        await conflictedMasterResetCoordinator.reset(for: configuration)
+        await conflictedMasterResetCoordinator.reset(
+            for: configuration,
+            resolvedControlPath: resolvedControlPath
+        )
     }
 
     /// Observes resets that invalidate an exact cmux-owned control socket.
