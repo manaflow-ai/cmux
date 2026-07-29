@@ -704,8 +704,9 @@ enum FileExplorerSelectionRestoration {
 
 // MARK: - Store
 
-/// Main-actor store for file-explorer presentation and loading state.
-@MainActor
+/// All access must happen on the main thread. Properties are not marked @MainActor
+/// because NSOutlineView data source/delegate methods are called on the main thread
+/// but are not annotated @MainActor.
 final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
     @Published var rootNodes: [FileExplorerNode] = []
@@ -989,23 +990,28 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func prefetchChildren(for node: FileExplorerNode) {
-        guard node.isDirectory, node.children == nil, !loadingPaths.contains(node.path) else { return }
-        // Debounce: only prefetch if hover persists for 200ms
-        let path = node.path
-        let scheduler = prefetchSchedulers[path] ?? MainActorDeferredActionScheduler()
-        prefetchSchedulers[path] = scheduler
-        scheduler.schedule(after: .milliseconds(200)) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
-                // Silent prefetch: don't show loading indicator
-                await self.loadChildren(for: node, at: path, silent: true)
+        // NSOutlineView callbacks are main-thread-only but not actor-annotated.
+        MainActor.assumeIsolated {
+            guard node.isDirectory, node.children == nil, !loadingPaths.contains(node.path) else { return }
+            // Debounce: only prefetch if hover persists for 200ms
+            let path = node.path
+            let scheduler = prefetchSchedulers[path] ?? MainActorDeferredActionScheduler()
+            prefetchSchedulers[path] = scheduler
+            scheduler.schedule(after: .milliseconds(200)) { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
+                    // Silent prefetch: don't show loading indicator
+                    await self.loadChildren(for: node, at: path, silent: true)
+                }
             }
         }
     }
 
     func cancelPrefetch(for node: FileExplorerNode) {
-        prefetchSchedulers[node.path]?.cancel()
-        prefetchSchedulers.removeValue(forKey: node.path)
+        MainActor.assumeIsolated {
+            prefetchSchedulers[node.path]?.cancel()
+            prefetchSchedulers.removeValue(forKey: node.path)
+        }
     }
 
     /// Called when SSH provider becomes available after being unavailable.
@@ -1099,10 +1105,14 @@ final class FileExplorerStore: ObservableObject {
         loadTasks.removeAll()
         loadingPaths.removeAll()
         pendingDescendIntoFirstChildPath = nil
-        for scheduler in prefetchSchedulers.values {
-            scheduler.cancel()
+        // FileExplorerStore's documented access contract is main-thread-only,
+        // including reloads initiated by AppKit data-source callbacks.
+        MainActor.assumeIsolated {
+            for scheduler in prefetchSchedulers.values {
+                scheduler.cancel()
+            }
+            prefetchSchedulers.removeAll()
         }
-        prefetchSchedulers.removeAll()
         isRootLoading = false
     }
 
