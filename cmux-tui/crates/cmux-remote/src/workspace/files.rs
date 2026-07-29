@@ -1,4 +1,5 @@
 use std::collections::{HashSet, VecDeque};
+use std::mem::size_of;
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
@@ -24,18 +25,22 @@ use super::path::{UnixWorkspaceRoot, UnixWorkspaceTarget};
 use super::path::{
     WorkspaceRoot, io_error, join_protocol_path, normalize_protocol_path, validate_relative,
 };
+use super::query::{FileHashKey, WorkspaceQueryContext};
 
 pub(crate) const MAX_READ_BYTES: u32 = 4 * 1024 * 1024;
 pub(crate) const MAX_WRITE_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const MAX_HASH_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_DIRECTORY_LIMIT: u32 = 4_096;
-const MAX_DIRECTORY_SCAN: usize = 100_000;
+const MAX_DIRECTORY_SCAN: usize = 16_384;
+const MAX_DIRECTORY_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DIRECTORY_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_SEARCH_RESULTS: u32 = 10_000;
 const MAX_SEARCH_DIRECTORIES: usize = 10_000;
 const MAX_SEARCH_ENTRIES: usize = 50_000;
 const MAX_SEARCH_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_SEARCH_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_SEARCH_PATH_STATE_BYTES: usize = 12 * 1024 * 1024;
+const MAX_SEARCH_STATE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_SEARCH_QUERY_BYTES: usize = 64 * 1024;
 const MAX_SEARCH_PATHS: usize = 256;
 const MAX_SEARCH_GLOBS: usize = 256;
@@ -50,6 +55,198 @@ struct SortedDirectoryEntry {
     entry: DirectoryEntry,
     folded_name: String,
     directory: bool,
+}
+
+impl SortedDirectoryEntry {
+    fn retained_bytes(&self) -> usize {
+        size_of::<Self>()
+            .saturating_add(self.entry.name.capacity())
+            .saturating_add(self.entry.path.capacity())
+            .saturating_add(self.folded_name.capacity())
+            .saturating_add(64)
+    }
+}
+
+pub(super) struct DirectoryContinuation {
+    entries: Vec<SortedDirectoryEntry>,
+    next_index: usize,
+    scan_truncated: bool,
+}
+
+impl DirectoryContinuation {
+    pub(super) fn retained_bytes(&self) -> usize {
+        size_of::<Self>()
+            .saturating_add(
+                self.entries.capacity().saturating_mul(size_of::<SortedDirectoryEntry>()),
+            )
+            .saturating_add(
+                self.entries
+                    .iter()
+                    .map(SortedDirectoryEntry::retained_bytes)
+                    .fold(0usize, usize::saturating_add),
+            )
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_test() -> Self {
+        Self { entries: Vec::new(), next_index: 0, scan_truncated: false }
+    }
+}
+
+struct SearchQueueEntry {
+    path: PathBuf,
+    protocol_path: String,
+}
+
+impl SearchQueueEntry {
+    fn retained_bytes(&self) -> usize {
+        size_of::<Self>()
+            .saturating_add(self.path.as_os_str().len())
+            .saturating_add(self.protocol_path.capacity())
+            .saturating_add(64)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SearchFilePosition {
+    line_start: usize,
+    line_number: u64,
+    match_offset: usize,
+    previous_line: Option<(usize, usize)>,
+}
+
+struct SearchFileContinuation {
+    protocol_path: String,
+    text: String,
+    position: SearchFilePosition,
+}
+
+impl SearchFileContinuation {
+    fn retained_bytes(&self) -> usize {
+        size_of::<Self>()
+            .saturating_add(self.protocol_path.capacity())
+            .saturating_add(self.text.capacity())
+            .saturating_add(64)
+    }
+
+    fn next_match(&mut self, query: &str) -> Option<SearchMatch> {
+        loop {
+            let (line_end, next_line_start) =
+                search_line_bounds(&self.text, self.position.line_start)?;
+            let line = &self.text[self.position.line_start..line_end];
+            if let Some(found) = line[self.position.match_offset..].find(query) {
+                let column = self.position.match_offset.saturating_add(found);
+                self.position.match_offset = column.saturating_add(query.len());
+                let before = self
+                    .position
+                    .previous_line
+                    .map(|(start, end)| vec![self.text[start..end].to_string()])
+                    .unwrap_or_default();
+                let after = search_line_bounds(&self.text, next_line_start)
+                    .map(|(end, _)| vec![self.text[next_line_start..end].to_string()])
+                    .unwrap_or_default();
+                return Some(SearchMatch {
+                    path: self.protocol_path.clone(),
+                    line: self.position.line_number,
+                    column: u64::try_from(column.saturating_add(1)).unwrap_or(u64::MAX),
+                    text: line.to_string(),
+                    before,
+                    after,
+                });
+            }
+            self.position.previous_line = Some((self.position.line_start, line_end));
+            self.position.line_start = next_line_start;
+            self.position.line_number = self.position.line_number.saturating_add(1);
+            self.position.match_offset = 0;
+        }
+    }
+}
+
+pub(super) struct SearchContinuation {
+    queue: VecDeque<SearchQueueEntry>,
+    queue_bytes: usize,
+    visited: HashSet<PathBuf>,
+    visited_bytes: usize,
+    current_file: Option<SearchFileContinuation>,
+    directory_count: usize,
+    entry_count: usize,
+    total_bytes: u64,
+    discovery_truncated: bool,
+}
+
+impl SearchContinuation {
+    fn new() -> Self {
+        Self {
+            queue: VecDeque::new(),
+            queue_bytes: 0,
+            visited: HashSet::new(),
+            visited_bytes: 0,
+            current_file: None,
+            directory_count: 0,
+            entry_count: 0,
+            total_bytes: 0,
+            discovery_truncated: false,
+        }
+    }
+
+    fn path_state_bytes(&self) -> usize {
+        self.queue_bytes
+            .saturating_add(self.visited_bytes)
+            .saturating_add(self.visited.capacity().saturating_mul(size_of::<PathBuf>()))
+    }
+
+    pub(super) fn retained_bytes(&self) -> usize {
+        size_of::<Self>().saturating_add(self.path_state_bytes()).saturating_add(
+            self.current_file.as_ref().map_or(0, SearchFileContinuation::retained_bytes),
+        )
+    }
+
+    fn enqueue(&mut self, entry: SearchQueueEntry) -> bool {
+        let charge = entry.retained_bytes();
+        if self.path_state_bytes().saturating_add(charge) > MAX_SEARCH_PATH_STATE_BYTES {
+            return false;
+        }
+        self.queue_bytes = self.queue_bytes.saturating_add(charge);
+        self.queue.push_back(entry);
+        true
+    }
+
+    fn pop_front(&mut self) -> Option<SearchQueueEntry> {
+        let entry = self.queue.pop_front()?;
+        self.queue_bytes = self.queue_bytes.saturating_sub(entry.retained_bytes());
+        Some(entry)
+    }
+
+    fn clear_queue(&mut self) {
+        self.queue.clear();
+        self.queue_bytes = 0;
+    }
+
+    fn remember_visited(&mut self, path: PathBuf) {
+        self.visited_bytes = self
+            .visited_bytes
+            .saturating_add(path.as_os_str().len())
+            .saturating_add(size_of::<PathBuf>())
+            .saturating_add(64);
+        self.visited.insert(path);
+    }
+}
+
+fn search_line_bounds(text: &str, start: usize) -> Option<(usize, usize)> {
+    if start >= text.len() {
+        return None;
+    }
+    let remaining = &text.as_bytes()[start..];
+    let Some(relative_newline) = remaining.iter().position(|byte| *byte == b'\n') else {
+        return Some((text.len(), text.len()));
+    };
+    let raw_end = start.saturating_add(relative_newline);
+    let content_end = if raw_end > start && text.as_bytes()[raw_end - 1] == b'\r' {
+        raw_end - 1
+    } else {
+        raw_end
+    };
+    Some((content_end, raw_end.saturating_add(1)))
 }
 
 #[cfg(test)]
@@ -293,7 +490,7 @@ pub(crate) async fn stat(
 }
 
 pub(crate) async fn read_file(
-    root: &WorkspaceRoot,
+    context: &WorkspaceQueryContext<'_>,
     path: &str,
     offset: u64,
     limit: u32,
@@ -304,6 +501,7 @@ pub(crate) async fn read_file(
             format!("read limit exceeds {MAX_READ_BYTES} bytes"),
         ));
     }
+    let root = context.root;
     let resolved = root.resolve_existing(path).await?;
     let mut file = tokio::fs::File::open(&resolved)
         .await
@@ -319,7 +517,23 @@ pub(crate) async fn read_file(
         ));
     }
 
-    let content_hash = hash_file(&mut file, metadata.len()).await?;
+    let hash_key = FileHashKey::new(root.id.clone(), resolved.clone(), &metadata);
+    let hash_cell = context.service.hash_cell(hash_key.clone());
+    let content_hash = hash_cell
+        .get_or_try_init(|| async {
+            let content_hash = hash_file(&mut file, metadata.len()).await?;
+            let metadata_after_hash =
+                file.metadata().await.map_err(|error| io_error("read", &resolved, error))?;
+            if !hash_key.matches(&resolved, &metadata_after_hash) {
+                return Err(RpcError::new(
+                    "file-changed",
+                    "file changed while it was being hashed",
+                ));
+            }
+            Ok::<String, RpcError>(content_hash)
+        })
+        .await?
+        .clone();
     file.seek(std::io::SeekFrom::Start(offset))
         .await
         .map_err(|error| io_error("seek", &resolved, error))?;
@@ -333,7 +547,7 @@ pub(crate) async fn read_file(
     let eof = offset.saturating_add(consumed) >= metadata.len();
     let metadata_after =
         file.metadata().await.map_err(|error| io_error("read", &resolved, error))?;
-    if !metadata_stable(&metadata, &metadata_after) {
+    if !hash_key.matches(&resolved, &metadata_after) {
         return Err(RpcError::new("file-changed", "file changed while it was being read"));
     }
 
@@ -365,7 +579,7 @@ pub(crate) async fn write_file(
 }
 
 pub(crate) async fn list_directory(
-    root: &WorkspaceRoot,
+    context: &WorkspaceQueryContext<'_>,
     path: &str,
     include_hidden: bool,
     limit: u32,
@@ -377,10 +591,63 @@ pub(crate) async fn list_directory(
             format!("directory limit exceeds {MAX_DIRECTORY_LIMIT} entries"),
         ));
     }
+    if limit == 0 {
+        return Ok(WorkspaceResponse::Directory {
+            entries: Vec::new(),
+            truncated: false,
+            next_cursor: None,
+        });
+    }
     let normalized = normalize_protocol_path(path)?;
     let cursor_scope =
         page_scope(&["directory", &normalized, if include_hidden { "1" } else { "0" }]);
-    let start = parse_page_cursor(cursor, "directory", &cursor_scope)?;
+    let mut continuation = if let Some(cursor) = cursor {
+        context.service.take_directory(context.owner, &context.root.id, &cursor_scope, cursor)?
+    } else {
+        snapshot_directory(context.root, path, &normalized, include_hidden).await?
+    };
+
+    let requested = limit as usize;
+    let mut page = Vec::with_capacity(
+        requested.min(continuation.entries.len().saturating_sub(continuation.next_index)),
+    );
+    let mut response_bytes = 0usize;
+    while continuation.next_index < continuation.entries.len() && page.len() < requested {
+        let entry = &continuation.entries[continuation.next_index].entry;
+        let entry_bytes =
+            entry.name.len().saturating_add(entry.path.len()).saturating_mul(6).saturating_add(64);
+        if response_bytes.saturating_add(entry_bytes) > MAX_DIRECTORY_RESPONSE_BYTES {
+            break;
+        }
+        response_bytes = response_bytes.saturating_add(entry_bytes);
+        page.push(entry.clone());
+        continuation.next_index += 1;
+    }
+    let has_more = continuation.next_index < continuation.entries.len();
+    let scan_truncated = continuation.scan_truncated;
+    let next_cursor = if has_more {
+        Some(context.service.put_directory(
+            context.owner,
+            &context.root.id,
+            &cursor_scope,
+            continuation,
+        )?)
+    } else {
+        None
+    };
+    Ok(WorkspaceResponse::Directory {
+        entries: page,
+        truncated: scan_truncated || next_cursor.is_some(),
+        next_cursor,
+    })
+}
+
+async fn snapshot_directory(
+    root: &WorkspaceRoot,
+    path: &str,
+    normalized: &str,
+    include_hidden: bool,
+) -> Result<DirectoryContinuation, RpcError> {
     let resolved = root.resolve_existing(path).await?;
     let metadata = tokio::fs::metadata(&resolved)
         .await
@@ -398,6 +665,7 @@ pub(crate) async fn list_directory(
     let mut entries = Vec::new();
     let mut scanned = 0usize;
     let mut scan_truncated = false;
+    let mut snapshot_bytes = 0usize;
     while let Some(entry) =
         reader.next_entry().await.map_err(|error| io_error("list-directory", &resolved, error))?
     {
@@ -413,13 +681,20 @@ pub(crate) async fn list_directory(
         let metadata = tokio::fs::symlink_metadata(entry.path())
             .await
             .map_err(|error| io_error("list-directory", &entry.path(), error))?;
-        let Ok(entry_path) = join_protocol_path(&normalized, &name) else { continue };
+        let Ok(entry_path) = join_protocol_path(normalized, &name) else { continue };
         let kind = file_kind(&metadata);
-        entries.push(SortedDirectoryEntry {
+        let candidate = SortedDirectoryEntry {
             folded_name: name.to_lowercase(),
             directory: kind == FileKind::Directory,
             entry: DirectoryEntry { path: entry_path, name, kind, size: metadata.len() },
-        });
+        };
+        let candidate_bytes = candidate.retained_bytes();
+        if snapshot_bytes.saturating_add(candidate_bytes) > MAX_DIRECTORY_SNAPSHOT_BYTES {
+            scan_truncated = true;
+            break;
+        }
+        snapshot_bytes = snapshot_bytes.saturating_add(candidate_bytes);
+        entries.push(candidate);
     }
     entries.sort_unstable_by(|left, right| {
         right
@@ -428,35 +703,12 @@ pub(crate) async fn list_directory(
             .then_with(|| left.folded_name.cmp(&right.folded_name))
             .then_with(|| left.entry.name.cmp(&right.entry.name))
     });
-    if start > entries.len() {
-        return Err(RpcError::new(
-            "invalid-cursor",
-            "directory cursor is beyond the available entries",
-        ));
-    }
-    let requested = limit as usize;
-    let mut page = Vec::with_capacity(requested.min(entries.len().saturating_sub(start)));
-    let mut response_bytes = 0usize;
-    let mut index = start;
-    while index < entries.len() && page.len() < requested {
-        let entry = &entries[index].entry;
-        let entry_bytes =
-            entry.name.len().saturating_add(entry.path.len()).saturating_mul(6).saturating_add(64);
-        if response_bytes.saturating_add(entry_bytes) > MAX_DIRECTORY_RESPONSE_BYTES {
-            break;
-        }
-        response_bytes = response_bytes.saturating_add(entry_bytes);
-        page.push(entry.clone());
-        index += 1;
-    }
-    let next_cursor = (requested > 0 && index < entries.len())
-        .then(|| make_page_cursor("directory", &cursor_scope, index));
-    let truncated = scan_truncated || next_cursor.is_some();
-    Ok(WorkspaceResponse::Directory { entries: page, truncated, next_cursor })
+    entries.shrink_to_fit();
+    Ok(DirectoryContinuation { entries, next_index: 0, scan_truncated })
 }
 
 pub(crate) async fn search(
-    root: &WorkspaceRoot,
+    context: &WorkspaceQueryContext<'_>,
     query: &str,
     paths: &[String],
     globs: &[String],
@@ -509,7 +761,6 @@ pub(crate) async fn search(
     }
 
     let requested_paths = if paths.is_empty() { vec![String::new()] } else { paths.to_vec() };
-    let mut queue = VecDeque::<(PathBuf, String)>::new();
     let mut requested_paths = requested_paths
         .into_iter()
         .map(|path| normalize_protocol_path(&path).map(|normalized| (path, normalized)))
@@ -517,149 +768,213 @@ pub(crate) async fn search(
     requested_paths.sort_by(|left, right| left.1.cmp(&right.1));
     requested_paths.dedup_by(|left, right| left.1 == right.1);
     let cursor_scope = search_page_scope(query, &requested_paths, globs, include_hidden);
-    let skip_matches = parse_page_cursor(cursor, "search", &cursor_scope)?;
+    let mut continuation = if let Some(cursor) = cursor {
+        context.service.take_search(context.owner, &context.root.id, &cursor_scope, cursor)?
+    } else {
+        initialize_search(context.root, requested_paths).await?
+    };
+
+    let mut matches = Vec::new();
+    let mut response_bytes = 0usize;
+    loop {
+        if matches.len() >= max_results as usize {
+            let current_file_exhausted = continuation.queue.is_empty()
+                && continuation.current_file.as_mut().is_some_and(|file| {
+                    let checkpoint = file.position;
+                    let exhausted = file.next_match(query).is_none();
+                    if !exhausted {
+                        file.position = checkpoint;
+                    }
+                    exhausted
+                });
+            if current_file_exhausted {
+                continuation.current_file = None;
+            }
+            break;
+        }
+        if let Some(file) = continuation.current_file.as_mut() {
+            let checkpoint = file.position;
+            if let Some(candidate) = file.next_match(query) {
+                let candidate_bytes = search_match_retained_bytes(&candidate);
+                if response_bytes.saturating_add(candidate_bytes) > MAX_SEARCH_RESPONSE_BYTES {
+                    file.position = checkpoint;
+                    if matches.is_empty() {
+                        return Err(RpcError::new(
+                            "resource-exhausted",
+                            format!(
+                                "one search match exceeds the {MAX_SEARCH_RESPONSE_BYTES}-byte response limit"
+                            ),
+                        ));
+                    }
+                    break;
+                }
+                response_bytes = response_bytes.saturating_add(candidate_bytes);
+                matches.push(candidate);
+                continue;
+            }
+            continuation.current_file = None;
+            continue;
+        }
+
+        let Some(entry) = continuation.pop_front() else {
+            break;
+        };
+        if continuation.visited.contains(&entry.path) {
+            continue;
+        }
+        let metadata = tokio::fs::symlink_metadata(&entry.path)
+            .await
+            .map_err(|error| io_error("search", &entry.path, error))?;
+        continuation.remember_visited(entry.path.clone());
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        if metadata.is_dir() {
+            continuation.directory_count = continuation.directory_count.saturating_add(1);
+            if continuation.directory_count > MAX_SEARCH_DIRECTORIES {
+                continuation.discovery_truncated = true;
+                continue;
+            }
+            if continuation.discovery_truncated {
+                continue;
+            }
+            let mut reader = tokio::fs::read_dir(&entry.path)
+                .await
+                .map_err(|error| io_error("search", &entry.path, error))?;
+            let mut children = Vec::new();
+            let mut children_bytes = 0usize;
+            while let Some(child) =
+                reader.next_entry().await.map_err(|error| io_error("search", &entry.path, error))?
+            {
+                continuation.entry_count = continuation.entry_count.saturating_add(1);
+                if continuation.entry_count > MAX_SEARCH_ENTRIES {
+                    continuation.discovery_truncated = true;
+                    break;
+                }
+                let Ok(name) = child.file_name().into_string() else { continue };
+                if !include_hidden && name.starts_with('.') {
+                    continue;
+                }
+                let Ok(child_protocol) = join_protocol_path(&entry.protocol_path, &name) else {
+                    continue;
+                };
+                let child = SearchQueueEntry { path: child.path(), protocol_path: child_protocol };
+                let child_bytes = child.retained_bytes();
+                if continuation
+                    .path_state_bytes()
+                    .saturating_add(children_bytes)
+                    .saturating_add(child_bytes)
+                    > MAX_SEARCH_PATH_STATE_BYTES
+                {
+                    continuation.discovery_truncated = true;
+                    break;
+                }
+                children_bytes = children_bytes.saturating_add(child_bytes);
+                children.push(child);
+            }
+            children.sort_unstable_by(|left, right| left.protocol_path.cmp(&right.protocol_path));
+            for child in children {
+                if !continuation.enqueue(child) {
+                    continuation.discovery_truncated = true;
+                    break;
+                }
+            }
+            continue;
+        }
+        if !metadata.is_file()
+            || metadata.len() > MAX_SEARCH_FILE_BYTES
+            || !matches_globs(&entry.protocol_path, globs)
+        {
+            continue;
+        }
+        if continuation.total_bytes.saturating_add(metadata.len()) > MAX_SEARCH_TOTAL_BYTES {
+            continuation.discovery_truncated = true;
+            continuation.clear_queue();
+            break;
+        }
+        continuation.total_bytes = continuation.total_bytes.saturating_add(metadata.len());
+        let bytes = read_path_bounded(&entry.path, MAX_SEARCH_FILE_BYTES as usize).await?;
+        if bytes.contains(&0) {
+            continue;
+        }
+        let Ok(text) = String::from_utf8(bytes) else { continue };
+        continuation.current_file = Some(SearchFileContinuation {
+            protocol_path: entry.protocol_path,
+            text,
+            position: SearchFilePosition {
+                line_start: 0,
+                line_number: 1,
+                match_offset: 0,
+                previous_line: None,
+            },
+        });
+        if continuation.retained_bytes() > MAX_SEARCH_STATE_BYTES {
+            return Err(RpcError::new(
+                "resource-exhausted",
+                format!("search continuation exceeds {MAX_SEARCH_STATE_BYTES} retained bytes"),
+            ));
+        }
+    }
+
+    let has_more = continuation.current_file.is_some() || !continuation.queue.is_empty();
+    let discovery_truncated = continuation.discovery_truncated;
+    let next_cursor = if has_more {
+        if continuation.retained_bytes() > MAX_SEARCH_STATE_BYTES {
+            return Err(RpcError::new(
+                "resource-exhausted",
+                format!("search continuation exceeds {MAX_SEARCH_STATE_BYTES} retained bytes"),
+            ));
+        }
+        Some(context.service.put_search(
+            context.owner,
+            &context.root.id,
+            &cursor_scope,
+            continuation,
+        )?)
+    } else {
+        None
+    };
+    Ok(WorkspaceResponse::Search {
+        matches,
+        truncated: discovery_truncated || next_cursor.is_some(),
+        next_cursor,
+    })
+}
+
+async fn initialize_search(
+    root: &WorkspaceRoot,
+    requested_paths: Vec<(String, String)>,
+) -> Result<SearchContinuation, RpcError> {
+    let mut continuation = SearchContinuation::new();
     for (path, normalized) in requested_paths {
         let resolved = root.resolve_existing(&path).await?;
         let metadata = tokio::fs::metadata(&resolved)
             .await
             .map_err(|error| io_error("search", &resolved, error))?;
-        if metadata.is_dir() || metadata.is_file() {
-            queue.push_back((resolved, normalized));
-        } else {
+        if !metadata.is_dir() && !metadata.is_file() {
             return Err(RpcError::new(
                 "invalid-search-path",
                 "search paths must be files or directories",
             ));
         }
-    }
-
-    let mut matches = Vec::new();
-    let mut directory_count = 0usize;
-    let mut entry_count = 0usize;
-    let mut total_bytes = 0u64;
-    let mut response_bytes = 0usize;
-    let mut visited = HashSet::new();
-    let mut truncated = false;
-    let mut seen_matches = 0usize;
-    let mut next_offset = None;
-
-    while let Some((path, protocol_path)) = queue.pop_front() {
-        if !visited.insert(path.clone()) {
-            continue;
-        }
-        let metadata = tokio::fs::symlink_metadata(&path)
-            .await
-            .map_err(|error| io_error("search", &path, error))?;
-        if metadata.file_type().is_symlink() {
-            continue;
-        }
-        if metadata.is_dir() {
-            directory_count += 1;
-            if directory_count > MAX_SEARCH_DIRECTORIES {
-                truncated = true;
-                break;
-            }
-            let mut reader = tokio::fs::read_dir(&path)
-                .await
-                .map_err(|error| io_error("search", &path, error))?;
-            let mut children = Vec::new();
-            while let Some(entry) =
-                reader.next_entry().await.map_err(|error| io_error("search", &path, error))?
-            {
-                entry_count += 1;
-                if entry_count > MAX_SEARCH_ENTRIES {
-                    truncated = true;
-                    break;
-                }
-                let Ok(name) = entry.file_name().into_string() else { continue };
-                if !include_hidden && name.starts_with('.') {
-                    continue;
-                }
-                let Ok(child_protocol) = join_protocol_path(&protocol_path, &name) else {
-                    continue;
-                };
-                children.push((entry.path(), child_protocol));
-            }
-            if truncated {
-                break;
-            }
-            children.sort_by(|left, right| left.1.cmp(&right.1));
-            queue.extend(children);
-            continue;
-        }
-        if !metadata.is_file()
-            || metadata.len() > MAX_SEARCH_FILE_BYTES
-            || !matches_globs(&protocol_path, globs)
-        {
-            continue;
-        }
-        if total_bytes.saturating_add(metadata.len()) > MAX_SEARCH_TOTAL_BYTES {
-            truncated = true;
-            break;
-        }
-        total_bytes += metadata.len();
-        let bytes = read_path_bounded(&path, MAX_SEARCH_FILE_BYTES as usize).await?;
-        if bytes.contains(&0) {
-            continue;
-        }
-        let Ok(text) = String::from_utf8(bytes) else { continue };
-        let lines = text.lines().collect::<Vec<_>>();
-        for (line_index, line) in lines.iter().enumerate() {
-            let mut start = 0usize;
-            while let Some(found) = line[start..].find(query) {
-                let column = start + found;
-                let occurrence = seen_matches;
-                seen_matches = seen_matches.saturating_add(1);
-                if occurrence < skip_matches {
-                    start = column.saturating_add(query.len());
-                    continue;
-                }
-                if matches.len() >= max_results as usize {
-                    next_offset = Some(skip_matches.saturating_add(matches.len()));
-                    truncated = true;
-                    break;
-                }
-                let before = line_index.checked_sub(1).and_then(|index| lines.get(index)).copied();
-                let after = lines.get(line_index + 1).copied();
-                let match_bytes = protocol_path
-                    .len()
-                    .saturating_add(line.len())
-                    .saturating_add(before.map_or(0, str::len))
-                    .saturating_add(after.map_or(0, str::len))
-                    .saturating_add(128);
-                if response_bytes.saturating_add(match_bytes) > MAX_SEARCH_RESPONSE_BYTES {
-                    next_offset = Some(skip_matches.saturating_add(matches.len()));
-                    truncated = true;
-                    break;
-                }
-                response_bytes = response_bytes.saturating_add(match_bytes);
-                matches.push(SearchMatch {
-                    path: protocol_path.clone(),
-                    line: u64::try_from(line_index + 1).unwrap_or(u64::MAX),
-                    column: u64::try_from(column + 1).unwrap_or(u64::MAX),
-                    text: (*line).to_string(),
-                    before: before.map(|line| vec![line.to_string()]).unwrap_or_default(),
-                    after: after.map(|line| vec![line.to_string()]).unwrap_or_default(),
-                });
-                start = column.saturating_add(query.len());
-            }
-            if truncated {
-                break;
-            }
-        }
-        if truncated {
+        if !continuation.enqueue(SearchQueueEntry { path: resolved, protocol_path: normalized }) {
+            continuation.discovery_truncated = true;
             break;
         }
     }
+    Ok(continuation)
+}
 
-    if !truncated && skip_matches > seen_matches {
-        return Err(RpcError::new(
-            "invalid-cursor",
-            "search cursor is beyond the available matches",
-        ));
-    }
-    let next_cursor = next_offset.map(|offset| make_page_cursor("search", &cursor_scope, offset));
-    Ok(WorkspaceResponse::Search { matches, truncated, next_cursor })
+fn search_match_retained_bytes(candidate: &SearchMatch) -> usize {
+    candidate
+        .path
+        .len()
+        .saturating_add(candidate.text.len())
+        .saturating_add(
+            candidate.before.iter().map(String::len).fold(0usize, usize::saturating_add),
+        )
+        .saturating_add(candidate.after.iter().map(String::len).fold(0usize, usize::saturating_add))
+        .saturating_add(128)
 }
 
 #[derive(Clone, Debug)]
@@ -2599,31 +2914,6 @@ fn search_page_scope(
     hex_digest(&digest.finalize())
 }
 
-fn parse_page_cursor(
-    cursor: Option<&PageCursor>,
-    kind: &str,
-    scope: &str,
-) -> Result<usize, RpcError> {
-    let Some(PageCursor(cursor)) = cursor else {
-        return Ok(0);
-    };
-    let mut parts = cursor.split(':');
-    let valid_kind = parts.next() == Some(kind);
-    let valid_scope = parts.next() == Some(scope);
-    let offset = parts.next().and_then(|offset| offset.parse::<usize>().ok());
-    if !valid_kind || !valid_scope || parts.next().is_some() || offset.is_none() {
-        return Err(RpcError::new(
-            "invalid-cursor",
-            format!("cursor does not belong to this {kind} request"),
-        ));
-    }
-    Ok(offset.unwrap_or_default())
-}
-
-fn make_page_cursor(kind: &str, scope: &str, offset: usize) -> PageCursor {
-    PageCursor(format!("{kind}:{scope}:{offset}"))
-}
-
 fn wildcard_match(pattern: &str, text: &str) -> bool {
     let pattern = pattern.as_bytes();
     let text = text.as_bytes();
@@ -2662,6 +2952,7 @@ mod tests {
     use cmux_remote_protocol::WorkspaceId;
     use tempfile::tempdir;
 
+    use super::super::{ClientScope, query::WorkspaceQueryService};
     use super::*;
 
     async fn root() -> (tempfile::TempDir, Arc<WorkspaceRoot>) {
@@ -2671,6 +2962,13 @@ mod tests {
                 .await
                 .unwrap();
         (directory, root)
+    }
+
+    fn query_context() -> (WorkspaceQueryService, ClientScope) {
+        (
+            WorkspaceQueryService::default(),
+            ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16])),
+        )
     }
 
     #[cfg(unix)]
@@ -3897,10 +4195,12 @@ mod tests {
     #[tokio::test]
     async fn directory_listing_is_sorted_bounded_and_hidden_aware() {
         let (_directory, root) = root().await;
+        let (queries, owner) = query_context();
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
         tokio::fs::create_dir(root.canonical_root().join("z-dir")).await.unwrap();
         tokio::fs::write(root.canonical_root().join("A.txt"), b"a").await.unwrap();
         tokio::fs::write(root.canonical_root().join(".hidden"), b"h").await.unwrap();
-        let response = list_directory(&root, "", false, 1, None).await.unwrap();
+        let response = list_directory(&context, "", false, 1, None).await.unwrap();
         let WorkspaceResponse::Directory { entries, truncated, .. } = response else { panic!() };
         assert!(truncated);
         assert_eq!(entries[0].name, "z-dir");
@@ -3909,10 +4209,12 @@ mod tests {
     #[tokio::test]
     async fn directory_cursor_returns_the_next_sorted_page() {
         let (_directory, root) = root().await;
+        let (queries, owner) = query_context();
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
         for name in ["c.txt", "a.txt", "b.txt"] {
             tokio::fs::write(root.canonical_root().join(name), name).await.unwrap();
         }
-        let first = list_directory(&root, "", false, 2, None).await.unwrap();
+        let first = list_directory(&context, "", false, 2, None).await.unwrap();
         let WorkspaceResponse::Directory { entries, next_cursor: Some(cursor), .. } = first else {
             panic!()
         };
@@ -3921,7 +4223,7 @@ mod tests {
             ["a.txt", "b.txt"]
         );
 
-        let second = list_directory(&root, "", false, 2, Some(&cursor)).await.unwrap();
+        let second = list_directory(&context, "", false, 2, Some(&cursor)).await.unwrap();
         let WorkspaceResponse::Directory { entries, next_cursor, truncated } = second else {
             panic!()
         };
@@ -3929,24 +4231,26 @@ mod tests {
         assert_eq!(next_cursor, None);
         assert!(!truncated);
 
-        let error = list_directory(&root, "", true, 2, Some(&cursor)).await.unwrap_err();
+        let error = list_directory(&context, "", true, 2, Some(&cursor)).await.unwrap_err();
         assert_eq!(error.code, "invalid-cursor");
     }
 
     #[tokio::test]
     async fn directory_cursor_continues_the_original_snapshot() {
         let (_directory, root) = root().await;
+        let (queries, owner) = query_context();
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
         for name in ["a.txt", "b.txt", "c.txt"] {
             tokio::fs::write(root.canonical_root().join(name), name).await.unwrap();
         }
-        let first = list_directory(&root, "", false, 1, None).await.unwrap();
+        let first = list_directory(&context, "", false, 1, None).await.unwrap();
         let WorkspaceResponse::Directory { entries, next_cursor: Some(cursor), .. } = first else {
             panic!()
         };
         assert_eq!(entries[0].name, "a.txt");
         tokio::fs::remove_file(root.canonical_root().join("a.txt")).await.unwrap();
 
-        let second = list_directory(&root, "", false, 1, Some(&cursor)).await.unwrap();
+        let second = list_directory(&context, "", false, 1, Some(&cursor)).await.unwrap();
         let WorkspaceResponse::Directory { entries, .. } = second else { panic!() };
         assert_eq!(entries[0].name, "b.txt");
     }
@@ -3954,6 +4258,8 @@ mod tests {
     #[tokio::test]
     async fn search_is_literal_structured_and_bounded() {
         let (_directory, root) = root().await;
+        let (queries, owner) = query_context();
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
         tokio::fs::create_dir(root.canonical_root().join("src")).await.unwrap();
         tokio::fs::write(
             root.canonical_root().join("src/lib.rs"),
@@ -3961,9 +4267,10 @@ mod tests {
         )
         .await
         .unwrap();
-        let response = search(&root, "needle", &["src".into()], &["*.rs".into()], false, 1, None)
-            .await
-            .unwrap();
+        let response =
+            search(&context, "needle", &["src".into()], &["*.rs".into()], false, 1, None)
+                .await
+                .unwrap();
         let WorkspaceResponse::Search { matches, truncated, .. } = response else { panic!() };
         assert!(truncated);
         assert_eq!(matches[0].path, "src/lib.rs");
@@ -3975,16 +4282,18 @@ mod tests {
     #[tokio::test]
     async fn search_cursor_resumes_after_the_last_match() {
         let (_directory, root) = root().await;
+        let (queries, owner) = query_context();
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
         tokio::fs::write(root.canonical_root().join("matches.txt"), b"needle one\nneedle two\n")
             .await
             .unwrap();
-        let first = search(&root, "needle", &[], &[], false, 1, None).await.unwrap();
+        let first = search(&context, "needle", &[], &[], false, 1, None).await.unwrap();
         let WorkspaceResponse::Search { matches, next_cursor: Some(cursor), .. } = first else {
             panic!()
         };
         assert_eq!(matches[0].line, 1);
 
-        let second = search(&root, "needle", &[], &[], false, 1, Some(&cursor)).await.unwrap();
+        let second = search(&context, "needle", &[], &[], false, 1, Some(&cursor)).await.unwrap();
         let WorkspaceResponse::Search { matches, next_cursor, truncated } = second else {
             panic!()
         };
@@ -3996,13 +4305,15 @@ mod tests {
     #[tokio::test]
     async fn search_cursor_continues_without_replaying_changed_files() {
         let (_directory, root) = root().await;
+        let (queries, owner) = query_context();
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
         let path = root.canonical_root().join("matches.txt");
         tokio::fs::write(&path, b"needle one\nneedle two\n").await.unwrap();
-        let first = search(&root, "needle", &[], &[], false, 1, None).await.unwrap();
+        let first = search(&context, "needle", &[], &[], false, 1, None).await.unwrap();
         let WorkspaceResponse::Search { next_cursor: Some(cursor), .. } = first else { panic!() };
         tokio::fs::write(&path, b"needle zero\nneedle one\nneedle two\n").await.unwrap();
 
-        let second = search(&root, "needle", &[], &[], false, 1, Some(&cursor)).await.unwrap();
+        let second = search(&context, "needle", &[], &[], false, 1, Some(&cursor)).await.unwrap();
         let WorkspaceResponse::Search { matches, .. } = second else { panic!() };
         assert_eq!(matches[0].text, "needle two");
         assert_eq!(matches[0].line, 2);

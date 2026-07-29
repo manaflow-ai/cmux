@@ -1,3 +1,5 @@
+use std::mem::size_of;
+use std::ops::Range;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
@@ -12,9 +14,11 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 
 use super::path::{WorkspaceRoot, normalize_protocol_path};
+use super::query::WorkspaceQueryContext;
 
 const MAX_GIT_DIFF_BYTES: usize = 8 * 1024 * 1024;
 const MAX_GIT_DIFF_SOURCE_BYTES: usize = 32 * 1024 * 1024;
+const MAX_GIT_DIFF_METADATA_BYTES: usize = 8 * 1024 * 1024;
 const MAX_GIT_STATUS_BYTES: usize = 4 * 1024 * 1024;
 const MAX_GIT_STDERR_BYTES: usize = 256 * 1024;
 const GIT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -22,7 +26,32 @@ const MAX_DIFF_CONTEXT: u16 = 1_000;
 const MAX_DIFF_PATHS: usize = 256;
 const MAX_DIFF_PATH_BYTES: usize = 1024 * 1024;
 const MAX_GIT_CHANGES: usize = 10_000;
+const MAX_GIT_DIFF_FILES: usize = 10_000;
 const MAX_GIT_STATUS_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+
+pub(super) struct DiffContinuation {
+    unified: Vec<u8>,
+    sections: Vec<Range<usize>>,
+    path_metadata: Option<Vec<DiffPathPair>>,
+    next_index: usize,
+}
+
+impl DiffContinuation {
+    pub(super) fn retained_bytes(&self) -> usize {
+        let metadata_bytes = self.path_metadata.as_ref().map_or(0, |metadata| {
+            metadata.capacity().saturating_mul(size_of::<DiffPathPair>()).saturating_add(
+                metadata
+                    .iter()
+                    .map(DiffPathPair::retained_bytes)
+                    .fold(0usize, usize::saturating_add),
+            )
+        });
+        size_of::<Self>()
+            .saturating_add(self.unified.capacity())
+            .saturating_add(self.sections.capacity().saturating_mul(size_of::<Range<usize>>()))
+            .saturating_add(metadata_bytes)
+    }
+}
 
 pub(crate) async fn status(root: &WorkspaceRoot) -> Result<WorkspaceResponse, RpcError> {
     let output = run_git(
@@ -42,15 +71,15 @@ pub(crate) async fn status(root: &WorkspaceRoot) -> Result<WorkspaceResponse, Rp
 }
 
 pub(crate) async fn diff(
-    root: &WorkspaceRoot,
+    query_context: &WorkspaceQueryContext<'_>,
     paths: &[String],
     staged: bool,
-    context: u16,
+    diff_context: u16,
     format: DiffFormat,
     cursor: Option<&PageCursor>,
     max_bytes: Option<u32>,
 ) -> Result<WorkspaceResponse, RpcError> {
-    if context > MAX_DIFF_CONTEXT {
+    if diff_context > MAX_DIFF_CONTEXT {
         return Err(RpcError::new(
             "resource-exhausted",
             format!("diff context exceeds {MAX_DIFF_CONTEXT} lines"),
@@ -72,40 +101,6 @@ pub(crate) async fn diff(
     if normalized.iter().any(String::is_empty) {
         return Err(RpcError::new("invalid-path", "diff paths cannot be empty"));
     }
-    let scope = diff_page_scope(&normalized, staged, context);
-    let mut arguments = vec![
-        "diff".to_string(),
-        "--no-ext-diff".to_string(),
-        "--no-textconv".to_string(),
-        "--no-color".to_string(),
-        format!("--unified={context}"),
-    ];
-    if staged {
-        arguments.push("--cached".into());
-    }
-    if !normalized.is_empty() {
-        arguments.push("--".into());
-        arguments.extend(normalized.iter().cloned());
-    }
-    let references = arguments.iter().map(String::as_str).collect::<Vec<_>>();
-    let (unified, path_metadata) =
-        if matches!(format, DiffFormat::Structured | DiffFormat::StructuredV1) {
-            let (unified, metadata) = tokio::try_join!(
-                run_git(root.canonical_root(), &references, MAX_GIT_DIFF_SOURCE_BYTES),
-                read_diff_path_metadata(root.canonical_root(), &normalized, staged),
-            )?;
-            (unified, Some(metadata))
-        } else {
-            (run_git(root.canonical_root(), &references, MAX_GIT_DIFF_SOURCE_BYTES).await?, None)
-        };
-    let start = parse_diff_cursor(cursor, &scope)?;
-    let sections = split_diff_sections(&unified);
-    if start > sections.len() {
-        return Err(RpcError::new(
-            "invalid-cursor",
-            "diff cursor is beyond the available file changes",
-        ));
-    }
     let default_maximum = u32::try_from(MAX_GIT_DIFF_BYTES).unwrap_or(u32::MAX);
     let maximum =
         usize::try_from(max_bytes.unwrap_or(default_maximum)).unwrap_or(MAX_GIT_DIFF_BYTES);
@@ -115,10 +110,66 @@ pub(crate) async fn diff(
             format!("diff max_bytes must be between 1 and {MAX_GIT_DIFF_BYTES}"),
         ));
     }
+    let root = query_context.root;
+    let scope = diff_page_scope(&normalized, staged, diff_context, format);
+    let mut arguments = vec![
+        "diff".to_string(),
+        "--no-ext-diff".to_string(),
+        "--no-textconv".to_string(),
+        "--no-color".to_string(),
+        format!("--unified={diff_context}"),
+    ];
+    if staged {
+        arguments.push("--cached".into());
+    }
+    if !normalized.is_empty() {
+        arguments.push("--".into());
+        arguments.extend(normalized.iter().cloned());
+    }
+    let references = arguments.iter().map(String::as_str).collect::<Vec<_>>();
+    let mut continuation = if let Some(cursor) = cursor {
+        query_context.service.take_diff(query_context.owner, &root.id, &scope, cursor)?
+    } else {
+        let (mut unified, mut path_metadata) =
+            if matches!(format, DiffFormat::Structured | DiffFormat::StructuredV1) {
+                let (unified, metadata) = tokio::try_join!(
+                    run_git(root.canonical_root(), &references, MAX_GIT_DIFF_SOURCE_BYTES),
+                    read_diff_path_metadata(root.canonical_root(), &normalized, staged),
+                )?;
+                (unified, Some(parse_diff_path_metadata(&metadata)?))
+            } else {
+                (
+                    run_git(root.canonical_root(), &references, MAX_GIT_DIFF_SOURCE_BYTES).await?,
+                    None,
+                )
+            };
+        let mut sections = split_diff_section_ranges(&unified);
+        if sections.len() > MAX_GIT_DIFF_FILES {
+            return Err(RpcError::new(
+                "resource-exhausted",
+                format!("git diff exceeds {MAX_GIT_DIFF_FILES} files"),
+            ));
+        }
+        if path_metadata.as_ref().is_some_and(|metadata| metadata.len() != sections.len()) {
+            return Err(RpcError::new(
+                "git-parse-error",
+                "git path metadata does not match the diff sections",
+            ));
+        }
+        unified.shrink_to_fit();
+        sections.shrink_to_fit();
+        if let Some(metadata) = &mut path_metadata {
+            metadata.shrink_to_fit();
+        }
+        DiffContinuation { unified, sections, path_metadata, next_index: 0 }
+    };
+
+    let start = continuation.next_index;
     let mut page = Vec::new();
     let mut index = start;
-    while let Some(section) = sections.get(index) {
-        if section.len() > maximum {
+    while let Some(section) = continuation.sections.get(index) {
+        let section_length = section.end.saturating_sub(section.start);
+        if section_length > maximum {
             if page.is_empty() {
                 return Err(RpcError::new(
                     "resource-exhausted",
@@ -127,66 +178,80 @@ pub(crate) async fn diff(
             }
             break;
         }
-        if page.len().saturating_add(section.len()) > maximum {
+        if page.len().saturating_add(section_length) > maximum {
             break;
         }
-        page.extend_from_slice(section);
+        page.extend_from_slice(&continuation.unified[section.clone()]);
         index += 1;
     }
-    let next_cursor = (index < sections.len()).then(|| make_diff_cursor(&scope, index));
-    match format {
-        DiffFormat::Unified => {
-            Ok(WorkspaceResponse::Diff { data: ByteString::from_bytes(&page), format, next_cursor })
-        }
+    let mut response = match format {
+        DiffFormat::Unified => WorkspaceResponse::Diff {
+            data: ByteString::from_bytes(&page),
+            format,
+            next_cursor: None,
+        },
         DiffFormat::Structured | DiffFormat::StructuredV1 => {
             let text = std::str::from_utf8(&page)
                 .map_err(|_| RpcError::new("invalid-text", "git diff is not UTF-8"))?;
-            let path_metadata = path_metadata.ok_or_else(|| {
+            let path_metadata = continuation.path_metadata.as_ref().ok_or_else(|| {
                 RpcError::new("internal", "structured diff path metadata was not collected")
             })?;
-            let metadata = parse_diff_path_metadata_page(&path_metadata, start, index)?;
-            if metadata.total_files != sections.len() {
-                return Err(RpcError::new(
-                    "git-parse-error",
-                    "git path metadata does not match the diff sections",
-                ));
-            }
+            let metadata = &path_metadata[start..index];
             let mut structured = parse_structured_diff(text);
-            if metadata.paths.len() != structured.files.len() {
+            if metadata.len() != structured.files.len() {
                 return Err(RpcError::new(
                     "git-parse-error",
                     "git path metadata does not match the structured diff files",
                 ));
             }
-            for (file, paths) in structured.files.iter_mut().zip(metadata.paths) {
-                file.old_path = paths.old_path;
-                file.new_path = paths.new_path;
+            for (file, paths) in structured.files.iter_mut().zip(metadata) {
+                file.old_path.clone_from(&paths.old_path);
+                file.new_path.clone_from(&paths.new_path);
             }
             if format == DiffFormat::StructuredV1 {
-                return Ok(WorkspaceResponse::StructuredDiff { diff: structured, next_cursor });
+                WorkspaceResponse::StructuredDiff { diff: structured, next_cursor: None }
+            } else {
+                let legacy = LegacyStructuredDiff {
+                    files: structured
+                        .files
+                        .iter()
+                        .map(|file| LegacyStructuredFileDiff {
+                            old_path: file.old_path.as_deref(),
+                            new_path: file.new_path.as_deref(),
+                            hunks: &file.hunks,
+                        })
+                        .collect(),
+                };
+                let data = serde_json::to_vec(&legacy)
+                    .map_err(|error| RpcError::new("internal", format!("encode diff: {error}")))?;
+                if data.len() > MAX_GIT_DIFF_BYTES {
+                    return Err(RpcError::new(
+                        "resource-exhausted",
+                        format!("encoded diff exceeds {MAX_GIT_DIFF_BYTES} bytes"),
+                    ));
+                }
+                WorkspaceResponse::Diff {
+                    data: ByteString::from_bytes(&data),
+                    format,
+                    next_cursor: None,
+                }
             }
-            let legacy = LegacyStructuredDiff {
-                files: structured
-                    .files
-                    .iter()
-                    .map(|file| LegacyStructuredFileDiff {
-                        old_path: file.old_path.as_deref(),
-                        new_path: file.new_path.as_deref(),
-                        hunks: &file.hunks,
-                    })
-                    .collect(),
-            };
-            let data = serde_json::to_vec(&legacy)
-                .map_err(|error| RpcError::new("internal", format!("encode diff: {error}")))?;
-            if data.len() > MAX_GIT_DIFF_BYTES {
-                return Err(RpcError::new(
-                    "resource-exhausted",
-                    format!("encoded diff exceeds {MAX_GIT_DIFF_BYTES} bytes"),
-                ));
-            }
-            Ok(WorkspaceResponse::Diff { data: ByteString::from_bytes(&data), format, next_cursor })
         }
+    };
+    continuation.next_index = index;
+    let next_cursor = if index < continuation.sections.len() {
+        Some(query_context.service.put_diff(query_context.owner, &root.id, &scope, continuation)?)
+    } else {
+        None
+    };
+    match &mut response {
+        WorkspaceResponse::Diff { next_cursor: response_cursor, .. }
+        | WorkspaceResponse::StructuredDiff { next_cursor: response_cursor, .. } => {
+            *response_cursor = next_cursor;
+        }
+        _ => unreachable!("diff request constructed a diff response"),
     }
+    Ok(response)
 }
 
 async fn run_git(
@@ -258,7 +323,7 @@ async fn read_diff_path_metadata(
         arguments.extend(paths.iter().cloned());
     }
     let references = arguments.iter().map(String::as_str).collect::<Vec<_>>();
-    run_git(root, &references, MAX_GIT_DIFF_SOURCE_BYTES).await
+    run_git(root, &references, MAX_GIT_DIFF_METADATA_BYTES).await
 }
 
 async fn read_bounded(
@@ -286,23 +351,25 @@ struct DiffPathPair {
     new_path: Option<String>,
 }
 
-struct DiffPathMetadataPage {
-    total_files: usize,
-    paths: Vec<DiffPathPair>,
+impl DiffPathPair {
+    fn retained_bytes(&self) -> usize {
+        size_of::<Self>()
+            .saturating_add(self.old_path.as_ref().map_or(0, String::capacity))
+            .saturating_add(self.new_path.as_ref().map_or(0, String::capacity))
+            .saturating_add(64)
+    }
 }
 
-fn parse_diff_path_metadata_page(
-    output: &[u8],
-    start: usize,
-    end: usize,
-) -> Result<DiffPathMetadataPage, RpcError> {
-    if start > end {
-        return Err(RpcError::new("internal", "invalid Git path metadata page bounds"));
-    }
+fn parse_diff_path_metadata(output: &[u8]) -> Result<Vec<DiffPathPair>, RpcError> {
     let mut offset = 0usize;
-    let mut total_files = 0usize;
     let mut paths = Vec::new();
     while offset < output.len() {
+        if paths.len() >= MAX_GIT_DIFF_FILES {
+            return Err(RpcError::new(
+                "resource-exhausted",
+                format!("git diff metadata exceeds {MAX_GIT_DIFF_FILES} files"),
+            ));
+        }
         let status = take_nul_field(output, &mut offset)?;
         let kind = status[0];
         if !matches!(kind, b'A' | b'B' | b'C' | b'D' | b'M' | b'R' | b'T' | b'U' | b'X')
@@ -316,27 +383,21 @@ fn parse_diff_path_metadata_page(
         } else {
             None
         };
-        if (start..end).contains(&total_files) {
-            let first = diff_metadata_path(first)?;
-            let pair = match kind {
-                b'A' => DiffPathPair { old_path: None, new_path: Some(first) },
-                b'D' => DiffPathPair { old_path: Some(first), new_path: None },
-                b'C' | b'R' => {
-                    let second = second.ok_or_else(|| {
-                        RpcError::new("git-parse-error", "rename is missing its destination")
-                    })?;
-                    DiffPathPair {
-                        old_path: Some(first),
-                        new_path: Some(diff_metadata_path(second)?),
-                    }
-                }
-                _ => DiffPathPair { old_path: Some(first.clone()), new_path: Some(first) },
-            };
-            paths.push(pair);
-        }
-        total_files += 1;
+        let first = diff_metadata_path(first)?;
+        let pair = match kind {
+            b'A' => DiffPathPair { old_path: None, new_path: Some(first) },
+            b'D' => DiffPathPair { old_path: Some(first), new_path: None },
+            b'C' | b'R' => {
+                let second = second.ok_or_else(|| {
+                    RpcError::new("git-parse-error", "rename is missing its destination")
+                })?;
+                DiffPathPair { old_path: Some(first), new_path: Some(diff_metadata_path(second)?) }
+            }
+            _ => DiffPathPair { old_path: Some(first.clone()), new_path: Some(first) },
+        };
+        paths.push(pair);
     }
-    Ok(DiffPathMetadataPage { total_files, paths })
+    Ok(paths)
 }
 
 fn take_nul_field<'a>(output: &'a [u8], offset: &mut usize) -> Result<&'a [u8], RpcError> {
@@ -432,18 +493,24 @@ fn parse_branch(header: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
-fn split_diff_sections(source: &[u8]) -> Vec<&[u8]> {
+fn split_diff_section_ranges(source: &[u8]) -> Vec<Range<usize>> {
     if source.is_empty() {
         return Vec::new();
     }
     const HEADER: &[u8] = b"diff --git ";
-    let mut starts = (0..source.len())
-        .filter(|index| {
-            (*index == 0 || source[*index - 1] == b'\n') && source[*index..].starts_with(HEADER)
-        })
-        .collect::<Vec<_>>();
+    let mut starts = Vec::new();
+    let mut line_start = 0usize;
+    while line_start < source.len() {
+        if source[line_start..].starts_with(HEADER) {
+            starts.push(line_start);
+        }
+        let Some(newline) = source[line_start..].iter().position(|byte| *byte == b'\n') else {
+            break;
+        };
+        line_start = line_start.saturating_add(newline).saturating_add(1);
+    }
     if starts.is_empty() {
-        return vec![source];
+        return std::iter::once(0..source.len()).collect();
     }
     if starts[0] != 0 {
         starts[0] = 0;
@@ -453,15 +520,25 @@ fn split_diff_sections(source: &[u8]) -> Vec<&[u8]> {
         .enumerate()
         .map(|(position, start)| {
             let end = starts.get(position + 1).copied().unwrap_or(source.len());
-            &source[*start..end]
+            *start..end
         })
         .collect()
 }
 
-fn diff_page_scope(paths: &[String], staged: bool, context: u16) -> String {
+#[cfg(test)]
+fn split_diff_sections(source: &[u8]) -> Vec<&[u8]> {
+    split_diff_section_ranges(source).into_iter().map(|range| &source[range]).collect()
+}
+
+fn diff_page_scope(paths: &[String], staged: bool, context: u16, format: DiffFormat) -> String {
     let mut digest = Sha256::new();
     digest.update([u8::from(staged)]);
     digest.update(context.to_be_bytes());
+    digest.update([match format {
+        DiffFormat::Unified => 0,
+        DiffFormat::Structured => 1,
+        DiffFormat::StructuredV1 => 2,
+    }]);
     for path in paths {
         digest.update(u64::try_from(path.len()).unwrap_or(u64::MAX).to_be_bytes());
         digest.update(path.as_bytes());
@@ -473,23 +550,6 @@ fn diff_page_scope(paths: &[String], staged: bool, context: u16) -> String {
         let _ = write!(output, "{byte:02x}");
     }
     output
-}
-
-fn parse_diff_cursor(cursor: Option<&PageCursor>, scope: &str) -> Result<usize, RpcError> {
-    let Some(PageCursor(cursor)) = cursor else {
-        return Ok(0);
-    };
-    let mut parts = cursor.split(':');
-    let valid = parts.next() == Some("diff") && parts.next() == Some(scope);
-    let index = parts.next().and_then(|index| index.parse::<usize>().ok());
-    if !valid || parts.next().is_some() || index.is_none() {
-        return Err(RpcError::new("invalid-cursor", "cursor does not belong to this diff request"));
-    }
-    Ok(index.unwrap_or_default())
-}
-
-fn make_diff_cursor(scope: &str, index: usize) -> PageCursor {
-    PageCursor(format!("diff:{scope}:{index}"))
 }
 
 #[derive(Serialize)]
@@ -615,6 +675,7 @@ mod tests {
     use cmux_remote_protocol::WorkspaceId;
     use tempfile::tempdir;
 
+    use super::super::{ClientScope, query::WorkspaceQueryService};
     use super::*;
 
     fn git(root: &Path, arguments: &[&str]) {
@@ -631,8 +692,11 @@ mod tests {
     }
 
     async fn structured_diff(root: &WorkspaceRoot, staged: bool) -> StructuredDiffV1 {
+        let queries = WorkspaceQueryService::default();
+        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
+        let context = WorkspaceQueryContext::new(&queries, &owner, root);
         let response =
-            diff(root, &[], staged, 3, DiffFormat::StructuredV1, None, None).await.unwrap();
+            diff(&context, &[], staged, 3, DiffFormat::StructuredV1, None, None).await.unwrap();
         let WorkspaceResponse::StructuredDiff { diff, .. } = response else { panic!() };
         diff
     }
@@ -656,6 +720,9 @@ mod tests {
     #[tokio::test]
     async fn status_and_structured_diff_are_bounded_and_typed() {
         let (_directory, root) = git_root().await;
+        let queries = WorkspaceQueryService::default();
+        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
         tokio::fs::write(root.canonical_root().join("tracked.txt"), b"after\n").await.unwrap();
         let response = status(&root).await.unwrap();
         let WorkspaceResponse::GitStatus { status } = response else { panic!() };
@@ -663,7 +730,7 @@ mod tests {
         assert_eq!(status.changes[0].worktree_status, 'M');
 
         let response =
-            diff(&root, &[], false, 3, DiffFormat::Structured, None, None).await.unwrap();
+            diff(&context, &[], false, 3, DiffFormat::Structured, None, None).await.unwrap();
         let WorkspaceResponse::Diff { data, .. } = response else { panic!() };
         let decoded = data.decode().unwrap();
         let json: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
@@ -671,7 +738,8 @@ mod tests {
         assert!(json["files"][0]["hunks"][0]["lines"].is_array());
         assert!(json["files"][0].get("metadata").is_none());
 
-        let typed = diff(&root, &[], false, 3, DiffFormat::StructuredV1, None, None).await.unwrap();
+        let typed =
+            diff(&context, &[], false, 3, DiffFormat::StructuredV1, None, None).await.unwrap();
         let WorkspaceResponse::StructuredDiff { diff, .. } = typed else { panic!() };
         assert_eq!(diff.version, 1);
         assert_eq!(diff.files[0].new_path.as_deref(), Some("tracked.txt"));
@@ -773,6 +841,9 @@ mod tests {
     #[tokio::test]
     async fn unified_diff_cursor_pages_on_file_boundaries() {
         let (_directory, root) = git_root().await;
+        let queries = WorkspaceQueryService::default();
+        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
         std::fs::write(root.canonical_root().join("second.txt"), "before\n").unwrap();
         for args in [["add", "second.txt"].as_slice(), ["commit", "-qm", "second"].as_slice()] {
             assert!(
@@ -788,21 +859,22 @@ mod tests {
         std::fs::write(root.canonical_root().join("tracked.txt"), "after one\n").unwrap();
         std::fs::write(root.canonical_root().join("second.txt"), "after two\n").unwrap();
 
-        let full = diff(&root, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap();
+        let full = diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap();
         let WorkspaceResponse::Diff { data, .. } = full else { panic!() };
         let full = data.decode().unwrap();
         let maximum = split_diff_sections(&full).iter().map(|section| section.len()).max().unwrap();
         let maximum = u32::try_from(maximum).unwrap();
 
         let first =
-            diff(&root, &[], false, 3, DiffFormat::Unified, None, Some(maximum)).await.unwrap();
+            diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum)).await.unwrap();
         let WorkspaceResponse::Diff { data, next_cursor: Some(cursor), .. } = first else {
             panic!()
         };
         let mut combined = data.decode().unwrap();
-        let second = diff(&root, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
-            .await
-            .unwrap();
+        let second =
+            diff(&context, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
+                .await
+                .unwrap();
         let WorkspaceResponse::Diff { data, next_cursor, .. } = second else { panic!() };
         assert_eq!(next_cursor, None);
         combined.extend(data.decode().unwrap());
@@ -812,19 +884,22 @@ mod tests {
     #[tokio::test]
     async fn unified_diff_cursor_continues_the_original_snapshot() {
         let (_directory, root) = git_root().await;
+        let queries = WorkspaceQueryService::default();
+        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
         std::fs::write(root.canonical_root().join("second.txt"), "before\n").unwrap();
         git(root.canonical_root(), &["add", "second.txt"]);
         git(root.canonical_root(), &["commit", "-qm", "second"]);
         std::fs::write(root.canonical_root().join("tracked.txt"), "after one\n").unwrap();
         std::fs::write(root.canonical_root().join("second.txt"), "after two\n").unwrap();
 
-        let full = diff(&root, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap();
+        let full = diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap();
         let WorkspaceResponse::Diff { data, .. } = full else { panic!() };
         let full = data.decode().unwrap();
         let maximum = split_diff_sections(&full).iter().map(|section| section.len()).max().unwrap();
         let maximum = u32::try_from(maximum).unwrap();
         let first =
-            diff(&root, &[], false, 3, DiffFormat::Unified, None, Some(maximum)).await.unwrap();
+            diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum)).await.unwrap();
         let WorkspaceResponse::Diff { data, next_cursor: Some(cursor), .. } = first else {
             panic!()
         };
@@ -836,9 +911,10 @@ mod tests {
         };
         git(root.canonical_root(), &["checkout", "--", returned]);
 
-        let second = diff(&root, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
-            .await
-            .unwrap();
+        let second =
+            diff(&context, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
+                .await
+                .unwrap();
         let WorkspaceResponse::Diff { data, .. } = second else { panic!() };
         let second = String::from_utf8(data.decode().unwrap()).unwrap();
         assert!(second.contains(remaining), "missing retained diff for {remaining}: {second}");
@@ -861,15 +937,14 @@ mod tests {
             "R100\0old b/path.txt\0new\"path.txt\0",
             "D\0gone.txt\0",
         );
-        let parsed = parse_diff_path_metadata_page(input.as_bytes(), 1, 4).unwrap();
-        assert_eq!(parsed.total_files, 4);
-        assert_eq!(parsed.paths.len(), 3);
-        assert_eq!(parsed.paths[0].old_path, None);
-        assert_eq!(parsed.paths[0].new_path.as_deref(), Some("tab\tname.txt"));
-        assert_eq!(parsed.paths[1].old_path.as_deref(), Some("old b/path.txt"));
-        assert_eq!(parsed.paths[1].new_path.as_deref(), Some("new\"path.txt"));
-        assert_eq!(parsed.paths[2].old_path.as_deref(), Some("gone.txt"));
-        assert_eq!(parsed.paths[2].new_path, None);
+        let parsed = parse_diff_path_metadata(input.as_bytes()).unwrap();
+        assert_eq!(parsed.len(), 4);
+        assert_eq!(parsed[1].old_path, None);
+        assert_eq!(parsed[1].new_path.as_deref(), Some("tab\tname.txt"));
+        assert_eq!(parsed[2].old_path.as_deref(), Some("old b/path.txt"));
+        assert_eq!(parsed[2].new_path.as_deref(), Some("new\"path.txt"));
+        assert_eq!(parsed[3].old_path.as_deref(), Some("gone.txt"));
+        assert_eq!(parsed[3].new_path, None);
     }
 
     #[test]

@@ -10,6 +10,7 @@ mod git;
 mod patch;
 mod path;
 mod process;
+mod query;
 mod route;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -26,6 +27,7 @@ use blocking::WorkspaceBlockingPool;
 use path::WorkspaceRoot;
 use process::{ProcessManager, ProcessSpawnOptions};
 pub use process::{ProcessSubscription, ProcessSubscriptionError};
+use query::{WorkspaceQueryContext, WorkspaceQueryService};
 use route::RouteManager;
 
 const MAX_WORKSPACES: usize = 256;
@@ -38,6 +40,7 @@ struct WorkspaceServiceInner {
     blocking: WorkspaceBlockingPool,
     codec: WorkspaceBlockingPool,
     processes: ProcessManager,
+    queries: Arc<WorkspaceQueryService>,
     routes: RouteManager,
     computer_capabilities: Vec<ComputerUseCapability>,
     request_control: StdMutex<RequestControlState>,
@@ -132,6 +135,7 @@ impl WorkspaceService {
                 blocking: WorkspaceBlockingPool::default(),
                 codec: WorkspaceBlockingPool::with_jobs(WORKSPACE_CODEC_JOBS),
                 processes: ProcessManager::default(),
+                queries: Arc::new(WorkspaceQueryService::default()),
                 routes: RouteManager::default(),
                 computer_capabilities,
                 request_control: StdMutex::new(RequestControlState::default()),
@@ -148,6 +152,7 @@ impl WorkspaceService {
                 blocking: WorkspaceBlockingPool::with_hook(jobs, hook),
                 codec: WorkspaceBlockingPool::with_jobs(WORKSPACE_CODEC_JOBS),
                 processes: ProcessManager::default(),
+                queries: Arc::new(WorkspaceQueryService::default()),
                 routes: RouteManager::default(),
                 computer_capabilities: Vec::new(),
                 request_control: StdMutex::new(RequestControlState::default()),
@@ -310,7 +315,8 @@ impl WorkspaceService {
             }
             WorkspaceRequest::ReadFile { workspace, path, offset, limit } => {
                 let root = self.workspace_for(scope, &workspace).await?;
-                files::read_file(&root, &path, offset, limit).await
+                let context = WorkspaceQueryContext::new(&self.inner.queries, scope, &root);
+                files::read_file(&context, &path, offset, limit).await
             }
             WorkspaceRequest::WriteFile { workspace, path, data, precondition, create_parents } => {
                 let root = self.workspace_for(scope, &workspace).await?;
@@ -318,11 +324,20 @@ impl WorkspaceService {
             }
             WorkspaceRequest::ListDirectory { workspace, path, include_hidden, limit, cursor } => {
                 let root = self.workspace_for(scope, &workspace).await?;
+                let queries = Arc::clone(&self.inner.queries);
+                let scope = scope.clone();
                 self.inner
                     .blocking
                     .run_async("list-directory", move || async move {
-                        files::list_directory(&root, &path, include_hidden, limit, cursor.as_ref())
-                            .await
+                        let context = WorkspaceQueryContext::new(&queries, &scope, &root);
+                        files::list_directory(
+                            &context,
+                            &path,
+                            include_hidden,
+                            limit,
+                            cursor.as_ref(),
+                        )
+                        .await
                     })
                     .await
             }
@@ -336,11 +351,14 @@ impl WorkspaceService {
                 cursor,
             } => {
                 let root = self.workspace_for(scope, &workspace).await?;
+                let queries = Arc::clone(&self.inner.queries);
+                let scope = scope.clone();
                 self.inner
                     .blocking
                     .run_async("search", move || async move {
+                        let context = WorkspaceQueryContext::new(&queries, &scope, &root);
                         files::search(
-                            &root,
+                            &context,
                             &query,
                             &paths,
                             &globs,
@@ -375,11 +393,14 @@ impl WorkspaceService {
                 max_bytes,
             } => {
                 let root = self.workspace_for(scope, &workspace).await?;
+                let queries = Arc::clone(&self.inner.queries);
+                let scope = scope.clone();
                 self.inner
                     .blocking
                     .run_async("diff", move || async move {
+                        let query_context = WorkspaceQueryContext::new(&queries, &scope, &root);
                         git::diff(
-                            &root,
+                            &query_context,
                             &paths,
                             staged,
                             context,
@@ -583,7 +604,7 @@ impl WorkspaceService {
         scope: &ClientScope,
         workspace: &WorkspaceId,
     ) -> Result<(), RpcError> {
-        {
+        let removed_workspace = {
             let mut catalog = self.inner.catalog.write().await;
             if !catalog.workspaces.contains_key(workspace) {
                 return Err(unknown_workspace(workspace));
@@ -603,6 +624,11 @@ impl WorkspaceService {
             if !still_leased {
                 catalog.workspaces.remove(workspace);
             }
+            !still_leased
+        };
+        self.inner.queries.close_client_workspace(scope, workspace);
+        if removed_workspace {
+            self.inner.queries.close_workspace(workspace);
         }
         self.inner.processes.close_workspace(scope, workspace).await;
         self.inner.routes.close_workspace(scope, workspace).await;
@@ -745,11 +771,13 @@ impl WorkspaceService {
         }
         self.inner.processes.close_client(scope).await;
         self.inner.routes.close_client(scope).await;
+        self.inner.queries.close_client(scope);
         self.wait_for_requests(Some(scope)).await;
         // A mutation that was already active when closure began can publish a
         // process, route, or lease after the first cleanup snapshot.
         self.inner.processes.close_client(scope).await;
         self.inner.routes.close_client(scope).await;
+        self.inner.queries.close_client(scope);
         let mut catalog = self.inner.catalog.write().await;
         // Workspace roots belong to the daemon, like tmux sessions. A client
         // disconnect releases only that client's lease; another authorized
@@ -788,6 +816,7 @@ impl WorkspaceService {
         }
         self.inner.processes.shutdown().await;
         self.inner.routes.shutdown().await;
+        self.inner.queries.clear();
         self.wait_for_requests(None).await;
         let blocking_jobs = self.inner.blocking.close_and_drain(REQUEST_QUIESCE_TIMEOUT).await;
         let codec_jobs = self.inner.codec.close_and_drain(REQUEST_QUIESCE_TIMEOUT).await;
@@ -795,6 +824,7 @@ impl WorkspaceService {
         // initial shutdown snapshot.
         self.inner.processes.shutdown().await;
         self.inner.routes.shutdown().await;
+        self.inner.queries.clear();
         let mut catalog = self.inner.catalog.write().await;
         catalog.leases.clear();
         catalog.workspaces.clear();
