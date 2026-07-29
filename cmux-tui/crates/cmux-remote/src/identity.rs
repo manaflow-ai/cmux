@@ -340,9 +340,17 @@ impl ClientIdentityStore {
         state: &mut PersistedClientState,
         candidate: PersistedClientState,
     ) -> Result<(), IdentityError> {
-        self.persist_client_locked(&candidate)?;
-        *state = candidate;
-        Ok(())
+        match self.persist_client_locked(&candidate) {
+            Ok(()) => {
+                *state = candidate;
+                Ok(())
+            }
+            Err(error @ IdentityError::Committed(_)) => {
+                *state = candidate;
+                Err(error)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn persist_client_locked(&self, state: &PersistedClientState) -> Result<(), IdentityError> {
@@ -383,18 +391,51 @@ pub struct PendingEnrollment {
 }
 
 struct PersistenceWaiter {
-    receiver: oneshot::Receiver<Result<(), String>>,
+    receiver: oneshot::Receiver<Result<(), PersistenceFailure>>,
 }
 
 impl PersistenceWaiter {
-    async fn wait_message(self) -> Result<(), String> {
-        self.receiver
-            .await
-            .unwrap_or_else(|_| Err("identity persistence coordinator stopped".into()))
+    async fn wait_result(self) -> Result<(), PersistenceFailure> {
+        self.receiver.await.unwrap_or_else(|_| {
+            Err(PersistenceFailure::Uncommitted("identity persistence coordinator stopped".into()))
+        })
     }
 
     async fn wait(self) -> Result<(), IdentityError> {
-        self.wait_message().await.map_err(IdentityError::Persistence)
+        self.wait_result().await.map_err(PersistenceFailure::into_identity_error)
+    }
+}
+
+#[derive(Debug, Clone)]
+enum PersistenceFailure {
+    Uncommitted(String),
+    Committed(String),
+}
+
+impl PersistenceFailure {
+    fn from_identity_error(error: IdentityError) -> Self {
+        match error {
+            IdentityError::Committed(message) => Self::Committed(message),
+            error => Self::Uncommitted(error.to_string()),
+        }
+    }
+
+    fn into_identity_error(self) -> IdentityError {
+        match self {
+            Self::Uncommitted(message) => IdentityError::Persistence(message),
+            Self::Committed(message) => IdentityError::Committed(message),
+        }
+    }
+
+    fn message(&self) -> String {
+        match self {
+            Self::Uncommitted(message) => message.clone(),
+            Self::Committed(message) => {
+                format!(
+                    "identity state was committed but durability confirmation failed: {message}"
+                )
+            }
+        }
     }
 }
 
@@ -410,8 +451,8 @@ struct PersistenceCoordinatorState {
     highest_seen_revision: u64,
     in_flight: Option<u64>,
     pending: BTreeMap<u64, PersistedState>,
-    waiters: BTreeMap<u64, Vec<oneshot::Sender<Result<(), String>>>>,
-    last_failure: Option<(u64, String)>,
+    waiters: BTreeMap<u64, Vec<oneshot::Sender<Result<(), PersistenceFailure>>>>,
+    last_failure: Option<(u64, PersistenceFailure)>,
     worker_running: bool,
 }
 
@@ -463,9 +504,9 @@ impl PersistenceCoordinator {
                             .filter(|(failed_revision, _)| *failed_revision >= revision)
                             .map(|(_, message)| message.clone())
                             .unwrap_or_else(|| {
-                                format!(
+                                PersistenceFailure::Uncommitted(format!(
                                     "identity revision {revision} was superseded before it became durable"
-                                )
+                                ))
                             });
                         immediate = Some(Err(message));
                     }
@@ -518,14 +559,15 @@ impl PersistenceCoordinator {
             let path = self.path.clone();
             #[cfg(test)]
             let hooks = self.hooks.clone();
-            let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let result = tokio::task::spawn_blocking(move || -> Result<(), PersistenceFailure> {
                 #[cfg(test)]
-                hooks.before_write(revision)?;
+                hooks.before_write(revision).map_err(PersistenceFailure::Uncommitted)?;
                 #[cfg(test)]
                 FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| {
                     fail.set(hooks.take_parent_sync_failure());
                 });
-                let result = atomic_json(&path, &snapshot).map_err(|error| error.to_string());
+                let result =
+                    atomic_json(&path, &snapshot).map_err(PersistenceFailure::from_identity_error);
                 #[cfg(test)]
                 FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.set(false));
                 #[cfg(test)]
@@ -534,7 +576,9 @@ impl PersistenceCoordinator {
             })
             .await
             .unwrap_or_else(|error| {
-                Err(format!("identity persistence worker failed to join: {error}"))
+                Err(PersistenceFailure::Uncommitted(format!(
+                    "identity persistence worker failed to join: {error}"
+                )))
             });
 
             let waiters = {
@@ -581,9 +625,9 @@ impl PersistenceCoordinator {
 }
 
 fn take_waiters_through(
-    waiters: &mut BTreeMap<u64, Vec<oneshot::Sender<Result<(), String>>>>,
+    waiters: &mut BTreeMap<u64, Vec<oneshot::Sender<Result<(), PersistenceFailure>>>>,
     revision: u64,
-) -> Vec<oneshot::Sender<Result<(), String>>> {
+) -> Vec<oneshot::Sender<Result<(), PersistenceFailure>>> {
     let revisions = waiters.range(..=revision).map(|(revision, _)| *revision).collect::<Vec<_>>();
     revisions
         .into_iter()
@@ -905,13 +949,18 @@ impl AuthDatabase {
             daemon_name: self.daemon_name.clone(),
             revocation_generation: generation,
         };
-        match persistence.wait_message().await {
+        match persistence.wait_result().await {
             Ok(()) => {
                 drop(state);
                 let _ = pending.decision.send(Ok(grant));
                 Ok(record)
             }
-            Err(message) => {
+            Err(PersistenceFailure::Committed(message)) => {
+                drop(state);
+                let _ = pending.decision.send(Ok(grant));
+                Err(IdentityError::Committed(message))
+            }
+            Err(PersistenceFailure::Uncommitted(message)) => {
                 rollback_approval(
                     &mut state,
                     invitation_id,
@@ -940,18 +989,22 @@ impl AuthDatabase {
         };
         let (completed_tx, completed_rx) = oneshot::channel();
         tokio::spawn(async move {
-            let result = persistence.wait_message().await;
+            let result = persistence.wait_result().await;
             let authorization = match &result {
-                Ok(()) => Err("enrollment denied".into()),
-                Err(message) => Err(message.clone()),
+                Ok(()) | Err(PersistenceFailure::Committed(_)) => Err("enrollment denied".into()),
+                Err(error) => Err(error.message()),
             };
             let _ = decision.send(authorization);
             let _ = completed_tx.send(result);
         });
         completed_rx
             .await
-            .unwrap_or_else(|_| Err("identity denial persistence task stopped".into()))
-            .map_err(IdentityError::Persistence)
+            .unwrap_or_else(|_| {
+                Err(PersistenceFailure::Uncommitted(
+                    "identity denial persistence task stopped".into(),
+                ))
+            })
+            .map_err(PersistenceFailure::into_identity_error)
     }
 
     pub async fn revoke(&self, device_id: &str) -> Result<(), IdentityError> {
@@ -1451,10 +1504,12 @@ fn atomic_json(path: &Path, value: &impl Serialize) -> Result<(), IdentityError>
     let mut file = options.open(&temporary).map_err(IdentityError::Io)?;
     let result = (|| {
         file.write_all(&data).map_err(IdentityError::Io)?;
+        restrict_file(&temporary)?;
         file.sync_all().map_err(IdentityError::Io)?;
         fs::rename(&temporary, path).map_err(IdentityError::Io)?;
-        restrict_file(path)?;
-        sync_parent_directory(parent)?;
+        if let Err(error) = sync_parent_directory(parent) {
+            return Err(IdentityError::Committed(error.to_string()));
+        }
         Ok(())
     })();
     if result.is_err() {
@@ -1734,6 +1789,7 @@ pub enum IdentityError {
     Crypto(CryptoError),
     Random(String),
     Persistence(String),
+    Committed(String),
     Invalid(String),
     InvitationExpired(String),
     UnknownPending(String),
@@ -1752,6 +1808,10 @@ impl std::fmt::Display for IdentityError {
             Self::Persistence(message) => {
                 write!(formatter, "identity persistence failed: {message}")
             }
+            Self::Committed(message) => write!(
+                formatter,
+                "identity state was committed but durability confirmation failed: {message}"
+            ),
             Self::Invalid(message) => write!(formatter, "invalid identity state: {message}"),
             Self::InvitationExpired(id) => write!(formatter, "invitation {id} is expired"),
             Self::UnknownPending(id) => write!(formatter, "no pending enrollment for {id}"),

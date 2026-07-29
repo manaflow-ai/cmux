@@ -80,6 +80,7 @@ struct ControlRegistration {
     provider_ticket: String,
     deadline: Instant,
     provider_expiry: Option<Instant>,
+    provider_expires_at_unix: Option<u64>,
 }
 
 struct Circuit {
@@ -664,6 +665,8 @@ impl Relay {
             .as_ref()
             .map(|claims| expiry_as_instant(claims.expires_at_unix, system_now, instant_now))
             .transpose()?;
+        let provider_expires_at_unix =
+            provider_claims.as_ref().map(|claims| claims.expires_at_unix);
         let deadline = provider_expiry
             .map_or(instant_now + self.inner.config.lease_duration, |expiry| {
                 expiry.min(instant_now + self.inner.config.lease_duration)
@@ -708,6 +711,7 @@ impl Relay {
                     provider_ticket: ticket,
                     deadline,
                     provider_expiry,
+                    provider_expires_at_unix,
                 },
             );
             state.attachments.insert(peer.id, Attachment::Control { slot: slot.clone() });
@@ -752,7 +756,9 @@ impl Relay {
         validate_slot(&slot)?;
         validate_lane(&lane)?;
         validate_ticket_size(&ticket)?;
-        self.inner
+        let system_now = SystemTime::now();
+        let provider_claims = self
+            .inner
             .tickets
             .verify_provider(
                 &ticket,
@@ -765,19 +771,22 @@ impl Relay {
                     generation: Some(generation),
                     require_route_binding: false,
                 },
-                SystemTime::now(),
+                system_now,
             )
             .map_err(|error| RelayError::policy("invalid-ticket", error.to_string(), false))?;
-        let issued_at_unix = unix_timestamp(SystemTime::now())?;
-        let expires_at_unix =
+        let issued_at_unix = unix_timestamp(system_now)?;
+        let configured_expires_at_unix =
             issued_at_unix.checked_add(self.inner.config.join_ticket_ttl.as_secs()).ok_or_else(
                 || RelayError::internal("ticket-expiry", "relay join ticket expiry overflowed"),
             )?;
+        let client_expires_at_unix = provider_claims.as_ref().map(|claims| claims.expires_at_unix);
 
         let (circuit, daemon, client_join_ticket, daemon_join_ticket) = {
             let mut state = self.inner.state.lock().await;
-            let Some((daemon, control_deadline)) =
-                state.controls.get(&slot).map(|control| (control.peer.clone(), control.deadline))
+            let Some((daemon, control_deadline, daemon_expires_at_unix)) =
+                state.controls.get(&slot).map(|control| {
+                    (control.peer.clone(), control.deadline, control.provider_expires_at_unix)
+                })
             else {
                 return Err(RelayError::policy(
                     "slot-offline",
@@ -812,6 +821,9 @@ impl Relay {
                     "relay circuit limit was reached",
                 ));
             }
+            let expires_at_unix = configured_expires_at_unix
+                .min(client_expires_at_unix.unwrap_or(u64::MAX))
+                .min(daemon_expires_at_unix.unwrap_or(u64::MAX));
             let circuit = CircuitId(Uuid::new_v4().simple().to_string());
             let client_claims = join_claims(
                 self.inner.tickets.issuer(),
