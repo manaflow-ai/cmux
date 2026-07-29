@@ -16,6 +16,7 @@ import {
   authorizedSubrouterTeams,
 } from "@/services/subrouter/routeHelpers";
 import {
+  isSubrouterAuthorizationError,
   verifySubrouterRequest,
   withSubrouterAuthorizationDeadline,
 } from "@/services/vms/auth";
@@ -70,18 +71,36 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
     redirect("/");
   }
   const requestHeaders = await headers();
-  const authorized = await withSubrouterAuthorizationDeadline(
-    async (signal) => {
-      const user = await verifySubrouterRequest(
-        new Request("https://cmux.com/dashboard/subrouter", {
-          headers: Object.fromEntries(requestHeaders.entries()),
-        }),
-        signal,
-        { allowCookie: true, listAllTeams: true },
-      );
-      return user ? authorizedSubrouterTeams(user) : null;
-    },
-  );
+  let authorized: Awaited<ReturnType<typeof authorizedSubrouterTeams>> | null;
+  try {
+    authorized = await withSubrouterAuthorizationDeadline(
+      async (signal) => {
+        const user = await verifySubrouterRequest(
+          new Request("https://cmux.com/dashboard/subrouter", {
+            headers: Object.fromEntries(requestHeaders.entries()),
+          }),
+          signal,
+          { allowCookie: true, listAllTeams: true },
+        );
+        return user ? authorizedSubrouterTeams(user) : null;
+      },
+    );
+  } catch (error) {
+    if (!isSubrouterAuthorizationError(error)) throw error;
+    const [tPage, t] = await Promise.all([
+      getTranslations({ locale, namespace: "dashboard.subrouter" }),
+      getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
+    ]);
+    return (
+      <div className="mx-auto w-full max-w-5xl px-3 py-4">
+        <DashboardHeader
+          title={tPage("title")}
+          description={tPage("description")}
+        />
+        <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
+      </div>
+    );
+  }
   if (!authorized) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/subrouter")));
   }
@@ -109,10 +128,10 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <h1 className="text-sm font-medium">{tPage("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{tPage("description")}</p>
-      </div>
+      <DashboardHeader
+        title={tPage("title")}
+        description={tPage("description")}
+      />
 
       <section className="mb-4 border border-border p-3">
         <div className="mb-2 text-xs text-muted">{t("teamSwitcherLabel")}</div>
@@ -206,6 +225,21 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
           ) : null}
         </div>
       )}
+    </div>
+  );
+}
+
+function DashboardHeader({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mb-4 border-b border-border pb-3">
+      <h1 className="text-sm font-medium">{title}</h1>
+      <p className="mt-1 max-w-2xl text-muted">{description}</p>
     </div>
   );
 }
