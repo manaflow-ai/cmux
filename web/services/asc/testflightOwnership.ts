@@ -94,6 +94,7 @@ export function proTestflightRemovalTargets(
   const enrollmentEmails = proTestflightEnrollmentEmails(metadata);
   const grantEmails = proTestflightGrants(metadata).map((grant) => grant.email);
   const legacyEmails = proOwnedLegacyTestflightEmails(metadata);
+  const legacyEmailSet = new Set(legacyEmails);
   const legacyGroupIDs = proOwnedLegacyTestflightGroupIDs(metadata);
   const emails = [
     ...new Set([
@@ -106,7 +107,7 @@ export function proTestflightRemovalTargets(
 
   return emails.map((email) => ({
     email,
-    ownedLegacyGroupIDs: legacyEmails.includes(email) ? legacyGroupIDs : [],
+    ownedLegacyGroupIDs: legacyEmailSet.has(email) ? legacyGroupIDs : [],
   }));
 }
 
