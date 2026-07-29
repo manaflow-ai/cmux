@@ -24,6 +24,21 @@ fn stringField(value: Value, name: []const u8) ![]const u8 {
     };
 }
 
+fn integerField(value: Value, name: []const u8) !i64 {
+    return switch (try field(value, name)) {
+        .integer => |number| number,
+        else => error.ExpectedInteger,
+    };
+}
+
+fn decimalField(value: Value, name: []const u8) !u64 {
+    return std.fmt.parseInt(
+        u64,
+        try stringField(value, name),
+        10,
+    );
+}
+
 fn optionalStringField(value: Value, name: []const u8) ?[]const u8 {
     const object = asObject(value) catch return null;
     const item = object.get(name) orelse return null;
@@ -208,6 +223,38 @@ fn resourceErrorDetailsValue(
                 try decimal(allocator, value.actual),
             );
         },
+        .creation_conflict => |value| {
+            try putString(
+                &output,
+                allocator,
+                "correlation_key",
+                value.correlation_key,
+            );
+            try putString(
+                &output,
+                allocator,
+                "existing_operation",
+                value.existing_operation,
+            );
+            try putString(
+                &output,
+                allocator,
+                "requested_operation",
+                value.requested_operation,
+            );
+            try putString(
+                &output,
+                allocator,
+                "existing_fingerprint",
+                value.existing_fingerprint,
+            );
+            try putString(
+                &output,
+                allocator,
+                "requested_fingerprint",
+                value.requested_fingerprint,
+            );
+        },
         .selector_ambiguous => |value| {
             if (value.scope) |scope| {
                 try putString(
@@ -289,6 +336,21 @@ fn mutationError(
     return error.MutationUnexpectedlySucceeded;
 }
 
+fn resourceErrorValue(
+    allocator: Allocator,
+    remote: *const cmux.ResourceError,
+) !Value {
+    var output = Object.init(allocator);
+    try putString(&output, allocator, "code", remote.code);
+    try putString(&output, allocator, "message", remote.message);
+    try output.put(
+        "details",
+        try resourceErrorDetailsValue(allocator, remote.details),
+    );
+    try output.put("retryable", .{ .bool = remote.retryable });
+    return .{ .object = output };
+}
+
 fn cursorValue(
     allocator: Allocator,
     cursor: ?cmux.Cursor,
@@ -298,6 +360,295 @@ fn cursorValue(
     try putString(&output, allocator, "generation", value.generation);
     try output.put("revision", try decimal(allocator, value.revision));
     return .{ .object = output };
+}
+
+fn putTerminalPathFields(
+    output: *Object,
+    allocator: Allocator,
+    path: cmux.CreatedTerminalPath,
+) !void {
+    try putString(
+        output,
+        allocator,
+        "workspace_id",
+        path.workspace_id.slice(),
+    );
+    try putString(
+        output,
+        allocator,
+        "screen_id",
+        path.screen_id.slice(),
+    );
+    try putString(
+        output,
+        allocator,
+        "pane_id",
+        path.pane_id.slice(),
+    );
+    try putString(
+        output,
+        allocator,
+        "tab_id",
+        path.tab_id.slice(),
+    );
+    try putString(
+        output,
+        allocator,
+        "terminal_id",
+        path.terminal_id.slice(),
+    );
+}
+
+fn createdTerminalPathValue(
+    allocator: Allocator,
+    path: cmux.CreatedTerminalPath,
+) !Value {
+    var output = Object.init(allocator);
+    try putString(&output, allocator, "kind", "terminal");
+    try putTerminalPathFields(&output, allocator, path);
+    return .{ .object = output };
+}
+
+fn createdPathValue(
+    allocator: Allocator,
+    path: cmux.CreatedPath,
+) !Value {
+    var output = Object.init(allocator);
+    switch (path) {
+        .workspace => |value| {
+            try putString(&output, allocator, "kind", "workspace");
+            try putString(
+                &output,
+                allocator,
+                "workspace_id",
+                value.workspace_id.slice(),
+            );
+        },
+        .terminal => |value| {
+            try putString(&output, allocator, "kind", "terminal");
+            try putTerminalPathFields(&output, allocator, value);
+        },
+        .browser => |value| {
+            try putString(&output, allocator, "kind", "browser");
+            try putString(
+                &output,
+                allocator,
+                "workspace_id",
+                value.workspace_id.slice(),
+            );
+            try putString(
+                &output,
+                allocator,
+                "screen_id",
+                value.screen_id.slice(),
+            );
+            try putString(
+                &output,
+                allocator,
+                "pane_id",
+                value.pane_id.slice(),
+            );
+            try putString(
+                &output,
+                allocator,
+                "tab_id",
+                value.tab_id.slice(),
+            );
+            try putString(
+                &output,
+                allocator,
+                "browser_id",
+                value.browser_id.slice(),
+            );
+        },
+    }
+    return .{ .object = output };
+}
+
+fn creationResolutionValue(
+    allocator: Allocator,
+    resolution: *const cmux.CreationResolution,
+) !Value {
+    var output = Object.init(allocator);
+    try putString(
+        &output,
+        allocator,
+        "correlation_key",
+        resolution.correlation_key,
+    );
+    try putString(
+        &output,
+        allocator,
+        "state",
+        resolution.state.wireName(),
+    );
+    try putString(
+        &output,
+        allocator,
+        "recovery",
+        resolution.recovery.wireName(),
+    );
+    if (resolution.operation) |operation| {
+        try putString(&output, allocator, "operation", operation);
+    }
+    if (resolution.idempotency_key) |idempotency_key| {
+        try putString(
+            &output,
+            allocator,
+            "idempotency_key",
+            idempotency_key,
+        );
+    }
+    if (resolution.created_path) |path| {
+        try output.put(
+            "created_path",
+            try createdPathValue(allocator, path),
+        );
+    }
+    if (resolution.generation) |generation| {
+        try putString(&output, allocator, "generation", generation);
+    }
+    if (resolution.revision) |revision| {
+        try output.put("revision", try decimal(allocator, revision));
+    }
+    return .{ .object = output };
+}
+
+fn exitOutcomeValue(
+    allocator: Allocator,
+    outcome: cmux.TerminalExitOutcome,
+) !Value {
+    var output = Object.init(allocator);
+    switch (outcome) {
+        .exit => |code| {
+            try putString(&output, allocator, "kind", "exit");
+            try output.put("code", .{ .integer = code });
+        },
+        .signal => |value| {
+            try putString(&output, allocator, "kind", "signal");
+            try output.put(
+                "signal",
+                .{ .integer = value.signal },
+            );
+            try output.put(
+                "core_dumped",
+                .{ .bool = value.core_dumped },
+            );
+        },
+        .unknown => |reason| {
+            try putString(&output, allocator, "kind", "unknown");
+            try putString(&output, allocator, "reason", reason);
+        },
+    }
+    return .{ .object = output };
+}
+
+fn terminalWaitExitValue(
+    allocator: Allocator,
+    result: cmux.TerminalWaitExitResult,
+) !Value {
+    var output = Object.init(allocator);
+    switch (result) {
+        .pending => |value| {
+            try putString(&output, allocator, "state", "pending");
+            try putString(
+                &output,
+                allocator,
+                "terminal_id",
+                value.terminal_id.slice(),
+            );
+            try putString(
+                &output,
+                allocator,
+                "lifecycle",
+                value.lifecycle.wireName(),
+            );
+            try output.put(
+                "revision",
+                try decimal(allocator, value.revision),
+            );
+        },
+        .exited => |value| {
+            try putString(&output, allocator, "state", "exited");
+            try putString(
+                &output,
+                allocator,
+                "terminal_id",
+                value.terminal_id.slice(),
+            );
+            try putString(&output, allocator, "lifecycle", "exited");
+            try output.put(
+                "outcome",
+                try exitOutcomeValue(allocator, value.outcome),
+            );
+            try output.put(
+                "exited_at",
+                try decimal(allocator, value.exited_at),
+            );
+            try output.put(
+                "revision",
+                try decimal(allocator, value.revision),
+            );
+        },
+    }
+    return .{ .object = output };
+}
+
+fn creationResolve(
+    allocator: Allocator,
+    scoped_session: cmux.Session,
+    request: Value,
+) !Value {
+    var result = try scoped_session.resolveCreation(
+        try stringField(try constants(request), "correlation_key"),
+    );
+    defer result.deinit();
+    return creationResolutionValue(allocator, &result.value);
+}
+
+fn creationConflict(
+    allocator: Allocator,
+    client: *cmux.Client,
+    scoped_session: cmux.Session,
+    request: Value,
+) !Value {
+    const values = try constants(request);
+    var unexpected = scoped_session.createWorkspace(
+        .{
+            .name = try stringField(values, "name"),
+            .initial_content = .empty,
+            .correlation_key = try stringField(
+                values,
+                "correlation_key",
+            ),
+        },
+        try cmux.MutationOptions.withKey(
+            try stringField(values, "idempotency_key"),
+        ),
+    ) catch |failure| {
+        if (failure != error.RemoteError) return failure;
+        var remote = client.takeResourceError() orelse
+            return error.MissingResourceError;
+        defer remote.deinit();
+        return resourceErrorValue(allocator, &remote.value);
+    };
+    unexpected.deinit();
+    return error.CreationConflictUnexpectedlySucceeded;
+}
+
+fn terminalWaitExit(
+    allocator: Allocator,
+    scoped_session: cmux.Session,
+    request: Value,
+) !Value {
+    const terminal_id = try cmux.TerminalId.parse(
+        try stringField(try constants(request), "terminal"),
+    );
+    var result = try scoped_session.terminal(terminal_id).waitForExit(
+        try decimalField(request, "timeout_ms"),
+    );
+    defer result.deinit();
+    return terminalWaitExitValue(allocator, result.value);
 }
 
 fn endName(reason: cmux.StreamEndReason) []const u8 {
@@ -551,6 +902,77 @@ fn workspaceIdArray(
     return .{ .array = output };
 }
 
+fn terminalPathsEqual(
+    first: cmux.CreatedTerminalPath,
+    second: cmux.CreatedTerminalPath,
+) bool {
+    return std.mem.eql(
+        u8,
+        first.workspace_id.slice(),
+        second.workspace_id.slice(),
+    ) and std.mem.eql(
+        u8,
+        first.screen_id.slice(),
+        second.screen_id.slice(),
+    ) and std.mem.eql(
+        u8,
+        first.pane_id.slice(),
+        second.pane_id.slice(),
+    ) and std.mem.eql(
+        u8,
+        first.tab_id.slice(),
+        second.tab_id.slice(),
+    ) and std.mem.eql(
+        u8,
+        first.terminal_id.slice(),
+        second.terminal_id.slice(),
+    );
+}
+
+fn terminalPathMatchesValue(
+    path: cmux.CreatedTerminalPath,
+    expected: Value,
+) !bool {
+    const object = try asObject(expected);
+    if (object.count() != 6) return false;
+    return std.mem.eql(
+        u8,
+        try stringField(expected, "kind"),
+        "terminal",
+    ) and std.mem.eql(
+        u8,
+        try stringField(expected, "workspace_id"),
+        path.workspace_id.slice(),
+    ) and std.mem.eql(
+        u8,
+        try stringField(expected, "screen_id"),
+        path.screen_id.slice(),
+    ) and std.mem.eql(
+        u8,
+        try stringField(expected, "pane_id"),
+        path.pane_id.slice(),
+    ) and std.mem.eql(
+        u8,
+        try stringField(expected, "tab_id"),
+        path.tab_id.slice(),
+    ) and std.mem.eql(
+        u8,
+        try stringField(expected, "terminal_id"),
+        path.terminal_id.slice(),
+    );
+}
+
+fn requiredCreatedTerminalPath(
+    resolution: *const cmux.CreationResolution,
+) !cmux.CreatedTerminalPath {
+    const path = resolution.created_path orelse
+        return error.CreationResolutionOmittedPath;
+    return switch (path) {
+        .terminal => |terminal| terminal,
+        else => error.ExpectedTerminalPath,
+    };
+}
+
 fn liveFlow(
     allocator: Allocator,
     client: *cmux.Client,
@@ -609,6 +1031,314 @@ fn liveFlow(
     try output.put("listed", .{ .bool = listed });
     try output.put("closed", .{ .bool = true });
     try output.put("disappeared", .{ .bool = disappeared });
+    return .{ .object = output };
+}
+
+fn liveCreationExit(
+    allocator: Allocator,
+    client: *cmux.Client,
+    request: Value,
+) !Value {
+    const scoped_session = client.session(.current);
+    const stable_id = try cmux.WorkspaceId.parse(
+        try stringField(request, "expected_stable_id"),
+    );
+    const scoped_workspace = scoped_session.workspace(stable_id);
+    const key_prefix = try stringField(request, "key_prefix");
+
+    var screen_created = try scoped_workspace.createScreen(
+        .{},
+        try derivedMutationOptions(
+            allocator,
+            key_prefix,
+            "-runtime-screen",
+        ),
+    );
+    defer screen_created.deinit();
+    const screen_path = switch (screen_created.value) {
+        .terminal => |path| path,
+        else => return error.ScreenCreateOmittedTerminalPath,
+    };
+    const scoped_pane = scoped_workspace
+        .screen(screen_path.screen_id)
+        .pane(screen_path.pane_id);
+
+    const correlation_key = try std.fmt.allocPrint(
+        allocator,
+        "{s}-terminal-correlation",
+        .{key_prefix},
+    );
+    var run_result = try scoped_pane.run(
+        .{
+            .command = try cmux.RunCommand.shell(
+                try stringField(request, "exit_shell"),
+            ),
+            .correlation_key = correlation_key,
+        },
+        try derivedMutationOptions(
+            allocator,
+            key_prefix,
+            "-terminal-run",
+        ),
+    );
+    defer run_result.deinit();
+    const created_path = run_result.value;
+    const scoped_terminal = scoped_session.terminal(
+        created_path.terminal_id,
+    );
+
+    var pending_result = try scoped_terminal.waitForExit(
+        try decimalField(request, "pending_timeout_ms"),
+    );
+    defer pending_result.deinit();
+    const pending = switch (pending_result.value) {
+        .pending => |value| value,
+        .exited => return error.TerminalExitedBeforePendingObservation,
+    };
+    const pending_terminal_id = try allocator.dupe(
+        u8,
+        pending.terminal_id.slice(),
+    );
+    const pending_lifecycle = try allocator.dupe(
+        u8,
+        pending.lifecycle.wireName(),
+    );
+
+    var resolution = try scoped_session.resolveCreation(
+        correlation_key,
+    );
+    defer resolution.deinit();
+    const resolved_path = try requiredCreatedTerminalPath(
+        &resolution.value,
+    );
+    if (!terminalPathsEqual(resolved_path, created_path)) {
+        return error.CreationResolutionPathMismatch;
+    }
+    const creation_generation = try allocator.dupe(
+        u8,
+        resolution.value.generation orelse
+            return error.CreationResolutionOmittedGeneration,
+    );
+    const creation_revision = resolution.value.revision orelse
+        return error.CreationResolutionOmittedRevision;
+    const creation_state = try allocator.dupe(
+        u8,
+        resolution.value.state.wireName(),
+    );
+    const creation_recovery = try allocator.dupe(
+        u8,
+        resolution.value.recovery.wireName(),
+    );
+
+    var exit_result = try scoped_terminal.waitForExit(
+        try decimalField(request, "exit_timeout_ms"),
+    );
+    defer exit_result.deinit();
+    const exited = switch (exit_result.value) {
+        .pending => return error.TerminalRemainedPending,
+        .exited => |value| value,
+    };
+    const exit_code = switch (exited.outcome) {
+        .exit => |code| code,
+        else => return error.ExpectedExitCodeOutcome,
+    };
+    if (@as(i64, exit_code) !=
+        try integerField(request, "expected_exit_code"))
+    {
+        return error.UnexpectedExitCode;
+    }
+
+    var output = Object.init(allocator);
+    try putString(
+        &output,
+        allocator,
+        "correlation_key",
+        correlation_key,
+    );
+    try output.put(
+        "created_path",
+        try createdTerminalPathValue(allocator, created_path),
+    );
+    try putString(
+        &output,
+        allocator,
+        "pending_terminal_id",
+        pending_terminal_id,
+    );
+    try putString(&output, allocator, "pending_state", "pending");
+    try putString(
+        &output,
+        allocator,
+        "pending_lifecycle",
+        pending_lifecycle,
+    );
+    try putString(
+        &output,
+        allocator,
+        "creation_state",
+        creation_state,
+    );
+    try putString(
+        &output,
+        allocator,
+        "creation_recovery",
+        creation_recovery,
+    );
+    try putString(
+        &output,
+        allocator,
+        "creation_generation",
+        creation_generation,
+    );
+    try output.put(
+        "creation_revision",
+        try decimal(allocator, creation_revision),
+    );
+    try putString(&output, allocator, "exit_state", "exited");
+    try putString(
+        &output,
+        allocator,
+        "exit_terminal_id",
+        exited.terminal_id.slice(),
+    );
+    try putString(&output, allocator, "exit_lifecycle", "exited");
+    try putString(&output, allocator, "exit_kind", "exit");
+    try output.put("exit_code", .{ .integer = exit_code });
+    try output.put(
+        "exited_at",
+        try decimal(allocator, exited.exited_at),
+    );
+    try output.put(
+        "exit_revision",
+        try decimal(allocator, exited.revision),
+    );
+    return .{ .object = output };
+}
+
+fn liveExitRestart(
+    allocator: Allocator,
+    client: *cmux.Client,
+    request: Value,
+) !Value {
+    const scoped_session = client.session(.current);
+    const correlation_key = try stringField(
+        request,
+        "expected_correlation_key",
+    );
+    var resolution = try scoped_session.resolveCreation(
+        correlation_key,
+    );
+    defer resolution.deinit();
+    const resolved_path = try requiredCreatedTerminalPath(
+        &resolution.value,
+    );
+    const expected_path = try field(request, "expected_created_path");
+    if (!try terminalPathMatchesValue(resolved_path, expected_path)) {
+        return error.DurableCreationPathMismatch;
+    }
+    if (!std.mem.eql(
+        u8,
+        resolution.value.correlation_key,
+        correlation_key,
+    )) {
+        return error.DurableCorrelationKeyMismatch;
+    }
+    const generation = resolution.value.generation orelse
+        return error.CreationResolutionOmittedGeneration;
+    if (!std.mem.eql(
+        u8,
+        generation,
+        try stringField(request, "expected_creation_generation"),
+    )) {
+        return error.DurableCreationGenerationMismatch;
+    }
+    const revision = resolution.value.revision orelse
+        return error.CreationResolutionOmittedRevision;
+    if (revision !=
+        try decimalField(request, "expected_creation_revision"))
+    {
+        return error.DurableCreationRevisionMismatch;
+    }
+
+    var exit_result = try scoped_session
+        .terminal(resolved_path.terminal_id)
+        .waitForExit(try decimalField(request, "exit_timeout_ms"));
+    defer exit_result.deinit();
+    const exited = switch (exit_result.value) {
+        .pending => return error.DurableTerminalExitRemainedPending,
+        .exited => |value| value,
+    };
+    const exit_code = switch (exited.outcome) {
+        .exit => |code| code,
+        else => return error.ExpectedExitCodeOutcome,
+    };
+    if (@as(i64, exit_code) !=
+        try integerField(request, "expected_exit_code"))
+    {
+        return error.UnexpectedExitCode;
+    }
+    if (exited.exited_at !=
+        try decimalField(request, "expected_exited_at"))
+    {
+        return error.DurableExitTimestampMismatch;
+    }
+    if (exited.revision !=
+        try decimalField(request, "expected_exit_revision"))
+    {
+        return error.DurableExitRevisionMismatch;
+    }
+
+    var output = Object.init(allocator);
+    try putString(
+        &output,
+        allocator,
+        "correlation_key",
+        resolution.value.correlation_key,
+    );
+    try output.put(
+        "created_path",
+        try createdTerminalPathValue(allocator, resolved_path),
+    );
+    try putString(
+        &output,
+        allocator,
+        "creation_state",
+        resolution.value.state.wireName(),
+    );
+    try putString(
+        &output,
+        allocator,
+        "creation_recovery",
+        resolution.value.recovery.wireName(),
+    );
+    try putString(
+        &output,
+        allocator,
+        "creation_generation",
+        generation,
+    );
+    try output.put(
+        "creation_revision",
+        try decimal(allocator, revision),
+    );
+    try putString(&output, allocator, "exit_state", "exited");
+    try putString(
+        &output,
+        allocator,
+        "exit_terminal_id",
+        exited.terminal_id.slice(),
+    );
+    try putString(&output, allocator, "exit_lifecycle", "exited");
+    try putString(&output, allocator, "exit_kind", "exit");
+    try output.put("exit_code", .{ .integer = exit_code });
+    try output.put(
+        "exited_at",
+        try decimal(allocator, exited.exited_at),
+    );
+    try output.put(
+        "exit_revision",
+        try decimal(allocator, exited.revision),
+    );
     return .{ .object = output };
 }
 
@@ -893,6 +1623,12 @@ fn dispatch(allocator: Allocator, request: Value) !Value {
     if (std.mem.eql(u8, operation, "live-setup")) {
         return liveSetup(allocator, &client, request);
     }
+    if (std.mem.eql(u8, operation, "live-creation-exit")) {
+        return liveCreationExit(allocator, &client, request);
+    }
+    if (std.mem.eql(u8, operation, "live-exit-restart")) {
+        return liveExitRestart(allocator, &client, request);
+    }
     if (std.mem.eql(u8, operation, "live-restart")) {
         return liveRestart(allocator, &client, request);
     }
@@ -900,11 +1636,26 @@ fn dispatch(allocator: Allocator, request: Value) !Value {
         return liveFlow(allocator, &client, request);
     }
     const scoped_session = try session(&client, request);
-    const scoped_workspace = try workspace(scoped_session, request);
 
     if (std.mem.eql(u8, operation, "read")) {
         return ping(allocator, scoped_session);
     }
+    if (std.mem.eql(u8, operation, "creation-resolve")) {
+        return creationResolve(allocator, scoped_session, request);
+    }
+    if (std.mem.eql(u8, operation, "creation-conflict")) {
+        return creationConflict(
+            allocator,
+            &client,
+            scoped_session,
+            request,
+        );
+    }
+    if (std.mem.eql(u8, operation, "terminal-wait-exit")) {
+        return terminalWaitExit(allocator, scoped_session, request);
+    }
+
+    const scoped_workspace = try workspace(scoped_session, request);
     if (std.mem.eql(u8, operation, "mutation-replay")) {
         return mutationReplay(
             allocator,
