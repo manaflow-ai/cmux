@@ -251,6 +251,46 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         ))
     }
 
+    @Test("wrong-route wrapper end does not consume the real lifecycle")
+    func wrapperEndClaimRequiresExpectedOwner() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation",
+            attachmentID: "real-surface",
+            command: nil,
+            requireExisting: true
+        )
+        let owner = try #require(broker.ptyLifecycleOwnerForWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "generation"
+        ))
+
+        #expect(broker.claimPTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "generation",
+            expectedOwner: RemotePTYLifecycleWrapperEndOwner(
+                transportKey: owner.transportKey,
+                attachmentID: "wrong-surface"
+            )
+        ) == nil)
+        #expect(broker.ptyLifecycleOwnerForWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "generation"
+        ) == owner)
+        #expect(broker.claimPTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "generation",
+            expectedOwner: owner
+        )?.wasCurrent == true)
+    }
+
     @Test("replacement invalidates the old readiness commit lease")
     func replacementInvalidatesOldReadinessCommitLease() throws {
         let provider = FakeTunnelProvider()

@@ -652,6 +652,65 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteTerminalDockLookupIsScopedToPresentationWorkspace() throws {
+        let sourceWorkspace = Workspace()
+        sourceWorkspace.configureRemoteConnection(
+            remoteConfiguration(preserveAfterTerminalExit: false),
+            autoConnect: false
+        )
+        let unrelatedWorkspace = Workspace()
+        unrelatedWorkspace.configureRemoteConnection(
+            remoteConfiguration(preserveAfterTerminalExit: false),
+            autoConnect: false
+        )
+        let sourceSurfaceID = try seededTerminalSurfaceID(in: sourceWorkspace)
+        let unrelatedSurfaceID = try seededTerminalSurfaceID(in: unrelatedWorkspace)
+        let sourceDock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        let unrelatedDock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            sourceDock.closeAllPanels()
+            unrelatedDock.closeAllPanels()
+        }
+
+        let sourceTransfer = try XCTUnwrap(
+            sourceWorkspace.detachSurface(panelId: sourceSurfaceID)
+        )
+        let unrelatedTransfer = try XCTUnwrap(
+            unrelatedWorkspace.detachSurface(panelId: unrelatedSurfaceID)
+        )
+        XCTAssertNotNil(sourceDock.attachDetachedSurface(
+            sourceTransfer,
+            inPane: try XCTUnwrap(sourceDock.bonsplitController.allPaneIds.first),
+            focus: false
+        ))
+        XCTAssertNotNil(unrelatedDock.attachDetachedSurface(
+            unrelatedTransfer,
+            inPane: try XCTUnwrap(unrelatedDock.bonsplitController.allPaneIds.first),
+            focus: false
+        ))
+
+        let sourceDocks = DockSplitStore.liveRemoteTerminalStores(
+            presentationWorkspaceID: sourceWorkspace.id
+        )
+        XCTAssertEqual(sourceDocks.count, 1)
+        XCTAssertTrue(sourceDocks.first === sourceDock)
+        XCTAssertFalse(sourceDocks.contains { $0 === unrelatedDock })
+
+        sourceDock.closeAllPanels()
+        XCTAssertTrue(DockSplitStore.liveRemoteTerminalStores(
+            presentationWorkspaceID: sourceWorkspace.id
+        ).isEmpty)
+    }
+
+    @MainActor
     func testPendingEndedGenerationRejectsLateConnectedCallback() throws {
         let workspace = Workspace()
         let surfaceId = try seededTerminalSurfaceID(in: workspace)
