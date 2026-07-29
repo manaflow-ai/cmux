@@ -5,6 +5,7 @@ import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { locales, routing } from "../../../i18n/routing";
 import {
   enrollTester,
+  recordProTestflightEnrollmentEmail,
   removeProTesterAccess,
   removeTester,
 } from "../../../services/asc/testflight";
@@ -55,6 +56,10 @@ export async function POST(request: NextRequest) {
       if (!(await isTestflightEligible(user))) {
         return testflightRedirect(request, "ineligible");
       }
+      // Persist the exact address before the ASC mutation. If ASC fails, a
+      // retry is harmless; if it succeeds, future email changes cannot orphan
+      // this Pro-group enrollment during leave, lapse, or account deletion.
+      await recordProTestflightEnrollmentEmail(user, email);
       const name = splitDisplayName(user.displayName);
       await enrollTester(email, name.firstName, name.lastName);
       return testflightRedirect(request, "joined");

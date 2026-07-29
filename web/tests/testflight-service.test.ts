@@ -325,9 +325,18 @@ describe("TestFlight ASC service", () => {
     await expect(
       recordProTestflightEnrollmentEmail(user, "Second@Example.com"),
     ).resolves.toBe(true);
-    expect(proTestflightEnrollmentEmails(
-      update.mock.calls[0]?.[0]?.clientReadOnlyMetadata,
-    )).toEqual(["first@example.com", "second@example.com"]);
+    expect(update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: {
+        cmuxPlan: "pro",
+        cmuxProTestflightEnrollmentEmails: [
+          "first@example.com",
+          "second@example.com",
+        ],
+      },
+    });
+    expect(proTestflightEnrollmentEmails({
+      cmuxProTestflightEnrollmentEmails: ["First@Example.com", "first@example.com"],
+    })).toEqual(["first@example.com"]);
   });
 
   test("legacy Pro ownership backfill is idempotent", async () => {

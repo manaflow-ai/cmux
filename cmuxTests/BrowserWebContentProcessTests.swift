@@ -172,6 +172,37 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserAppSessionStoreOwnershipMigratesProjectScopedRecords() throws {
+        let suiteName = "BrowserAppSessionStoreMigrationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacyPrefix = "cmux.auth.browserAppSessionStores."
+        let legacyKey = "\(legacyPrefix)project-a"
+        let persistentStoreID = UUID()
+        defaults.set(
+            ["persistent:\(persistentStoreID.uuidString.lowercased())"],
+            forKey: legacyKey
+        )
+
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "owned-stores-v2",
+            environment: BrowserAppSessionEnvironment(
+                webOrigin: URL(string: "https://cmux.test")!,
+                projectID: "project-b"
+            ),
+            legacyDefaultsKeyPrefix: legacyPrefix
+        )
+
+        #expect(registry.hasStaleEnvironmentOwnership)
+        #expect(defaults.object(forKey: legacyKey) == nil)
+        let target = try #require(registry.staleEnvironmentStoresForCleanup().first)
+        #expect(target.environment.projectID == "project-a")
+        #expect(target.store.identifier == persistentStoreID)
+    }
+
+    @Test
     func browserAppSessionWeakStoreReferencesDoNotRetainOwners() throws {
         var reference: BrowserAppSessionWeakReference<StoreLifetimeProbe>?
         weak var retainedOwner: StoreLifetimeProbe?

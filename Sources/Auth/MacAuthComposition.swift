@@ -181,7 +181,14 @@ struct MacAuthComposition {
     /// Begin asynchronous session restore. Call once after construction, at
     /// the composition root.
     func start() {
-        coordinator.start()
+        guard browserAppSession.hasStaleEnvironmentOwnership else {
+            coordinator.start()
+            return
+        }
+        Task { @MainActor in
+            await browserAppSession.clearStaleEnvironmentWebSessions()
+            coordinator.start()
+        }
     }
 
     /// Where the file-fallback token store persists, namespaced by bundle id

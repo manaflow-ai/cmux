@@ -5,6 +5,8 @@ const PRO_OWNED_LEGACY_TESTFLIGHT_GROUP_IDS_METADATA_KEY =
   "cmuxProTestflightOwnedLegacyGroupIDs";
 const PRO_OWNED_LEGACY_TESTFLIGHT_EMAILS_METADATA_KEY =
   "cmuxProTestflightOwnedLegacyEmails";
+const PRO_TESTFLIGHT_ENROLLMENT_EMAILS_METADATA_KEY =
+  "cmuxProTestflightEnrollmentEmails";
 
 type TestflightOwnershipMetadata =
   | null
@@ -54,6 +56,12 @@ export function proOwnedLegacyTestflightEmails(
   ];
 }
 
+export function proTestflightEnrollmentEmails(
+  metadata: unknown,
+): readonly string[] {
+  return metadataEmails(metadata, PRO_TESTFLIGHT_ENROLLMENT_EMAILS_METADATA_KEY);
+}
+
 export type ProTestflightRemovalTarget = {
   readonly email: string;
   readonly ownedLegacyGroupIDs: readonly string[];
@@ -64,14 +72,43 @@ export function proTestflightRemovalTargets(
   metadata: unknown,
 ): readonly ProTestflightRemovalTarget[] {
   const current = normalizeEmail(currentEmail);
+  const enrollmentEmails = proTestflightEnrollmentEmails(metadata);
   const legacyEmails = proOwnedLegacyTestflightEmails(metadata);
   const legacyGroupIDs = proOwnedLegacyTestflightGroupIDs(metadata);
-  const emails = [...new Set([...(current ? [current] : []), ...legacyEmails])];
+  const emails = [
+    ...new Set([
+      ...(current ? [current] : []),
+      ...enrollmentEmails,
+      ...legacyEmails,
+    ]),
+  ];
 
   return emails.map((email) => ({
     email,
     ownedLegacyGroupIDs: legacyEmails.includes(email) ? legacyGroupIDs : [],
   }));
+}
+
+export async function recordProTestflightEnrollmentEmail(
+  user: ProTestflightOwnershipUser,
+  enrollmentEmail: string,
+): Promise<boolean> {
+  const normalizedEmail = requiredEmail(
+    enrollmentEmail,
+    "Pro TestFlight enrollment requires a valid email",
+  );
+  const metadata = mutableMetadata(user.clientReadOnlyMetadata);
+  const enrollmentEmails = proTestflightEnrollmentEmails(metadata);
+  if (enrollmentEmails.includes(normalizedEmail)) return false;
+
+  metadata[PRO_TESTFLIGHT_ENROLLMENT_EMAILS_METADATA_KEY] = [
+    ...enrollmentEmails,
+    normalizedEmail,
+  ];
+  await user.update({
+    clientReadOnlyMetadata: metadata as TestflightOwnershipMetadata,
+  });
+  return true;
 }
 
 /**
@@ -83,15 +120,11 @@ export async function recordProOwnedLegacyTestflightGroup(
   user: ProTestflightOwnershipUser,
   legacyEmail: string,
 ): Promise<boolean> {
-  const normalizedLegacyEmail = normalizeEmail(legacyEmail);
-  if (!normalizedLegacyEmail) {
-    throw new Error("Legacy TestFlight ownership requires a valid email");
-  }
-  const metadata = user.clientReadOnlyMetadata
-    && typeof user.clientReadOnlyMetadata === "object"
-    && !Array.isArray(user.clientReadOnlyMetadata)
-    ? { ...(user.clientReadOnlyMetadata as Record<string, unknown>) }
-    : {};
+  const normalizedLegacyEmail = requiredEmail(
+    legacyEmail,
+    "Legacy TestFlight ownership requires a valid email",
+  );
+  const metadata = mutableMetadata(user.clientReadOnlyMetadata);
   const ownedGroupIDs = proOwnedLegacyTestflightGroupIDs(metadata);
   const ownedEmails = proOwnedLegacyTestflightEmails(metadata);
   const hasGroup = ownedGroupIDs.includes(FOUNDER_TESTFLIGHT_GROUP_ID);
@@ -109,6 +142,32 @@ export async function recordProOwnedLegacyTestflightGroup(
     clientReadOnlyMetadata: metadata as TestflightOwnershipMetadata,
   });
   return true;
+}
+
+function metadataEmails(metadata: unknown, key: string): readonly string[] {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return [];
+  }
+  const value = (metadata as Record<string, unknown>)[key];
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(value.flatMap((email) => {
+      const normalized = normalizeEmail(email);
+      return normalized ? [normalized] : [];
+    })),
+  ];
+}
+
+function mutableMetadata(metadata: unknown): Record<string, unknown> {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? { ...(metadata as Record<string, unknown>) }
+    : {};
+}
+
+function requiredEmail(value: unknown, message: string): string {
+  const email = normalizeEmail(value);
+  if (!email) throw new Error(message);
+  return email;
 }
 
 function normalizeEmail(value: unknown): string | null {

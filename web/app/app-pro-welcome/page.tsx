@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getLocale } from "next-intl/server";
 
@@ -107,12 +106,14 @@ export default async function AppProWelcomePage({
           </div>
 
           <div className="mt-8 border-t border-border pt-6">
-            <Link
+            <a
               className="inline-flex border border-border px-4 py-2 text-sm font-medium text-foreground"
-              href="/dashboard"
+              href={`/dashboard?${APP_BROWSER_QUERY}`}
+              rel="noopener"
+              target="_blank"
             >
               {welcome.done}
-            </Link>
+            </a>
           </div>
         </div>
       </main>

@@ -81,6 +81,41 @@ enum BrowserAppSessionStoreIdentity: Hashable {
     }
 }
 
+struct BrowserAppSessionEnvironment: Hashable {
+    let webOrigin: URL
+    let projectID: String
+
+    fileprivate init?(webOriginString: String, projectID: String) {
+        guard let webOrigin = URL(string: webOriginString),
+              !projectID.isEmpty else {
+            return nil
+        }
+        self.webOrigin = webOrigin
+        self.projectID = projectID
+    }
+
+    init(webOrigin: URL, projectID: String) {
+        self.webOrigin = webOrigin
+        self.projectID = projectID
+    }
+}
+
+struct BrowserAppSessionStoreCleanupTarget {
+    let store: WKWebsiteDataStore
+    let environment: BrowserAppSessionEnvironment
+}
+
+private struct BrowserAppSessionStoreOwnership: Hashable {
+    let identity: BrowserAppSessionStoreIdentity
+    let environment: BrowserAppSessionEnvironment
+}
+
+private struct PersistedBrowserAppSessionStoreOwnership: Codable {
+    let identity: String
+    let webOrigin: String
+    let projectID: String
+}
+
 final class BrowserAppSessionWeakReference<Value: AnyObject> {
     weak var value: Value?
 
@@ -96,61 +131,182 @@ final class BrowserAppSessionWeakReference<Value: AnyObject> {
 final class BrowserAppSessionStoreRegistry {
     private let defaults: UserDefaults
     private let defaultsKey: String
+    private let environment: BrowserAppSessionEnvironment
     private var liveStores: [
         ObjectIdentifier: BrowserAppSessionWeakReference<WKWebsiteDataStore>
     ] = [:]
-    private var identities: Set<BrowserAppSessionStoreIdentity>
+    private var ownerships: Set<BrowserAppSessionStoreOwnership>
 
-    init(defaults: UserDefaults, defaultsKey: String) {
+    init(
+        defaults: UserDefaults,
+        defaultsKey: String,
+        environment: BrowserAppSessionEnvironment,
+        legacyDefaultsKeyPrefix: String? = nil
+    ) {
         self.defaults = defaults
         self.defaultsKey = defaultsKey
-        identities = Set(
-            (defaults.stringArray(forKey: defaultsKey) ?? []).compactMap(
-                BrowserAppSessionStoreIdentity.init(persistedValue:)
+        self.environment = environment
+        var loadedOwnerships = Self.loadOwnerships(defaults: defaults, key: defaultsKey)
+        var legacyKeys: [String] = []
+        if let legacyDefaultsKeyPrefix {
+            legacyKeys = Self.legacyDefaultsKeys(
+                defaults: defaults,
+                prefix: legacyDefaultsKeyPrefix,
+                excluding: defaultsKey
             )
-        )
+            for key in legacyKeys {
+                let projectID = String(key.dropFirst(legacyDefaultsKeyPrefix.count))
+                let legacyEnvironment = BrowserAppSessionEnvironment(
+                    webOrigin: environment.webOrigin,
+                    projectID: projectID
+                )
+                loadedOwnerships.append(contentsOf:
+                    (defaults.stringArray(forKey: key) ?? []).compactMap { value in
+                        BrowserAppSessionStoreIdentity(persistedValue: value).map {
+                            BrowserAppSessionStoreOwnership(
+                                identity: $0,
+                                environment: legacyEnvironment
+                            )
+                        }
+                    }
+                )
+            }
+        }
+        ownerships = Set(loadedOwnerships)
+        if !legacyKeys.isEmpty {
+            persist()
+            for key in legacyKeys {
+                defaults.removeObject(forKey: key)
+            }
+        }
     }
 
     var persistedIdentities: [BrowserAppSessionStoreIdentity] {
-        identities.sorted { $0.persistedValue < $1.persistedValue }
+        Set(ownerships.map(\.identity)).sorted { $0.persistedValue < $1.persistedValue }
+    }
+
+    var hasStaleEnvironmentOwnership: Bool {
+        ownerships.contains { $0.environment != environment }
     }
 
     func register(_ store: WKWebsiteDataStore) {
         liveStores = liveStores.filter { $0.value.value != nil }
         liveStores[ObjectIdentifier(store)] = BrowserAppSessionWeakReference(store)
         guard let identity = Self.identity(for: store),
-              identities.insert(identity).inserted else {
+              ownerships.insert(BrowserAppSessionStoreOwnership(
+                  identity: identity,
+                  environment: environment
+              )).inserted else {
             return
         }
         persist()
     }
 
     func storesForCleanup() -> [WKWebsiteDataStore] {
-        liveStores = liveStores.filter { $0.value.value != nil }
         var stores: [ObjectIdentifier: WKWebsiteDataStore] = [:]
-        for (identifier, reference) in liveStores {
-            if let store = reference.value {
-                stores[identifier] = store
-            }
-        }
-        for identity in identities {
-            let store = Self.store(for: identity)
-            stores[ObjectIdentifier(store)] = store
+        for target in allEnvironmentStoresForCleanup() {
+            stores[ObjectIdentifier(target.store)] = target.store
         }
         return Array(stores.values)
     }
 
+    func allEnvironmentStoresForCleanup() -> [BrowserAppSessionStoreCleanupTarget] {
+        liveStores = liveStores.filter { $0.value.value != nil }
+        var targets: [CleanupTargetIdentity: BrowserAppSessionStoreCleanupTarget] = [:]
+        for (identifier, reference) in liveStores {
+            if let store = reference.value {
+                targets[CleanupTargetIdentity(
+                    store: identifier,
+                    environment: environment
+                )] = BrowserAppSessionStoreCleanupTarget(
+                    store: store,
+                    environment: environment
+                )
+            }
+        }
+        for ownership in ownerships {
+            let store = Self.store(for: ownership.identity)
+            targets[CleanupTargetIdentity(
+                store: ObjectIdentifier(store),
+                environment: ownership.environment
+            )] = BrowserAppSessionStoreCleanupTarget(
+                store: store,
+                environment: ownership.environment
+            )
+        }
+        return Array(targets.values)
+    }
+
+    func staleEnvironmentStoresForCleanup() -> [BrowserAppSessionStoreCleanupTarget] {
+        allEnvironmentStoresForCleanup().filter { $0.environment != environment }
+    }
+
+    func removeStaleEnvironmentOwnership() {
+        ownerships = Set(ownerships.filter { $0.environment == environment })
+        persist()
+    }
+
     func removeAllOwnership() {
         liveStores.removeAll()
-        identities.removeAll()
+        ownerships.removeAll()
         defaults.removeObject(forKey: defaultsKey)
     }
 
     private func persist() {
-        defaults.set(
-            persistedIdentities.map(\.persistedValue),
-            forKey: defaultsKey
-        )
+        guard !ownerships.isEmpty else {
+            defaults.removeObject(forKey: defaultsKey)
+            return
+        }
+        let values = ownerships.map {
+            PersistedBrowserAppSessionStoreOwnership(
+                identity: $0.identity.persistedValue,
+                webOrigin: $0.environment.webOrigin.absoluteString,
+                projectID: $0.environment.projectID
+            )
+        }.sorted {
+            ($0.projectID, $0.webOrigin, $0.identity) <
+                ($1.projectID, $1.webOrigin, $1.identity)
+        }
+        guard let data = try? JSONEncoder().encode(values) else { return }
+        defaults.set(data, forKey: defaultsKey)
+    }
+
+    private static func loadOwnerships(
+        defaults: UserDefaults,
+        key: String
+    ) -> [BrowserAppSessionStoreOwnership] {
+        guard let data = defaults.data(forKey: key),
+              let values = try? JSONDecoder().decode(
+                  [PersistedBrowserAppSessionStoreOwnership].self,
+                  from: data
+              ) else {
+            return []
+        }
+        return values.compactMap { value in
+            guard let identity = BrowserAppSessionStoreIdentity(
+                persistedValue: value.identity
+            ),
+                  let environment = BrowserAppSessionEnvironment(
+                      webOriginString: value.webOrigin,
+                      projectID: value.projectID
+                  ) else {
+                return nil
+            }
+            return BrowserAppSessionStoreOwnership(
+                identity: identity,
+                environment: environment
+            )
+        }
+    }
+
+    private static func legacyDefaultsKeys(
+        defaults: UserDefaults,
+        prefix: String,
+        excluding currentKey: String
+    ) -> [String] {
+        defaults.dictionaryRepresentation().keys.filter {
+            $0 != currentKey && $0.hasPrefix(prefix) && $0.count > prefix.count
+        }
     }
 
     private static func identity(
@@ -171,6 +327,11 @@ final class BrowserAppSessionStoreRegistry {
         case let .persistent(identifier):
             WKWebsiteDataStore(forIdentifier: identifier)
         }
+    }
+
+    private struct CleanupTargetIdentity: Hashable {
+        let store: ObjectIdentifier
+        let environment: BrowserAppSessionEnvironment
     }
 }
 
@@ -197,6 +358,7 @@ final class BrowserAppSessionController {
     private let coordinator: AuthCoordinator
     private let handoff: BrowserAppSessionHandoff
     private let projectID: String
+    private let environment: BrowserAppSessionEnvironment
     private let redirectDelegate: BrowserAppSessionRedirectRejectingDelegate
     private let session: URLSession
     private let storeRegistry: BrowserAppSessionStoreRegistry
@@ -213,9 +375,15 @@ final class BrowserAppSessionController {
         self.coordinator = coordinator
         handoff = BrowserAppSessionHandoff(webOrigin: webOrigin)
         self.projectID = projectID
+        environment = BrowserAppSessionEnvironment(
+            webOrigin: webOrigin,
+            projectID: projectID
+        )
         storeRegistry = BrowserAppSessionStoreRegistry(
             defaults: defaults,
-            defaultsKey: "cmux.auth.browserAppSessionStores.\(projectID)"
+            defaultsKey: "cmux.auth.browserAppSessionStores.v2",
+            environment: environment,
+            legacyDefaultsKeyPrefix: "cmux.auth.browserAppSessionStores."
         )
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
@@ -230,6 +398,10 @@ final class BrowserAppSessionController {
             delegate: redirectDelegate,
             delegateQueue: nil
         )
+    }
+
+    var hasStaleEnvironmentOwnership: Bool {
+        storeRegistry.hasStaleEnvironmentOwnership
     }
 
     func request(
@@ -283,11 +455,28 @@ final class BrowserAppSessionController {
         }
         activeTasks.removeAll()
 
-        let stores = storeRegistry.storesForCleanup()
-        for store in stores {
-            await clearCmuxWebSession(in: store)
+        let targets = storeRegistry.allEnvironmentStoresForCleanup()
+        for target in targets {
+            await clearCmuxWebSession(
+                in: target.store,
+                environment: target.environment
+            )
         }
         storeRegistry.removeAllOwnership()
+    }
+
+    /// Deletes app-owned cookies from persisted stores associated with a prior
+    /// Stack project or web origin. Ownership is removed only after cleanup, so
+    /// an interrupted launch retries instead of forgetting live credentials.
+    func clearStaleEnvironmentWebSessions() async {
+        let targets = storeRegistry.staleEnvironmentStoresForCleanup()
+        for target in targets {
+            await clearCmuxWebSession(
+                in: target.store,
+                environment: target.environment
+            )
+        }
+        storeRegistry.removeStaleEnvironmentOwnership()
     }
 
     private func performHandoff(
@@ -347,7 +536,10 @@ final class BrowserAppSessionController {
         }
 
         storeRegistry.register(websiteDataStore)
-        await clearCmuxWebSession(in: websiteDataStore)
+        await clearCmuxWebSession(
+            in: websiteDataStore,
+            environment: environment
+        )
         guard handoffIsCurrent(requestGeneration) else { return .failed }
         for cookie in cookies {
             await set(cookie, in: websiteDataStore.httpCookieStore)
@@ -365,12 +557,18 @@ final class BrowserAppSessionController {
         acceptsHandoffs && !Task.isCancelled && requestGeneration == generation
     }
 
-    private func clearCmuxWebSession(in store: WKWebsiteDataStore) async {
+    private func clearCmuxWebSession(
+        in store: WKWebsiteDataStore,
+        environment: BrowserAppSessionEnvironment
+    ) async {
+        let environmentHandoff = BrowserAppSessionHandoff(
+            webOrigin: environment.webOrigin
+        )
         let cookies = await allCookies(in: store.httpCookieStore)
-        for cookie in cookies where handoff.shouldDeleteCookie(
+        for cookie in cookies where environmentHandoff.shouldDeleteCookie(
             name: cookie.name,
             domain: cookie.domain,
-            projectID: projectID
+            projectID: environment.projectID
         ) {
             await delete(cookie, from: store.httpCookieStore)
         }

@@ -12,8 +12,10 @@ export {
   FOUNDER_TESTFLIGHT_GROUP_ID,
   proOwnedLegacyTestflightEmails,
   proOwnedLegacyTestflightGroupIDs,
+  proTestflightEnrollmentEmails,
   proTestflightRemovalTargets,
   recordProOwnedLegacyTestflightGroup,
+  recordProTestflightEnrollmentEmail,
   type ProTestflightRemovalTarget,
   type ProTestflightOwnershipUser,
 } from "./testflightOwnership";
