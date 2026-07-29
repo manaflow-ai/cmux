@@ -122,9 +122,11 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         }
         // One-shot failure safety keeps a regressed synchronous cancellation
         // from stranding the test process; ordinary cleanup is deterministic.
+        let cleanupFired = DispatchSemaphore(value: 0)
         let cleanupTimer = DispatchSource.makeTimerSource(queue: writeBlockQueue)
-        cleanupTimer.schedule(deadline: .now() + 4)
+        cleanupTimer.schedule(deadline: .now() + 5)
         cleanupTimer.setEventHandler {
+            cleanupFired.signal()
             releaseWrite.signal()
         }
         cleanupTimer.resume()
@@ -133,27 +135,38 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
             releaseWrite.signal()
         }
 
-        let startedAt = DispatchTime.now()
-        do {
-            _ = try client.call(
-                method: "pty.attach",
-                params: [
-                    "session_id": "stalled-session",
-                    "attachment_id": "stalled-attachment",
-                    "client_attachment_token": "stalled-token",
-                ],
-                timeout: 1
-            )
-            Issue.record("stalled pty.attach unexpectedly succeeded")
-        } catch {
-            let nsError = error as NSError
-            #expect(nsError.domain == "cmux.remote.daemon.rpc")
-            #expect(nsError.code == 11)
+        let callFinished = DispatchSemaphore(value: 0)
+        let callTimedOut = DispatchSemaphore(value: 0)
+        let unexpectedCallResult = DispatchSemaphore(value: 0)
+        let callQueue = DispatchQueue(label: "com.cmux.tests.remote-daemon.call-with-blocked-cancellation")
+        callQueue.async {
+            defer { callFinished.signal() }
+            do {
+                _ = try client.call(
+                    method: "pty.attach",
+                    params: [
+                        "session_id": "stalled-session",
+                        "attachment_id": "stalled-attachment",
+                        "client_attachment_token": "stalled-token",
+                    ],
+                    timeout: 1
+                )
+                unexpectedCallResult.signal()
+            } catch {
+                let nsError = error as NSError
+                if nsError.domain == "cmux.remote.daemon.rpc", nsError.code == 11 {
+                    callTimedOut.signal()
+                } else {
+                    unexpectedCallResult.signal()
+                }
+            }
         }
-        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000_000
 
-        #expect(writeBlockEntered.wait(timeout: .now()) == .success)
-        #expect(elapsed < 2)
+        #expect(writeBlockEntered.wait(timeout: .now() + 2) == .success)
+        #expect(callFinished.wait(timeout: .now() + 6) == .success)
+        #expect(callTimedOut.wait(timeout: .now()) == .success)
+        #expect(unexpectedCallResult.wait(timeout: .now()) == .timedOut)
+        #expect(cleanupFired.wait(timeout: .now()) == .timedOut)
         #expect(unexpectedTermination.wait(timeout: .now() + 2) == .success)
     }
 
