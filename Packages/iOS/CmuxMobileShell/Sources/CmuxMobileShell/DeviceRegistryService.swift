@@ -505,9 +505,9 @@ struct DeviceRegistryRouteIndex: Sendable {
         guard matches.count == 1, let device = matches.first else { return .ambiguous }
 
         let instances: [RegistryAppInstance]
-        if let expectedTag = MobileMacInstanceTagAuthority.normalized(instanceTag) {
+        if let expectedTag = normalizedMobileMacIdentityValue(instanceTag) {
             instances = device.instances.filter {
-                MobileMacInstanceTagAuthority.normalized($0.tag) == expectedTag
+                normalizedMobileMacIdentityValue($0.tag) == expectedTag
             }
         } else {
             instances = device.instances

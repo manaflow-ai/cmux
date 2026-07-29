@@ -24,7 +24,7 @@ struct ReconnectRefreshSnapshot: Sendable {
             self.deviceID = deviceID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            self.instanceTag = MobileMacInstanceTagAuthority.normalized(instanceTag)
+            self.instanceTag = normalizedMobileMacIdentityValue(instanceTag)
         }
     }
 

@@ -8,12 +8,6 @@ private let notificationFeedLog = Logger(
     category: "notification-feed"
 )
 
-private enum NotificationFeedFetchOutcome {
-    case applied
-    case stale
-    case failed
-}
-
 nonisolated private let mobileShellNotificationFeedIdentifierByteLimit = 512
 nonisolated private let mobileShellNotificationFeedTitleByteLimit = 512
 nonisolated private let mobileShellNotificationFeedSubtitleByteLimit = 512

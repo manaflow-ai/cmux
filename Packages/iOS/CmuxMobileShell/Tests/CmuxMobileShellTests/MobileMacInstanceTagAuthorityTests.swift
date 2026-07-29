@@ -3,76 +3,76 @@ import Testing
 
 @Suite struct MobileMacInstanceTagAuthorityTests {
     @Test func storedAuthorityRejectsDifferentTagButPreservesAuthenticatedLegacyHost() {
-        let expectation = MobileMacInstanceTagAuthority.expectation(
+        let expectation = mobileMacInstanceTagExpectation(
             storedInstanceTag: "feature-a"
         )
         #expect(expectation == .preserve("feature-a"))
-        #expect(MobileMacInstanceTagAuthority.resolve(
+        #expect(resolveMobileMacInstanceTag(
             expectation: expectation,
             reportedInstanceTag: "feature-b"
         ) == .reject)
-        #expect(MobileMacInstanceTagAuthority.resolve(
+        #expect(resolveMobileMacInstanceTag(
             expectation: expectation,
             reportedInstanceTag: nil
         ) == .accept("feature-a"))
     }
 
     @Test func legacyAuthorityAdoptsAuthenticatedTag() {
-        let expectation = MobileMacInstanceTagAuthority.expectation(storedInstanceTag: nil)
+        let expectation = mobileMacInstanceTagExpectation(storedInstanceTag: nil)
         #expect(expectation == .adopt)
-        #expect(MobileMacInstanceTagAuthority.resolve(
+        #expect(resolveMobileMacInstanceTag(
             expectation: expectation,
             reportedInstanceTag: "feature-b"
         ) == .accept("feature-b"))
     }
 
     @Test func explicitRegistrySelectionRequiresExactReportedTag() {
-        #expect(MobileMacInstanceTagAuthority.resolve(
+        #expect(resolveMobileMacInstanceTag(
             expectation: .require("feature-b"),
             reportedInstanceTag: "feature-b"
         ) == .accept("feature-b"))
-        #expect(MobileMacInstanceTagAuthority.resolve(
+        #expect(resolveMobileMacInstanceTag(
             expectation: .require("feature-b"),
             reportedInstanceTag: nil
         ) == .reject)
-        #expect(MobileMacInstanceTagAuthority.resolve(
+        #expect(resolveMobileMacInstanceTag(
             expectation: .require("feature-b"),
             reportedInstanceTag: "feature-a"
         ) == .reject)
     }
 
     @Test func secondaryStatusRequiresDeviceAndStoredTagWhileLegacyAllowsSameDevice() {
-        #expect(MobileMacInstanceTagAuthority.secondaryStatusAuthority(
+        #expect(mobileSecondaryStatusAuthority(
             expectedDeviceID: "mac-a",
             storedInstanceTag: "feature-a",
             reportedDeviceID: nil,
             reportedInstanceTag: nil
         ) == .identityUnavailable)
-        #expect(MobileMacInstanceTagAuthority.secondaryStatusMatches(
+        #expect(mobileSecondaryStatusMatches(
             expectedDeviceID: "mac-a",
             storedInstanceTag: "feature-a",
             reportedDeviceID: "mac-a",
             reportedInstanceTag: "feature-a"
         ))
-        #expect(!MobileMacInstanceTagAuthority.secondaryStatusMatches(
+        #expect(!mobileSecondaryStatusMatches(
             expectedDeviceID: "mac-a",
             storedInstanceTag: "feature-a",
             reportedDeviceID: "mac-a",
             reportedInstanceTag: "feature-b"
         ))
-        #expect(!MobileMacInstanceTagAuthority.secondaryStatusMatches(
+        #expect(!mobileSecondaryStatusMatches(
             expectedDeviceID: "mac-a",
             storedInstanceTag: "feature-a",
             reportedDeviceID: "mac-c",
             reportedInstanceTag: "feature-a"
         ))
-        #expect(MobileMacInstanceTagAuthority.secondaryStatusAuthority(
+        #expect(mobileSecondaryStatusAuthority(
             expectedDeviceID: "mac-a",
             storedInstanceTag: "feature-a",
             reportedDeviceID: "mac-c",
             reportedInstanceTag: "feature-a"
         ) == .rejected)
-        #expect(MobileMacInstanceTagAuthority.secondaryStatusMatches(
+        #expect(mobileSecondaryStatusMatches(
             expectedDeviceID: "mac-a",
             storedInstanceTag: nil,
             reportedDeviceID: "mac-a",
@@ -81,11 +81,11 @@ import Testing
     }
 
     @Test func deviceAuthorityCanonicalizesUUIDsWithoutFoldingOpaqueIDs() {
-        #expect(MobileMacInstanceTagAuthority.authenticatedDeviceMatches(
+        #expect(mobileMacAuthenticatedDeviceMatches(
             reportedDeviceID: "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
             expectedDeviceID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
         ))
-        #expect(!MobileMacInstanceTagAuthority.authenticatedDeviceMatches(
+        #expect(!mobileMacAuthenticatedDeviceMatches(
             reportedDeviceID: "Legacy-Mac-ID",
             expectedDeviceID: "legacy-mac-id"
         ))

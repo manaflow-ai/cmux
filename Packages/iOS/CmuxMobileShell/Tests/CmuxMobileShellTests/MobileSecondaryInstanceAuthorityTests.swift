@@ -6,12 +6,6 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
-enum PromotionFocusRepairFailure: Sendable {
-    case hostIdentity
-    case terminalSubscription
-    case workspaceRefresh
-}
-
 @MainActor
 @Suite struct MobileSecondaryInstanceAuthorityTests {
     @Test func promotionTransfersAuthenticatedTagFromSecondaryClient() async throws {
@@ -1237,12 +1231,6 @@ enum PromotionFocusRepairFailure: Sendable {
     }
 }
 
-enum PromotionWorkspaceRace: CaseIterable, Sendable {
-    case eventRefresh
-    case stateSyncProjection
-    case eventRefreshFailure
-}
-
 private func promotionWorkspaceUpdatedEventFrame() throws -> Data {
     let envelope: [String: Any] = [
         "kind": "event",
@@ -1252,13 +1240,6 @@ private func promotionWorkspaceUpdatedEventFrame() throws -> Data {
     return try MobileSyncFrameCodec.encodeFrame(
         JSONSerialization.data(withJSONObject: envelope)
     )
-}
-
-private struct SecondaryAuthorityIdlePresence: PresenceSubscribing {
-    func subscribe() async throws
-        -> AsyncThrowingStream<PresenceUpdate, any Error> {
-        AsyncThrowingStream { _ in }
-    }
 }
 
 private func secondaryAuthorityPresenceSnapshot(

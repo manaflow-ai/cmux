@@ -19,31 +19,31 @@ import Testing
     }
 
     @Test func rpcTimeoutsRemainRetryableWithoutRetryingAuthorityFailures() {
-        #expect(MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(secondaryControlAttemptIsTransient(
             MobileShellConnectionError.rpcError(
                 "request_timeout",
                 "request timed out"
             )
         ))
-        #expect(MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(secondaryControlAttemptIsTransient(
             MobileShellConnectionError.rpcError(
                 "server_busy",
                 "server is busy"
             )
         ))
-        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(!secondaryControlAttemptIsTransient(
             MobileShellConnectionError.rpcError(
                 "unauthorized",
                 "not authorized"
             )
         ))
-        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(!secondaryControlAttemptIsTransient(
             MobileShellConnectionError.rpcError(
                 "method_not_found",
                 "unsupported"
             )
         ))
-        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(!secondaryControlAttemptIsTransient(
             MobileShellConnectionError.rpcError(
                 "build_incompatible",
                 "upgrade required"
@@ -57,25 +57,25 @@ import Testing
             debugDescription: "invalid ticket"
         ))
 
-        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(!secondaryControlAttemptIsTransient(
             decodingError
         ))
-        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(!secondaryControlAttemptIsTransient(
             CmxNetworkByteTransportError.unsupportedRouteKind(.websocket)
         ))
-        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(!secondaryControlAttemptIsTransient(
             CancellationError()
         ))
-        #expect(MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(secondaryControlAttemptIsTransient(
             MobileShellConnectionError.routeCleanupBlocked
         ))
     }
 
     @Test func networkTransportFailuresRemainRetryable() {
-        #expect(MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(secondaryControlAttemptIsTransient(
             CmxNetworkByteTransportError.connectionTimedOut
         ))
-        #expect(MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(secondaryControlAttemptIsTransient(
             URLError(.networkConnectionLost)
         ))
     }
@@ -1053,15 +1053,15 @@ import Testing
         let capacity =
             MobileShellComposite.maximumWarmControlConnectionCount
 
-        #expect(!MobileShellComposite.warmControlPoolHasCapacity(
+        #expect(!warmControlPoolHasCapacity(
             currentControlCount: capacity,
             vacatesControlSlot: false
         ))
-        #expect(MobileShellComposite.warmControlPoolHasCapacity(
+        #expect(warmControlPoolHasCapacity(
             currentControlCount: capacity,
             vacatesControlSlot: true
         ))
-        #expect(!MobileShellComposite.warmControlPoolHasCapacity(
+        #expect(!warmControlPoolHasCapacity(
             currentControlCount: capacity + 1,
             vacatesControlSlot: true
         ))
@@ -4452,60 +4452,6 @@ import Testing
     }
 }
 
-private struct IdlePresence: PresenceSubscribing {
-    func subscribe() async throws -> AsyncThrowingStream<PresenceUpdate, any Error> {
-        AsyncThrowingStream { _ in }
-    }
-}
-
-private final class PoolTransportAttemptCounter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = 0
-
-    var count: Int {
-        lock.withLock { value }
-    }
-
-    func increment() {
-        lock.withLock { value += 1 }
-    }
-}
-
-private struct FailingPoolTransportFactory: CmxByteTransportFactory {
-    let attempts: PoolTransportAttemptCounter
-
-    func makeTransport(
-        for route: CmxAttachRoute
-    ) throws -> any CmxByteTransport {
-        attempts.increment()
-        throw MobileShellConnectionError.connectionClosed
-    }
-}
-
-private actor PromotionFenceCompletion {
-    private(set) var isFinished = false
-
-    func finish() {
-        isFinished = true
-    }
-}
-
-private actor ControlPoolRouteSyncGate {
-    private var isReleased = false
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    func wait() async {
-        guard !isReleased else { return }
-        await withCheckedContinuation { continuation = $0 }
-    }
-
-    func release() {
-        isReleased = true
-        continuation?.resume()
-        continuation = nil
-    }
-}
-
 private func controlPoolWorkspaceUpdatedEventFrame() throws -> Data {
     let envelope: [String: Any] = [
         "kind": "event",
@@ -4515,94 +4461,4 @@ private func controlPoolWorkspaceUpdatedEventFrame() throws -> Data {
     return try MobileSyncFrameCodec.encodeFrame(
         JSONSerialization.data(withJSONObject: envelope)
     )
-}
-
-private final class ControlPoolManualClock: Clock, @unchecked Sendable {
-    struct Instant: InstantProtocol {
-        var offset: Duration
-
-        func advanced(by duration: Duration) -> Instant {
-            Instant(offset: offset + duration)
-        }
-
-        func duration(to other: Instant) -> Duration {
-            other.offset - offset
-        }
-
-        static func < (lhs: Instant, rhs: Instant) -> Bool {
-            lhs.offset < rhs.offset
-        }
-    }
-
-    private struct Sleeper {
-        let id: UUID
-        let deadline: Instant
-        let continuation: UnsafeContinuation<Void, any Error>
-    }
-
-    private let lock = NSLock()
-    private var current = Instant(offset: .zero)
-    private var sleepers: [Sleeper] = []
-    private var preCancelledIDs: Set<UUID> = []
-
-    var now: Instant {
-        lock.withLock { current }
-    }
-
-    var minimumResolution: Duration { .zero }
-
-    var sleeperCount: Int {
-        lock.withLock { sleepers.count }
-    }
-
-    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-        let id = UUID()
-        try await withTaskCancellationHandler {
-            try await withUnsafeThrowingContinuation {
-                (continuation: UnsafeContinuation<Void, any Error>) in
-                lock.lock()
-                if preCancelledIDs.remove(id) != nil {
-                    lock.unlock()
-                    continuation.resume(throwing: CancellationError())
-                } else if deadline <= current {
-                    lock.unlock()
-                    continuation.resume()
-                } else {
-                    sleepers.append(Sleeper(
-                        id: id,
-                        deadline: deadline,
-                        continuation: continuation
-                    ))
-                    lock.unlock()
-                }
-            }
-        } onCancel: {
-            cancelSleeper(id: id)
-        }
-    }
-
-    func advance(by duration: Duration) {
-        lock.lock()
-        current = current.advanced(by: duration)
-        let due = sleepers
-            .filter { $0.deadline <= current }
-            .sorted { $0.deadline < $1.deadline }
-        sleepers.removeAll { $0.deadline <= current }
-        lock.unlock()
-        for sleeper in due {
-            sleeper.continuation.resume()
-        }
-    }
-
-    private func cancelSleeper(id: UUID) {
-        lock.lock()
-        guard let index = sleepers.firstIndex(where: { $0.id == id }) else {
-            preCancelledIDs.insert(id)
-            lock.unlock()
-            return
-        }
-        let sleeper = sleepers.remove(at: index)
-        lock.unlock()
-        sleeper.continuation.resume(throwing: CancellationError())
-    }
 }

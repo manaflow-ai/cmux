@@ -453,13 +453,11 @@ import Testing
             routes: [route]
         )
 
-        let aliases =
-            MobileShellComposite
-                .physicalMacAliasCanonicalIDsByCanonicalID(
-                    in: [oldAlias, representative],
-                    supportedKinds: [.iroh],
-                    preferNonLoopback: true
-                )
+        let aliases = physicalMacAliasCanonicalIDsByCanonicalID(
+            in: [oldAlias, representative],
+            supportedKinds: [.iroh],
+            preferNonLoopback: true
+        )
 
         #expect(aliases["mac-old"] == ["mac-old", "mac-new"])
         #expect(aliases["mac-new"] == ["mac-old", "mac-new"])

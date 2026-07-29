@@ -1,113 +1,99 @@
 internal import CMUXMobileCore
 import Foundation
 
-/// Route authority expected from the authenticated Mac status handshake.
-enum MobileMacInstanceTagExpectation: Equatable, Sendable {
-    /// A fresh QR or legacy nil-tag row may adopt any authenticated tag.
-    case adopt
-    /// A stored connection keeps this tag when an older host omits it, but
-    /// rejects a different nonnil tag.
-    case preserve(String)
-    /// An explicit registry-instance selection must prove this exact tag.
-    case require(String)
+func mobileMacInstanceTagExpectation(
+    storedInstanceTag: String?
+) -> MobileMacInstanceTagExpectation {
+    guard let tag = normalizedMobileMacIdentityValue(storedInstanceTag) else {
+        return .adopt
+    }
+    return .preserve(tag)
 }
 
-enum MobileMacInstanceTagResolution: Equatable, Sendable {
-    case accept(String?)
-    case reject
+func resolveMobileMacInstanceTag(
+    expectation: MobileMacInstanceTagExpectation,
+    reportedInstanceTag: String?
+) -> MobileMacInstanceTagResolution {
+    let reported = normalizedMobileMacIdentityValue(reportedInstanceTag)
+    switch expectation {
+    case .adopt:
+        return .accept(reported)
+    case .preserve(let expected):
+        let expected = normalizedMobileMacIdentityValue(expected)
+        guard reported == nil || reported == expected else { return .reject }
+        return .accept(expected)
+    case .require(let expected):
+        guard let expected = normalizedMobileMacIdentityValue(expected),
+              reported == expected else {
+            return .reject
+        }
+        return .accept(expected)
+    }
 }
 
-enum MobileSecondaryStatusAuthority: Equatable, Sendable {
-    case accepted
-    /// Stack-authenticated status can temporarily omit all host identity when
-    /// verification capacity or the best-effort status token is unavailable.
-    case identityUnavailable
-    case rejected
+func mobileMacAuthenticatedDeviceMatches(
+    reportedDeviceID: String?,
+    expectedDeviceID: String
+) -> Bool {
+    guard let reported = normalizedMobileMacIdentityValue(reportedDeviceID) else {
+        return false
+    }
+    return cmxCanonicalDeviceID(reported)
+        == cmxCanonicalDeviceID(expectedDeviceID)
 }
 
-struct MobileMacInstanceTagAuthority {
-    private init() {}
+func mobileMacStoredAuthorityMatches(_ lhs: String?, _ rhs: String?) -> Bool {
+    normalizedMobileMacIdentityValue(lhs)
+        == normalizedMobileMacIdentityValue(rhs)
+}
 
-    static func expectation(
-        storedInstanceTag: String?
-    ) -> MobileMacInstanceTagExpectation {
-        guard let tag = normalized(storedInstanceTag) else { return .adopt }
-        return .preserve(tag)
-    }
+/// Secondary aggregation is stricter than a foreground compatibility
+/// reconnect: it must authenticate the physical Mac, and an already-tagged
+/// record must prove that exact tag before any workspace is attributed to it.
+func mobileSecondaryStatusMatches(
+    expectedDeviceID: String,
+    storedInstanceTag: String?,
+    reportedDeviceID: String?,
+    reportedInstanceTag: String?
+) -> Bool {
+    mobileSecondaryStatusAuthority(
+        expectedDeviceID: expectedDeviceID,
+        storedInstanceTag: storedInstanceTag,
+        reportedDeviceID: reportedDeviceID,
+        reportedInstanceTag: reportedInstanceTag
+    ) == .accepted
+}
 
-    static func resolve(
-        expectation: MobileMacInstanceTagExpectation,
-        reportedInstanceTag: String?
-    ) -> MobileMacInstanceTagResolution {
-        let reported = normalized(reportedInstanceTag)
-        switch expectation {
-        case .adopt:
-            return .accept(reported)
-        case .preserve(let expected):
-            let expected = normalized(expected)
-            guard reported == nil || reported == expected else { return .reject }
-            return .accept(expected)
-        case .require(let expected):
-            guard let expected = normalized(expected), reported == expected else { return .reject }
-            return .accept(expected)
-        }
+func normalizedMobileMacIdentityValue(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty else {
+        return nil
     }
+    return trimmed
+}
 
-    static func authenticatedDeviceMatches(
-        reportedDeviceID: String?,
-        expectedDeviceID: String
-    ) -> Bool {
-        guard let reported = normalized(reportedDeviceID) else { return false }
-        return cmxCanonicalDeviceID(reported) == cmxCanonicalDeviceID(expectedDeviceID)
+func mobileSecondaryStatusAuthority(
+    expectedDeviceID: String,
+    storedInstanceTag: String?,
+    reportedDeviceID: String?,
+    reportedInstanceTag: String?
+) -> MobileSecondaryStatusAuthority {
+    guard normalizedMobileMacIdentityValue(reportedDeviceID) != nil else {
+        return .identityUnavailable
     }
-
-    static func sameStoredAuthority(_ lhs: String?, _ rhs: String?) -> Bool {
-        normalized(lhs) == normalized(rhs)
+    guard mobileMacAuthenticatedDeviceMatches(
+        reportedDeviceID: reportedDeviceID,
+        expectedDeviceID: expectedDeviceID
+    ) else {
+        return .rejected
     }
-
-    /// Secondary aggregation is stricter than a foreground compatibility
-    /// reconnect: it must authenticate the physical Mac, and an already-tagged
-    /// record must prove that exact tag before any workspace is attributed to it.
-    static func secondaryStatusMatches(
-        expectedDeviceID: String,
-        storedInstanceTag: String?,
-        reportedDeviceID: String?,
-        reportedInstanceTag: String?
-    ) -> Bool {
-        secondaryStatusAuthority(
-            expectedDeviceID: expectedDeviceID,
-            storedInstanceTag: storedInstanceTag,
-            reportedDeviceID: reportedDeviceID,
-            reportedInstanceTag: reportedInstanceTag
-        ) == .accepted
+    guard let stored = normalizedMobileMacIdentityValue(
+        storedInstanceTag
+    ) else {
+        return .accepted
     }
-
-    static func secondaryStatusAuthority(
-        expectedDeviceID: String,
-        storedInstanceTag: String?,
-        reportedDeviceID: String?,
-        reportedInstanceTag: String?
-    ) -> MobileSecondaryStatusAuthority {
-        guard normalized(reportedDeviceID) != nil else {
-            return .identityUnavailable
-        }
-        guard authenticatedDeviceMatches(
-            reportedDeviceID: reportedDeviceID,
-            expectedDeviceID: expectedDeviceID
-        ) else {
-            return .rejected
-        }
-        guard let stored = normalized(storedInstanceTag) else {
-            return .accepted
-        }
-        return normalized(reportedInstanceTag) == stored
-            ? .accepted
-            : .rejected
-    }
-
-    static func normalized(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return nil }
-        return trimmed
-    }
+    return normalizedMobileMacIdentityValue(reportedInstanceTag)
+        == stored
+        ? .accepted
+        : .rejected
 }

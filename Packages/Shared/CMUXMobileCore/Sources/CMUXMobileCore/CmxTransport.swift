@@ -410,12 +410,6 @@ public protocol CmxByteTransport: Sendable {
     func close() async
 }
 
-/// Optional role update for a connected transport whose underlying peer
-/// session stays live while ownership moves between foreground and background.
-public protocol CmxByteTransportSessionPurposeUpdating: CmxByteTransport {
-    func updateSessionPurpose(_ purpose: CmxTransportSessionPurpose) async
-}
-
 /// Optional privacy-safe identity for the exact native connection underneath a
 /// byte transport.
 ///

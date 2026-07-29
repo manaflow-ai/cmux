@@ -1,36 +1,6 @@
 import Foundation
 import Observation
 
-/// The work a live Mac connection currently performs for the iOS app.
-public enum MobileMacConnectionRole: Equatable, Sendable {
-    /// Carries aggregate workspace, presence-adjacent state, notification, and command traffic.
-    case control
-    /// Carries control traffic plus the focused terminal's render stream.
-    case focused
-}
-
-/// Read-only status for one live connection in the iOS per-Mac pool.
-public struct MobileMacConnectionSnapshot: Identifiable, Equatable, Sendable {
-    public var id: String { macDeviceID }
-
-    public let macDeviceID: String
-    public let displayName: String
-    public let instanceTag: String?
-    public let role: MobileMacConnectionRole
-
-    public init(
-        macDeviceID: String,
-        displayName: String,
-        instanceTag: String?,
-        role: MobileMacConnectionRole
-    ) {
-        self.macDeviceID = macDeviceID
-        self.displayName = displayName
-        self.instanceTag = instanceTag
-        self.role = role
-    }
-}
-
 /// One authoritative entry per connected Mac.
 ///
 /// A focused entry owns the terminal render subscription. A control entry owns
@@ -39,66 +9,6 @@ public struct MobileMacConnectionSnapshot: Identifiable, Equatable, Sendable {
 @MainActor
 @Observable
 final class MobileMacConnectionRegistry {
-    private enum Entry {
-        case control(SecondaryMacSubscription)
-        case focused(MacConnection)
-    }
-
-    /// Dictionary-like compatibility view whose keyed reads and writes stay
-    /// O(1). Enumeration intentionally snapshots only the control entries once.
-    @MainActor
-    struct ControlSubscriptions: @MainActor Sequence {
-        typealias Element = (key: String, value: SecondaryMacSubscription)
-
-        unowned let registry: MobileMacConnectionRegistry
-
-        subscript(macDeviceID: String) -> SecondaryMacSubscription? {
-            get { registry.controlSubscription(for: macDeviceID) }
-            nonmutating set {
-                registry.setControlSubscription(newValue, for: macDeviceID)
-            }
-        }
-
-        var keys: [String] {
-            registry.controlEntries.map(\.key)
-        }
-
-        var count: Int {
-            registry.controlEntryCount
-        }
-
-        var isEmpty: Bool {
-            count == 0
-        }
-
-        func makeIterator() -> Array<Element>.Iterator {
-            registry.controlEntries.makeIterator()
-        }
-
-        func removeAll() {
-            registry.removeAllControlSubscriptions()
-        }
-    }
-
-    /// Dictionary-like compatibility view whose keyed reads and writes stay
-    /// O(1). The app owns at most one focused entry, so no enumeration API is
-    /// needed.
-    @MainActor
-    struct FocusedConnections {
-        unowned let registry: MobileMacConnectionRegistry
-
-        subscript(macDeviceID: String) -> MacConnection? {
-            get { registry.focusedConnection(for: macDeviceID) }
-            nonmutating set {
-                registry.setFocusedConnection(newValue, for: macDeviceID)
-            }
-        }
-
-        func removeAll() {
-            registry.removeAllFocusedConnections()
-        }
-    }
-
     private var entriesByMacDeviceID: [String: Entry] = [:] {
         didSet { rebuildSnapshots() }
     }
@@ -113,14 +23,14 @@ final class MobileMacConnectionRegistry {
         FocusedConnections(registry: self)
     }
 
-    private var controlEntries: [ControlSubscriptions.Element] {
+    var controlEntries: [ControlSubscriptions.Element] {
         entriesByMacDeviceID.compactMap { macDeviceID, entry in
             guard case .control(let subscription) = entry else { return nil }
             return (key: macDeviceID, value: subscription)
         }
     }
 
-    private var controlEntryCount: Int {
+    var controlEntryCount: Int {
         entriesByMacDeviceID.values.reduce(into: 0) { count, entry in
             if case .control = entry {
                 count += 1
@@ -128,7 +38,7 @@ final class MobileMacConnectionRegistry {
         }
     }
 
-    private func controlSubscription(
+    func controlSubscription(
         for macDeviceID: String
     ) -> SecondaryMacSubscription? {
         guard case .control(let subscription) = entriesByMacDeviceID[macDeviceID] else {
@@ -137,7 +47,7 @@ final class MobileMacConnectionRegistry {
         return subscription
     }
 
-    private func setControlSubscription(
+    func setControlSubscription(
         _ subscription: SecondaryMacSubscription?,
         for macDeviceID: String
     ) {
@@ -169,14 +79,14 @@ final class MobileMacConnectionRegistry {
         return true
     }
 
-    private func focusedConnection(for macDeviceID: String) -> MacConnection? {
+    func focusedConnection(for macDeviceID: String) -> MacConnection? {
         guard case .focused(let connection) = entriesByMacDeviceID[macDeviceID] else {
             return nil
         }
         return connection
     }
 
-    private func setFocusedConnection(
+    func setFocusedConnection(
         _ connection: MacConnection?,
         for macDeviceID: String
     ) {
@@ -286,7 +196,7 @@ final class MobileMacConnectionRegistry {
         }
     }
 
-    private func removeAllControlSubscriptions() {
+    func removeAllControlSubscriptions() {
         let controlIDs = entriesByMacDeviceID.compactMap { macDeviceID, entry in
             if case .control = entry { return macDeviceID }
             return nil
@@ -296,7 +206,7 @@ final class MobileMacConnectionRegistry {
         }
     }
 
-    private func removeAllFocusedConnections() {
+    func removeAllFocusedConnections() {
         let focusedIDs = entriesByMacDeviceID.compactMap { macDeviceID, entry in
             if case .focused = entry { return macDeviceID }
             return nil
@@ -316,7 +226,7 @@ final class MobileMacConnectionRegistry {
             case .control(let subscription):
                 return MobileMacConnectionSnapshot(
                     macDeviceID: macDeviceID,
-                    displayName: Self.displayName(
+                    displayName: mobileMacConnectionDisplayName(
                         subscription.displayName,
                         fallback: macDeviceID
                     ),
@@ -327,7 +237,7 @@ final class MobileMacConnectionRegistry {
             case .focused(let connection):
                 return MobileMacConnectionSnapshot(
                     macDeviceID: macDeviceID,
-                    displayName: Self.displayName(
+                    displayName: mobileMacConnectionDisplayName(
                         connection.displayName,
                         fallback: macDeviceID
                     ),
@@ -343,11 +253,15 @@ final class MobileMacConnectionRegistry {
         }
     }
 
-    private static func displayName(_ value: String?, fallback: String) -> String {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else {
-            return fallback
-        }
-        return value
+}
+
+private func mobileMacConnectionDisplayName(
+    _ value: String?,
+    fallback: String
+) -> String {
+    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !value.isEmpty else {
+        return fallback
     }
+    return value
 }

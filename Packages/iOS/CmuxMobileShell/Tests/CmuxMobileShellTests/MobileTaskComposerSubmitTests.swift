@@ -331,7 +331,7 @@ import Testing
             generation: store.connectionGeneration
         ))
 
-        store.bumpConnectionGenerationForTesting()
+        store.connectionGeneration = UUID()
         try installFreshRemoteClient(on: store, router: ambientRouter)
 
         #expect(!pinnedContext.isCurrent(

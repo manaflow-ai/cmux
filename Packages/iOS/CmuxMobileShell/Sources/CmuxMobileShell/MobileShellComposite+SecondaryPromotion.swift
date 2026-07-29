@@ -392,12 +392,12 @@ extension MobileShellComposite {
                   stackUserID: scope.userID, teamID: scope.teamID
               ).first(where: {
                   $0.macDeviceID == macID
-                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                      && mobileMacStoredAuthorityMatches(
                           $0.instanceTag,
                           sub.storedInstanceTag
                       )
               }),
-              MobileMacInstanceTagAuthority.sameStoredAuthority(
+              mobileMacStoredAuthorityMatches(
                   current.instanceTag, sub.storedInstanceTag
               ) else {
             await retireSecondaryPromotionCandidate(
@@ -417,13 +417,13 @@ extension MobileShellComposite {
                   stackUserID: scope.userID, teamID: scope.teamID
               ).first(where: {
                   $0.macDeviceID == macID
-                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                      && mobileMacStoredAuthorityMatches(
                           $0.instanceTag,
                           sub.storedInstanceTag
                       )
               }),
               secondaryMacSubscriptions[macID] === sub,
-              MobileMacInstanceTagAuthority.sameStoredAuthority(
+              mobileMacStoredAuthorityMatches(
                   refreshed.instanceTag, sub.storedInstanceTag
               ),
               scope.generation == secondaryAggregationScopeGeneration,

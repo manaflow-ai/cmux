@@ -270,7 +270,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               activeTicket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return false
         }
-        return Self.attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
+        return attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
     }
     /// User-entered pairing code or pairing URL text for the current connection attempt.
     public var pairingCode: String
@@ -951,14 +951,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var secondaryPresenceAggregationTask: Task<Void, Never>?
     private var secondaryPresenceAggregationTaskGeneration = UUID()
     private var secondaryPresencePendingMacIDs: Set<String> = []
-    private enum SecondaryStoredAuthorityValidation {
-        case cached
-        case store
-    }
-    private struct SecondaryMacEstablishmentFlight {
-        let id: UUID
-        let task: Task<SecondaryMacEstablishmentOutcome, Never>
-    }
     /// Full and targeted aggregation are independent coalescers. This keyed
     /// single-flight is their shared publication owner, preventing two
     /// suspended dials from installing control connections for one physical Mac.
@@ -2421,7 +2413,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             by: { cmxCanonicalDeviceID($0.macDeviceID) }
         )
         storedPairedMacAliasCanonicalIDsByCanonicalID =
-            Self.physicalMacAliasCanonicalIDsByCanonicalID(
+            physicalMacAliasCanonicalIDsByCanonicalID(
                 in: macs,
                 supportedKinds: runtime?.supportedRouteKinds ?? [],
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
@@ -2490,7 +2482,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             cmxCanonicalDeviceID(macDeviceID)
         ]?.first {
             $0.macDeviceID == macDeviceID
-                && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                && mobileMacStoredAuthorityMatches(
                     $0.instanceTag,
                     instanceTag
                 )
@@ -2977,7 +2969,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // FAST PATH: if a live read-only connection to this Mac already exists,
         // promote it to the foreground (reuse the client) instead of re-dialing.
         if instanceTag == nil
-            || MobileMacInstanceTagAuthority.sameStoredAuthority(
+            || mobileMacStoredAuthorityMatches(
                 instanceTag,
                 secondaryMacSubscriptions[macDeviceID]?.storedInstanceTag
             ),
@@ -3037,7 +3029,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            connectionState == .connected,
            remoteClient != nil,
            refreshedTarget.instanceTag == nil
-            || MobileMacInstanceTagAuthority.sameStoredAuthority(
+            || mobileMacStoredAuthorityMatches(
                 refreshedTarget.instanceTag,
                 activeMacInstanceTag
             ) {
@@ -3101,7 +3093,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && remoteClient != nil
             && foregroundMacDeviceID == macDeviceID
             && (refreshedTarget.instanceTag == nil
-                || MobileMacInstanceTagAuthority.sameStoredAuthority(
+                || mobileMacStoredAuthorityMatches(
                     refreshedTarget.instanceTag,
                     activeMacInstanceTag
                 ))
@@ -3132,7 +3124,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && remoteClient != nil
                 && foregroundMacDeviceID == macDeviceID
                 && (refreshedTarget.instanceTag == nil
-                    || MobileMacInstanceTagAuthority.sameStoredAuthority(
+                    || mobileMacStoredAuthorityMatches(
                         refreshedTarget.instanceTag,
                         activeMacInstanceTag
                     ))
@@ -3157,7 +3149,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && remoteClient != nil
                 && foregroundMacDeviceID == macDeviceID
                 && (refreshedTarget.instanceTag == nil
-                    || MobileMacInstanceTagAuthority.sameStoredAuthority(
+                    || mobileMacStoredAuthorityMatches(
                         refreshedTarget.instanceTag,
                         activeMacInstanceTag
                     ))
@@ -3238,7 +3230,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && focusedForegroundConnection?.client === remoteClient
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
             && (previousActive.instanceTag == nil
-                || MobileMacInstanceTagAuthority.sameStoredAuthority(
+                || mobileMacStoredAuthorityMatches(
                     previousActive.instanceTag,
                     activeMacInstanceTag
                 ))
@@ -3352,7 +3344,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard self.connectionState == .connected,
                   self.remoteClient != nil,
                   self.foregroundMacDeviceID == macDeviceID,
-                  instanceTag == nil || MobileMacInstanceTagAuthority.sameStoredAuthority(
+                  instanceTag == nil || mobileMacStoredAuthorityMatches(
                     instanceTag,
                     self.activeMacInstanceTag
                   ) else { return }
@@ -3470,7 +3462,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // An authenticated status response may refresh metadata only for
             // the Mac this connection already represents. A mismatched reply
             // cannot rewrite another paired record.
-            guard MobileMacInstanceTagAuthority.authenticatedDeviceMatches(
+            guard mobileMacAuthenticatedDeviceMatches(
                 reportedDeviceID: reportedID,
                 expectedDeviceID: ticket.macDeviceID
             ) else {
@@ -3659,7 +3651,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // pairing input now (expiry is enforced solely where the RPC attach
         // token is used), so an expired legacy code scanned offline must say
         // "offline", not crawl the route loop's stacked timeouts.
-        let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
+        let candidateRoutes = supportedRoutes(
+            for: ticket,
+            supportedKinds: runtime?.supportedRouteKinds ?? []
+        )
         if !candidateRoutes.isEmpty {
             switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
             case .failedOffline: return .failed
@@ -3915,11 +3910,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 mobileShellLog.warning(
                     "secondary client: ticket exchange failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
                 )
-                return Self.secondaryControlAttemptIsTransient(error)
+                return secondaryControlAttemptIsTransient(error)
                     ? .transientFailure
                     : .permanentFailure
             }
-            let supportedRoutes = Self.supportedRoutes(
+            let supportedRoutes = supportedRoutes(
                 for: ticket,
                 supportedKinds: supportedKinds
             )
@@ -3958,7 +3953,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
             return .permanentFailure
         }
-        if MobileMacInstanceTagAuthority.secondaryStatusAuthority(
+        if mobileSecondaryStatusAuthority(
             expectedDeviceID: mac.macDeviceID,
             storedInstanceTag: mac.instanceTag,
             reportedDeviceID: status.macDeviceID,
@@ -3980,7 +3975,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return .permanentFailure
             }
         }
-        switch MobileMacInstanceTagAuthority.secondaryStatusAuthority(
+        switch mobileSecondaryStatusAuthority(
             expectedDeviceID: mac.macDeviceID,
             storedInstanceTag: mac.instanceTag,
             reportedDeviceID: status.macDeviceID,
@@ -4008,8 +4003,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             client: client,
             route: route,
             ticket: ticket,
-            storedInstanceTag: MobileMacInstanceTagAuthority.normalized(mac.instanceTag),
-            authenticatedInstanceTag: MobileMacInstanceTagAuthority.normalized(
+            storedInstanceTag: normalizedMobileMacIdentityValue(mac.instanceTag),
+            authenticatedInstanceTag: normalizedMobileMacIdentityValue(
                 status.macInstanceTag
             ),
             supportedHostCapabilities: capabilities,
@@ -4039,7 +4034,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .received(response)
         } catch {
             mobileShellLog.warning("secondary host status failed: \(String(describing: error), privacy: .private)")
-            return Self.secondaryControlAttemptIsTransient(error)
+            return secondaryControlAttemptIsTransient(error)
                 ? .transientFailure
                 : .permanentFailure
         }
@@ -4070,72 +4065,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.warning(
                 "secondary authenticated host status failed: \(String(describing: error), privacy: .private)"
             )
-            return Self.secondaryControlAttemptIsTransient(error)
+            return secondaryControlAttemptIsTransient(error)
                 ? .transientFailure
                 : .permanentFailure
-        }
-    }
-
-    static func secondaryControlAttemptIsTransient(
-        _ error: any Error
-    ) -> Bool {
-        if error is CancellationError || error is DecodingError {
-            return false
-        }
-        if let transportError = error as? CmxNetworkByteTransportError {
-            switch transportError {
-            case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
-                 .unsupportedRouteKind, .unsupportedEndpoint,
-                 .authorizationIntentRequired, .unsupportedAuthorizationMode,
-                 .tailscaleAuthorizationUnavailable:
-                return false
-            case .notConnected, .alreadyClosed, .receiveAlreadyInProgress,
-                 .sendAlreadyInProgress, .connectionTimedOut, .connectionFailed,
-                 .receiveFailed, .sendFailed:
-                return true
-            }
-        }
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .cancelled, .badURL, .unsupportedURL, .cannotDecodeContentData,
-                 .cannotDecodeRawData, .cannotParseResponse:
-                return false
-            default:
-                return true
-            }
-        }
-        guard let connectionError = error as? MobileShellConnectionError else {
-            // Transport implementations may expose other retryable system
-            // errors. Unknown failures remain recoverable, while all local
-            // authority and protocol failures are classified above.
-            return true
-        }
-        switch connectionError {
-        case .connectionClosed, .requestTimedOut, .transportWriteTimedOut,
-             .routeCleanupBlocked:
-            return true
-        case .invalidResponse, .insecureManualRoute, .attachTicketExpired,
-             .authorizationFailed, .accountMismatch:
-            return false
-        case let .rpcError(code, _):
-            let normalizedCode = code?.lowercased()
-            let permanentCodes: Set<String> = [
-                "account_mismatch",
-                "build_incompatible",
-                "forbidden",
-                "invalid_ticket",
-                "invalid_params",
-                "method_not_found",
-                "ticket_expired",
-                "unauthorized",
-                "unknown_method",
-                "unsupported_version",
-                "unsupported_method",
-            ]
-            // Unknown server failures and explicit timeout/busy/unavailable
-            // codes are recoverable. Only known authority or protocol
-            // rejections suppress the shared pool retry.
-            return !permanentCodes.contains(normalizedCode ?? "")
         }
     }
 
@@ -4163,7 +4095,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.warning(
                 "secondary workspace fetch failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
             )
-            return Self.secondaryControlAttemptIsTransient(error)
+            return secondaryControlAttemptIsTransient(error)
                 ? .transientFailure
                 : .permanentFailure
         }
@@ -4377,7 +4309,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // teardown work until promotion succeeds or explicitly
                 // releases the claim.
                 guard !existing.isTransitioningToFocus else { continue }
-                guard MobileMacInstanceTagAuthority.sameStoredAuthority(
+                guard mobileMacStoredAuthorityMatches(
                     existing.storedInstanceTag,
                     mac.instanceTag
                 ) else {
@@ -4486,7 +4418,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 teamID: scope.teamID
             ).first(where: {
                 $0.macDeviceID == macDeviceID
-                    && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                    && mobileMacStoredAuthorityMatches(
                         $0.instanceTag,
                         subscription.storedInstanceTag
                     )
@@ -4494,7 +4426,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         guard secondaryMacSubscriptions[macDeviceID] === subscription,
               let currentMac,
-              MobileMacInstanceTagAuthority.sameStoredAuthority(
+              mobileMacStoredAuthorityMatches(
                   currentMac.instanceTag,
                   subscription.storedInstanceTag
               ) else {
@@ -4567,7 +4499,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // shared physical-Mac identity. Otherwise a fresher offline tag can win
         // coalescing and hide another paired tag that is online right now.
         let physicalAliasIDsByCanonicalID =
-            Self.physicalMacAliasCanonicalIDsByCanonicalID(
+            physicalMacAliasCanonicalIDsByCanonicalID(
                 in: visibleLoadedMacs,
                 supportedKinds: supportedRouteKinds,
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
@@ -4789,7 +4721,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             teamID: scope.teamID
         ).first(where: {
             $0.macDeviceID == macID
-                && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                && mobileMacStoredAuthorityMatches(
                     $0.instanceTag,
                     handle.storedInstanceTag
                 )
@@ -4805,7 +4737,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   scope: scope
               ),
               let currentMac,
-              MobileMacInstanceTagAuthority.sameStoredAuthority(
+              mobileMacStoredAuthorityMatches(
                   currentMac.instanceTag,
                   handle.storedInstanceTag
               ) else {
@@ -5755,7 +5687,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return .active(requiresCatchUp: response.alreadySubscribed == false)
         } catch {
-            return Self.secondaryControlAttemptIsTransient(error)
+            return secondaryControlAttemptIsTransient(error)
                 ? .transientFailure
                 : .permanentFailure
         }
@@ -6868,15 +6800,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && (client == nil || remoteClient === client)
     }
 
-    /// Bump the connection generation so any composer submit (or other
-    /// generation-guarded operation) in flight against the previous connection is
-    /// treated as superseded. Internal (not private) so a test can model a
-    /// mid-submit connection swap that the pairing/reconnect flow performs in
-    /// production without standing up the full handshake.
-    func bumpConnectionGenerationForTesting() {
-        connectionGeneration = UUID()
-    }
-
     /// Clear the sent text from wherever it now lives after a successful
     /// composer send: the visible field when the submitted terminal is still
     /// selected, or the submitted terminal's STORED draft when the user switched
@@ -7133,7 +7056,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         rawTerminalInputBuffer.clear()
         resumeRawTerminalInputDrainWaiters()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
+        let supportedRoutes = supportedRoutes(
+            for: ticket,
+            supportedKinds: supportedKinds
+        )
         guard let firstRoute = supportedRoutes.first else {
             // No route kind this build can dial: set the specific category;
             // the caller records the matching analytics reason from it.
@@ -7204,7 +7130,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return nil
         }
 
-        let workspaceListRequests = try Self.initialWorkspaceListRequests(for: ticket)
+        let workspaceListRequests = try initialWorkspaceListRequests(for: ticket)
         // Stack auth gates plaintext requests. Decide its transport authority
         // per attempted route so a generic fallback cannot inherit loopback or
         // grandfathered-Tailscale bearer permission.
@@ -7427,7 +7353,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         recordHostAuthenticationFailure(route: route, failure: .protocolViolation)
                         continue routeLoop
                     }
-                    let authority = MobileMacInstanceTagAuthority.resolve(
+                    let authority = resolveMobileMacInstanceTag(
                         expectation: instanceTagExpectation,
                         reportedInstanceTag: reportedInstanceTag
                     )
@@ -7455,7 +7381,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     if let expectedDeviceID,
                        hasAuthenticatedIdentity,
-                       !MobileMacInstanceTagAuthority.authenticatedDeviceMatches(
+                       !mobileMacAuthenticatedDeviceMatches(
                            reportedDeviceID: reportedDeviceID,
                            expectedDeviceID: expectedDeviceID
                        ) {
@@ -7731,7 +7657,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var preferActiveTicketTarget: Bool
     }
 
-    private static func supportedRoutes(
+    private func supportedRoutes(
         for ticket: CmxAttachTicket,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
@@ -7754,11 +7680,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return irohRoutes.isEmpty ? supportedRoutes : irohRoutes
     }
 
-    private static func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
+    private func attachTicketIsUnexpired(
+        _ ticket: CmxAttachTicket,
+        now: Date
+    ) -> Bool {
         !ticket.isExpired(at: now)
     }
 
-    private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> [String: Any] {
+    private func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> [String: Any] {
         guard UUID(uuidString: ticket.workspaceID) != nil else {
             return [:]
         }
@@ -7770,7 +7699,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return params
     }
 
-    private static func initialWorkspaceListRequests(for ticket: CmxAttachTicket) throws -> [WorkspaceListRequest] {
+    private func initialWorkspaceListRequests(for ticket: CmxAttachTicket) throws -> [WorkspaceListRequest] {
         let scopedParams = initialWorkspaceListParams(for: ticket)
         let hasAttachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 
@@ -8074,7 +8003,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               ).first(where: {
                   cmxCanonicalDeviceID($0.macDeviceID)
                       == cmxCanonicalDeviceID(connection.macDeviceID)
-                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                      && mobileMacStoredAuthorityMatches(
                           $0.instanceTag,
                           connection.storedInstanceTag
                       )
@@ -8103,14 +8032,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )?.online == true
     }
 
-    static func warmControlPoolHasCapacity(
-        currentControlCount: Int,
-        vacatesControlSlot: Bool
-    ) -> Bool {
-        currentControlCount - (vacatesControlSlot ? 1 : 0)
-            < maximumWarmControlConnectionCount
-    }
-
     private func hasWarmControlCapacity(
         vacatingControlMacDeviceID: String?
     ) -> Bool {
@@ -8120,7 +8041,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 cmxCanonicalDeviceID($0) == canonicalTargetID
             }
         } ?? false
-        return Self.warmControlPoolHasCapacity(
+        return warmControlPoolHasCapacity(
             currentControlCount: secondaryMacSubscriptions.count,
             vacatesControlSlot: vacatesControlSlot
         )
