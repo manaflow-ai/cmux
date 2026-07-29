@@ -105,8 +105,7 @@ extension RemoteSessionCoordinator {
         relayPort: Int,
         effectiveSSHOptions: [String]
     ) -> Bool {
-        guard reverseRelayStartupPhase.canAttemptRecovery,
-              reverseRelayControlMasterForwardSpec == nil,
+        guard reverseRelayControlMasterForwardSpec == nil,
               let relayID = configuration.relayID?
               .trimmingCharacters(in: .whitespacesAndNewlines),
               !relayID.isEmpty,
@@ -124,7 +123,6 @@ extension RemoteSessionCoordinator {
               ) else {
             return false
         }
-        reverseRelayStartupPhase = .recoveryAttempted
         defer { authorization.release() }
 
         let probeScript = Self.remoteRelayMetadataOwnershipProbeScript(

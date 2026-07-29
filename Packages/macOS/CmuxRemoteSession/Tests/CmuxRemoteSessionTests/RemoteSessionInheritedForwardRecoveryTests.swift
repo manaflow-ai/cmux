@@ -203,6 +203,64 @@ struct RemoteSessionInheritedForwardRecoveryTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
+    @Test("A transient metadata failure can recover on the next relay attempt")
+    func transientMetadataFailureRetriesRecovery() async throws {
+        let runner = InheritedForwardRecoveryProcessRunner(
+            mode: .transientMetadataFailure
+        )
+        let fixture = try await RemoteSessionReverseRelayStartupTests
+            .makeCoordinator(runner: runner)
+        let coordinator = fixture.coordinator
+        defer {
+            try? FileManager.default.removeItem(
+                at: fixture.scratchDirectory
+            )
+        }
+        let forwardSpec = "127.0.0.1:64044:127.0.0.1:55001"
+
+        let firstOutcome = coordinator.queue.sync {
+            coordinator.startReverseRelayViaControlMasterLocked(
+                forwardSpec: forwardSpec,
+                relayPort: 64_044
+            )
+        }
+        guard case .bindingConflict = firstOutcome else {
+            Issue.record("Expected the transient probe failure to fail closed")
+            return
+        }
+
+        let secondOutcome = coordinator.queue.sync {
+            coordinator.startReverseRelayViaControlMasterLocked(
+                forwardSpec: forwardSpec,
+                relayPort: 64_044
+            )
+        }
+        guard case .started = secondOutcome else {
+            Issue.record("Expected the next relay attempt to recover")
+            return
+        }
+
+        let requests = runner.requests
+        #expect(
+            requests.filter {
+                Self.isControlCommand("forward", in: $0.arguments)
+            }.count == 3
+        )
+        #expect(
+            requests.filter(Self.isMetadataOwnershipProbe).count == 2
+        )
+        #expect(
+            requests.filter {
+                Self.isControlCommand("cancel", in: $0.arguments)
+            }.count == 1
+        )
+        #expect(!requests.contains(where: {
+            Self.isControlCommand("exit", in: $0.arguments)
+        }))
+
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     @Test("A custom ControlPath never authorizes stale-forward recovery")
     func customControlPathFailsClosed() async throws {
         let runner = InheritedForwardRecoveryProcessRunner(mode: .success)
@@ -309,6 +367,7 @@ private final class InheritedForwardRecoveryProcessRunner:
         case success
         case metadataMismatch
         case cancellationFailure
+        case transientMetadataFailure
     }
 
     // lint:allow lock - synchronous test requests consume one scripted counter.
@@ -316,6 +375,7 @@ private final class InheritedForwardRecoveryProcessRunner:
     private let mode: Mode
     private var _requests: [RemoteProcessRequest] = []
     private var forwardAttempts = 0
+    private var metadataProbeAttempts = 0
 
     init(mode: Mode) {
         self.mode = mode
@@ -333,7 +393,9 @@ private final class InheritedForwardRecoveryProcessRunner:
             _requests.append(request)
             if Self.isControlCommand("forward", in: request.arguments) {
                 forwardAttempts += 1
-                if forwardAttempts == 1 {
+                let failingForwardAttempts =
+                    mode == .transientMetadataFailure ? 2 : 1
+                if forwardAttempts <= failingForwardAttempts {
                     return RemoteCommandResult(
                         status: 255,
                         stdout: "",
@@ -342,13 +404,17 @@ private final class InheritedForwardRecoveryProcessRunner:
                     )
                 }
             }
-            if Self.isMetadataOwnershipProbe(request),
-               mode == .metadataMismatch {
-                return RemoteCommandResult(
-                    status: 64,
-                    stdout: "",
-                    stderr: ""
-                )
+            if Self.isMetadataOwnershipProbe(request) {
+                metadataProbeAttempts += 1
+                if mode == .metadataMismatch ||
+                    (mode == .transientMetadataFailure &&
+                        metadataProbeAttempts == 1) {
+                    return RemoteCommandResult(
+                        status: 64,
+                        stdout: "",
+                        stderr: ""
+                    )
+                }
             }
             if Self.isControlCommand("cancel", in: request.arguments),
                mode == .cancellationFailure {

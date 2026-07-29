@@ -80,7 +80,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var daemonReady = false
     var daemonBootstrapVersion: String?
     var daemonRemotePath: String?
-    var reverseRelayStartupPhase = ReverseRelayStartupPhase.recoveryAvailable
     var reverseRelayProcess: (any RemoteReverseRelayProcess)?
     var reverseRelayControlMasterForwardSpec: String?
     var resolvedControlMasterSSHOptions: [String]?
