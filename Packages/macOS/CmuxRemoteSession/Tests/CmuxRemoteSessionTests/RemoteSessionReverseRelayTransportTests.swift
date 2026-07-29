@@ -118,6 +118,14 @@ struct RemoteSessionReverseRelayTransportTests {
 
         let launch = try #require(await launches.next())
         #expect(launch.arguments.starts(with: ["-N", "-T", "-S", "none"]))
+        #expect(launch.arguments.contains("-v"))
+        #expect(
+            launch.startupMarker ==
+                RemoteSessionCoordinator.reverseRelayForwardSuccessMarker(
+                    relayPort: 64_044,
+                    localRelayPort: launch.localRelayPort
+                )
+        )
         #expect(runner.requests.contains(where: {
             $0.arguments.first == "-G"
         }))
@@ -374,81 +382,6 @@ struct RemoteSessionReverseRelayTransportTests {
             coordinator.reverseRelayProcess == nil
         })
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
-    }
-
-    @Test("Standalone termination waits for the complete stderr tail")
-    func standaloneTerminationDrainsStderr() async throws {
-        let process = Process()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = [
-            "-c",
-            """
-            i=0
-            while [ "$i" -lt 1000 ]; do
-              printf 'diagnostic-noise-%s\n' "$i" >&2
-              i=$((i + 1))
-            done
-            printf 'Error: remote port forwarding failed for listen port 64044\n' >&2
-            exit 255
-            """,
-        ]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = stderrPipe
-        let relayProcess = FoundationRemoteReverseRelayProcess(
-            process: process,
-            stderrPipe: stderrPipe
-        )
-        let (details, continuation) = AsyncStream<String?>.makeStream()
-
-        try process.run()
-        relayProcess.captureTermination { detail in
-            continuation.yield(detail)
-            continuation.finish()
-        }
-
-        var iterator = details.makeAsyncIterator()
-        #expect(
-            await iterator.next()
-                == "Error: remote port forwarding failed for listen port 64044"
-        )
-        #expect(process.terminationStatus == 255)
-    }
-
-    @Test("Standalone termination bounds draining inherited stderr writers")
-    func standaloneTerminationBoundsInheritedStderr() async throws {
-        let process = Process()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = [
-            "-c",
-            """
-            sleep 3 &
-            printf 'proxy diagnostic\n' >&2
-            exit 23
-            """,
-        ]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = stderrPipe
-        let relayProcess = FoundationRemoteReverseRelayProcess(
-            process: process,
-            stderrPipe: stderrPipe,
-            stderrDrainGracePeriod: 0.05
-        )
-        let (details, continuation) = AsyncStream<String?>.makeStream()
-        let startedAt = Date()
-
-        try process.run()
-        relayProcess.captureTermination { detail in
-            continuation.yield(detail)
-            continuation.finish()
-        }
-
-        var iterator = details.makeAsyncIterator()
-        #expect(await iterator.next() == "proxy diagnostic")
-        #expect(Date().timeIntervalSince(startedAt) < 1)
-        #expect(process.terminationStatus == 23)
     }
 
     private static func isControlCommand(

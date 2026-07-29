@@ -243,6 +243,7 @@ struct RemoteSessionReverseRelayStartupTests {
 struct RecordedReverseRelayLaunch: Sendable {
     let arguments: [String]
     let localRelayPort: Int
+    let startupMarker: String
 }
 
 /// Synchronous launcher callbacks cannot await; the lock protects only callback snapshots and a counter.
@@ -266,6 +267,7 @@ final class RecordingReverseRelayLauncher:
     func launch(
         arguments: [String],
         environment: [String: String]?,
+        startupMarker: String,
         startupHandler: @escaping @Sendable (
             any RemoteReverseRelayProcess
         ) -> Void,
@@ -285,7 +287,8 @@ final class RecordingReverseRelayLauncher:
         )
         launchContinuation.yield(RecordedReverseRelayLaunch(
             arguments: arguments,
-            localRelayPort: localRelayPort
+            localRelayPort: localRelayPort,
+            startupMarker: startupMarker
         ))
         lock.withLock {
             _launchCount += 1

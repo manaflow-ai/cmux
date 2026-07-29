@@ -37,11 +37,48 @@ final class FoundationRemoteReverseRelayProcess:
     func captureTermination(
         _ handler: @escaping @Sendable (String?) -> Void
     ) {
+        installLifecycleCapture(
+            startupMarker: nil,
+            startupHandler: nil,
+            terminationHandler: handler
+        )
+    }
+
+    /// Reports exact forward confirmation and eventual process termination
+    /// from the same event-driven stderr stream.
+    func captureLifecycle(
+        startupMarker: String,
+        startupTimeout: TimeInterval,
+        startupHandler: @escaping @Sendable () -> Void,
+        terminationHandler: @escaping @Sendable (String?) -> Void
+    ) {
+        installLifecycleCapture(
+            startupMarker: startupMarker,
+            startupTimeout: startupTimeout,
+            startupTimeoutHandler: { [weak self] in
+                self?.terminate()
+            },
+            startupHandler: startupHandler,
+            terminationHandler: terminationHandler
+        )
+    }
+
+    private func installLifecycleCapture(
+        startupMarker: String?,
+        startupTimeout: TimeInterval? = nil,
+        startupTimeoutHandler: (@Sendable () -> Void)? = nil,
+        startupHandler: (@Sendable () -> Void)?,
+        terminationHandler: @escaping @Sendable (String?) -> Void
+    ) {
         let readHandle = stderrPipe.fileHandleForReading
         let capture = ReverseRelayStderrCapture(
             readHandle: readHandle,
             drainGracePeriod: stderrDrainGracePeriod,
-            handler: handler
+            startupMarker: startupMarker,
+            startupTimeout: startupTimeout,
+            startupTimeoutHandler: startupTimeoutHandler,
+            startupHandler: startupHandler,
+            terminationHandler: terminationHandler
         )
         readHandle.readabilityHandler = { handle in
             capture.receive(handle.availableData)
@@ -52,6 +89,7 @@ final class FoundationRemoteReverseRelayProcess:
         if !process.isRunning {
             capture.processDidTerminate(status: process.terminationStatus)
         }
+        capture.startStartupDeadline()
     }
 
     func terminate() {
@@ -70,10 +108,16 @@ private final class ReverseRelayStderrCapture: @unchecked Sendable {
     // critical sections only append bounded data and update lifecycle bits.
     private let lock = NSLock()
     private let readHandle: FileHandle
-    private let handler: @Sendable (String?) -> Void
+    private let startupMarker: Data?
+    private let startupTimeout: TimeInterval?
+    private let startupTimeoutHandler: (@Sendable () -> Void)?
+    private let startupHandler: (@Sendable () -> Void)?
+    private let terminationHandler: @Sendable (String?) -> Void
     private let byteLimit: Int
     private let drainGracePeriod: TimeInterval
     private var tail = Data()
+    private var startupReported = false
+    private var startupExpired = false
     private var sawEOF = false
     private var terminationStatus: Int32?
     private var drainDeadlineScheduled = false
@@ -83,27 +127,59 @@ private final class ReverseRelayStderrCapture: @unchecked Sendable {
         readHandle: FileHandle,
         byteLimit: Int = 8192,
         drainGracePeriod: TimeInterval,
-        handler: @escaping @Sendable (String?) -> Void
+        startupMarker: String?,
+        startupTimeout: TimeInterval?,
+        startupTimeoutHandler: (@Sendable () -> Void)?,
+        startupHandler: (@Sendable () -> Void)?,
+        terminationHandler: @escaping @Sendable (String?) -> Void
     ) {
         self.readHandle = readHandle
         self.byteLimit = byteLimit
         self.drainGracePeriod = drainGracePeriod
-        self.handler = handler
+        self.startupMarker = startupMarker?.data(using: .utf8)
+        self.startupTimeout = startupTimeout
+        self.startupTimeoutHandler = startupTimeoutHandler
+        self.startupHandler = startupHandler
+        self.terminationHandler = terminationHandler
+    }
+
+    func startStartupDeadline() {
+        guard let startupTimeout else { return }
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + max(0, startupTimeout)
+        ) { [weak self] in
+            self?.startupDeadlineElapsed()
+        }
     }
 
     func receive(_ data: Data) {
-        let completion = lock.withLock { () -> Completion? in
+        let result = lock.withLock { () -> (
+            completion: Completion?,
+            reportStartup: Bool
+        ) in
             if data.isEmpty {
                 sawEOF = true
             } else {
                 tail.append(data)
+                let reportStartup =
+                    !completed &&
+                    !startupReported &&
+                    !startupExpired &&
+                    startupMarker.map { tail.range(of: $0) != nil } == true
+                if reportStartup {
+                    startupReported = true
+                }
                 if tail.count > byteLimit {
                     tail.removeFirst(tail.count - byteLimit)
                 }
+                return (takeCompletionIfReady(), reportStartup)
             }
-            return takeCompletionIfReady()
+            return (takeCompletionIfReady(), false)
         }
-        finish(completion)
+        if result.reportStartup {
+            startupHandler?()
+        }
+        finish(result.completion)
     }
 
     func processDidTerminate(status: Int32) {
@@ -139,6 +215,22 @@ private final class ReverseRelayStderrCapture: @unchecked Sendable {
         finish(completion)
     }
 
+    private func startupDeadlineElapsed() {
+        let shouldTerminate = lock.withLock {
+            guard !startupReported,
+                  !startupExpired,
+                  !completed,
+                  terminationStatus == nil else {
+                return false
+            }
+            startupExpired = true
+            return true
+        }
+        if shouldTerminate {
+            startupTimeoutHandler?()
+        }
+    }
+
     private func takeCompletionIfReady(force: Bool = false) -> Completion? {
         guard !completed,
               (sawEOF || force),
@@ -156,9 +248,24 @@ private final class ReverseRelayStderrCapture: @unchecked Sendable {
         guard let completion else { return }
         readHandle.readabilityHandler = nil
         try? readHandle.close()
-        handler(
-            RemoteSessionCoordinator.bestErrorLine(stderr: completion.stderr)
+        terminationHandler(
+            Self.preferredTerminationDetail(stderr: completion.stderr)
                 ?? "status=\(completion.status)"
         )
+    }
+
+    private static func preferredTerminationDetail(stderr: String) -> String? {
+        let lines = stderr
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if let forwardFailure = lines.last(where: {
+            $0.localizedCaseInsensitiveContains(
+                "remote port forwarding failed for listen"
+            )
+        }) {
+            return forwardFailure
+        }
+        return RemoteSessionCoordinator.bestErrorLine(stderr: stderr)
     }
 }

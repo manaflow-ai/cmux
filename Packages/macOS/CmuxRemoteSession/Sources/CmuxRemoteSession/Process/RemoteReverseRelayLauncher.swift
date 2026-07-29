@@ -2,7 +2,7 @@ internal import Foundation
 
 /// Production launcher for a standalone SSH reverse-relay transport.
 public struct RemoteReverseRelayLauncher: RemoteReverseRelayLaunching {
-    private static let startupGracePeriod: TimeInterval = 0.5
+    private static let startupTimeout: TimeInterval = 10
 
     /// Creates a production reverse-relay launcher.
     public init() {}
@@ -11,6 +11,7 @@ public struct RemoteReverseRelayLauncher: RemoteReverseRelayLaunching {
     public func launch(
         arguments: [String],
         environment: [String: String]?,
+        startupMarker: String,
         startupHandler: @escaping @Sendable (
             any RemoteReverseRelayProcess
         ) -> Void,
@@ -33,16 +34,18 @@ public struct RemoteReverseRelayLauncher: RemoteReverseRelayLaunching {
             stderrPipe: stderrPipe
         )
         try process.run()
-        relayProcess.captureTermination { [weak relayProcess] detail in
-            guard let relayProcess else { return }
-            terminationHandler(relayProcess, detail)
-        }
-        DispatchQueue.global(qos: .utility).asyncAfter(
-            deadline: .now() + Self.startupGracePeriod
-        ) { [weak relayProcess] in
-            guard let relayProcess, relayProcess.isRunning else { return }
-            startupHandler(relayProcess)
-        }
+        relayProcess.captureLifecycle(
+            startupMarker: startupMarker,
+            startupTimeout: Self.startupTimeout,
+            startupHandler: { [weak relayProcess] in
+                guard let relayProcess else { return }
+                startupHandler(relayProcess)
+            },
+            terminationHandler: { [weak relayProcess] detail in
+                guard let relayProcess else { return }
+                terminationHandler(relayProcess, detail)
+            }
+        )
         return relayProcess
     }
 }

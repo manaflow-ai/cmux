@@ -117,6 +117,10 @@ extension RemoteSessionCoordinator {
             let process = try reverseRelayLauncher.launch(
                 arguments: relayArguments,
                 environment: configuration.sshProcessEnvironment,
+                startupMarker: Self.reverseRelayForwardSuccessMarker(
+                    relayPort: relayPort,
+                    localRelayPort: localRelayPort
+                ),
                 startupHandler: { [weak self] readyProcess in
                     guard let coordinator = self else { return }
                     coordinator.queue.async {
@@ -283,7 +287,7 @@ extension RemoteSessionCoordinator {
     func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
         // Fallback only: `-S none` prevents accidental adoption of a shared
         // transport after `-O forward` proved unavailable.
-        var args: [String] = ["-N", "-T", "-S", "none"]
+        var args: [String] = ["-N", "-T", "-S", "none", "-v"]
         args += sshCommonArguments(batchMode: true, dropControlPath: true)
         args += [
             "-o", "ExitOnForwardFailure=yes",
@@ -292,6 +296,14 @@ extension RemoteSessionCoordinator {
             configuration.destination,
         ]
         return args
+    }
+
+    static func reverseRelayForwardSuccessMarker(
+        relayPort: Int,
+        localRelayPort: Int
+    ) -> String {
+        "remote forward success for: listen 127.0.0.1:\(relayPort), " +
+            "connect 127.0.0.1:\(localRelayPort)"
     }
 
     private func ensureCLIRelayServerLocked(localSocketPath: String, relayID: String, relayToken: String) throws -> RemoteCLIRelayServer {
