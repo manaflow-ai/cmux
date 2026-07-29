@@ -20,6 +20,27 @@ extension DockSplitStore {
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
         let orderedPanelIds = orderedSessionPanelIds()
+        let terminalPanelIds = Set(
+            orderedPanelIds.filter {
+                panels[$0] is TerminalPanel
+            }
+        )
+        let terminalFontSizeSnapshotProjection: WorkspaceTerminalFontSizeSnapshotProjection?
+        if let workspace = terminalFontSizeOwningWorkspace {
+            terminalFontSizeSnapshotProjection =
+                terminalFontSizeChangeArbiter?
+                    .snapshotProjection(
+                        for: workspace,
+                        panelIds: terminalPanelIds
+                    )
+        } else {
+            terminalFontSizeSnapshotProjection =
+                terminalFontSizeChangeArbiter?
+                    .snapshotProjection(
+                        for: self,
+                        panelIds: terminalPanelIds
+                    )
+        }
         let panelSnapshots = orderedPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
@@ -36,16 +57,19 @@ extension DockSplitStore {
                         workspaceId: observationWorkspaceId,
                         panelId: panelId
                     ),
+                    terminalFontSizeSnapshotProjection:
+                        terminalFontSizeSnapshotProjection,
                     currentAgentProcessIdentity: currentAgentProcessIdentity,
                     agentProcessPresence: agentProcessPresence
                 )
             }
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
-        let sourceWorkspaceIdsByPanelId = Dictionary(uniqueKeysWithValues: panelSnapshots.compactMap {
-            panel -> (UUID, UUID)? in
-            guard let transfer = detachedSurfaceTransfersByPanelId[panel.id] else { return nil }
-            return (panel.id, transfer.sessionRestoreWorkspaceId)
-        })
+        let sourceWorkspaceIdsByPanelId: [UUID: UUID] = Dictionary(
+            uniqueKeysWithValues: panelSnapshots.compactMap { panel -> (UUID, UUID)? in
+                guard let transfer = detachedSurfaceTransfersByPanelId[panel.id] else { return nil }
+                return (panel.id, transfer.sessionRestoreWorkspaceId)
+            }
+        )
         let layout = layoutCodec.pruned(
             rawLayout,
             keeping: persistedPanelIds
@@ -85,6 +109,8 @@ extension DockSplitStore {
         includeScrollback: Bool,
         observation: RestorableAgentSessionIndex.Entry?,
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
+        terminalFontSizeSnapshotProjection:
+            WorkspaceTerminalFontSizeSnapshotProjection?,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
         agentProcessPresence: (Int) -> PIDPresence
     ) -> SessionPanelSnapshot? {
@@ -164,9 +190,27 @@ extension DockSplitStore {
             if let scrollback {
                 restoredTerminalScrollbackByPanelId[panelId] = scrollback
             }
+            let sessionFontSize: Float32?
+            let sessionFontSizeChangeTokens: [UUID]?
+            if let terminalFontSizeSnapshotProjection {
+                let projection =
+                    terminalFontSizeSnapshotProjection
+                        .sessionProjection(
+                            for: terminal
+                        )
+                sessionFontSize = projection.overrideBasePoints
+                sessionFontSizeChangeTokens =
+                    projection.persistedRepresentedRequestTokens
+            } else {
+                sessionFontSize =
+                    terminal.surface
+                        .sessionFontSizeOverrideBasePoints()
+                sessionFontSizeChangeTokens = nil
+            }
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
-                fontSize: terminal.surface.sessionFontSizeOverrideBasePoints(),
+                fontSize: sessionFontSize,
+                fontSizeChangeTokens: sessionFontSizeChangeTokens,
                 scrollback: scrollback,
                 agent: restorableAgent,
                 tmuxStartCommand: tmuxStartCommand,

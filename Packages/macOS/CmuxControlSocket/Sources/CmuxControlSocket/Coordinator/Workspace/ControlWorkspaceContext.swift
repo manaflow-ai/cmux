@@ -230,10 +230,12 @@ public protocol ControlWorkspaceContext: AnyObject {
     /// - Parameters:
     ///   - workspaceID: The resolved workspace id.
     ///   - foregroundAuthToken: The trimmed token, if any.
+    ///   - resolvedControlPath: Exact cmux-owned socket authenticated by SSH.
     /// - Returns: The remote resolution.
     func controlWorkspaceRemoteForegroundAuthReady(
         workspaceID: UUID,
-        foregroundAuthToken: String?
+        foregroundAuthToken: String?,
+        resolvedControlPath: String?
     ) -> ControlWorkspaceRemoteResolution
 
     /// Reads remote status for `workspace.remote.status`.

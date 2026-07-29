@@ -15,6 +15,14 @@ typedef struct {
   bool sentinel;
 } ghostty_string_s;
 
+typedef void (*ghostty_font_size_action_cb)(
+    void* userdata,
+    int32_t action,
+    float previous_points,
+    float current_points,
+    bool previous_adjusted,
+    bool current_adjusted);
+
 bool ghostty_surface_clear_selection(void *surface);
 
 void *ghostty_config_new(void);
@@ -32,9 +40,16 @@ bool ghostty_config_get(
 uint32_t ghostty_config_diagnostics_count(void *config);
 void ghostty_config_get_diagnostic(void);
 void ghostty_string_free(ghostty_string_s string);
-void ghostty_surface_binding_action(void);
+bool ghostty_surface_binding_action(
+    void *surface,
+    const char *action,
+    uintptr_t action_len);
+bool ghostty_surface_set_font_size_action_callback(
+    void *surface,
+    ghostty_font_size_action_cb callback,
+    void *userdata);
 void ghostty_surface_config_new(void);
-void ghostty_surface_free(void);
+void ghostty_surface_free(void *surface);
 void ghostty_surface_free_text(void);
 float ghostty_surface_font_size(void *surface);
 bool ghostty_surface_font_size_adjusted(void *surface);
@@ -54,6 +69,14 @@ void ghostty_surface_read_text(void);
 void ghostty_surface_refresh(void);
 void ghostty_surface_render_grid_json(void);
 void ghostty_surface_render_grid_json_with_theme(void);
+ghostty_string_s ghostty_surface_render_grid_json_v2(
+    void *surface,
+    const char *surface_id,
+    uintptr_t surface_id_len,
+    uint64_t state_seq,
+    uintptr_t scrollback_lines,
+    bool include_theme,
+    bool anchor_active);
 void ghostty_surface_set_content_scale(void);
 void ghostty_surface_set_display_id(void);
 void ghostty_surface_set_focus(void);
@@ -63,6 +86,7 @@ void ghostty_surface_set_size(void);
 void ghostty_surface_size(void);
 void ghostty_surface_text(void);
 void ghostty_surface_text_input(void);
+void ghostty_surface_update_config(void *surface, void *config);
 ghostty_string_s ghostty_surface_tty_name(void *surface);
 
 void cmux_test_ghostty_runtime_stubs_reset(void);
@@ -73,5 +97,13 @@ uint32_t cmux_test_ghostty_renderer_realized_call_count(void);
 bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index);
 void cmux_test_ghostty_renderer_realized_set_result(bool result);
 bool cmux_test_ghostty_renderer_release_was_occluded(void);
+bool cmux_test_ghostty_surface_was_updated(void *surface);
+void cmux_test_ghostty_font_state_begin(
+    void *surface,
+    float runtime_points,
+    bool adjusted,
+    float configured_runtime_points);
+void cmux_test_ghostty_font_state_end(void);
+void cmux_test_ghostty_font_binding_result(bool result);
 
 #endif

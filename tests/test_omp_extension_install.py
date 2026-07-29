@@ -35,6 +35,28 @@ def wait_for_text(path: Path, expected_count: int, timeout: float = 5.0) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
+def wait_for_stable_text(
+    path: Path,
+    expected_count: int,
+    timeout: float = 5.0,
+    stable_for: float = 0.5,
+) -> str:
+    deadline = time.monotonic() + timeout
+    last_text = ""
+    stable_since: float | None = None
+    while time.monotonic() < deadline:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        count = len([line for line in text.splitlines() if line.strip()])
+        if count >= expected_count:
+            if text != last_text:
+                last_text = text
+                stable_since = time.monotonic()
+            elif stable_since is not None and time.monotonic() - stable_since >= stable_for:
+                return text
+        time.sleep(0.05)
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
 class MockCmuxSocket:
     def __init__(self, path: Path, workspace_id: str, surface_id: str) -> None:
         self.path = path
@@ -359,7 +381,6 @@ def main() -> int:
             fake_cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
-sleep 3
 printf '%s\n' "$*" >> "$FAKE_CMUX_ARGS_LOG"
 cat >> "$FAKE_CMUX_STDIN_LOG"
 printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
@@ -373,11 +394,23 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
     printf 'amp=missing\n'
   fi
 } >> "$FAKE_CMUX_ENV_LOG"
+sleep 3
 """,
         )
 
+        sessions_dir = root / "omp-sessions"
+        sessions_dir.mkdir()
+        parent_session_file = sessions_dir / "2026-07-28T12-00-00_omp-session-test.jsonl"
+        parent_session_file.write_text("{}\n", encoding="utf-8")
+        parent_artifacts_dir = parent_session_file.with_suffix("")
+        parent_artifacts_dir.mkdir()
+        nested_session_file = parent_artifacts_dir / "StorageRaceReview.jsonl"
+        nested_session_file.write_text("{}\n", encoding="utf-8")
+
         check_env = env.copy()
         check_env["CMUX_TEST_OMP_EXTENSION_PATH"] = str(extension_path)
+        check_env["CMUX_TEST_OMP_PARENT_SESSION_FILE"] = str(parent_session_file)
+        check_env["CMUX_TEST_OMP_NESTED_SESSION_FILE"] = str(nested_session_file)
         check_env["CMUX_SURFACE_ID"] = "surface-omp-test"
         check_env["CMUX_OMP_CMUX_BIN"] = str(fake_cmux)
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
@@ -404,22 +437,39 @@ process.argv.splice(
   "--model",
   "anthropic/claude-sonnet-4-5"
 );
-const ctx = {
+const parentCtx = {
   cwd: "/tmp/omp-project",
   sessionManager: {
-    getSessionId() { return "omp-session-test"; }
+    getSessionId() { return "omp-session-test"; },
+    getSessionFile() { return process.env.CMUX_TEST_OMP_PARENT_SESSION_FILE; }
+  }
+};
+const nestedCtx = {
+  cwd: "/tmp/omp-project",
+  sessionManager: {
+    getSessionId() { return "omp-nested-task-session"; },
+    getSessionFile() { return process.env.CMUX_TEST_OMP_NESTED_SESSION_FILE; }
   }
 };
 const start = Date.now();
-await handlers.get("session_start")({}, ctx);
-await handlers.get("before_agent_start")({ prompt: "hello omp" }, ctx);
+await handlers.get("session_start")({}, parentCtx);
+await handlers.get("before_agent_start")({ prompt: "hello omp" }, parentCtx);
 await handlers.get("agent_end")({
   messages: [
     { role: "user", content: "hello omp" },
     { role: "assistant", content: [{ type: "text", text: "done" }] }
   ],
   stopReason: "completed"
-}, ctx);
+}, parentCtx);
+await handlers.get("session_start")({}, nestedCtx);
+await handlers.get("before_agent_start")({ prompt: "review the storage race" }, nestedCtx);
+await handlers.get("agent_end")({
+  messages: [
+    { role: "user", content: "review the storage race" },
+    { role: "assistant", content: [{ type: "text", text: "nested done" }] }
+  ],
+  stopReason: "completed"
+}, nestedCtx);
 const elapsed = Date.now() - start;
 if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
 """
@@ -440,9 +490,12 @@ if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
             return 1
 
         expected_invocations = 3
-        args_log = wait_for_text(fake_args_log, expected_invocations, timeout=20.0)
-        stdin_log = wait_for_text(fake_stdin_log, expected_invocations * 2, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, expected_invocations * 4, timeout=20.0)
+        args_log = wait_for_stable_text(fake_args_log, expected_invocations, timeout=20.0)
+        stdin_log = wait_for_stable_text(fake_stdin_log, expected_invocations * 2, timeout=20.0)
+        env_log = wait_for_stable_text(fake_env_log, expected_invocations * 4, timeout=20.0)
+        if len([line for line in args_log.splitlines() if line.strip()]) != expected_invocations:
+            print(f"FAIL: nested OMP task session emitted lifecycle hooks: {args_log!r}")
+            return 1
         for expected in [
             "hooks omp session-start",
             "hooks omp prompt-submit",
@@ -456,6 +509,9 @@ if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
             return 1
         if stdin_log.count('"session_id":"omp-session-test"') != 3:
             print(f"FAIL: expected 3 hook payloads carrying the session id, got {stdin_log!r}")
+            return 1
+        if '"session_id":"omp-nested-task-session"' in stdin_log:
+            print(f"FAIL: extension emitted a nested OMP task session id, got {stdin_log!r}")
             return 1
         if '"hook_event_name":"Stop"' not in stdin_log:
             print(f"FAIL: stop hook payload was missing: {stdin_log!r}")

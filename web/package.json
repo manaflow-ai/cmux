@@ -25,7 +25,7 @@
     "db:up": "bash scripts/db-local.sh up",
     "db:url": "bash scripts/db-local.sh url",
     "start": "next start",
-    "test": "bun test",
+    "test": "bash scripts/run-tests.sh",
     "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
     "typecheck": "tsgo --noEmit",
     "lint": "eslint"

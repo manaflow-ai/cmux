@@ -15,6 +15,7 @@ import Testing
 
 struct RoutingTestRuntime: MobileSyncRuntime {
     var transportFactory: any CmxByteTransportFactory
+    var terminalLaneProvider: MobileTerminalLaneProvider? = nil
     var stackAccessTokenProvider: @Sendable () async throws -> String = { "test-stack-token" }
     var stackAccessTokenForceRefresher: @Sendable () async throws -> String = { "test-stack-token" }
     var rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
@@ -53,6 +54,7 @@ actor RoutingHostRouter {
     let terminalInputRecorder = RoutingTerminalInputRecorder()
     private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
+    private var notificationFeedMarkAllReadCount = 0
     private var workspaceCreates: [WorkspaceCreateRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
@@ -165,6 +167,7 @@ actor RoutingHostRouter {
         directoryListRequests
     }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
+    func recordedNotificationFeedMarkAllReadCount() -> Int { notificationFeedMarkAllReadCount }
 
     /// Sendable extract of the request fields the router needs, pulled off the
     /// non-Sendable params dictionary before crossing the Task boundary.
@@ -374,6 +377,12 @@ actor RoutingHostRouter {
                 clientID: info.clientID
             ))
             return try? Self.resultFrame(id: id, result: [:])
+        case "notification.feed.mark_all_read":
+            notificationFeedMarkAllReadCount += 1
+            return try? Self.resultFrame(id: id, result: [
+                "marked": 1,
+                "revision": notificationFeedMarkAllReadCount + 100,
+            ])
         case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         default:
@@ -390,7 +399,7 @@ actor RoutingHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
+    static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
         var error: [String: Any] = ["message": message]
         if let code {
             error["code"] = code
