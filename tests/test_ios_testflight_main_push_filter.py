@@ -164,6 +164,7 @@ def run_decision_scenario(
     event_name: str,
     schedule: Optional[str] = None,
     input_variant: str = "internal",
+    marketing_version_override: str = "",
     prior_sha: Optional[str] = None,
     prior_event: str = "schedule",
     prior_artifact: str = "ios-testflight-build-metadata",
@@ -230,6 +231,7 @@ def run_decision_scenario(
         "eventName": event_name,
         "schedule": schedule,
         "inputVariant": input_variant,
+        "marketingVersionOverride": marketing_version_override,
         "priorRunPages": prior_run_pages,
         "headSha": head_sha,
         "changedFiles": changed_files,
@@ -277,7 +279,10 @@ const context = {{
   eventName: scenario.eventName,
   payload: {{
     schedule: scenario.schedule,
-    inputs: {{ variant: scenario.inputVariant }},
+    inputs: {{
+      marketing_version_override: scenario.marketingVersionOverride,
+      variant: scenario.inputVariant,
+    }},
   }},
   ref: 'refs/heads/main',
   runId: 100,
@@ -286,7 +291,7 @@ const context = {{
 const github = {{
   event: {{
     inputs: {{
-      marketing_version_override: '',
+      marketing_version_override: scenario.marketingVersionOverride,
       variant: scenario.inputVariant,
     }},
   }},
