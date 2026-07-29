@@ -42,11 +42,12 @@ import Testing
     /// refresh token.
     @Test func snapshotDerivesAccessFromCapturedRefreshTokenNotStaleStoredAccess() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        // `accessToken()` returns the stale token; `refreshToken()` the rotated
-        // one — the torn pair the legacy two-await read would hand back. The
-        // stale token is NOT likely-valid, so the resolution must mint.
+        // The store holds the stale token beside the rotated refresh — the torn
+        // pair the legacy two-await read would hand back. The stale token is no
+        // longer fresh, so the live-store resolution must refresh it.
         let client = FakeAuthClient(access: "access-old", refresh: "refresh-new", user: user)
-        // A mint from the captured refresh yields the coherent access token.
+        await client.setStoredAccessTokenStale(true)
+        // The refresh yields the coherent access token.
         await client.setMintedAccessToken("access-new")
         let coordinator = makeCoordinator(client: client)
         coordinator.start()
@@ -68,9 +69,8 @@ import Testing
     /// valid credentials were sitting in the store.
     @Test func snapshotReusesValidStoredAccessTokenWithoutMinting() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        // The stored access is still fresh — the live store reuses it offline.
         let client = FakeAuthClient(access: "access-ok", refresh: "refresh-1", user: user)
-        // The stored access is still valid — the "SDK" reuses it offline.
-        await client.setLikelyValidAccessToken("access-ok")
         let coordinator = makeCoordinator(client: client)
         coordinator.start()
 
@@ -80,5 +80,53 @@ import Testing
         #expect(snapshot.refreshToken == "refresh-1")
         // No network mint happened: the valid stored pair was reused.
         #expect(await client.mintedAccessTokenCount == 0)
+    }
+
+    /// A refreshed access token must be PERSISTED, so repeated captures reuse
+    /// it instead of re-minting per request. Resolving the pair through an
+    /// ephemeral side store refreshed over the network on every capture once
+    /// the stored token aged past its freshness window — the long-lived broker
+    /// source captures per request, so that meant a Stack round-trip (and
+    /// throttling exposure) on every discovery and relay-policy call.
+    @Test func repeatedCapturesReuseThePersistedRefreshedAccessToken() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(access: "access-old", refresh: "refresh-1", user: user)
+        await client.setStoredAccessTokenStale(true)
+        await client.setMintedAccessToken("access-new")
+        let coordinator = makeCoordinator(client: client)
+        coordinator.start()
+
+        let first = try await coordinator.coherentTokenPair()
+        let second = try await coordinator.coherentTokenPair()
+
+        #expect(first.accessToken == "access-new")
+        #expect(second.accessToken == "access-new")
+        // ONE refresh, persisted into the live store; the second capture reused it.
+        #expect(await client.mintedAccessTokenCount == 1)
+    }
+
+    /// An ordinary same-account revalidation (every foreground return) must NOT
+    /// advance the session generation: long-lived operations pin their broker
+    /// credentials to it (the forget flow, the activation runtime's source),
+    /// and a bump on every foreground would permanently starve those pins even
+    /// though the very same session remains signed in. Genuine transitions
+    /// (sign-out, sign-in) still advance it.
+    @Test func sameAccountRevalidationKeepsTheSessionGeneration() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(access: "access", refresh: "refresh", user: user)
+        let coordinator = makeCoordinator(client: client)
+        coordinator.start()
+        _ = try await coordinator.authenticatedSessionSnapshot()
+        let pinned = coordinator.authSessionGeneration
+
+        // The ordinary foreground path: same account, still signed in.
+        await coordinator.revalidateSession()
+
+        #expect(coordinator.authSessionGeneration == pinned)
+
+        // A genuine transition still advances the epoch.
+        await coordinator.signOut()
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.authSessionGeneration != pinned)
     }
 }

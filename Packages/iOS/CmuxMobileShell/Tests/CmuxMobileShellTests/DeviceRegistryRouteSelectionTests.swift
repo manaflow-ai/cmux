@@ -288,19 +288,29 @@ import Testing
         #expect(store.read() == .found(first))
     }
 
-    @Test func deviceIdentityMigratesLegacyUserDefaultsValue() {
+    @Test func deviceIdentityMintsFreshWhenKeychainReportsAbsentDespiteMirror() {
+        // Phone-restore proxy: `UserDefaults` migrated over in the backup, but
+        // the ThisDeviceOnly Keychain item did not — the Keychain
+        // authoritatively reports the id ABSENT. Adopting the mirror here would
+        // give TWO physical devices (the old phone and this restored one) the
+        // same device id, and their registrations would fight over one
+        // (user, device, tag) binding slot, displacing each other on every
+        // reconnect. A fresh id must be minted and persisted instead; the
+        // mirror is trusted only while the Keychain is temporarily unreadable.
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
-        let legacy = "legacy-device-id-\(UUID().uuidString.lowercased())"
-        defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let migratedMirror = "legacy-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(migratedMirror, forKey: "cmux.deviceRegistry.iosDeviceID")
         let store = InMemoryDeviceIdentityStore()
 
         let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
-        // The pre-Keychain id is preserved, not replaced, so the binding slot survives.
-        #expect(resolved == legacy)
-        // And it is promoted into the authoritative store for future reads.
-        #expect(store.read() == .found(legacy))
+        // A fresh identity, never the mirror that may belong to another phone.
+        #expect(resolved != migratedMirror)
+        #expect(UUID(uuidString: resolved) != nil)
+        // Persisted authoritatively, and the mirror now tracks the new id.
+        #expect(store.read() == .found(resolved))
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == resolved)
     }
 
     @Test func deviceIdentitySurvivesUserDefaultsWipe() {
@@ -355,20 +365,21 @@ import Testing
         #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
     }
 
-    @Test func durableDeviceIDDefersWhenLegacyMigrationCannotPersist() {
-        // The Keychain is READABLE (it reports the id absent) but WRITES fail,
-        // and a legacy UserDefaults id exists. Nothing durable holds the id in
-        // that state: advertising the legacy value as durable registers a
-        // binding under an id only the reinstall-volatile mirror holds, so a
-        // delete-and-reinstall wipes it, mints a DIFFERENT Keychain id, and
-        // strands the existing (user, device, tag) slot — the exact failure the
-        // durable store exists to prevent. The binding path must defer instead
-        // and retry until the Keychain confirms the migration persisted.
+    @Test func durableDeviceIDDefersWhenMintCannotPersist() {
+        // The Keychain is READABLE (it reports the id absent) but WRITES fail.
+        // Nothing durable can hold a freshly minted id in that state — only the
+        // reinstall-volatile UserDefaults mirror would — so advertising one
+        // registers a binding a delete-and-reinstall strands: the wipe loses
+        // the id and the next launch mints a different one. The binding path
+        // must defer and retry until the Keychain confirms persistence,
+        // regardless of any mirror value sitting in UserDefaults.
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
-        let legacy = "legacy-device-id-\(UUID().uuidString.lowercased())"
-        defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
+        defaults.set(
+            "legacy-device-id-\(UUID().uuidString.lowercased())",
+            forKey: "cmux.deviceRegistry.iosDeviceID"
+        )
         let store = InMemoryDeviceIdentityStore(writeAlwaysFails: true)
 
         let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
