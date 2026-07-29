@@ -40,6 +40,43 @@ extension CmxIrohHostRuntime {
         }
     }
 
+    /// Runs one registration/policy refresh round now, as if the renewal
+    /// timer had fired, and waits for that round to settle. Called when an
+    /// external signal (a server-directed presence nudge) says broker-side
+    /// state for this binding changed, so the host re-registers and re-reads
+    /// policy within seconds instead of waiting out the hint-expiry renewal.
+    /// Coalesces with an in-flight refresh through the standard pending-replay
+    /// path; no-op unless active. Await-to-settled matters for the caller: a
+    /// refresh that discovers the binding was revoked or REPLACED (different
+    /// binding id) fails closed into the terminal `.failed` phase, and the
+    /// composition root reads the post-refresh snapshot to decide whether a
+    /// full rebuild is needed.
+    ///
+    /// This is deliberately the SAME round the renewal timer runs, including
+    /// its mutate-then-detect ordering (register first, notice a changed
+    /// binding id after): a nudge changes when the round happens, never what
+    /// it does. Teaching a superseded host to stand down without re-taking
+    /// the broker's newest-wins slot needs authoritative disposition from the
+    /// broker, which belongs to the nudge-emission hook (it fires from the
+    /// mutation and knows why), not to this accelerator.
+    public func requestRegistrationRefresh() async {
+        guard lifecyclePhase == .active,
+              registrationRefreshEnabled else { return }
+        scheduleRegistrationRefresh(revision: lifecycleRevision)
+        // Await across the coalesced replay, not just the round that was
+        // running when this call arrived: a signal landing mid-round only
+        // sets the pending bit, and the running round's completion schedules
+        // one replay task. The caller's decision (rebuild on `.failed`) must
+        // observe the state AFTER that replay. The loop is bounded: each
+        // awaited task nils itself on completion unless a replay was pending,
+        // and replays do not self-perpetuate. A retry scheduled after a
+        // transient failure is deliberately NOT awaited (it can be minutes
+        // out); the runtime is not terminally failed in that state.
+        while let task = registrationRefreshTask {
+            await task.value
+        }
+    }
+
     /// Returns current verified private alias material without broker path hints.
     public func lanAdvertisementContext() -> CmxIrohHostLANAdvertisementContext? {
         guard lifecyclePhase == .active,
