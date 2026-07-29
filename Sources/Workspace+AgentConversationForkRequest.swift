@@ -64,25 +64,37 @@ extension Workspace {
             return false
         }
 
-        let startupInputOverride = startupCommandOverride.flatMap {
-            snapshot.customStartupInput(
+        let preparedStartupInput = startupCommandOverride.flatMap {
+            snapshot.preparedCustomStartupInput(
                 command: $0,
                 allowLauncherScript: !sourceIsRemote,
                 allowOversizedInlineInput: sourceIsRemote
             )
         }
-        if startupCommandOverride != nil, startupInputOverride == nil {
+        if startupCommandOverride != nil, preparedStartupInput == nil {
             presentConversationTransferFailure()
             return false
         }
+        var destinationOwnsLauncherScript = false
+        defer {
+            if !destinationOwnsLauncherScript {
+                preparedStartupInput?.removeLauncherScript()
+            }
+        }
+        guard !Task.isCancelled else {
+            return false
+        }
+        let startupInputOverride = preparedStartupInput?.text
 
         if let direction = request.destination.splitDirection {
-            return forkAgentConversation(
+            let didFork = forkAgentConversation(
                 fromPanelId: panelId,
                 snapshot: snapshot,
                 direction: direction,
                 startupInputOverride: startupInputOverride
             ) != nil
+            destinationOwnsLauncherScript = didFork
+            return didFork
         }
 
         switch request.destination {
@@ -91,19 +103,23 @@ extension Workspace {
                   let paneId = paneId(forPanelId: panelId) else {
                 return false
             }
-            return forkAgentConversationToNewTab(
+            let didFork = forkAgentConversationToNewTab(
                 fromPanelId: panelId,
                 snapshot: snapshot,
                 anchorTabId: anchorTabId,
                 paneId: paneId,
                 startupInputOverride: startupInputOverride
             ) != nil
+            destinationOwnsLauncherScript = didFork
+            return didFork
         case .newWorkspace:
-            return forkAgentConversationToNewWorkspace(
+            let didFork = forkAgentConversationToNewWorkspace(
                 fromPanelId: panelId,
                 snapshot: snapshot,
                 startupInputOverride: startupInputOverride
             )
+            destinationOwnsLauncherScript = didFork
+            return didFork
         case .right, .left, .top, .bottom:
             return false
         }

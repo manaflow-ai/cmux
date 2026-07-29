@@ -761,6 +761,21 @@ enum AgentResumeCommandBuilder {
 struct SessionRestorableAgentSnapshot: Codable, Sendable {
     static let maxInlineStartupInputBytes = 900
 
+    struct PreparedStartupInput: Sendable {
+        let text: String
+        private let launcherScriptURL: URL?
+
+        init(text: String, launcherScriptURL: URL? = nil) {
+            self.text = text
+            self.launcherScriptURL = launcherScriptURL
+        }
+
+        func removeLauncherScript(fileManager: FileManager = .default) {
+            guard let launcherScriptURL else { return }
+            try? fileManager.removeItem(at: launcherScriptURL)
+        }
+    }
+
     var kind: RestorableAgentKind
     var sessionId: String
     var workingDirectory: String?
@@ -815,7 +830,25 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         allowLauncherScript: Bool = true,
         allowOversizedInlineInput: Bool = false
     ) -> String? {
-        startupInput(
+        preparedCustomStartupInput(
+            command: command,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript,
+            allowOversizedInlineInput: allowOversizedInlineInput
+        )?.text
+    }
+
+    /// Prepares cross-harness startup input and tracks any private script until
+    /// the destination terminal takes ownership of it.
+    func preparedCustomStartupInput(
+        command: String,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false
+    ) -> PreparedStartupInput? {
+        preparedStartupInput(
             command: command,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
@@ -833,13 +866,31 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         allowOversizedInlineInput: Bool = false,
         requireLauncherScript: Bool = false
     ) -> String? {
+        preparedStartupInput(
+            command: command,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript,
+            allowOversizedInlineInput: allowOversizedInlineInput,
+            requireLauncherScript: requireLauncherScript
+        )?.text
+    }
+
+    private func preparedStartupInput(
+        command: String?,
+        fileManager: FileManager,
+        temporaryDirectory: URL,
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false,
+        requireLauncherScript: Bool = false
+    ) -> PreparedStartupInput? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
         guard requireLauncherScript || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
-            return inlineInput
+            return PreparedStartupInput(text: inlineInput)
         }
         guard requireLauncherScript || !allowOversizedInlineInput else {
-            return inlineInput
+            return PreparedStartupInput(text: inlineInput)
         }
         guard allowLauncherScript else { return nil }
         guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
@@ -853,7 +904,11 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         }
 
         let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+        guard scriptInput.utf8.count <= Self.maxInlineStartupInputBytes else {
+            try? fileManager.removeItem(at: scriptURL)
+            return nil
+        }
+        return PreparedStartupInput(text: scriptInput, launcherScriptURL: scriptURL)
     }
 }
 

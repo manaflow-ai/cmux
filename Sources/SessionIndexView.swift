@@ -1062,6 +1062,11 @@ enum SessionTranscriptLoader {
     private static let maxPreviewTurns = 500
     private static let maxTurnTextCharacters = 40_000
     private static let newlineByte: UInt8 = 10
+    private static let latestTranscriptPageBytes = 4 * 1024 * 1024
+    private static let latestTranscriptMaximumPageCount = 8
+    private static let openingTranscriptByteLimit = 4 * 1024 * 1024
+    private static let openCodeRowsPerRetainedTurn = 4
+    private static let openCodeOpeningRowLimit = 512
 
     // Wrapping `Data(string.utf8)` in a helper keeps large needle array literals
     // cheap to type-check. The Xcode 27 / Swift 6.4 expression solver otherwise
@@ -1261,12 +1266,19 @@ enum SessionTranscriptLoader {
             }
             return coalesce(mapped, retention: retention)
         }
+        if retention.keepsLatestTurns {
+            return try loadLatestSynchronously(
+                from: url,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                retention: retention
+            )
+        }
 
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
         var turns: [SessionTranscriptTurn] = []
-        var latestTurns = SessionTranscriptLatestCollector(retention: retention)
         var lineData = Data()
         lineData.reserveCapacity(64 * 1024)
         var lineIndex = 0
@@ -1281,20 +1293,16 @@ enum SessionTranscriptLoader {
                 isSkippingOversizedLine = false
                 oversizedPreviewRole = nil
             }
-            guard retention.keepsLatestTurns || turns.count < retention.limit else {
+            guard turns.count < retention.limit else {
                 didHitTurnLimit = true
                 return
             }
             guard !isSkippingOversizedLine else {
                 if let oversizedPreviewRole {
                     let turn = largeRecordTurn(id: lineIndex, role: oversizedPreviewRole)
-                    if retention.keepsLatestTurns {
-                        latestTurns.append(turn)
-                    } else {
-                        turns.append(turn)
-                    }
+                    turns.append(turn)
                 }
-                didHitTurnLimit = !retention.keepsLatestTurns && turns.count >= retention.limit
+                didHitTurnLimit = turns.count >= retention.limit
                 return
             }
             guard let parsed = parseLineData(
@@ -1305,12 +1313,8 @@ enum SessionTranscriptLoader {
             ) else {
                 return
             }
-            if retention.keepsLatestTurns {
-                latestTurns.append(parsed)
-            } else {
-                turns.append(parsed)
-            }
-            didHitTurnLimit = !retention.keepsLatestTurns && turns.count >= retention.limit
+            turns.append(parsed)
+            didHitTurnLimit = turns.count >= retention.limit
         }
 
         func appendSegment(_ segment: Data.SubSequence) {
@@ -1363,13 +1367,75 @@ enum SessionTranscriptLoader {
         if !didHitTurnLimit, !lineData.isEmpty || isSkippingOversizedLine {
             finishLine()
         }
-        if retention.keepsLatestTurns {
-            return coalesce(latestTurns.turns, retention: retention)
-        }
         if didHitTurnLimit {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
 
+        return coalesce(turns, retention: retention)
+    }
+
+    private static func loadLatestSynchronously(
+        from url: URL,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
+        retention: SessionTranscriptRetention
+    ) throws -> [SessionTranscriptTurn] {
+        let reader = SessionIndexJSONLReader(maximumRecordBytes: maxPreviewRecordBytes)
+        var newestFirst: [SessionTranscriptTurn] = []
+        var retainedTextBytes = 0
+        reader.fromTailPages(
+            url: url,
+            maxBytesPerPage: latestTranscriptPageBytes,
+            maximumPageCount: latestTranscriptMaximumPageCount
+        ) { object in
+            guard !Task.isCancelled else { return true }
+            guard let turn = parseLine(
+                object,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                id: -(newestFirst.count + 1)
+            ) else {
+                return false
+            }
+            let boundedTurn = retention.bounded(turn)
+            newestFirst.append(boundedTurn)
+            let byteTotal = retainedTextBytes.addingReportingOverflow(
+                retention.retainedByteCost(of: boundedTurn)
+            )
+            retainedTextBytes = byteTotal.overflow ? .max : byteTotal.partialValue
+            if newestFirst.count >= retention.limit {
+                return true
+            }
+            return retention.textByteLimit.map { retainedTextBytes >= $0 } ?? false
+        }
+        try Task.checkCancellation()
+
+        var openingUser: SessionTranscriptTurn?
+        reader.fromStart(
+            url: url,
+            maxBytes: openingTranscriptByteLimit
+        ) { object in
+            guard !Task.isCancelled else { return true }
+            guard let turn = parseLine(
+                object,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                id: .min
+            ), turn.role == .user else {
+                return false
+            }
+            openingUser = retention.bounded(turn)
+            return true
+        }
+        try Task.checkCancellation()
+
+        var turns = Array(newestFirst.reversed())
+        if let openingUser,
+           !turns.contains(where: {
+               $0.role == openingUser.role && $0.text == openingUser.text
+           }) {
+            turns = [openingUser] + Array(turns.suffix(max(0, retention.limit - 1)))
+        }
         return coalesce(turns, retention: retention)
     }
 
@@ -1485,13 +1551,37 @@ enum SessionTranscriptLoader {
         defer { sqlite3_close(db) }
         _ = sqlite3_busy_timeout(db, 50)
 
-        let sql = """
-            SELECT m.id, m.data, p.data
-            FROM message m
-            LEFT JOIN part p ON p.message_id = m.id
-            WHERE m.session_id = ?
-            ORDER BY m.time_created, m.id, p.time_created, p.id
-            """
+        let rowLimit = min(retention.limit, 2_500) * openCodeRowsPerRetainedTurn
+        let sql: String
+        if retention.keepsLatestTurns {
+            sql = """
+                SELECT message_id, message_data, part_data
+                FROM (
+                    SELECT
+                        m.id AS message_id,
+                        m.data AS message_data,
+                        p.data AS part_data,
+                        m.time_created AS message_time_created,
+                        p.time_created AS part_time_created,
+                        p.id AS part_id
+                    FROM message m
+                    LEFT JOIN part p ON p.message_id = m.id
+                    WHERE m.session_id = ?
+                    ORDER BY m.time_created DESC, m.id DESC, p.time_created DESC, p.id DESC
+                    LIMIT ?
+                )
+                ORDER BY message_time_created, message_id, part_time_created, part_id
+                """
+        } else {
+            sql = """
+                SELECT m.id, m.data, p.data
+                FROM message m
+                LEFT JOIN part p ON p.message_id = m.id
+                WHERE m.session_id = ?
+                ORDER BY m.time_created, m.id, p.time_created, p.id
+                LIMIT ?
+                """
+        }
         var stmt: OpaquePointer?
         let prepareResult = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
         guard prepareResult == SQLITE_OK, let stmt else {
@@ -1502,9 +1592,11 @@ enum SessionTranscriptLoader {
         defer { sqlite3_finalize(stmt) }
 
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        let bindResult = sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
-        guard bindResult == SQLITE_OK else {
-            let message = sqliteMessage(db) ?? "SQLite bind failed with code \(bindResult)"
+        let bindSessionResult = sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
+        let bindLimitResult = sqlite3_bind_int64(stmt, 2, Int64(rowLimit))
+        guard bindSessionResult == SQLITE_OK, bindLimitResult == SQLITE_OK else {
+            let message = sqliteMessage(db)
+                ?? "SQLite bind failed with codes \(bindSessionResult), \(bindLimitResult)"
             throw SessionTranscriptLoadError.databaseError(message)
         }
 
@@ -1545,13 +1637,97 @@ enum SessionTranscriptLoader {
         }
 
         if retention.keepsLatestTurns {
-            return coalesce(latestTurns.turns, retention: retention)
+            var retainedTurns = latestTurns.turns
+            if let openingUser = try loadOpenCodeOpeningUserTurn(
+                db: db,
+                sessionId: sessionId
+            ), !retainedTurns.contains(where: {
+                $0.role == openingUser.role && $0.text == openingUser.text
+            }) {
+                retainedTurns = [openingUser]
+                    + Array(retainedTurns.suffix(max(0, retention.limit - 1)))
+            }
+            return coalesce(retainedTurns, retention: retention)
         }
         if didHitTurnLimit {
             appendTurnLimitMarker(to: &turns, id: turnId)
         }
 
         return coalesce(turns, retention: retention)
+    }
+
+    private static func loadOpenCodeOpeningUserTurn(
+        db: OpaquePointer,
+        sessionId: String
+    ) throws -> SessionTranscriptTurn? {
+        let sql = """
+            SELECT m.id, m.data, p.data
+            FROM message m
+            LEFT JOIN part p ON p.message_id = m.id
+            WHERE m.session_id = ?
+            ORDER BY m.time_created, m.id, p.time_created, p.id
+            LIMIT ?
+            """
+        var stmt: OpaquePointer?
+        let prepareResult = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+        guard prepareResult == SQLITE_OK, let stmt else {
+            let message = sqliteMessage(db) ?? "SQLite prepare failed with code \(prepareResult)"
+            sqlite3_finalize(stmt)
+            throw SessionTranscriptLoadError.databaseError(message)
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let SQLITE_TRANSIENT_FN = unsafeBitCast(
+            OpaquePointer(bitPattern: -1),
+            to: sqlite3_destructor_type.self
+        )
+        let bindSessionResult = sqlite3_bind_text(
+            stmt,
+            1,
+            sessionId,
+            -1,
+            SQLITE_TRANSIENT_FN
+        )
+        let bindLimitResult = sqlite3_bind_int64(
+            stmt,
+            2,
+            Int64(openCodeOpeningRowLimit)
+        )
+        guard bindSessionResult == SQLITE_OK, bindLimitResult == SQLITE_OK else {
+            let message = sqliteMessage(db)
+                ?? "SQLite bind failed with codes \(bindSessionResult), \(bindLimitResult)"
+            throw SessionTranscriptLoadError.databaseError(message)
+        }
+
+        var currentMessageID: String?
+        var currentMessageRole: SessionTranscriptRole = .event
+        var rowID = 0
+        var stepResult = sqlite3_step(stmt)
+        while stepResult == SQLITE_ROW {
+            try Task.checkCancellation()
+            let messageID = sqliteText(stmt, 0) ?? ""
+            if currentMessageID != messageID {
+                currentMessageID = messageID
+                currentMessageRole = openCodeMessageRole(from: sqliteText(stmt, 1)) ?? .event
+            }
+            if currentMessageRole == .user,
+               let partJSON = sqliteText(stmt, 2),
+               let turn = parseOpenCodePart(
+                   partJSON,
+                   messageRole: currentMessageRole,
+                   id: rowID
+               ),
+               turn.role == .user {
+                return turn
+            }
+            rowID += 1
+            stepResult = sqlite3_step(stmt)
+        }
+        guard stepResult == SQLITE_DONE else {
+            let message = sqliteMessage(db) ?? "SQLite step failed with code \(stepResult)"
+            throw SessionTranscriptLoadError.databaseError(message)
+        }
+        return nil
     }
 
     private static func loadHermesAgentSynchronously(
