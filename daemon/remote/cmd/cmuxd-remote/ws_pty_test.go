@@ -430,6 +430,95 @@ func TestAttachRPCSharedStartSurvivesOwnerCancellation(t *testing.T) {
 	}
 }
 
+func TestAttachRPCSharedStartDropsWaitersCanceledBeforePublication(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	connectionCtx, cancelConnection := context.WithCancel(context.Background())
+	ownerResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			connectionCtx,
+			"connection-canceled-session",
+			"owner",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		ownerResult <- err
+	}()
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("start owner never attempted PTY allocation")
+	}
+
+	waiterDoneObserved := make(chan struct{}, 1)
+	releaseWaiterDone := make(chan struct{})
+	waiterReleased := false
+	defer func() {
+		if !waiterReleased {
+			close(releaseWaiterDone)
+		}
+	}()
+	waiterResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			gatedDoneContext{
+				Context:  connectionCtx,
+				observed: waiterDoneObserved,
+				release:  releaseWaiterDone,
+			},
+			"connection-canceled-session",
+			"waiter",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		waiterResult <- err
+	}()
+	select {
+	case <-waiterDoneObserved:
+	case <-time.After(time.Second):
+		close(releaseStart)
+		t.Fatal("same-connection waiter did not join the in-flight start")
+	}
+
+	cancelConnection()
+	close(releaseStart)
+	if err := <-ownerResult; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled start owner error = %v, want context canceled", err)
+	}
+
+	hub.mu.Lock()
+	_, published := hub.sessions[persistentPTYSessionKey("connection-canceled-session")]
+	hub.mu.Unlock()
+	if published {
+		t.Fatal("start published a session for waiters canceled before publication")
+	}
+
+	close(releaseWaiterDone)
+	waiterReleased = true
+	if err := <-waiterResult; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled start waiter error = %v, want context canceled", err)
+	}
+}
+
 func TestAttachRPCFastExitCoalescedWaitersShareGeneration(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
 	t.Cleanup(hub.closeAll)
