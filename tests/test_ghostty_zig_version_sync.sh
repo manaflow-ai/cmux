@@ -26,21 +26,18 @@ fi
 for consumer in \
   "$ROOT_DIR/scripts/install-zig-ci.sh" \
   "$ROOT_DIR/scripts/build-ghostty-cli-helper.sh"; do
-  if ! grep -Fq 'ghostty_minimum_zig_version "$REPO_ROOT"' "$consumer"; then
+  if ! grep -Eq 'ghostty_minimum_zig_version[[:space:]]+' "$consumer"; then
     echo "$(basename "$consumer") does not use the shared Ghostty Zig version" >&2
     exit 1
   fi
 done
 
-if ! awk '
-  /^  workflow-guard-tests:$/ { in_job = 1; next }
-  in_job && /^  [[:alnum:]_-]+:$/ { exit }
-  in_job && index($0, "git submodule update --init --depth 1 ghostty") { found = 1 }
-  END { exit !found }
-' "$ROOT_DIR/.github/workflows/ci.yml"; then
-  echo "workflow-guard-tests does not initialize Ghostty before reading its Zig manifest" >&2
-  exit 1
-fi
+# Every workflow command that reads Ghostty's Zig manifest must initialize the
+# submodule earlier in the same job. Scan all workflows so a new consumer is
+# covered automatically instead of maintaining a list of job names.
+python3 \
+  "$ROOT_DIR/tests/check_ghostty_zig_workflows.py" \
+  "$ROOT_DIR/.github/workflows"
 
 tui_workflows=(
   "$ROOT_DIR/.github/workflows/cmux-tui-build-package.yml"
@@ -64,6 +61,12 @@ if [[ "$setup_count" -eq 0 ||
       "$helper_count" -ne "$setup_count" ||
       "$version_count" -ne "$setup_count" ]]; then
   echo "TUI setup-zig steps do not all derive their version from Ghostty" >&2
+  exit 1
+fi
+
+if grep -Fq 'run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)"' \
+  "${tui_workflows[@]}"; then
+  echo "TUI workflow hides Ghostty Zig resolver failures inside echo" >&2
   exit 1
 fi
 
