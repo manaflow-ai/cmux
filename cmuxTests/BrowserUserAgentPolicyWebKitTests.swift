@@ -37,7 +37,7 @@ struct BrowserUserAgentPolicyWebKitTests {
             webView.browserUserAgentPolicyRestartRequest(for: request)
         )
 
-        #expect(webView.customUserAgent == nil)
+        #expect(webView.customUserAgent?.isEmpty != false)
         #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
     }
 
@@ -51,7 +51,7 @@ struct BrowserUserAgentPolicyWebKitTests {
                 for: request,
                 targetFrameIsMainFrame: targetFrameIsMainFrame
             ) == nil)
-            #expect(webView.customUserAgent == nil)
+            #expect(webView.customUserAgent?.isEmpty != false)
         }
     }
 

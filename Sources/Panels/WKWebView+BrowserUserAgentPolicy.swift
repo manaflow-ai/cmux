@@ -6,7 +6,8 @@ extension WKWebView {
     @discardableResult
     func applyBrowserUserAgentPolicy(for url: URL?) -> Bool {
         let resolvedUserAgent = BrowserUserAgentPolicy.system.customUserAgent(for: url)
-        guard customUserAgent != resolvedUserAgent else { return false }
+        let currentUserAgent = customUserAgent.flatMap { $0.isEmpty ? nil : $0 }
+        guard currentUserAgent != resolvedUserAgent else { return false }
         customUserAgent = resolvedUserAgent
         return true
     }

@@ -295,6 +295,9 @@ struct CommandClickHTMLOpenRoutingTests {
         ))
         let firstBrowser = try #require(workspace.panels.values.compactMap { $0 as? BrowserPanel }.first)
         firstBrowser.isMainFrameProvisionalNavigationActive = true
+        firstBrowser.navigationDelegate?.recordAttemptedRequest(URLRequest(
+            url: fixtureDirectory.appendingPathComponent("different.html")
+        ))
 
         #expect(CommandClickFileOpenRouter.openInCmux(
             workspace: workspace,
