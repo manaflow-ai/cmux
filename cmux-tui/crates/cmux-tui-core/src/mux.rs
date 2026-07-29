@@ -1391,6 +1391,10 @@ pub struct Mux {
     deadline_fanout_pool: DeadlineFanoutPool,
     kitty_image_budget: Mutex<KittyImageBudgetState>,
     kitty_image_budget_changed: std::sync::Condvar,
+    #[cfg(debug_assertions)]
+    terminal_host_reconnect_completion_failures: AtomicU64,
+    #[cfg(debug_assertions)]
+    terminal_host_test_disconnect_after_spawn_ms: AtomicU64,
     #[cfg(test)]
     kitty_image_budget_operation: Mutex<Option<KittyImageBudgetOperationHook>>,
     cell_pixel_lifecycle: Mutex<()>,
@@ -1637,6 +1641,20 @@ impl Mux {
             deadline_fanout_pool: DeadlineFanoutPool::new(),
             kitty_image_budget: Mutex::new(KittyImageBudgetState::default()),
             kitty_image_budget_changed: std::sync::Condvar::new(),
+            #[cfg(debug_assertions)]
+            terminal_host_reconnect_completion_failures: AtomicU64::new(
+                std::env::var("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+            ),
+            #[cfg(debug_assertions)]
+            terminal_host_test_disconnect_after_spawn_ms: AtomicU64::new(
+                std::env::var("CMUX_TUI_TEST_DISCONNECT_HOST_AFTER_SPAWN_MS")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+            ),
             #[cfg(test)]
             kitty_image_budget_operation: Mutex::new(None),
             cell_pixel_lifecycle: Mutex::new(()),
@@ -2873,14 +2891,32 @@ impl Mux {
             }
         };
         drop(registry);
-        lifecycle_ready
-            && surface.is_some_and(|surface| {
-                self.reconcile_reconnected_kitty_image_surface(&surface, applied_kitty_limits)
+        if !lifecycle_ready {
+            return false;
+        }
+        #[cfg(debug_assertions)]
+        if self
+            .terminal_host_reconnect_completion_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+                (remaining > 0).then(|| remaining - 1)
             })
+            .is_ok()
+        {
+            return false;
+        }
+        surface.is_some_and(|surface| {
+            self.reconcile_reconnected_kitty_image_surface(&surface, applied_kitty_limits)
+        })
     }
 
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
         self.client_sizing_lifecycle.lock().unwrap()
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn take_test_terminal_host_disconnect_after_spawn(&self) -> Option<Duration> {
+        let delay_ms = self.terminal_host_test_disconnect_after_spawn_ms.swap(0, Ordering::AcqRel);
+        (delay_ms > 0).then(|| Duration::from_millis(delay_ms))
     }
 
     pub fn begin_pairing(

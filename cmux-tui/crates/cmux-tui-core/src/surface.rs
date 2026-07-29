@@ -1892,6 +1892,7 @@ impl Surface {
         // control-write failure can convert this Err into a live orphan.
         std::thread::Builder::new().name(format!("surface-{id}-host")).spawn({
             let surface = surface.clone();
+            let mux = mux.clone();
             let scrollback = opts.scrollback;
             move || {
                 let mut sequence_boundary = sequence_boundary;
@@ -2380,35 +2381,53 @@ impl Surface {
                         };
                         drop(geometry);
                         pty.request_frame(generation);
+                        if !reconnect_mux.terminal_host_reconnected(
+                            surface.id,
+                            &identity,
+                            replacement_snapshot.kitty_state.limits,
+                        ) {
+                            replacement_control_responses.fail_all();
+                            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+                                && host.identity() == identity
+                            {
+                                host.disconnect();
+                            }
+                            pty.host_connection_state.store(
+                                TerminalHostConnectionState::Reconnecting as u8,
+                                Ordering::Release,
+                            );
+                            if !reconnect_mux.terminal_host_connection_lost(surface.id, &identity) {
+                                pty.host_connection_state.store(
+                                    TerminalHostConnectionState::Failed as u8,
+                                    Ordering::Release,
+                                );
+                                return;
+                            }
+                            if !retry.wait_or_fail(pty) {
+                                return;
+                            }
+                            continue;
+                        }
+                        reconnect_mux.reconcile_deferred_cell_pixel_ack(
+                            surface.id,
+                            replacement_snapshot.cell_pixels,
+                        );
+                        reconnect_mux.emit(MuxEvent::TitleChanged {
+                            surface: surface.id,
+                            title: title.into(),
+                        });
+                        reconnect_mux.emit(MuxEvent::SurfaceResized {
+                            surface: surface.id,
+                            cols: replacement_snapshot.cols,
+                            rows: replacement_snapshot.rows,
+                            reservation_id: None,
+                        });
                         reader = replacement_reader;
                         control_responses = replacement_control_responses;
                         sequence_boundary = replacement_snapshot.sequence_boundary;
                         protocol_version = replacement_protocol_version;
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
-                        if let Some(mux) = mux.upgrade() {
-                            mux.reconcile_deferred_cell_pixel_ack(
-                                surface.id,
-                                replacement_snapshot.cell_pixels,
-                            );
-                            mux.emit(MuxEvent::TitleChanged {
-                                surface: surface.id,
-                                title: title.into(),
-                            });
-                            mux.emit(MuxEvent::SurfaceResized {
-                                surface: surface.id,
-                                cols: replacement_snapshot.cols,
-                                rows: replacement_snapshot.rows,
-                                reservation_id: None,
-                            });
-                            if !mux.terminal_host_reconnected(
-                                surface.id,
-                                &identity,
-                                replacement_snapshot.kitty_state.limits,
-                            ) {
-                                return;
-                            }
-                        }
                         continue 'connection;
                     }
                 }
@@ -2433,6 +2452,22 @@ impl Surface {
             && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
         {
             host.commit_launched_host();
+        }
+        #[cfg(debug_assertions)]
+        if let Some(delay) =
+            mux.upgrade().and_then(|mux| mux.take_test_terminal_host_disconnect_after_spawn())
+        {
+            let test_surface = surface.clone();
+            let _ = std::thread::Builder::new().name("terminal-host-test-disconnect".into()).spawn(
+                move || {
+                    std::thread::sleep(delay);
+                    if let Some(pty) = test_surface.as_pty()
+                        && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+                    {
+                        host.disconnect();
+                    }
+                },
+            );
         }
         Ok(surface)
     }
