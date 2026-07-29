@@ -108,6 +108,38 @@ import Testing
         #expect(result.timedOut == true)
     }
 
+    @Test func keepsExitedGroupLeaderOwnedUntilTimeoutEscalation() async throws {
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-command-runner-leader-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+
+        let command = Task {
+            await runner.run(
+                directory: tempDir,
+                executable: "sh",
+                arguments: [
+                    "-c",
+                    "printf '%s' \"$$\" > \"$1\"; sleep 5 &",
+                    "cmux-command-runner-test",
+                    pidFile.path,
+                ],
+                timeout: 1
+            )
+        }
+        let leaderPID = try await waitForProcessID(in: pidFile)
+
+        #expect(
+            try await waitForZombieProcess(leaderPID),
+            "the exited group leader must remain unreaped so its process-group ID cannot be reused before escalation"
+        )
+
+        let result = try await expectCompletes(within: 4) {
+            await command.value
+        }
+        #expect(result.timedOut == true)
+        #expect(try await waitForProcessExit(leaderPID))
+    }
+
     @Test func zeroTimeoutTerminatesWithoutCrashing() async {
         // A 0s deadline fires the timer immediately; arming it only after launch (and
         // guarding terminate with isRunning) must yield a timed-out result rather than
@@ -409,6 +441,23 @@ import Testing
             try await Task.sleep(for: .milliseconds(20))
         }
         return Darwin.kill(processID, 0) == -1 && errno == ESRCH
+    }
+
+    private func waitForZombieProcess(_ processID: pid_t) async throws -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .milliseconds(700))
+        while clock.now < deadline {
+            var info = proc_bsdinfo()
+            let infoSize = Int32(MemoryLayout.size(ofValue: info))
+            let bytes = withUnsafeMutablePointer(to: &info) {
+                proc_pidinfo(processID, PROC_PIDTBSDINFO, 0, $0, infoSize)
+            }
+            if bytes == infoSize, info.pbi_status == SZOMB {
+                return true
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        return false
     }
 
     /// The guard deadline in ``expectCompletes(within:_:sourceLocation:)`` won the race

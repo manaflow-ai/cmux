@@ -438,6 +438,58 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func offscreenExpandedNodeRestoresExpansionAfterHydration() async throws {
+        let store = FileExplorerStore()
+        let directories = (0..<1_000).map {
+            FileExplorerNode(
+                name: "Directory\($0)",
+                path: "/project/Directory\($0)",
+                isDirectory: true
+            )
+        }
+        let hydratedDirectory = directories.last!
+        store.rootPath = "/project"
+        store.rootNodes = directories
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let scrollView = hostInScrollView(outlineView)
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+
+        store.expand(node: hydratedDirectory)
+        hydratedDirectory.children = [
+            FileExplorerNode(
+                name: "Child.swift",
+                path: "\(hydratedDirectory.path)/Child.swift",
+                isDirectory: false
+            ),
+        ]
+        outlineView.resetMetrics()
+        coordinator.enqueueOutlineChange(
+            .nodeChanged(node: hydratedDirectory, reloadChildren: true)
+        )
+
+        try await waitFor("offscreen expansion restored") {
+            outlineView.isItemExpanded(hydratedDirectory)
+        }
+        #expect(outlineView.reloadDataCallCount == 0)
+        #expect(outlineView.reloadItemCallCount == 1)
+    }
+
+    @Test
     func distinctNodeBurstFallsBackToOneOutlineReload() async throws {
         let store = FileExplorerStore()
         let nodes = (0..<1_000).map {
