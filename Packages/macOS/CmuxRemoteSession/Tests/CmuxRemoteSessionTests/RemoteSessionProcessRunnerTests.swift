@@ -112,6 +112,30 @@ struct RemoteSessionProcessRunnerTests {
         #expect(ProcessInfo.processInfo.systemUptime - startedAt < 4)
     }
 
+    @Test("A child retaining unread stdin cannot delay the process timeout")
+    func unreadStdinCannotDelayProcessTimeout() {
+        let runner = RemoteSessionProcessRunner()
+        let startedAt = ProcessInfo.processInfo.systemUptime
+
+        #expect {
+            try runner.run(
+                RemoteProcessRequest(
+                    executable: "/bin/sleep",
+                    arguments: ["5"],
+                    stdin: Data(repeating: 0x41, count: 1_048_576),
+                    timeout: 1
+                ),
+                operation: nil
+            )
+        } throws: { error in
+            let nsError = error as NSError
+            return nsError.domain == "cmux.remote.process"
+                && nsError.code == 2
+                && nsError.localizedDescription == "sleep timed out after 1s"
+        }
+        #expect(ProcessInfo.processInfo.systemUptime - startedAt < 4)
+    }
+
     @Test("Streams a local file through stdin")
     func streamsFileStdin() throws {
         let fileManager = FileManager.default
