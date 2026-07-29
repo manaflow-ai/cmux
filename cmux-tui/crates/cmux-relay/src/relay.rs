@@ -1645,6 +1645,17 @@ mod tests {
         lane: Option<LaneToken>,
         generation: Option<u64>,
     ) -> String {
+        let issued_at_unix = unix_timestamp(SystemTime::now()).unwrap();
+        provider_ticket_expiring_at(config, permission, lane, generation, issued_at_unix + 60)
+    }
+
+    fn provider_ticket_expiring_at(
+        config: &RelayConfig,
+        permission: RelayPermission,
+        lane: Option<LaneToken>,
+        generation: Option<u64>,
+        expires_at_unix: u64,
+    ) -> String {
         let role = match permission {
             RelayPermission::Register => RelayRole::Daemon,
             RelayPermission::Connect => RelayRole::Client,
@@ -1667,7 +1678,7 @@ mod tests {
                 lane,
                 generation,
                 issued_at_unix,
-                expires_at_unix: issued_at_unix + 60,
+                expires_at_unix,
             })
             .unwrap()
     }
@@ -1932,6 +1943,83 @@ mod tests {
         let ready = RelayControl::Ready { circuit, lane, generation };
         assert_eq!(receive_control(&mut client_circuit).await, ready);
         assert_eq!(receive_control(&mut daemon_circuit).await, ready);
+    }
+
+    #[tokio::test]
+    async fn delegated_join_tickets_do_not_outlive_either_provider_ticket() {
+        let config = RelayConfig {
+            ticket_secret: Some(vec![17; 32]),
+            ticket_issuer: "relay-expiry.test".into(),
+            join_ticket_ttl: Duration::from_secs(120),
+            ..RelayConfig::default()
+        };
+        let relay = Relay::new(config.clone()).unwrap();
+        let now = unix_timestamp(SystemTime::now()).unwrap();
+        let daemon_expiry = now + 30;
+        let client_expiry = now + 45;
+        let lane = LaneToken("interactive".into());
+        let generation = 23;
+        let (daemon, _daemon_outbound, _daemon_shutdown) = test_peer(1, &config);
+        relay
+            .register(
+                daemon,
+                REMOTE_PROTOCOL_VERSION,
+                "slot-a".into(),
+                provider_ticket_expiring_at(
+                    &config,
+                    RelayPermission::Register,
+                    None,
+                    None,
+                    daemon_expiry,
+                ),
+            )
+            .await
+            .unwrap();
+        let (client, _client_outbound, _client_shutdown) = test_peer(2, &config);
+        let circuit = relay
+            .allocate(
+                &client,
+                REMOTE_PROTOCOL_VERSION,
+                "slot-a".into(),
+                provider_ticket_expiring_at(
+                    &config,
+                    RelayPermission::Connect,
+                    Some(lane.clone()),
+                    Some(generation),
+                    client_expiry,
+                ),
+                lane.clone(),
+                generation,
+            )
+            .await
+            .unwrap();
+        let state = relay.inner.state.lock().await;
+        let allocated = state.circuits.get(&circuit).unwrap();
+        for (role, ticket) in [
+            (RelayRole::Client, &allocated.client_join_ticket),
+            (RelayRole::Daemon, &allocated.daemon_join_ticket),
+        ] {
+            let claims = relay
+                .inner
+                .tickets
+                .verify_join(
+                    ticket,
+                    TicketExpectation {
+                        permission: RelayPermission::Join,
+                        role,
+                        slot: "slot-a",
+                        circuit: Some(&circuit),
+                        lane: Some(&lane),
+                        generation: Some(generation),
+                        require_route_binding: true,
+                    },
+                    SystemTime::now(),
+                )
+                .unwrap()
+                .unwrap();
+            assert!(claims.expires_at_unix <= daemon_expiry);
+            assert!(claims.expires_at_unix <= client_expiry);
+        }
     }
 
     #[tokio::test]

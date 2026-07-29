@@ -521,7 +521,13 @@ impl PersistenceCoordinator {
             let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
                 #[cfg(test)]
                 hooks.before_write(revision)?;
+                #[cfg(test)]
+                FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| {
+                    fail.set(hooks.take_parent_sync_failure());
+                });
                 let result = atomic_json(&path, &snapshot).map_err(|error| error.to_string());
+                #[cfg(test)]
+                FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.set(false));
                 #[cfg(test)]
                 hooks.after_write(result.is_ok());
                 result
@@ -591,6 +597,7 @@ struct PersistenceTestHooks {
     writes_started: std::sync::atomic::AtomicUsize,
     writes_succeeded: std::sync::atomic::AtomicUsize,
     fail_next: std::sync::atomic::AtomicUsize,
+    fail_next_parent_sync: std::sync::atomic::AtomicUsize,
     started_revisions: StdMutex<Vec<u64>>,
     blocked: StdMutex<bool>,
     released: std::sync::Condvar,
@@ -628,6 +635,14 @@ impl PersistenceTestHooks {
         if succeeded {
             self.writes_succeeded.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
+    }
+
+    fn take_parent_sync_failure(&self) -> bool {
+        use std::sync::atomic::Ordering;
+
+        self.fail_next_parent_sync
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| remaining.checked_sub(1))
+            .is_ok()
     }
 
     fn block(&self) {
@@ -1013,6 +1028,14 @@ impl AuthDatabase {
     #[cfg(test)]
     pub(crate) fn test_fail_next_persistence_writes(&self, count: usize) {
         self.persistence.hooks.fail_next.store(count, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_fail_next_parent_syncs(&self, count: usize) {
+        self.persistence
+            .hooks
+            .fail_next_parent_sync
+            .store(count, std::sync::atomic::Ordering::SeqCst);
     }
 
     #[cfg(test)]
@@ -1848,6 +1871,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn published_known_daemon_state_remains_live_after_parent_sync_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let public_key = StaticIdentity::generate().unwrap().public_key();
+        let fingerprint = public_key_fingerprint(&public_key);
+        FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.set(true));
+
+        let error =
+            store.pin_daemon("host".into(), public_key, Vec::new()).await.unwrap_err().to_string();
+
+        FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.set(false));
+        assert!(error.contains("committed"), "{error}");
+        assert_eq!(store.daemon_key(&fingerprint).await.unwrap(), Some(public_key));
+        drop(store);
+        let reloaded = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        assert_eq!(reloaded.daemon_key(&fingerprint).await.unwrap(), Some(public_key));
+    }
+
+    #[tokio::test]
     async fn failed_known_daemon_route_refresh_keeps_live_state_unchanged() {
         let temp = tempfile::tempdir().unwrap();
         let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
@@ -2092,6 +2134,42 @@ mod tests {
         database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
         database.deny(&invitation.id).await.unwrap();
         assert_eq!(retry.await.unwrap().unwrap_err(), "enrollment denied");
+    }
+
+    #[tokio::test]
+    async fn committed_approval_survives_parent_sync_failure_in_memory_and_after_reload() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let invitation =
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let client = StaticIdentity::generate().unwrap();
+        let fingerprint = public_key_fingerprint(&client.public_key());
+        let request = AuthRequest {
+            mode: AuthKind::Invitation,
+            invitation_id: Some(invitation.id.clone()),
+            device_public_key: client.public_key(),
+            device_name: "phone".into(),
+            session: SessionId([29; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+        };
+        let authorization = tokio::spawn({
+            let database = database.clone();
+            async move { database.authorize(request).await }
+        });
+        database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
+        database.test_fail_next_parent_syncs(1);
+
+        let error = database.approve(&invitation.id).await.unwrap_err().to_string();
+
+        assert!(error.contains("committed"), "{error}");
+        assert_eq!(authorization.await.unwrap().unwrap().device_id, fingerprint);
+        assert!(database.device_is_active(&fingerprint).await);
+        drop(database);
+        let reloaded = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        assert!(reloaded.device_is_active(&fingerprint).await);
     }
 
     #[test]
