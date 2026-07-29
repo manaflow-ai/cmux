@@ -133,6 +133,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// to a PTY. A private FIFO receives a duplicate transcript while `sysread`
     /// emits 4 KiB records to an incremental classifier with a 128-byte
     /// cross-record carry. The classifier retains only a bounded result marker.
+    /// A parent read/write descriptor prevents either FIFO endpoint from
+    /// deadlocking if `script` fails before opening the transcript. Apple
+    /// `script` already propagates the child status; its newer compatibility-only
+    /// `-e` flag is intentionally omitted for macOS 14.
     /// This keeps interactive prompts visible and terminal-aware without
     /// allowing a noisy remote command to grow memory or a diagnostic file.
     /// Temporary state is removed on normal completion and signals.
@@ -168,9 +172,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "umask 077",
             "cmux_ssh_auth_capture_state=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-auth.XXXXXX\") || exit 255",
             "cmux_ssh_auth_classifier_fifo=\"$cmux_ssh_auth_capture_state.classifier.fifo\"",
+            "cmux_ssh_auth_classifier_guard_fd=",
             "cmux_ssh_auth_classifier_pid=",
             "cmux_ssh_auth_command_pid=",
             "cmux_ssh_auth_capture_cleanup() {",
+            "  if [ -n \"${cmux_ssh_auth_classifier_guard_fd:-}\" ]; then",
+            "    exec {cmux_ssh_auth_classifier_guard_fd}>&-",
+            "    cmux_ssh_auth_classifier_guard_fd=",
+            "  fi",
             "  for cmux_ssh_auth_capture_pid in \"${cmux_ssh_auth_command_pid:-}\" \"${cmux_ssh_auth_classifier_pid:-}\"; do",
             "    if [ -n \"$cmux_ssh_auth_capture_pid\" ]; then",
             "      /bin/kill \"$cmux_ssh_auth_capture_pid\" >/dev/null 2>&1 || true",
@@ -196,13 +205,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "trap 'cmux_ssh_auth_capture_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_auth_capture_signal_exit 143 TERM' TERM",
             "if ! /usr/bin/mkfifo \"$cmux_ssh_auth_classifier_fifo\"; then exit 255; fi",
-            "( zmodload zsh/system || exit 255; exec {cmux_ssh_auth_classifier_fd}< \"$cmux_ssh_auth_classifier_fifo\" || exit 255; while sysread -i \"$cmux_ssh_auth_classifier_fd\" -s 4096 cmux_ssh_auth_classifier_chunk; do print -r -- \"$cmux_ssh_auth_classifier_chunk\"; done; exec {cmux_ssh_auth_classifier_fd}<&- ) | LC_ALL=C /usr/bin/awk -v cmux_ssh_auth_classification=\"$cmux_ssh_auth_capture_state\" -v cmux_ssh_auth_transient_pattern=\(shellQuote(transientFailurePattern)) -v cmux_ssh_auth_permanent_pattern=\(shellQuote(permanentFailurePattern)) \(shellQuote(classifierProgram)) &",
+            "exec {cmux_ssh_auth_classifier_guard_fd}<> \"$cmux_ssh_auth_classifier_fifo\" || exit 255",
+            "( exec {cmux_ssh_auth_classifier_guard_fd}>&-; zmodload zsh/system || exit 255; exec {cmux_ssh_auth_classifier_fd}< \"$cmux_ssh_auth_classifier_fifo\" || exit 255; while sysread -i \"$cmux_ssh_auth_classifier_fd\" -s 4096 cmux_ssh_auth_classifier_chunk; do print -r -- \"$cmux_ssh_auth_classifier_chunk\"; done; exec {cmux_ssh_auth_classifier_fd}<&- ) | ( exec {cmux_ssh_auth_classifier_guard_fd}>&-; LC_ALL=C /usr/bin/awk -v cmux_ssh_auth_classification=\"$cmux_ssh_auth_capture_state\" -v cmux_ssh_auth_transient_pattern=\(shellQuote(transientFailurePattern)) -v cmux_ssh_auth_permanent_pattern=\(shellQuote(permanentFailurePattern)) \(shellQuote(classifierProgram)) ) &",
             "cmux_ssh_auth_classifier_pid=$!",
-            "/usr/bin/script -q -e -F \"$cmux_ssh_auth_classifier_fifo\" \(nestedCommand) <&0 >&2 &",
+            "( exec {cmux_ssh_auth_classifier_guard_fd}>&-; exec /usr/bin/script -q -F \"$cmux_ssh_auth_classifier_fifo\" \(nestedCommand) <&0 >&2 ) &",
             "cmux_ssh_auth_command_pid=$!",
             "wait \"$cmux_ssh_auth_command_pid\"",
             "cmux_ssh_auth_capture_status=$?",
             "cmux_ssh_auth_command_pid=",
+            "exec {cmux_ssh_auth_classifier_guard_fd}>&-",
+            "cmux_ssh_auth_classifier_guard_fd=",
             "wait \"$cmux_ssh_auth_classifier_pid\" 2>/dev/null || true",
             "cmux_ssh_auth_classifier_pid=",
             "if [ \"$cmux_ssh_auth_capture_status\" -eq 255 ]; then",

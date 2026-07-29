@@ -201,6 +201,60 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(Darwin.kill(leafPID, 0) != 0)
     }
 
+    @Test func restoresTerminalModesWhenTerminatingForegroundAuthenticationTree() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-termios-\(UUID().uuidString)", isDirectory: true)
+        let readyMarker = root.appendingPathComponent("ready")
+        let signalLog = root.appendingPathComponent("signal.log")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: """
+            trap '' HUP INT
+            trap 'printf "%s\\n" term > "$CMUX_TEST_SIGNAL_LOG"; exit 143' TERM
+            : > "$CMUX_TEST_READY_MARKER"
+            while :; do /bin/sleep 30; done
+            """
+        )
+        let command = """
+        test -t 0 || exit 96
+        cmux_test_terminal_mode_before=$(/bin/stty -g) || exit 97
+        \(policy.processTreeTerminationShellFunction())
+        ( \(classifiedAuthentication) ) &
+        cmux_test_auth_root=$!
+        cmux_test_ready_attempt=0
+        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root"
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        cmux_test_terminal_mode_after=$(/bin/stty -g) || exit 99
+        test "$cmux_test_terminal_mode_after" = "$cmux_test_terminal_mode_before"
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.arguments = ["-q", "/dev/null", "/bin/sh", "-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_SIGNAL_LOG": signalLog.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
+    }
+
     @Test func keepsDiagnosticStateBoundedWhileCommandIsRunning() throws {
         let fileManager = FileManager.default
         let temporaryDirectory = fileManager.temporaryDirectory
