@@ -64,22 +64,22 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(context.isAvailable(commandPaletteContext: palette))
     }
 
-    @Test("reopen last closed default yields to an explicit workspace binding")
-    func reopenLastClosedDefaultYieldsToExplicitWorkspaceBinding() {
+    @Test("reopen workspace default yields to an explicit legacy browser binding")
+    func reopenWorkspaceDefaultYieldsToLegacyBrowserBinding() {
         let workspaceAction = KeyboardShortcutSettings.Action.reopenClosedWorkspace
-        let reopenLastClosedAction = KeyboardShortcutSettings.Action.reopenClosedBrowserPanel
-        let commandShiftT = reopenLastClosedAction.defaultShortcut
+        let browserAction = KeyboardShortcutSettings.Action.reopenClosedBrowserPanel
+        let commandShiftT = workspaceAction.defaultShortcut
 
         let resolved = KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
-            for: reopenLastClosedAction,
+            for: workspaceAction,
             explicitlyConfiguredShortcut: { action in
-                action == workspaceAction ? commandShiftT : nil
+                action == browserAction ? commandShiftT : nil
             }
         )
 
         #expect(resolved == nil)
         #expect(KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
-            for: reopenLastClosedAction,
+            for: workspaceAction,
             explicitlyConfiguredShortcut: { _ in nil }
         ) == commandShiftT)
     }
