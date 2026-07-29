@@ -25,7 +25,11 @@ struct TerminalViewportSnapshot {
         )
     }
 
-    func renderRect(forRenderSize renderSize: CGSize, clampsStaleLiveViewport: Bool) -> CGRect {
+    func renderRect(
+        forRenderSize renderSize: CGSize,
+        clampsStaleLiveViewport: Bool,
+        cursorBottomInRender: CGFloat? = nil
+    ) -> CGRect {
         let viewport = renderViewportRect(
             forRenderSize: renderSize,
             clampsStaleLiveViewport: clampsStaleLiveViewport
@@ -33,15 +37,17 @@ struct TerminalViewportSnapshot {
         // Bottom-pin against the live viewport, but never clip content that
         // will be visible at settle: while the viewport grows (keyboard
         // dismissal) a target-sized render keeps its top row in place and the
-        // keyboard reveals the lower rows, instead of the top rows being
-        // pushed off screen and sliding back (see
-        // `TerminalLetterboxGeometry.renderPinnedBottomEdge`).
+        // keyboard reveals the lower rows, and while it shrinks (keyboard
+        // rise) the old render slides only enough to keep the cursor row
+        // visible instead of shoving every content row up by the keyboard
+        // height (see `TerminalLetterboxGeometry.renderPinnedBottomEdge`).
         let bottomEdge = TerminalLetterboxGeometry.renderPinnedBottomEdge(
             liveViewportMaxY: viewport.maxY,
             targetViewportMaxY: layoutViewportRect.maxY,
             viewportMinY: viewport.minY,
             renderHeight: renderSize.height,
-            holdsProvisionalPin: viewportNegotiationUnsettled
+            holdsProvisionalPin: viewportNegotiationUnsettled,
+            cursorBottomInRender: cursorBottomInRender
         )
         return CGRect(
             x: viewport.minX,
