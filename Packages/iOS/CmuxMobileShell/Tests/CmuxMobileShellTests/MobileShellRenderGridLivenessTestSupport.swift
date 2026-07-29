@@ -38,7 +38,7 @@ actor LivenessHostRouter {
     private var omittedHostIdentityResponsesRemaining = 0
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
-    private var failedWorkspaceListRequestNumbers: Set<Int> = []
+    private var workspaceListErrorCodesByRequestNumber: [Int: String] = [:]
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var invalidSubscribeRequestNumbers: Set<Int> = []
@@ -282,8 +282,11 @@ actor LivenessHostRouter {
         heldWorkspaceListRequestNumbers.insert(number)
     }
 
-    func failWorkspaceListRequest(number: Int) {
-        failedWorkspaceListRequestNumbers.insert(number)
+    func failWorkspaceListRequest(
+        number: Int,
+        code: String = "workspace_list_failed"
+    ) {
+        workspaceListErrorCodesByRequestNumber[number] = code
     }
 
     func scriptWorkspaceListTitles(_ titles: [String]) {
@@ -389,10 +392,13 @@ actor LivenessHostRouter {
                 await park()
             }
             workspaceListResponseHook?()
-            if failedWorkspaceListRequestNumbers.contains(workspaceListRequestCount) {
+            if let errorCode =
+                workspaceListErrorCodesByRequestNumber[
+                    workspaceListRequestCount
+                ] {
                 return try? Self.errorFrame(
                     id: id,
-                    code: "workspace_list_failed",
+                    code: errorCode,
                     message: "scripted workspace list failure"
                 )
             }

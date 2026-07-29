@@ -31,6 +31,12 @@ enum SecondaryHostStatusAttempt {
     case permanentFailure
 }
 
+enum SecondaryWorkspaceFetchAttempt {
+    case received([MobileWorkspacePreview])
+    case transientFailure
+    case permanentFailure
+}
+
 enum SecondaryMacEstablishmentOutcome {
     case connected
     case transientFailure

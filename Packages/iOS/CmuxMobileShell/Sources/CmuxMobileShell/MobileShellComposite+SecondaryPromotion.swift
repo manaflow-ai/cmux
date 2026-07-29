@@ -152,9 +152,11 @@ extension MobileShellComposite {
             )
             return false
         }
-        guard await fetchSecondaryWorkspaces(
-                  on: sub.client, macDeviceID: macID
-              ) != nil,
+        let preflightWorkspaces = await fetchSecondaryWorkspaces(
+            on: sub.client,
+            macDeviceID: macID
+        )
+        guard case .received = preflightWorkspaces,
               secondaryMacSubscriptions[macID] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID),
               let refreshed = try? await pairedMacStore.loadAll(
@@ -347,7 +349,7 @@ extension MobileShellComposite {
             return false
         }
         let snapshotEventGeneration = workspaceListEventGeneration
-        let authoritativePreviews = await fetchSecondaryWorkspaces(
+        let authoritativeWorkspaceAttempt = await fetchSecondaryWorkspaces(
             on: sub.client,
             macDeviceID: macID
         )
@@ -356,7 +358,8 @@ extension MobileShellComposite {
               foregroundMacDeviceID == macID else {
             return false
         }
-        guard let authoritativePreviews else {
+        guard case let .received(authoritativePreviews) =
+                authoritativeWorkspaceAttempt else {
             stopTerminalRefreshPolling()
             if let promotedConnection = connections[macID] {
                 invalidateFocusedConnectionAfterAbortedHandoff(
@@ -385,7 +388,7 @@ extension MobileShellComposite {
         syncSelectedTerminalForWorkspace()
         enqueueActivePairedMacWrite(
             macDeviceID: macID,
-            instanceTag: activeMacInstanceTag,
+            instanceTag: sub.storedInstanceTag,
             scope: scope,
             reloadAfterWrite: false
         )

@@ -542,6 +542,102 @@ import Testing
             == .unavailable)
     }
 
+    @Test func permanentRefreshFailureWaitsForNewPresenceEvidence()
+        async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "permanent-refresh-failure",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-permanent-refresh",
+            displayName: "Permanent Failure Mac",
+            routes: [route],
+            instanceTag: "permanent-tag",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-permanent-refresh",
+            instanceTag: "permanent-tag",
+            displayName: "Permanent Failure Mac"
+        )
+        await router.setCapabilities(["workspace.actions.v1"])
+        let clock = ControlPoolManualClock()
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: TransportBox()
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" },
+            controlPlaneSchedulingClock: clock
+        )
+        shell.applyPresenceUpdate(
+            Self.snapshot([
+                Self.instance(
+                    deviceID: "mac-permanent-refresh",
+                    tag: "permanent-tag",
+                    online: true
+                ),
+            ]),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions["mac-permanent-refresh"] != nil
+                && clock.sleeperCount == 1
+        })
+        await router.failWorkspaceListRequest(
+            number: 2,
+            code: "method_not_found"
+        )
+        for tick in 1 ... 3 {
+            clock.advance(by: .seconds(20))
+            if tick < 3 {
+                #expect(try await pollUntil {
+                    clock.sleeperCount == 1
+                })
+                #expect(await router.count(of: "workspace.list") == 1)
+            }
+        }
+
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 2))
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions["mac-permanent-refresh"] == nil
+        })
+        #expect(shell.workspacesByMac["mac-permanent-refresh"]?.status
+            == .unavailable)
+        #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
+        let workspaceRequests = await router.count(of: "workspace.list")
+        clock.advance(by: .seconds(60))
+        for _ in 0 ..< 8 { await Task.yield() }
+        #expect(await router.count(of: "workspace.list") == workspaceRequests)
+    }
+
     @Test func retryStateCoalescesPoolFailuresAndCapsBackoff() {
         var state = MobileControlPoolRetryState()
 

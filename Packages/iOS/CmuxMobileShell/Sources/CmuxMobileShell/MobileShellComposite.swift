@@ -3946,31 +3946,46 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Fetch one Mac's workspace list over an EXISTING client, tagged with its
-    /// `macDeviceID`. Nil on any failure (best-effort; an unreachable Mac just
-    /// contributes nothing).
+    /// `macDeviceID`. Transport failures remain retryable, while incompatible
+    /// responses and permanent RPC rejections wait for new authority evidence.
     func fetchSecondaryWorkspaces(
         on client: MobileCoreRPCClient,
         macDeviceID: String
-    ) async -> [MobileWorkspacePreview]? {
-        guard let runtime else { return nil }
+    ) async -> SecondaryWorkspaceFetchAttempt {
+        guard let runtime else { return .permanentFailure }
+        guard let requestData = try? MobileCoreRPCClient.requestData(
+            method: "workspace.list",
+            params: [:]
+        ) else {
+            return .permanentFailure
+        }
+        let resultData: Data
         do {
-            let requestData = try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
-            let resultData = try await client.sendRequest(
+            resultData = try await client.sendRequest(
                 requestData,
                 timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
             )
-            let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            return response.workspaces.map { remote in
-                var workspace = MobileWorkspacePreview(remote: remote)
-                workspace.macDeviceID = macDeviceID
-                return workspace
-            }
         } catch {
             mobileShellLog.warning(
                 "secondary workspace fetch failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
             )
-            return nil
+            return Self.secondaryControlAttemptIsTransient(error)
+                ? .transientFailure
+                : .permanentFailure
         }
+        guard let response = try? MobileSyncWorkspaceListResponse.decode(
+            resultData
+        ) else {
+            mobileShellLog.warning(
+                "secondary workspace fetch returned an incompatible response mac=\(macDeviceID, privacy: .public)"
+            )
+            return .permanentFailure
+        }
+        return .received(response.workspaces.map { remote in
+            var workspace = MobileWorkspacePreview(remote: remote)
+            workspace.macDeviceID = macDeviceID
+            return workspace
+        })
     }
 
     /// Ensure a live read-only subscription exists for every signed-in paired Mac
@@ -5004,7 +5019,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var refreshFailed = false
-            repeat {
+            var refreshShouldRetry = true
+            refreshLoop: repeat {
                 guard !Task.isCancelled,
                       self.secondaryMacSubscriptions[macID] === subscription
                 else {
@@ -5018,7 +5034,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     refreshFailed = true
                     break
                 }
-                let previews = await self.fetchSecondaryWorkspaces(
+                let attempt = await self.fetchSecondaryWorkspaces(
                     on: client,
                     macDeviceID: macID
                 )
@@ -5042,9 +5058,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         == requestGeneration else {
                     continue
                 }
-                guard let previews else {
+                let previews: [MobileWorkspacePreview]
+                switch attempt {
+                case let .received(value):
+                    previews = value
+                case .transientFailure:
                     refreshFailed = true
-                    break
+                    break refreshLoop
+                case .permanentFailure:
+                    refreshFailed = true
+                    refreshShouldRetry = false
+                    break refreshLoop
                 }
                 self.workspacesByMac[macID] = MacWorkspaceState(
                     macDeviceID: macID,
@@ -5069,7 +5093,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.secondaryMacSubscriptions[macID] = nil
             self.markSecondaryMacUnavailable(macID)
             await client.disconnect()
-            self.scheduleSecondaryAggregationRetry(macDeviceIDs: [macID])
+            if refreshShouldRetry {
+                self.scheduleSecondaryAggregationRetry(macDeviceIDs: [macID])
+            }
         }
         subscription.refreshTask = refreshTask
         return refreshTask

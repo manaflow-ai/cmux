@@ -25,7 +25,7 @@ import Testing
             macDeviceID: "mac-b",
             displayName: "Studio B",
             routes: [route],
-            instanceTag: "feature-b",
+            instanceTag: nil,
             markActive: false,
             stackUserID: "user-1",
             teamID: "team-a",
@@ -43,9 +43,9 @@ import Testing
         )
         let router = LivenessHostRouter()
         await router.setHostIdentity(
-            deviceID: "mac-b",
-            instanceTag: "feature-b",
-            displayName: "Studio B"
+            deviceID: nil,
+            instanceTag: nil,
+            displayName: nil
         )
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
@@ -113,28 +113,44 @@ import Testing
             client: client,
             route: route,
             ticket: ticket,
-            storedInstanceTag: "feature-b",
+            storedInstanceTag: nil,
             authenticatedInstanceTag: "feature-b",
             supportedHostCapabilities: ["terminal.render_grid.v1"],
             actionCapabilities: .none
         )
 
-        #expect(await shell.switchToMac(
-            macDeviceID: "mac-b",
-            instanceTag: "feature-b"
+        let switchAttemptID = UUID()
+        shell.macSwitchAttemptID = switchAttemptID
+        shell.macSwitchAttemptSignInGeneration = shell.signInGeneration
+
+        #expect(await shell.promoteSecondaryToForeground(
+            "mac-b",
+            switchAttemptID: switchAttemptID
         ))
         #expect(shell.activeMacInstanceTag == "feature-b")
         #expect(shell.foregroundMacDeviceID == "mac-b")
-        let statusResolved = await router.waitForCount(
-            of: "mobile.host.status",
-            atLeast: 1,
-            recordIssueOnTimeout: false
-        )
-        #expect(statusResolved)
         #expect(shell.connectionState == .connected)
         #expect(shell.secondaryMacSubscriptions["mac-a"]?.client === foregroundClient)
         #expect(shell.liveMacConnections.map(\.macDeviceID) == ["mac-b", "mac-a"])
         #expect(shell.liveMacConnections.map(\.role) == [.focused, .control])
+        #expect(try await pollUntil {
+            do {
+                let active = try await pairedStore.activeMac(
+                    stackUserID: "user-1",
+                    teamID: "team-a"
+                )
+                return active?.macDeviceID == "mac-b"
+            } catch {
+                return false
+            }
+        })
+        let persistedActiveMac = try #require(
+            try await pairedStore.activeMac(
+                stackUserID: "user-1",
+                teamID: "team-a"
+            )
+        )
+        #expect(persistedActiveMac.instanceTag == nil)
         let foregroundStillWarm = try? await foregroundClient.sendRequest(
             MobileCoreRPCClient.requestData(
                 method: "mobile.host.status",
