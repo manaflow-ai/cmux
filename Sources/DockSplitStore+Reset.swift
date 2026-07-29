@@ -10,10 +10,10 @@ extension DockSplitStore {
         for tabId in tabIds { _ = bonsplitController.closeTab(tabId) }
         collapseToSingleEmptyPane()
         reconcilePanels()
-        for panelId in Array(panels.keys) {
-            discardPanelOwnershipAndClose(panelId: panelId)
-        }
         surfaceIdToPanelId.removeAll()
+        for panelId in Array(panels.keys) {
+            discardPanelStateAndClose(panelId: panelId)
+        }
         detachedSurfaceTransfersByPanelId.removeAll()
         restoredTerminalScrollbackByPanelId.removeAll()
         restoredAgentLifecycle.snapshotsByPanelId.removeAll()

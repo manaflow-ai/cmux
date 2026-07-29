@@ -10,6 +10,11 @@ extension DockSplitStore {
         for tabID in tabIDs {
             surfaceIdToPanelId.removeValue(forKey: tabID)
         }
+        return discardPanelStateAndClose(panelId: panelId)
+    }
+
+    @discardableResult
+    func discardPanelStateAndClose(panelId: UUID) -> (any Panel)? {
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
         AppDelegate.shared?.notificationStore?.clearNotifications(

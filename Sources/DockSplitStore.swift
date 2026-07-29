@@ -602,9 +602,10 @@ final class DockSplitStore: BonsplitDelegate {
     func reconcilePanels() {
         let live = Set(bonsplitController.allTabIds)
         let staleTabIds = surfaceIdToPanelId.keys.filter { !live.contains($0) }
-        for tabId in staleTabIds {
-            guard let panelId = surfaceIdToPanelId.removeValue(forKey: tabId) else { continue }
-            discardPanelOwnershipAndClose(panelId: panelId)
+        let stalePanelIds = Set(staleTabIds.compactMap { surfaceIdToPanelId[$0] })
+        surfaceIdToPanelId = surfaceIdToPanelId.filter { !stalePanelIds.contains($0.value) }
+        for panelId in stalePanelIds {
+            discardPanelStateAndClose(panelId: panelId)
         }
     }
 
