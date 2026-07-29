@@ -663,9 +663,13 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
     /// Restore-Pfad B (`Workspace.restoreSessionSnapshot`) coverage for
     /// "Resume Agents on First Focus": with the defer setting enabled, a
-    /// restorable agent that would otherwise auto-resume immediately instead
-    /// enters the existing synthetic agent-hibernation state, and the
-    /// existing focus-triggered resume still wakes it on demand.
+    /// restorable agent on a background (non-selected) tab enters the
+    /// existing synthetic agent-hibernation state instead of firing its
+    /// resume command at restore, and the existing focus-triggered resume
+    /// still wakes it on demand. The agent must sit on a background tab
+    /// here because restoring the selected tab re-selects it, and tab
+    /// selection intentionally resumes a hibernated agent immediately
+    /// (the panel the user is looking at is supposed to start right away).
     @MainActor
     func testDeferredResumeEnabledEntersHibernationInsteadOfAutoResuming() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
@@ -675,28 +679,34 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 defaults.set(true, forKey: AgentSessionDeferredResumeSettings.deferUntilFirstFocusKey)
 
                 let source = Workspace()
-                let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+                let sourceFocusedPanelId = try XCTUnwrap(source.focusedPanelId)
+                let backgroundPanel = try XCTUnwrap(source.newTerminalSurfaceInFocusedPane(focus: false))
+                XCTAssertEqual(source.focusedPanelId, sourceFocusedPanelId)
                 let sourceIndex = try makeRestorableAgentIndex(
                     workspaceId: source.id,
-                    panelId: sourcePanelId,
+                    panelId: backgroundPanel.id,
                     sessionId: "codex-defer-resume-session"
                 )
-                source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+                source.updatePanelShellActivityState(panelId: backgroundPanel.id, state: .commandRunning)
                 let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
 
                 let restored = Workspace()
                 restored.restoreSessionSnapshot(snapshot)
-                let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
-                let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+                let restoredFocusedPanelId = try XCTUnwrap(restored.focusedPanelId)
+                let restoredAgentPanelId = try XCTUnwrap(
+                    restored.restoredAgentResumeStatesByPanelId.keys.first
+                )
+                XCTAssertNotEqual(restoredAgentPanelId, restoredFocusedPanelId)
+                let restoredAgentPanel = try XCTUnwrap(restored.terminalPanel(for: restoredAgentPanelId))
 
-                XCTAssertTrue(restoredPanel.isAgentHibernated)
-                let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
+                XCTAssertTrue(restoredAgentPanel.isAgentHibernated)
+                let restoredInput = restoredAgentPanel.surface.debugInitialInputMetadata()
                 XCTAssertFalse(restoredInput.hasInitialInput)
                 XCTAssertEqual(restoredInput.byteCount, 0)
 
                 // The existing focus-triggered resume must still be able to wake it.
-                XCTAssertTrue(restored.resumeAgentHibernation(panelId: restoredPanelId, focus: false))
-                XCTAssertFalse(restoredPanel.isAgentHibernated)
+                XCTAssertTrue(restored.resumeAgentHibernation(panelId: restoredAgentPanelId, focus: false))
+                XCTAssertFalse(restoredAgentPanel.isAgentHibernated)
             }
         }
     }
