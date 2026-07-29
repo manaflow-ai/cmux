@@ -1287,6 +1287,7 @@ impl Mux {
                 }
             }
         }
+        mux.reconcile_interrupted_resource_creations()?;
         Ok(mux)
     }
 
@@ -3952,6 +3953,16 @@ impl Mux {
         size: Option<(u16, u16)>,
         pending_workspace: Option<WorkspaceId>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.spawn_browser_surface_with_resource_identity(url, size, pending_workspace, None)
+    }
+
+    fn spawn_browser_surface_with_resource_identity(
+        self: &Arc<Self>,
+        url: String,
+        size: Option<(u16, u16)>,
+        pending_workspace: Option<WorkspaceId>,
+        resource_identity: Option<TabResourceIdentity>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
         if let Some(workspace) = pending_workspace {
             self.pending_workspace_surfaces.lock().unwrap().insert(id, workspace);
@@ -3959,8 +3970,25 @@ impl Mux {
         let opts = self.surface_options.lock().unwrap().clone();
         let size = self.resolve_client_size(size, (opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
-        let surface =
-            browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self))?;
+        let surface = match resource_identity {
+            Some(identity) => browser::new_surface_with_resource_identity(
+                id,
+                url.clone(),
+                size,
+                cell_pixels,
+                &opts,
+                Arc::downgrade(self),
+                identity,
+            )?,
+            None => browser::new_surface(
+                id,
+                url.clone(),
+                size,
+                cell_pixels,
+                &opts,
+                Arc::downgrade(self),
+            )?,
+        };
         insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
         self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
         Ok(surface)
@@ -6650,6 +6678,34 @@ impl Mux {
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_browser_tab_with_resource_identity(url, pane, size, None, None)
+    }
+
+    pub(crate) fn new_browser_tab_reserved(
+        self: &Arc<Self>,
+        url: String,
+        pane: Option<PaneId>,
+        size: Option<(u16, u16)>,
+        resource_identity: TabResourceIdentity,
+        workspace_key: Option<String>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        self.new_browser_tab_with_resource_identity(
+            url,
+            pane,
+            size,
+            Some(resource_identity),
+            workspace_key,
+        )
+    }
+
+    fn new_browser_tab_with_resource_identity(
+        self: &Arc<Self>,
+        url: String,
+        pane: Option<PaneId>,
+        size: Option<(u16, u16)>,
+        resource_identity: Option<TabResourceIdentity>,
+        workspace_key: Option<String>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let (target, empty_workspace) = {
             let state = self.state.lock().unwrap();
             let target = match pane {
@@ -6671,10 +6727,23 @@ impl Mux {
         };
         let Some(target) = target else {
             if let Some(workspace) = empty_workspace {
-                return self.create_browser_surface_in_workspace(workspace, url, size);
+                return self.create_browser_surface_in_workspace(
+                    workspace,
+                    url,
+                    size,
+                    resource_identity,
+                );
             }
-            let workspace_key = Self::new_workspace_key()?;
-            let surface = self.spawn_browser_surface(url, size, None)?;
+            let workspace_key = match workspace_key {
+                Some(workspace_key) => workspace_key,
+                None => Self::new_workspace_key()?,
+            };
+            let surface = self.spawn_browser_surface_with_resource_identity(
+                url,
+                size,
+                None,
+                resource_identity,
+            )?;
             let (pane_id, pane) = self.make_pane(surface.id)?;
             let screen_id = self.next_id();
             let ws_id = self.next_id();
@@ -6821,7 +6890,8 @@ impl Mux {
             return Ok(surface);
         };
 
-        let surface = self.spawn_browser_surface(url, size, None)?;
+        let surface =
+            self.spawn_browser_surface_with_resource_identity(url, size, None, resource_identity)?;
         let active_at = self.next_active_at();
         let notifications = self.surface_notifications();
         let attached = {
@@ -6873,13 +6943,19 @@ impl Mux {
         workspace: WorkspaceId,
         url: String,
         size: Option<(u16, u16)>,
+        resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
         let lifecycle = self.workspace_lifecycle(workspace);
         let workspace_lifecycle = lifecycle.lock().unwrap();
         if self.state.lock().unwrap().workspace_by_id(workspace).is_none() {
             anyhow::bail!("unknown workspace {workspace}");
         }
-        let surface = self.spawn_browser_surface(url, size, Some(workspace))?;
+        let surface = self.spawn_browser_surface_with_resource_identity(
+            url,
+            size,
+            Some(workspace),
+            resource_identity,
+        )?;
         let pending_surface = self.pending_workspace_surface(surface.id);
         let notifications = self.surface_notifications();
         let active_at = self.next_active_at();
@@ -15087,6 +15163,7 @@ mod tests {
                 source_workspace.workspace,
                 "about:blank#target".into(),
                 Some((80, 24)),
+                None,
             )
             .unwrap();
         let destination_workspace = mux.create_empty_workspace(None, None, None).unwrap();
@@ -15095,6 +15172,7 @@ mod tests {
                 destination_workspace.workspace,
                 "about:blank#destination".into(),
                 Some((80, 24)),
+                None,
             )
             .unwrap();
         let (source_screen, destination_screen, destination_pane) = mux.with_state(|state| {
@@ -16922,6 +17000,7 @@ mod tests {
                 workspace.workspace,
                 "about:blank#first".into(),
                 Some((80, 24)),
+                None,
             )
             .unwrap();
         let events = mux.subscribe();
@@ -16931,6 +17010,7 @@ mod tests {
                 workspace.workspace,
                 "about:blank#second".into(),
                 Some((80, 24)),
+                None,
             )
             .unwrap();
 

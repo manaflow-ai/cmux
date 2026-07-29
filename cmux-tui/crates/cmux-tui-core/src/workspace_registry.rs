@@ -25,7 +25,10 @@ use crate::resource::{
 mod effect_store;
 mod resource_store;
 
-pub use effect_store::{ResourceEffectOutcome, ResourceEffectPreparation};
+pub use effect_store::{
+    ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
+    ResourceEffectPreparation,
+};
 use effect_store::{
     create_resource_effect_schema, prune_resource_events, recover_resource_effects,
 };
