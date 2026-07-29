@@ -139,6 +139,7 @@ public struct AgentLaunchInvocationClassifier {
     /// Codex accepts these flags after subcommands and positional arguments. The explicit `--`
     /// delimiter is the only boundary after which a flag-shaped token belongs to provider input.
     public func codexTeamsLaunchIsInformational(args: [String]) -> Bool {
+        if args.first == "help" { return true }
         for argument in args {
             if argument == "--" { return false }
             switch argument {
