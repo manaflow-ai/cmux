@@ -10,13 +10,15 @@ import {
 } from "./crypto";
 
 export type TeamResolution =
-  | { ok: true; teamId: string; teamName: string }
+  | {
+    ok: true;
+    teamId: string;
+    teamName: string;
+    use: boolean;
+    manageAccounts: boolean;
+  }
   | { ok: false; response: Response };
 
-// Authorization is membership-based by design: cmux teams are flat today (no
-// role system exists anywhere in the web API; Cloud VM create/destroy and
-// billing are membership-gated the same way), so any member may manage the
-// team's AI accounts. Revisit when team roles land platform-wide.
 export function resolveTeam(request: Request, user: AuthedUser): TeamResolution {
   const requested = requestedVmTeamIdFromRequest(request);
   if (requested) {
@@ -27,18 +29,61 @@ export function resolveTeam(request: Request, user: AuthedUser): TeamResolution 
         response: jsonResponse({ error: "team_not_found" }, 403),
       };
     }
+    if (!subrouterTeamAllowed(requested)) {
+      return {
+        ok: false,
+        response: jsonResponse({ error: "team_not_allowed" }, 403),
+      };
+    }
+    const permissions = teamPermissions(user, requested);
     return {
       ok: true,
       teamId: requested,
       teamName: teamDisplayName(user, requested),
+      ...permissions,
     };
   }
 
   const teamId = user.selectedTeamId ?? user.billingTeamId;
+  if (!subrouterTeamAllowed(teamId)) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: "team_not_allowed" }, 403),
+    };
+  }
   return {
     ok: true,
     teamId,
     teamName: teamDisplayName(user, teamId),
+    ...teamPermissions(user, teamId),
+  };
+}
+
+export function subrouterTeamAllowed(
+  teamId: string,
+  raw = process.env.SUBROUTER_ALLOWED_TEAM_IDS,
+): boolean {
+  const allowed = raw
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return !allowed?.length || allowed.includes(teamId);
+}
+
+function teamPermissions(
+  user: AuthedUser,
+  teamId: string,
+): { readonly use: boolean; readonly manageAccounts: boolean } {
+  if (teamId === user.id) {
+    return {
+      use: user.personalSubrouterUse ?? false,
+      manageAccounts: user.personalSubrouterManageAccounts ?? false,
+    };
+  }
+  const team = user.teams.find((candidate) => candidate.id === teamId);
+  return {
+    use: team?.subrouterUse ?? false,
+    manageAccounts: team?.subrouterManageAccounts ?? false,
   };
 }
 

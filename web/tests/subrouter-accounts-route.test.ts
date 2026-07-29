@@ -36,6 +36,11 @@ mock.module("../db/client", () => ({
 const { encryptTenantKey } = await import("../services/subrouter/crypto");
 const accountsRoute = await import("../app/api/subrouter/accounts/route");
 const accountRoute = await import("../app/api/subrouter/accounts/[accountId]/route");
+const accountRepairRoute = await import("../app/api/subrouter/accounts/[accountId]/repair/route");
+const leasesRoute = await import("../app/api/subrouter/leases/route");
+const leaseEventsRoute = await import("../app/api/subrouter/leases/[leaseId]/events/route");
+const logoutRoute = await import("../app/api/subrouter/logout/route");
+const teamsRoute = await import("../app/api/subrouter/teams/route");
 
 beforeAll(() => {
   useStubDb = true;
@@ -50,6 +55,8 @@ beforeEach(() => {
   process.env.SUBROUTER_BASE_URL = "https://subrouter.test";
   process.env.SUBROUTER_ADMIN_TOKEN = "admin-test-token";
   process.env.SUBROUTER_TENANT_KEY_SECRET = secret;
+  delete process.env.SUBROUTER_ALLOWED_TEAM_IDS;
+  delete process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS;
   currentUser = stackUser();
   fakeDb = createFakeRouteDb();
   upstream = createMockSubrouter();
@@ -59,6 +66,44 @@ beforeEach(() => {
 });
 
 describe("subrouter accounts route", () => {
+  test("revokes the exact native Stack session on logout", async () => {
+    const signOut = mock(async () => {});
+    currentUser = { ...stackUser(), signOut };
+
+    const response = await logoutRoute.POST(
+      new Request("https://cmux.test/api/subrouter/logout", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer stack-access",
+          "x-stack-refresh-token": "stack-refresh",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(getUser).toHaveBeenCalledWith({
+      tokenStore: {
+        accessToken: "stack-access",
+        refreshToken: "stack-refresh",
+      },
+    });
+  });
+
+  test("logout never falls back to an ambient browser session", async () => {
+    const signOut = mock(async () => {});
+    currentUser = { ...stackUser(), signOut };
+
+    const response = await logoutRoute.POST(
+      request("/api/subrouter/logout", { method: "POST", auth: "cookie" }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(signOut).not.toHaveBeenCalled();
+    expect(getUser).not.toHaveBeenCalled();
+  });
+
   test("returns 401 when unauthenticated", async () => {
     currentUser = null;
 
@@ -76,6 +121,44 @@ describe("subrouter accounts route", () => {
 
     expect(response.status).toBe(403);
     expect(JSON.parse(body)).toEqual({ error: "team_not_found" });
+    expect(upstream.fetch).not.toHaveBeenCalled();
+  });
+
+  test("rejects teams outside the private beta allowlist", async () => {
+    process.env.SUBROUTER_ALLOWED_TEAM_IDS = "team-b";
+
+    const response = await accountsRoute.GET(request("/api/subrouter/accounts"));
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(403);
+    expect(JSON.parse(body)).toEqual({ error: "team_not_allowed" });
+    expect(upstream.fetch).not.toHaveBeenCalled();
+  });
+
+  test("separates team credential use from account management permissions", async () => {
+    process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "1";
+    currentUser = {
+      ...stackUser(),
+      hasPermission: async (...args: unknown[]) =>
+        args.at(-1) === "subrouter:use",
+    };
+
+    const listResponse = await accountsRoute.GET(
+      request("/api/subrouter/accounts"),
+    );
+    expect(listResponse.status).toBe(200);
+
+    const uploadResponse = await accountsRoute.POST(
+      request("/api/subrouter/accounts", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openai-apikey",
+          apiKey: "sk-test-openai",
+        }),
+      }),
+    );
+    expect(uploadResponse.status).toBe(403);
+    expect(await uploadResponse.json()).toEqual({ error: "forbidden" });
     expect(upstream.fetch).not.toHaveBeenCalled();
   });
 
@@ -142,6 +225,39 @@ describe("subrouter accounts route", () => {
     expect(upstream.fetch).not.toHaveBeenCalled();
   });
 
+  test("strips provider endpoint overrides before central credential storage", async () => {
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "codex",
+          label: "Canary",
+          tokens: {
+            accessToken: "access-secret",
+            refreshToken: "refresh-secret",
+            idToken: "id-secret",
+            accountID: "provider-account",
+            tokenEndpoint: "https://attacker.example/collect",
+            usageUrl: "https://attacker.example/usage",
+            clientId: "attacker-client",
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(upstream.lastCreateAccountBody).toEqual({
+      provider: "codex",
+      label: "Canary",
+      tokens: {
+        accessToken: "access-secret",
+        refreshToken: "refresh-secret",
+        idToken: "id-secret",
+        accountID: "provider-account",
+      },
+    });
+  });
+
   test("blocks cross-site cookie-authenticated account uploads before proxying", async () => {
     const response = await accountsRoute.POST(
       request("/api/subrouter/accounts?validate=1", {
@@ -200,7 +316,8 @@ describe("subrouter accounts route", () => {
 
     expect(response.status).toBe(200);
     expect(json.account.kind).toBe("openai-apikey");
-    expect(upstream.lastCreateAccountUrl?.searchParams.get("validate")).toBe("1");
+    expect(upstream.lastCreateAccountUrl?.searchParams.get("validate")).toBeNull();
+    expect(upstream.lastCreateAccountUrl?.searchParams.get("adopt")).toBe("1");
   });
 
   test("returns an empty account list without provisioning when no tenant mapping exists", async () => {
@@ -220,9 +337,15 @@ describe("subrouter accounts route", () => {
     seedTenantMapping(fakeDb);
     upstream.accounts = [{
       id: "acct-1",
-      kind: "claude",
+      provider: "claude",
+      auth_mode: "oauth",
       label: "Claude Team",
-      createdAt: "2026-07-01T00:00:00.000Z",
+      created_at: "2026-07-01T00:00:00.000Z",
+      health: {
+        ok: false,
+        message: "Credential requires repair before it can be leased.",
+        rawFailure: "refresh-secret",
+      },
     }];
 
     const response = await accountsRoute.GET(request("/api/subrouter/accounts"));
@@ -234,7 +357,17 @@ describe("subrouter accounts route", () => {
 
     expect(response.status).toBe(200);
     expect(json.teamId).toBe("team-a");
-    expect(json.accounts).toEqual(upstream.accounts);
+    expect(json.accounts).toEqual([{
+      id: "acct-1",
+      kind: "claude",
+      label: "Claude Team",
+      createdAt: "2026-07-01T00:00:00.000Z",
+      health: {
+        ok: false,
+        message: "Credential requires repair before it can be leased.",
+      },
+    }]);
+    expect(body).not.toContain("refresh-secret");
     expect(upstream.adminCreates).toBe(0);
     expect(upstream.tenantListCalls).toBe(1);
   });
@@ -264,7 +397,7 @@ describe("subrouter accounts route", () => {
     expect(body).not.toContain("should-never-leak");
   });
 
-  test("posts validated provider credentials with validate=1", async () => {
+  test("adopts refresh custody without central provider usage validation", async () => {
     const response = await accountsRoute.POST(
       request("/api/subrouter/accounts?validate=1", {
         method: "POST",
@@ -281,7 +414,8 @@ describe("subrouter accounts route", () => {
     expect(response.status).toBe(200);
     expect(json.account.kind).toBe("openai-apikey");
     expect(json.account.label).toBe("OpenAI");
-    expect(upstream.lastCreateAccountUrl?.searchParams.get("validate")).toBe("1");
+    expect(upstream.lastCreateAccountUrl?.searchParams.get("validate")).toBeNull();
+    expect(upstream.lastCreateAccountUrl?.searchParams.get("adopt")).toBe("1");
     expect(upstream.lastCreateAccountBody).toEqual({
       provider: "openai-apikey",
       label: "OpenAI",
@@ -319,6 +453,45 @@ describe("subrouter accounts route", () => {
     expect(response.status).toBe(200);
     expect(JSON.parse(body)).toEqual({ ok: true, teamId: "team-a" });
     expect(upstream.deletedAccountIds).toEqual(["acct-1"]);
+  });
+
+  test("repairs an account in place without returning credential fields", async () => {
+    seedTenantMapping(fakeDb);
+    const response = await accountRepairRoute.POST(
+      request("/api/subrouter/accounts/acct-1/repair?validate=1", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "codex",
+          label: "Alice",
+          tokens: {
+            accessToken: "access-secret",
+            refreshToken: "refresh-secret",
+            idToken: "id-secret",
+            accountID: "provider-account",
+          },
+        }),
+      }),
+      { params: Promise.resolve({ accountId: "acct-1" }) },
+    );
+    const text = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(200);
+    expect(upstream.lastRepairAccount?.accountId).toBe("acct-1");
+    expect(upstream.lastRepairAccount?.validate).toBeNull();
+    expect(upstream.lastRepairAccount?.adopt).toBe("1");
+    expect(upstream.lastRepairAccount?.body).toEqual({
+      provider: "codex",
+      label: "Alice",
+      tokens: {
+        accessToken: "access-secret",
+        refreshToken: "refresh-secret",
+        idToken: "id-secret",
+        accountID: "provider-account",
+      },
+    });
+    expect(text).not.toContain("access-secret");
+    expect(text).not.toContain("refresh-secret");
+    expect(text).not.toContain("id-secret");
   });
 
   test("delete is a no-op when no tenant mapping exists", async () => {
@@ -418,6 +591,119 @@ describe("subrouter accounts route", () => {
       expect(body).not.toContain("srt_");
     }
   });
+
+  test("returns an access-only credential lease without exposing tenant or refresh keys", async () => {
+    seedTenantMapping(fakeDb);
+    const response = await leasesRoute.POST(
+      request("/api/subrouter/leases", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "codex",
+          agentType: "codex",
+          sessionId: "session-1",
+          model: "gpt-5",
+        }),
+      }),
+    );
+    const body = await textWithoutTenantKeys(response);
+    const parsed = JSON.parse(body) as {
+      teamId: string;
+      lease: { leaseId: string; token: string };
+    };
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(parsed.teamId).toBe("team-a");
+    expect(parsed.lease.leaseId).toBe("lease-1");
+    expect(parsed.lease.token).toBe("leased-access-token");
+    expect(body).not.toContain("refresh-token-that-must-not-leak");
+    expect(upstream.lastLeaseBody).toEqual({
+      provider: "codex",
+      agentType: "codex",
+      sessionId: "session-1",
+      model: "gpt-5",
+    });
+  });
+
+  test("does not provision a tenant when requesting a lease without shared accounts", async () => {
+    const response = await leasesRoute.POST(
+      request("/api/subrouter/leases", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "claude",
+          sessionId: "session-2",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "no_shared_accounts" });
+    expect(upstream.fetch).not.toHaveBeenCalled();
+    expect(upstream.adminCreates).toBe(0);
+  });
+
+  test("bounds lease and outcome bodies before forwarding them", async () => {
+    seedTenantMapping(fakeDb);
+    const leaseResponse = await leasesRoute.POST(
+      request("/api/subrouter/leases", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "codex",
+          sessionId: "x".repeat(20 * 1024),
+        }),
+      }),
+    );
+    expect(leaseResponse.status).toBe(413);
+
+    const eventResponse = await leaseEventsRoute.POST(
+      request("/api/subrouter/leases/lease-1/events", {
+        method: "POST",
+        body: JSON.stringify({
+          outcome: "success",
+          padding: "x".repeat(8 * 1024),
+        }),
+      }),
+      { params: Promise.resolve({ leaseId: "lease-1" }) },
+    );
+    expect(eventResponse.status).toBe(413);
+    expect(upstream.lastLeaseBody).toBeNull();
+    expect(upstream.lastLeaseEvent).toBeNull();
+  });
+
+  test("reports a lease outcome through the same team tenant", async () => {
+    seedTenantMapping(fakeDb);
+    const response = await leaseEventsRoute.POST(
+      request("/api/subrouter/leases/lease-1/events", {
+        method: "POST",
+        body: JSON.stringify({ outcome: "rate_limited", statusCode: 429 }),
+      }),
+      { params: Promise.resolve({ leaseId: "lease-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(upstream.lastLeaseEvent).toEqual({
+      leaseId: "lease-1",
+      body: { outcome: "rate_limited", statusCode: 429 },
+    });
+  });
+
+  test("lists every Stack team plus the personal scope for CLI selection", async () => {
+    const response = await teamsRoute.GET(request("/api/subrouter/teams"));
+    const body = await response.json() as {
+      selectedTeamId: string;
+      teams: Array<{ id: string; personal: boolean }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.selectedTeamId).toBe("team-a");
+    expect(body.teams.map((team) => team.id)).toEqual([
+      "team-a",
+      "team-b",
+      "user-1",
+    ]);
+    expect(body.teams.find((team) => team.id === "user-1")?.personal).toBe(true);
+  });
 });
 
 type TestRequestInit = RequestInit & {
@@ -465,6 +751,17 @@ function createMockSubrouter() {
     deletedAccountIds: [] as string[],
     lastCreateAccountUrl: null as URL | null,
     lastCreateAccountBody: null as unknown,
+    lastLeaseBody: null as unknown,
+    lastLeaseEvent: null as {
+      leaseId: string;
+      body: unknown;
+    } | null,
+    lastRepairAccount: null as {
+      accountId: string;
+      validate: string | null;
+      adopt: string | null;
+      body: unknown;
+    } | null,
     fetch: undefined as unknown as ReturnType<typeof mock>,
   };
 
@@ -489,7 +786,7 @@ function createMockSubrouter() {
     if (url.pathname === "/tenant/accounts" && method === "GET") {
       expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
       state.tenantListCalls += 1;
-      return jsonResponse(state.accounts);
+      return jsonResponse({ accounts: state.accounts });
     }
 
     if (url.pathname === "/tenant/accounts" && method === "POST") {
@@ -507,9 +804,59 @@ function createMockSubrouter() {
       return jsonResponse(account);
     }
 
+    const repairMatch = url.pathname.match(
+      /^\/tenant\/accounts\/([^/]+)\/repair$/,
+    );
+    if (repairMatch && method === "POST") {
+      expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
+      state.lastRepairAccount = {
+        accountId: decodeURIComponent(repairMatch[1]),
+        validate: url.searchParams.get("validate"),
+        adopt: url.searchParams.get("adopt"),
+        body: JSON.parse(String(init?.body ?? "{}")),
+      };
+      return jsonResponse({
+        id: state.lastRepairAccount.accountId,
+        provider: "codex",
+        auth_mode: "oauth",
+        label: "Alice",
+        accessToken: "must-not-leak",
+        refreshToken: "must-not-leak",
+      });
+    }
+
     if (url.pathname.startsWith("/tenant/accounts/") && method === "DELETE") {
       expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
       state.deletedAccountIds.push(decodeURIComponent(url.pathname.slice("/tenant/accounts/".length)));
+      return jsonResponse({ ok: true });
+    }
+
+    if (url.pathname === "/tenant/leases" && method === "POST") {
+      expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
+      state.lastLeaseBody = JSON.parse(String(init?.body ?? "{}"));
+      return jsonResponse({
+        leaseId: "lease-1",
+        accountId: "account-1",
+        provider: "codex",
+        authMode: "oauth",
+        token: "leased-access-token",
+        providerAccountId: "provider-account-1",
+        label: "Shared Codex",
+        credentialGeneration: 4,
+        issuedAt: "2026-07-28T00:00:00.000Z",
+        expiresAt: "2026-07-28T00:05:00.000Z",
+        credentialExpiresAt: "2026-07-28T01:00:00.000Z",
+        refreshToken: "refresh-token-that-must-not-leak",
+      });
+    }
+
+    const leaseEventMatch = url.pathname.match(/^\/tenant\/leases\/([^/]+)\/events$/);
+    if (leaseEventMatch && method === "POST") {
+      expect(authorization).toBe("Bearer srt_1234567890abcdef1234567890abcdef");
+      state.lastLeaseEvent = {
+        leaseId: decodeURIComponent(leaseEventMatch[1]),
+        body: JSON.parse(String(init?.body ?? "{}")),
+      };
       return jsonResponse({ ok: true });
     }
 
