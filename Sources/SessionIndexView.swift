@@ -1568,6 +1568,14 @@ enum SessionTranscriptLoader {
         let rowLimit = min(retention.limit, 2_500) * openCodeRowsPerRetainedTurn
         let sql: String
         if retention.keepsLatestTurns {
+            let retainedRowsClause = retention.includes(.tool) ? "" : """
+                AND CASE WHEN json_valid(m.data)
+                         THEN lower(json_extract(m.data, '$.role'))
+                    END IN ('user', 'assistant')
+                AND CASE WHEN json_valid(p.data)
+                         THEN json_extract(p.data, '$.type')
+                    END = 'text'
+                """
             sql = """
                 SELECT message_id, message_data, part_data
                 FROM (
@@ -1581,6 +1589,7 @@ enum SessionTranscriptLoader {
                     FROM message m
                     LEFT JOIN part p ON p.message_id = m.id
                     WHERE m.session_id = ?
+                    \(retainedRowsClause)
                     ORDER BY m.time_created DESC, m.id DESC, p.time_created DESC, p.id DESC
                     LIMIT ?
                 )
@@ -1679,6 +1688,12 @@ enum SessionTranscriptLoader {
             FROM message m
             LEFT JOIN part p ON p.message_id = m.id
             WHERE m.session_id = ?
+              AND CASE WHEN json_valid(m.data)
+                       THEN lower(json_extract(m.data, '$.role'))
+                  END = 'user'
+              AND CASE WHEN json_valid(p.data)
+                       THEN json_extract(p.data, '$.type')
+                  END = 'text'
             ORDER BY m.time_created, m.id, p.time_created, p.id
             LIMIT ?
             """
