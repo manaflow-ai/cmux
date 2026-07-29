@@ -83,6 +83,9 @@ actor MobileCoreRPCSession {
     // `internal` so cancellation tests can observe the writer-queue gate via
     // `@testable import` without adding a production debug hook.
     var queuedRequestIDs: Set<String> { Set(queuedWriteIDs.keys) }
+    private var writeResolutionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    // `internal` so recovery tests can assert waiter cleanup via `@testable import`.
+    var writeResolutionWaiterCount: Int { writeResolutionWaiters.count }
     var listeners: [UUID: EventListener] = [:]
     var isTearingDown: Bool = false
     private var writeQueue: AsyncStream<PendingWrite>.Continuation?
@@ -218,6 +221,7 @@ actor MobileCoreRPCSession {
         activeWrite?.task.cancel()
         activeWrite?.cancelledRequestResolutionTask?.cancel()
         activeWrite = nil
+        resumeWriteResolutionWaiters()
         writerTask?.cancel()
         writerTask = nil
         let connecting = connectionTask
@@ -722,10 +726,7 @@ actor MobileCoreRPCSession {
         }
         write.cancelledRequestResolutionTask = resolutionTask
         activeWrite = write
-        startQueuedDemandRecovery(
-            requestID: requestID,
-            resolutionTask: resolutionTask
-        )
+        startQueuedDemandRecovery(requestID: requestID)
     }
 
     /// Requests already queued behind the cancelled write have passed the
@@ -733,14 +734,11 @@ actor MobileCoreRPCSession {
     /// write would block them until their own deadlines and even then leave
     /// the wedged transport installed (their timeout cannot recycle a write
     /// owned by another request ID).
-    private func startQueuedDemandRecovery(
-        requestID: String,
-        resolutionTask: Task<Void, Never>
-    ) {
+    private func startQueuedDemandRecovery(requestID: String) {
         guard !queuedWriteIDs.isEmpty else { return }
         Task { [weak self, taskTimeout, cancelledWriteCompletionGraceNanoseconds] in
             let waitTask = Task<Void, any Error> {
-                await resolutionTask.value
+                await self?.awaitCancelledWriteResolution()
             }
             do {
                 try await taskTimeout.value(
@@ -769,7 +767,7 @@ actor MobileCoreRPCSession {
         deadlineUptimeNanoseconds: UInt64
     ) async throws {
         while let write = activeWrite,
-              let resolutionTask = write.cancelledRequestResolutionTask {
+              write.cancelledRequestResolutionTask != nil {
             try Task.checkCancellation()
             let remainingNanoseconds: UInt64
             do {
@@ -783,7 +781,7 @@ actor MobileCoreRPCSession {
                 throw MobileShellConnectionError.requestTimedOut
             }
             let waitTask = Task<Void, any Error> {
-                await resolutionTask.value
+                await self.awaitCancelledWriteResolution()
             }
             do {
                 try await taskTimeout.value(
@@ -813,11 +811,35 @@ actor MobileCoreRPCSession {
         try Task.checkCancellation()
     }
 
+    /// Suspends until the cancelled active write completes, fails, or is
+    /// recycled. Waiters are coalesced on this actor and resumed by those
+    /// resolution events, so an abandoned wait never strands a task parked
+    /// on the stalled send itself.
+    private func awaitCancelledWriteResolution() async {
+        await withCheckedContinuation { continuation in
+            guard activeWrite?.cancelledRequestResolutionTask != nil else {
+                continuation.resume()
+                return
+            }
+            writeResolutionWaiters[UUID()] = continuation
+        }
+    }
+
+    private func resumeWriteResolutionWaiters() {
+        guard !writeResolutionWaiters.isEmpty else { return }
+        let waiters = writeResolutionWaiters
+        writeResolutionWaiters.removeAll()
+        for continuation in waiters.values {
+            continuation.resume()
+        }
+    }
+
     private func cancelledActiveWriteDidComplete(
         connectionID: UUID,
         requestID: String
     ) {
         clearActiveWrite(connectionID: connectionID, requestID: requestID)
+        resumeWriteResolutionWaiters()
     }
 
     private func cancelledActiveWriteDidFail(
@@ -827,6 +849,7 @@ actor MobileCoreRPCSession {
         guard activeWrite?.connectionID == connectionID,
               activeWrite?.requestID == requestID else { return }
         activeWrite = nil
+        resumeWriteResolutionWaiters()
         await tearDownIfInstalled(
             connectionID: connectionID,
             error: .connectionClosed
@@ -836,7 +859,9 @@ actor MobileCoreRPCSession {
     private func recycleTransportIfActiveWrite(requestID: String) async -> Bool {
         guard activeWrite?.requestID == requestID else { return false }
         activeWrite?.task.cancel()
+        activeWrite?.cancelledRequestResolutionTask?.cancel()
         activeWrite = nil
+        resumeWriteResolutionWaiters()
         await tearDown(error: .connectionClosed)
         return true
     }

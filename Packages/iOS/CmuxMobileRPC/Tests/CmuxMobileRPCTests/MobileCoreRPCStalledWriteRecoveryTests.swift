@@ -378,6 +378,57 @@ import Testing
         await session.tearDown(error: .connectionClosed)
     }
 
+    @Test func recycledWriteResolutionDrainsCoalescedWaiters() async throws {
+        let stalled = StalledWriteTransport()
+        let recovery = ResponseTimeoutSurvivalTransport()
+        let factory = StalledWriteRecoveryTransportFactory(
+            stalled: stalled,
+            recovery: recovery
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59135
+        )
+        let session = MobileCoreRPCSession(
+            cancelledWriteCompletionGraceNanoseconds: 500_000_000,
+            makeTransport: { try factory.makeTransport(for: route) }
+        )
+        let firstTask = Task {
+            try await session.send(
+                payload: try inputRequest(id: "cancelled-before-waiter-drain", text: "a"),
+                requestID: "cancelled-before-waiter-drain",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 60 * 1_000_000_000
+            )
+        }
+
+        await stalled.waitUntilSendStarted()
+        firstTask.cancel()
+        _ = try? await firstTask.value
+
+        do {
+            _ = try await session.send(
+                payload: try inputRequest(id: "drained-behind-cancel", text: "b"),
+                requestID: "drained-behind-cancel",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 30_000_000
+            )
+            Issue.record("Expected the gated request to time out")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+
+        // The recycle that failed the gated request must also drain its
+        // coalesced resolution waiter instead of leaving it parked until the
+        // stalled send eventually returns.
+        #expect(await session.writeResolutionWaiterCount == 0)
+
+        await stalled.failStalledSend()
+        await session.tearDown(error: .connectionClosed)
+    }
+
     @Test func cancelledWriteResolutionHonorsNextRequestDeadline() async throws {
         let stalled = StalledWriteTransport()
         let recovery = ResponseTimeoutSurvivalTransport()
