@@ -6,12 +6,10 @@ public import Foundation
 nonisolated private let remoteRelayLogger = Logger(subsystem: "com.cmuxterm.app", category: "RemoteRelay")
 
 // The reverse CLI relay: a remote `127.0.0.1:<relayPort>` listener forwarded
-// back to the local CLI relay server, preferring an `ssh -O forward` on the
-// user's existing ControlMaster and falling back to a standalone `ssh -N -R`
-// transport. Faithful lift: argv composition, metadata install scripts,
-// stderr capture caps, restart cadence (2s), and every debug-log line are
-// pinned legacy behavior. The legacy restart `asyncAfter` work item became
-// an injected-clock task with a token guard (strictly tighter cancel).
+// back to the local CLI relay server by a dedicated `ssh -N -R` process. The
+// relay targets an in-process server, so its SSH transport must share the app
+// process's lifetime rather than a host-scoped ControlMaster's lifetime.
+// Stderr capture caps and restart cadence (2s) are pinned legacy behavior.
 extension RemoteSessionCoordinator {
     func startReverseRelayLocked(remotePath: String) {
         guard !isStopping else { return }
@@ -27,7 +25,6 @@ extension RemoteSessionCoordinator {
             return
         }
         guard reverseRelayProcess == nil else { return }
-        guard reverseRelayControlMasterForwardSpec == nil else { return }
 
         cancelReverseRelayRestartLocked()
         var relayServer: RemoteCLIRelayServer?
@@ -44,31 +41,6 @@ extension RemoteSessionCoordinator {
                 relayPort: relayPort,
                 persistentDaemonSlot: configuration.persistentDaemonSlot
             )
-            let forwardSpec = "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)"
-
-            if startReverseRelayViaControlMasterLocked(forwardSpec: forwardSpec, relayPort: relayPort) {
-                cliRelayServer = relayServer
-                reverseRelayStderrBuffer = ""
-                do {
-                    try installRemoteRelayMetadataLocked(
-                        remotePath: remotePath,
-                        relayPort: relayPort,
-                        relayID: relayID,
-                        relayToken: relayToken
-                    )
-                } catch {
-                    debugLog("remote.relay.metadata.error \(error.localizedDescription)")
-                    stopReverseRelayLocked()
-                    scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
-                    return
-                }
-                recordHeartbeatActivityLocked()
-                debugLog(
-                    "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
-                    "target=\(configuration.displayTarget) controlMaster=1"
-                )
-                return
-            }
 
             let process = Process()
             let stderrPipe = Pipe()
@@ -130,7 +102,7 @@ extension RemoteSessionCoordinator {
             recordHeartbeatActivityLocked()
             debugLog(
                 "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
-                "target=\(configuration.displayTarget) controlMaster=0"
+                "target=\(configuration.displayTarget) transport=dedicated"
             )
         } catch {
             debugLog(
@@ -229,7 +201,6 @@ extension RemoteSessionCoordinator {
             reverseRelayProcess.terminate()
         }
         reverseRelayProcess = nil
-        stopReverseRelayViaControlMasterLocked()
         reverseRelayStderrPipe = nil
         reverseRelayStderrBuffer = ""
         cliRelayServer?.stop()
@@ -238,10 +209,10 @@ extension RemoteSessionCoordinator {
     }
 
     func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
-        // Fallback standalone transport when dynamic forwarding through an existing
-        // control master is unavailable.
+        // The relay's SSH process is deliberately app-owned. `-S none` also
+        // protects against a ControlPath inherited from the host's ssh_config.
         var args: [String] = ["-N", "-T", "-S", "none"]
-        args += sshCommonArguments(batchMode: true)
+        args += sshCommonArguments(batchMode: true, dropControlPath: true)
         args += [
             "-o", "ExitOnForwardFailure=yes",
             "-o", "RequestTTY=no",
@@ -249,111 +220,6 @@ extension RemoteSessionCoordinator {
             configuration.destination,
         ]
         return args
-    }
-
-    private func startReverseRelayViaControlMasterLocked(forwardSpec: String, relayPort: Int) -> Bool {
-        guard let arguments = configuration.reverseRelayControlMasterArguments(
-            controlCommand: "forward",
-            forwardSpec: forwardSpec
-        ) else {
-            return false
-        }
-
-        cancelStaleReverseRelayViaControlMasterLocked(relayPort: relayPort)
-        do {
-            var result = try sshExec(arguments: arguments, timeout: 6)
-            guard result.status == 0 else {
-                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                    ?? "ssh exited \(result.status)"
-                debugLog("remote.relay.controlmaster.forwardFailed \(detail) \(debugConfigSummary())")
-                guard cleanupStaleRemoteRelayListenerLocked(relayPort: relayPort) else {
-                    return false
-                }
-
-                result = try sshExec(arguments: arguments, timeout: 6)
-                guard result.status == 0 else {
-                    let retryDetail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                        ?? "ssh exited \(result.status)"
-                    debugLog("remote.relay.controlmaster.forwardRetryFailed \(retryDetail) \(debugConfigSummary())")
-                    return false
-                }
-                reverseRelayControlMasterForwardSpec = forwardSpec
-                return true
-            }
-            reverseRelayControlMasterForwardSpec = forwardSpec
-            return true
-        } catch {
-            debugLog("remote.relay.controlmaster.forwardFailed \(error.localizedDescription) \(debugConfigSummary())")
-            return false
-        }
-    }
-
-    private func cancelStaleReverseRelayViaControlMasterLocked(relayPort: Int) {
-        guard let arguments = configuration.reverseRelayControlMasterCancelArguments(relayPort: relayPort) else {
-            return
-        }
-        do {
-            let result = try sshExec(arguments: arguments, timeout: 4)
-            guard result.status == 0 else {
-                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                    ?? "ssh exited \(result.status)"
-                debugLog("remote.relay.controlmaster.cancelStaleIgnored \(detail) \(debugConfigSummary())")
-                return
-            }
-            debugLog("remote.relay.controlmaster.cancelStale relayPort=\(relayPort) \(debugConfigSummary())")
-        } catch {
-            debugLog("remote.relay.controlmaster.cancelStaleIgnored \(error.localizedDescription) \(debugConfigSummary())")
-        }
-    }
-
-    private func cleanupStaleRemoteRelayListenerLocked(relayPort: Int) -> Bool {
-        guard let script = Self.remoteStaleRelayListenerCleanupScript(
-            relayPort: relayPort,
-            persistentDaemonSlot: configuration.persistentDaemonSlot
-        ) else {
-            debugLog("remote.relay.remoteListener.cleanupSkipped reason=no-persistent-slot relayPort=\(relayPort)")
-            return false
-        }
-
-        let command = "sh -c \(script.shellSingleQuoted)"
-        do {
-            let result = try sshExec(
-                arguments: ["-S", "none"] + sshCommonArguments(batchMode: true, dropControlPath: true) + [
-                    configuration.destination,
-                    command,
-                ],
-                timeout: 8
-            )
-            guard result.status == 0 else {
-                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                    ?? "ssh exited \(result.status)"
-                debugLog("remote.relay.remoteListener.cleanupFailed relayPort=\(relayPort) \(detail) \(debugConfigSummary())")
-                return false
-            }
-
-            let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-            if output.isEmpty {
-                debugLog("remote.relay.remoteListener.cleanupNoop relayPort=\(relayPort) \(debugConfigSummary())")
-            } else {
-                debugLog("remote.relay.remoteListener.cleanup relayPort=\(relayPort) \(output.debugLogSnippet()) \(debugConfigSummary())")
-            }
-            return true
-        } catch {
-            debugLog("remote.relay.remoteListener.cleanupFailed relayPort=\(relayPort) \(error.localizedDescription) \(debugConfigSummary())")
-            return false
-        }
-    }
-
-    private func stopReverseRelayViaControlMasterLocked() {
-        guard let forwardSpec = reverseRelayControlMasterForwardSpec else { return }
-        reverseRelayControlMasterForwardSpec = nil
-        guard let arguments = configuration.reverseRelayControlMasterArguments(
-            controlCommand: "cancel",
-            forwardSpec: forwardSpec
-        ) else {
-            return
-        }
-        _ = try? sshExec(arguments: arguments, timeout: 4)
     }
 
     private func ensureCLIRelayServerLocked(localSocketPath: String, relayID: String, relayToken: String) throws -> RemoteCLIRelayServer {

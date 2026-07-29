@@ -54,38 +54,6 @@ extension WorkspaceRemoteConfiguration {
             ]
     }
 
-    /// `ssh -O <controlCommand>` argv that drives a reverse forward on the
-    /// configured ControlMaster socket, or `nil` when no usable `ControlPath`
-    /// option is configured. Argument text is wire/process behavior; do not
-    /// alter.
-    public func reverseRelayControlMasterArguments(
-        controlCommand: String,
-        forwardSpec: String
-    ) -> [String]? {
-        guard let controlPath = firstSSHOptionValue(named: "ControlPath")?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !controlPath.isEmpty,
-              controlPath.lowercased() != "none" else {
-            return nil
-        }
-
-        var args = batchSSHArguments()
-        args += ["-O", controlCommand, "-R", forwardSpec, destination]
-        return args
-    }
-
-    /// ``reverseRelayControlMasterArguments(controlCommand:forwardSpec:)``
-    /// specialized to `-O cancel` for the relay's remote listen port, or
-    /// `nil` for a non-positive port. Argument text is wire/process behavior;
-    /// do not alter.
-    public func reverseRelayControlMasterCancelArguments(relayPort: Int) -> [String]? {
-        guard relayPort > 0 else { return nil }
-        return reverseRelayControlMasterArguments(
-            controlCommand: "cancel",
-            forwardSpec: "127.0.0.1:\(relayPort)"
-        )
-    }
-
     // Shared batch-mode `ssh` options: keepalives, BatchMode, no new
     // ControlMaster (existing ControlPath sockets may be reused), port,
     // identity, then the configuration's options minus
@@ -124,30 +92,6 @@ extension WorkspaceRemoteConfiguration {
             guard let key = resolver.optionKey(option) else { return false }
             return !Self.batchSSHControlOptionKeys.contains(key)
         }
-    }
-
-    // First non-empty value for an option key, scanning forward. This
-    // deliberately differs from SSHAgentSocketResolver.optionValue(named:in:)
-    // (which scans in reverse for OpenSSH last-wins semantics): the legacy
-    // batch builder used first-match and the reverse-relay behavior is pinned
-    // to it.
-    private func firstSSHOptionValue(named key: String) -> String? {
-        let loweredKey = key.lowercased()
-        for option in Self.trimmedSSHOptions(sshOptions) {
-            let parts = option.split(
-                maxSplits: 1,
-                omittingEmptySubsequences: true,
-                whereSeparator: { $0 == "=" || $0.isWhitespace }
-            )
-            guard parts.count == 2, parts[0].lowercased() == loweredKey else {
-                continue
-            }
-            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !value.isEmpty {
-                return value
-            }
-        }
-        return nil
     }
 }
 

@@ -74,6 +74,29 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
         }
     }
 
+    @Test("Reverse relay disables shared ControlMaster transport")
+    func reverseRelayDisablesSharedControlMasterTransport() {
+        let coordinator = Self.makeCoordinator(
+            runner: RecordingProcessRunner(),
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-%C",
+            ]
+        )
+        defer { coordinator.stop() }
+
+        let arguments = coordinator.reverseRelayArguments(
+            relayPort: 64_007,
+            localRelayPort: 54_321
+        )
+
+        #expect(arguments.starts(with: ["-N", "-T", "-S", "none"]))
+        #expect(!arguments.contains("-O"))
+        #expect(!arguments.contains(where: { $0.localizedCaseInsensitiveContains("ControlPath") }))
+        #expect(arguments.contains("127.0.0.1:64007:127.0.0.1:54321"))
+    }
+
     @Test("File-backed SSH exec overrides a configured StdinNull")
     func fileBackedSSHExecOverridesConfiguredStdinNull() throws {
         let runner = RecordingProcessRunner()

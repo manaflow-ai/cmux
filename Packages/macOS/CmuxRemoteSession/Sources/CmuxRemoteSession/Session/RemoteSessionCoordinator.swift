@@ -80,7 +80,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var daemonBootstrapVersion: String?
     var daemonRemotePath: String?
     var reverseRelayProcess: Process?
-    var reverseRelayControlMasterForwardSpec: String?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
     /// Stable publication state for best-effort remote TTY attribution scans.
