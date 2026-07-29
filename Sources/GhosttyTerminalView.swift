@@ -3193,6 +3193,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let rawToken: String
     }
 
+    /// Cursor-only cache. Command-click routing always resolves again, so
+    /// terminal output changing under a stationary pointer cannot open stale data.
+    private struct WordPathHoverCacheKey: Equatable {
+        let surfaceID: UUID
+        let row: Int
+        let column: Int
+        let rows: Int
+        let columns: Int
+        let boundsSize: CGSize
+        let cellSize: CGSize
+        let reportedWorkingDirectory: String?
+    }
+
+    private struct WordPathHoverCacheEntry {
+        let key: WordPathHoverCacheKey
+        let resolution: WordPathResolution?
+    }
+
     private func makeWordPathResolution(
         path: String,
         source: WordPathResolutionSource,
@@ -3241,6 +3259,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+    private var wordPathHoverCacheEntry: WordPathHoverCacheEntry?
+    private weak var cachedTerminalLinkOpenContainer: (any TerminalLinkOpenContainer)?
+    private var cachedTerminalLinkOpenContainerSurfaceID: UUID?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
@@ -3661,6 +3682,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if !isSameSurface {
             appliedColorScheme = nil
+            invalidateWordPathHoverResolution(clearContainer: true)
             // Reset any OSC 22 mouse shape carried over from the previous surface.
             updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
         }
@@ -3690,6 +3712,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             wordPathHoverActive = false
             NSCursor.pop()
         }
+        invalidateWordPathHoverResolution(clearContainer: true)
 #if DEBUG
         cmuxDebugLog(
             "surface.view.windowMove surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
@@ -6218,6 +6241,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) {
         let hoverWasActive = wordPathHoverActive
         guard cmdHeld, !suppressPathHover else {
+            invalidateWordPathHoverResolution()
             if wordPathHoverActive {
                 wordPathHoverActive = false
                 NSCursor.pop()
@@ -6241,7 +6265,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        let resolution = resolveWordUnderCursorPath(at: point)
+        let resolution = cachedWordPathHoverResolution(at: point)
         if resolution != nil {
             if !wordPathHoverActive {
                 wordPathHoverActive = true
@@ -6276,10 +6300,91 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func terminalLinkOpenContainer(
         for terminalSurface: TerminalSurface
     ) -> (any TerminalLinkOpenContainer)? {
-        TerminalLinkOpenCoordinator.resolveContainer(
+        if cachedTerminalLinkOpenContainerSurfaceID == terminalSurface.id,
+           let cachedTerminalLinkOpenContainer,
+           cachedTerminalLinkOpenContainer.terminalLinkContainsPanel(terminalSurface.id) {
+            return cachedTerminalLinkOpenContainer
+        }
+
+        let resolved = TerminalLinkOpenCoordinator.resolveContainer(
             sourceWorkspaceId: terminalSurface.tabId,
             sourcePanelId: terminalSurface.id
         )
+        cachedTerminalLinkOpenContainer = resolved
+        cachedTerminalLinkOpenContainerSurfaceID = resolved == nil ? nil : terminalSurface.id
+        return resolved
+    }
+
+    private func cachedWordPathHoverResolution(at point: NSPoint?) -> WordPathResolution? {
+        guard let key = wordPathHoverCacheKey(at: point) else {
+            wordPathHoverCacheEntry = nil
+            return resolveWordUnderCursorPath(at: point)
+        }
+        if let entry = wordPathHoverCacheEntry, entry.key == key {
+            return entry.resolution
+        }
+
+        let resolution = resolveWordUnderCursorPath(at: point)
+        wordPathHoverCacheEntry = WordPathHoverCacheEntry(
+            key: key,
+            resolution: resolution
+        )
+        return resolution
+    }
+
+    private func wordPathHoverCacheKey(at point: NSPoint?) -> WordPathHoverCacheKey? {
+        guard let surface,
+              let terminalSurface,
+              let resolvedPoint = preferredPointerPoint(from: point),
+              pointIsUsableForWordResolution(resolvedPoint) else {
+            return nil
+        }
+
+        let size = ghostty_surface_size(surface)
+        let rows = max(Int(size.rows), 1)
+        let columns = max(Int(size.columns), 1)
+        let resolvedCellSize = CGSize(
+            width: cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px),
+            height: cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        )
+        guard resolvedCellSize.width > 0, resolvedCellSize.height > 0 else {
+            return nil
+        }
+
+        let xInset = max(0, (bounds.width - (CGFloat(columns) * resolvedCellSize.width)) / 2)
+        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellSize.height)) / 2)
+        let row = max(
+            0,
+            min(
+                rows - 1,
+                Int((bounds.height - resolvedPoint.y - yInset) / resolvedCellSize.height)
+            )
+        )
+        let column = max(
+            0,
+            min(
+                columns - 1,
+                Int((resolvedPoint.x - xInset) / resolvedCellSize.width)
+            )
+        )
+        return WordPathHoverCacheKey(
+            surfaceID: terminalSurface.id,
+            row: row,
+            column: column,
+            rows: rows,
+            columns: columns,
+            boundsSize: bounds.size,
+            cellSize: resolvedCellSize,
+            reportedWorkingDirectory: terminalSurface.reportedWorkingDirectory
+        )
+    }
+
+    private func invalidateWordPathHoverResolution(clearContainer: Bool = false) {
+        wordPathHoverCacheEntry = nil
+        if clearContainer {
+            cachedTerminalLinkOpenContainer = nil
+            cachedTerminalLinkOpenContainerSurfaceID = nil
+        }
     }
 
     private func pointIsUsableForWordResolution(_ point: NSPoint) -> Bool {
@@ -6472,6 +6577,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 
+        // Click routing always resolves fresh. Hover caching is only a cursor
+        // optimization and cannot decide which path opens.
+        invalidateWordPathHoverResolution()
         guard let resolution = resolveWordUnderCursorPath(at: resolvedPoint) else {
 #if DEBUG
             runtimeDebugLog(
@@ -6649,7 +6757,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         )
 
-        let resolution = suppressCommandPathHover ? nil : resolveWordUnderCursorPath(at: clampedPoint)
+        let resolution = suppressCommandPathHover
+            ? nil
+            : cachedWordPathHoverResolution(at: clampedPoint)
         updateWordPathHover(
             at: clampedPoint,
             cmdHeld: true,
@@ -7025,6 +7135,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseExited(with event: NSEvent) {
+        invalidateWordPathHoverResolution()
         if wordPathHoverActive {
             wordPathHoverActive = false
             NSCursor.pop()
@@ -7074,6 +7185,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func scrollWheel(with event: NSEvent) {
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
+        invalidateWordPathHoverResolution()
         guard let surface = surface else { return }
         lastScrollEventTime = CACurrentMediaTime()
         Self.focusLog("scrollWheel: surface=\(terminalSurface?.id.uuidString ?? "nil") firstResponder=\(String(describing: window?.firstResponder))")

@@ -6,8 +6,22 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         "dock:\(workspaceId.uuidString)"
     }
 
+    func terminalLinkContainsPanel(_ sourcePanelId: UUID) -> Bool {
+        containsPanel(sourcePanelId)
+    }
+
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
-        terminalWorkingDirectory(for: sourcePanelId)
+        guard !terminalLinkIsRemoteTerminal(sourcePanelId),
+              let terminal = panels[sourcePanelId] as? TerminalPanel else {
+            return nil
+        }
+        let transfer = detachedSurfaceTransfersByPanelId[sourcePanelId]
+        return TerminalWorkingDirectoryResolver.firstAvailable([
+            terminal.surface.reportedWorkingDirectory,
+            terminal.directory,
+            transfer?.directory,
+            terminal.requestedWorkingDirectory,
+        ])
     }
 
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
@@ -57,6 +71,7 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         guard let targetIdentity = BrowserLocalFileIdentity(url: canonicalURL) else { return false }
         if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
             $0.localFileReadAccessPolicy == .fileOnly
+                && $0.bypassesRemoteWorkspaceProxyForTabDuplication
                 && $0.effectiveURLForTerminalFileReuse
                     .flatMap { BrowserLocalFileIdentity(url: $0) } == targetIdentity
         }), existing.reloadTerminalFileForReuse(canonicalURL) {
@@ -74,6 +89,7 @@ extension DockSplitStore: TerminalLinkOpenContainer {
                 inPane: targetPane,
                 url: canonicalURL,
                 focus: true,
+                bypassRemoteProxy: true,
                 localFileReadAccessPolicy: .fileOnly
             ) != nil
         }
@@ -84,6 +100,7 @@ extension DockSplitStore: TerminalLinkOpenContainer {
             sourcePanelId: sourcePanelId,
             url: canonicalURL,
             focus: true,
+            bypassRemoteProxy: true,
             localFileReadAccessPolicy: .fileOnly
         ) != nil
     }

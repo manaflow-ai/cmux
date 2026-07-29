@@ -6,6 +6,10 @@ extension Workspace: TerminalLinkOpenContainer {
         "workspace:\(id.uuidString)"
     }
 
+    func terminalLinkContainsPanel(_ sourcePanelId: UUID) -> Bool {
+        surfaceOwnershipTarget(for: sourcePanelId) != nil
+    }
+
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return nil }
         return CommandClickFileOpenRouter.resolveWorkingDirectory(
@@ -60,6 +64,7 @@ extension Workspace: TerminalLinkOpenContainer {
         guard let targetIdentity = BrowserLocalFileIdentity(url: canonicalURL) else { return false }
         if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
             $0.localFileReadAccessPolicy == .fileOnly
+                && $0.bypassesRemoteWorkspaceProxyForTabDuplication
                 && $0.effectiveURLForTerminalFileReuse
                     .flatMap { BrowserLocalFileIdentity(url: $0) } == targetIdentity
         }), existing.reloadTerminalFileForReuse(canonicalURL) {
@@ -72,6 +77,7 @@ extension Workspace: TerminalLinkOpenContainer {
                 inPane: targetPane,
                 url: canonicalURL,
                 focus: true,
+                bypassRemoteProxy: true,
                 localFileReadAccessPolicy: .fileOnly
             ) != nil
         }
@@ -79,6 +85,7 @@ extension Workspace: TerminalLinkOpenContainer {
             from: sourcePanelId,
             orientation: .horizontal,
             url: canonicalURL,
+            bypassRemoteProxy: true,
             localFileReadAccessPolicy: .fileOnly
         ) != nil
     }

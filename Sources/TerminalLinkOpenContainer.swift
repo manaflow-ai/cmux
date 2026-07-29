@@ -6,6 +6,7 @@ import Foundation
 protocol TerminalLinkOpenContainer: AnyObject {
     var terminalLinkContainerDebugName: String { get }
 
+    func terminalLinkContainsPanel(_ sourcePanelId: UUID) -> Bool
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String?
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool
     func terminalLinkSnapshotTerminalPanel(for sourcePanelId: UUID) -> TerminalPanel?

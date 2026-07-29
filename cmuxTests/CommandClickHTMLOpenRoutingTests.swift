@@ -247,6 +247,10 @@ struct CommandClickHTMLOpenRoutingTests {
             .map { String(describing: $0.value) }
         #expect(readAccessPolicy == "fileOnly")
         #expect(browser.bypassesRemoteWorkspaceProxyForTabDuplication)
+        #expect(
+            browser.webView.configuration.websiteDataStore ===
+                BrowserProfileStore.shared.websiteDataStore(for: browser.profileID)
+        )
     }
 
     @Test
@@ -290,6 +294,11 @@ struct CommandClickHTMLOpenRoutingTests {
         let browsers = workspace.panels.values.compactMap { $0 as? BrowserPanel }
         #expect(browsers.count == 2)
         #expect(browsers.allSatisfy { $0.localFileReadAccessPolicy == .fileOnly })
+        #expect(browsers.allSatisfy { $0.bypassesRemoteWorkspaceProxyForTabDuplication })
+        #expect(browsers.allSatisfy {
+            $0.webView.configuration.websiteDataStore ===
+                BrowserProfileStore.shared.websiteDataStore(for: $0.profileID)
+        })
     }
 
     @Test

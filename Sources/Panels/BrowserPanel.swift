@@ -4101,14 +4101,20 @@ final class BrowserPanel: Panel, ObservableObject {
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
-        self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
-        self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
-        self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
+        // Restricted local-file panels must never inherit a remote workspace's
+        // proxy or website data store. The policy-derived fallback also
+        // preserves that invariant for restored sessions.
+        let resolvedBypassRemoteProxy =
+            bypassRemoteProxy || localFileReadAccessPolicy == .fileOnly
+        let usesRemoteContext = isRemoteWorkspace && !resolvedBypassRemoteProxy
+        self.bypassesRemoteWorkspaceProxy = resolvedBypassRemoteProxy
+        self.remoteProxyEndpoint = resolvedBypassRemoteProxy ? nil : proxyEndpoint
+        self.usesRemoteWorkspaceProxy = usesRemoteContext
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
         self.usesTransparentBackground = transparentBackground
-        let websiteDataStore = isRemoteWorkspace
+        let websiteDataStore = usesRemoteContext
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         self.websiteDataStore = websiteDataStore
@@ -4116,7 +4122,7 @@ final class BrowserPanel: Panel, ObservableObject {
         var adoptedPrewarmedWebView = false
         if localFileReadAccessPolicy == .containingDirectory,
            let prewarmed = Self.claimedPrewarmedWebView(
-            isRemoteWorkspace: isRemoteWorkspace,
+            isRemoteWorkspace: usesRemoteContext,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
             initialURL: initialURL,
@@ -4716,8 +4722,9 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
         workspaceId = newWorkspaceId
-        usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
-        let targetStore = isRemoteWorkspace
+        let usesRemoteContext = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
+        usesRemoteWorkspaceProxy = usesRemoteContext
+        let targetStore = usesRemoteContext
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: profileID)
         let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore
@@ -6586,6 +6593,7 @@ extension BrowserPanel {
             focus: true,
             preferredProfileID: profileID,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            bypassRemoteProxy: bypassesRemoteWorkspaceProxyForTabDuplication,
             localFileReadAccessPolicy: localFileReadAccessPolicy
         ) else {
 #if DEBUG

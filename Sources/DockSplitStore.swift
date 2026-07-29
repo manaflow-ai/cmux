@@ -266,6 +266,7 @@ final class DockSplitStore: BonsplitDelegate {
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        bypassRemoteProxy: Bool? = nil,
         localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
     ) -> UUID? {
         ensureLoaded()
@@ -284,6 +285,7 @@ final class DockSplitStore: BonsplitDelegate {
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            bypassRemoteProxy: bypassRemoteProxy,
             localFileReadAccessPolicy: localFileReadAccessPolicy
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
@@ -318,6 +320,7 @@ final class DockSplitStore: BonsplitDelegate {
         initialDividerPosition: CGFloat? = nil,
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
+        bypassRemoteProxy: Bool? = nil,
         localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
     ) -> UUID? {
         ensureLoaded()
@@ -334,6 +337,7 @@ final class DockSplitStore: BonsplitDelegate {
             ),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
+            bypassRemoteProxy: bypassRemoteProxy,
             localFileReadAccessPolicy: localFileReadAccessPolicy
         ) else { return nil }
 
@@ -433,6 +437,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        bypassRemoteProxy: Bool? = nil,
         localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
     ) -> (any Panel)? {
         switch kind {
@@ -456,6 +461,7 @@ final class DockSplitStore: BonsplitDelegate {
                 initialRequest: initialRequest,
                 preferredProfileID: preferredProfileID,
                 bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+                bypassRemoteProxy: bypassRemoteProxy,
                 localFileReadAccessPolicy: localFileReadAccessPolicy
             )
         }

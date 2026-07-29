@@ -48,6 +48,7 @@ extension Workspace {
             focus: true,
             preferredProfileID: panel.profileID,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            bypassRemoteProxy: panel.bypassesRemoteWorkspaceProxyForTabDuplication,
             localFileReadAccessPolicy: panel.localFileReadAccessPolicy
         ) != nil
     }
@@ -65,6 +66,7 @@ extension Workspace {
                 focus: true,
                 preferredProfileID: panel.profileID,
                 bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+                bypassRemoteProxy: panel.bypassesRemoteWorkspaceProxyForTabDuplication,
                 localFileReadAccessPolicy: panel.localFileReadAccessPolicy
             ) != nil
         }
@@ -101,9 +103,11 @@ extension DockSplitStore {
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
         transparentBackground: Bool = false,
+        bypassRemoteProxy: Bool? = nil,
         localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
+        let resolvedBypassRemoteProxy = bypassRemoteProxy ?? settings.bypassRemoteProxy
         let panel = BrowserPanel(
             workspaceId: workspaceId,
             profileID: preferredProfileID,
@@ -112,9 +116,11 @@ extension DockSplitStore {
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             transparentBackground: transparentBackground,
             proxyEndpoint: settings.proxyEndpoint,
-            bypassRemoteProxy: settings.bypassRemoteProxy,
+            bypassRemoteProxy: resolvedBypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier,
+            remoteWebsiteDataStoreIdentifier: settings.isRemoteWorkspace && !resolvedBypassRemoteProxy
+                ? settings.remoteWebsiteDataStoreIdentifier
+                : nil,
             localFileReadAccessPolicy: localFileReadAccessPolicy
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)

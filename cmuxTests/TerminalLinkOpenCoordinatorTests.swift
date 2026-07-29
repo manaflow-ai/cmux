@@ -17,6 +17,10 @@ struct TerminalLinkOpenCoordinatorTests {
 
         var terminalLinkContainerDebugName: String { "test" }
 
+        func terminalLinkContainsPanel(_ sourcePanelId: UUID) -> Bool {
+            true
+        }
+
         func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
             nil
         }
@@ -217,6 +221,12 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(browserPanels.count == 1)
         #expect(browserPanels.first?.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
         #expect(browserPanels.first?.bypassesRemoteWorkspaceProxyForTabDuplication == true)
+        if let browser = browserPanels.first {
+            #expect(
+                browser.webView.configuration.websiteDataStore ===
+                    BrowserProfileStore.shared.websiteDataStore(for: browser.profileID)
+            )
+        }
         #expect(externallyOpened.isEmpty)
     }
 
