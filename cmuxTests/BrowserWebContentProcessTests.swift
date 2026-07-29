@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxBrowser
 import Foundation
 import Testing
@@ -65,6 +66,94 @@ struct BrowserWebContentProcessTests {
         #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 401).shouldBeginSignIn)
         #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 429).shouldRetry)
         #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 503).shouldRetry)
+    }
+
+    @Test
+    func browserAppSessionClassifiesDefinitiveUnauthorizedTokenReads() {
+        let unauthorized = BrowserAppSessionRequestOutcome.tokenFailure(
+            AuthError.unauthorized
+        )
+        let transient = BrowserAppSessionRequestOutcome.tokenFailure(
+            AuthError.networkError
+        )
+
+        #expect(unauthorized.shouldBeginSignIn)
+        #expect(!unauthorized.shouldRetry)
+        #expect(!transient.shouldBeginSignIn)
+        #expect(transient.shouldRetry)
+    }
+
+    @Test
+    func failedBrowserAppSessionHandoffUsesIsolatedRecovery() {
+        #expect(
+            BrowserAppSessionRequestOutcome.failed.recoveryAction == .isolatedBrowser
+        )
+        #expect(
+            BrowserAppSessionRequestOutcome.notAuthenticated.recoveryAction == .beginSignIn
+        )
+    }
+
+    @Test
+    func browserAppSessionStoreOwnershipSurvivesRelaunch() throws {
+        let suiteName = "BrowserAppSessionStoreOwnershipTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaultsKey = "owned-stores"
+        let persistentStoreID = UUID()
+
+        let firstLaunch = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: defaultsKey
+        )
+        firstLaunch.register(
+            WKWebsiteDataStore(forIdentifier: persistentStoreID)
+        )
+
+        let relaunched = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: defaultsKey
+        )
+        #expect(
+            relaunched.persistedIdentities == [
+                .persistent(persistentStoreID),
+            ]
+        )
+        #expect(
+            relaunched.storesForCleanup().contains {
+                $0.identifier == persistentStoreID
+            }
+        )
+    }
+
+    @Test
+    func browserAppSessionHTTPClientRejectsRedirects() async throws {
+        let delegate = BrowserAppSessionRedirectRejectingDelegate()
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let sourceURL = try #require(URL(string: "https://cmux.test/handoff"))
+        let targetURL = try #require(URL(string: "https://evil.test/steal"))
+        let task = session.dataTask(with: sourceURL)
+        defer { task.cancel() }
+        let response = try #require(HTTPURLResponse(
+            url: sourceURL,
+            statusCode: 307,
+            httpVersion: nil,
+            headerFields: ["Location": targetURL.absoluteString]
+        ))
+
+        let redirectedRequest = await withCheckedContinuation { continuation in
+            delegate.urlSession(
+                session,
+                task: task,
+                willPerformHTTPRedirection: response,
+                newRequest: URLRequest(url: targetURL)
+            ) { request in
+                continuation.resume(returning: request)
+            }
+        }
+
+        #expect(redirectedRequest == nil)
     }
 
     @Test

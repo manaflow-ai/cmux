@@ -1102,12 +1102,55 @@ describe("recordCheckoutCompletion", () => {
 
     expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
     expect(removeTester).toHaveBeenCalledWith("buyer@example.com", {
-      removeLegacyFounderMembership: true,
+      ownedLegacyGroupIDs: [],
     });
     expect(updates.find((entry) => entry.table === stripeSubscriptions)?.values).not.toHaveProperty(
       "id",
     );
     expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
+  });
+
+  test("removes an explicitly recorded legacy Pro membership when Pro lapses", async () => {
+    const removeTester = mock(async () => undefined);
+    const user = {
+      id: "user_legacy",
+      primaryEmail: "legacy@example.com",
+      clientReadOnlyMetadata: {
+        cmuxPlan: "pro",
+        cmuxProTestflightOwnedLegacyGroupIDs: [
+          "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+        ],
+      },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[{ stackUserId: "user_legacy" }], [{ id: "sub_legacy" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({
+        id: "sub_legacy",
+        status: "canceled",
+        metadata: { stackUserId: "user_legacy", scope: "user" },
+      }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+        testflight: {
+          isAscConfigured: () => true,
+          removeTester,
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: "user_legacy",
+      isActive: false,
+    });
+    expect(removeTester).toHaveBeenCalledWith("legacy@example.com", {
+      ownedLegacyGroupIDs: [
+        "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+      ],
+    });
   });
 
   test("does not fail the webhook when TestFlight removal fails", async () => {

@@ -167,7 +167,7 @@ describe("TestFlight ASC service", () => {
     });
   });
 
-  test("removes a legacy Pro tester from the old Founder group when explicitly requested", async () => {
+  test("removes a legacy Founder-group membership only from authoritative Pro ownership", async () => {
     mockImplementation(ascFetch, async (path: unknown) => {
       if (String(path).startsWith("/v1/betaTesters?")) {
         return betaTesterList("tester_legacy");
@@ -186,16 +186,20 @@ describe("TestFlight ASC service", () => {
     });
 
     await removeTester("legacy@example.com", {
-      removeLegacyFounderMembership: true,
+      ownedLegacyGroupIDs: ["3ee84bfa-10ad-4f23-a45c-f9a3b037373e"],
     });
 
-    expect(ascFetch).toHaveBeenCalledWith(
+    const deletePaths = (ascFetch as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls
+      .filter(([, init]) => (init as { method?: string } | undefined)?.method === "DELETE")
+      .map(([path]) => String(path));
+    expect(deletePaths).toEqual([
+      "/v1/betaGroups/34fbede5-3880-4560-b1bb-a45787249780/relationships/betaTesters",
       "/v1/betaGroups/3ee84bfa-10ad-4f23-a45c-f9a3b037373e/relationships/betaTesters",
-      expect.objectContaining({ method: "DELETE" }),
-    );
+    ]);
   });
 
-  test("never removes Founder membership when a distinct Pro membership exists", async () => {
+  test("never infers Founder ownership from overlapping Founder and Pro membership", async () => {
     mockImplementation(ascFetch, async (path: unknown) => {
       if (String(path).startsWith("/v1/betaTesters?")) {
         return betaTesterList("tester_founder_and_pro");
@@ -218,7 +222,7 @@ describe("TestFlight ASC service", () => {
     });
 
     await removeTester("founder-and-pro@example.com", {
-      removeLegacyFounderMembership: true,
+      ownedLegacyGroupIDs: [],
     });
 
     const deletePaths = (ascFetch as unknown as { mock: { calls: unknown[][] } })
