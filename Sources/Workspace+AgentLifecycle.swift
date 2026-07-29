@@ -202,6 +202,9 @@ extension Workspace {
         if let shellActivityState = detached.shellActivityState {
             panelShellActivityStates[detached.panelId] = shellActivityState
             (detached.panel as? TerminalPanel)?.updateShellActivityState(shellActivityState)
+            // Restored command state lands after the workspace's one-shot
+            // branding sweep, so re-evaluate the launch fast-path here too.
+            updateProvisionalAgentTabBranding(panelId: detached.panelId, shellState: shellActivityState)
         } else {
             panelShellActivityStates.removeValue(forKey: detached.panelId)
         }

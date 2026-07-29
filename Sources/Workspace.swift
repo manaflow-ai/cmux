@@ -3365,12 +3365,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// command start; superseded by hook-recorded PID keys when those arrive.
     var provisionalAgentTabBrandingIDsByPanelId: [UUID: String] = [:]
 
-    /// Pending one-shot re-probe tasks for the launch fast-path.
-    var agentTabBrandingProbeTasks: [UUID: Task<Void, Never>] = [:]
+    /// Per-panel `NOTE_EXEC` watchers re-probing the launch fast-path when the
+    /// foreground process exec()s into the agent binary.
+    var agentTabBrandingExecWatchers: [UUID: DispatchSourceProcess] = [:]
 
     deinit {
         agentTabBrandingObservationTask?.cancel()
-        for task in agentTabBrandingProbeTasks.values { task.cancel() }
+        for watcher in agentTabBrandingExecWatchers.values { watcher.cancel() }
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {

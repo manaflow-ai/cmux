@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -137,5 +138,24 @@ import Testing
     ])
     func builtInDefinitionCarriesBrandIcon(id: String, assetName: String) {
         #expect(definition(id).assetName == assetName)
+    }
+}
+
+/// Behavior coverage for the unconditional foreground-PID agent matcher used
+/// by the tab-branding launch fast-path.
+@Suite struct CodingAgentDefinitionForegroundPIDTests {
+    @Test func invalidPIDFailsClosed() {
+        #expect(CmuxTopProcessSnapshot.codingAgentDefinition(foregroundPID: -1) == nil)
+        #expect(CmuxTopProcessSnapshot.codingAgentDefinition(foregroundPID: 0) == nil)
+    }
+
+    @Test func nonAgentProcessResolvesToNoDefinition() {
+        // The test runner itself is a live, inspectable process that matches
+        // no agent definition.
+        #expect(
+            CmuxTopProcessSnapshot.codingAgentDefinition(
+                foregroundPID: Int(ProcessInfo.processInfo.processIdentifier)
+            ) == nil
+        )
     }
 }

@@ -52,8 +52,7 @@ extension Workspace {
     /// a starting command is probed for a known agent binary, and returning to
     /// the prompt drops the provisional brand.
     func updateProvisionalAgentTabBranding(panelId: UUID, shellState: PanelShellActivityState) {
-        agentTabBrandingProbeTasks[panelId]?.cancel()
-        agentTabBrandingProbeTasks.removeValue(forKey: panelId)
+        cancelAgentTabBrandingExecWatcher(panelId: panelId)
         if shellState == .commandRunning {
             probeProvisionalAgentTabBranding(panelId: panelId, allowsReprobe: true)
         } else {
@@ -62,10 +61,14 @@ extension Workspace {
     }
 
     private func probeProvisionalAgentTabBranding(panelId: UUID, allowsReprobe: Bool) {
-        guard let terminalPanel = panels[panelId] as? TerminalPanel else { return }
-        let definition = terminalPanel.surface.foregroundProcessID()
-            .flatMap { CmuxTopProcessSnapshot.codingAgentDefinition(foregroundPID: $0) }
+        guard let terminalPanel = panels[panelId] as? TerminalPanel,
+              let foregroundPID = terminalPanel.surface.foregroundProcessID() else {
+            clearProvisionalAgentTabBranding(panelId: panelId)
+            return
+        }
+        let definition = CmuxTopProcessSnapshot.codingAgentDefinition(foregroundPID: foregroundPID)
         if let definition {
+            cancelAgentTabBrandingExecWatcher(panelId: panelId)
             if provisionalAgentTabBrandingIDsByPanelId[panelId] != definition.id {
                 provisionalAgentTabBrandingIDsByPanelId[panelId] = definition.id
                 refreshAgentTabBranding(panelId: panelId)
@@ -74,17 +77,40 @@ extension Workspace {
         }
         clearProvisionalAgentTabBranding(panelId: panelId)
         guard allowsReprobe else { return }
-        // One bounded, cancellable re-probe: the shell reports command start
-        // before the launcher/wrapper exec()s the agent binary, so the
-        // immediate probe can observe the not-yet-exec'd wrapper. The delay is
-        // the intended grace period, not a poll; the task is cancelled on the
-        // next shell-activity transition and in deinit.
-        agentTabBrandingProbeTasks[panelId] = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            guard !Task.isCancelled else { return }
-            self?.agentTabBrandingProbeTasks.removeValue(forKey: panelId)
-            self?.probeProvisionalAgentTabBranding(panelId: panelId, allowsReprobe: false)
+        watchForegroundExecForProvisionalBranding(panelId: panelId, pid: foregroundPID)
+    }
+
+    /// The shell reports command start before the launcher/wrapper exec()s the
+    /// agent binary, so the immediate probe can observe the not-yet-exec'd
+    /// wrapper. Watch the foreground process for its exec transition and probe
+    /// again exactly then, instead of retrying on a timer.
+    ///
+    /// DispatchSource carve-out: kernel `NOTE_EXEC` is the event-driven signal
+    /// for an exec() transition and has no async-native replacement. The
+    /// source is cancelled on the next shell-activity transition and in
+    /// `deinit`.
+    private func watchForegroundExecForProvisionalBranding(panelId: UUID, pid: Int) {
+        let source = DispatchSource.makeProcessSource(
+            identifier: pid_t(pid),
+            eventMask: .exec,
+            queue: .main
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.cancelAgentTabBrandingExecWatcher(panelId: panelId)
+                self.probeProvisionalAgentTabBranding(panelId: panelId, allowsReprobe: false)
+            }
         }
+        agentTabBrandingExecWatchers[panelId] = source
+        source.activate()
+        // The exec can land between the failed probe and arming the watcher;
+        // probe once more so that window cannot lose the transition.
+        probeProvisionalAgentTabBranding(panelId: panelId, allowsReprobe: false)
+    }
+
+    private func cancelAgentTabBrandingExecWatcher(panelId: UUID) {
+        agentTabBrandingExecWatchers.removeValue(forKey: panelId)?.cancel()
     }
 
     private func clearProvisionalAgentTabBranding(panelId: UUID) {
