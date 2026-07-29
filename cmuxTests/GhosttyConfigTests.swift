@@ -2323,6 +2323,7 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
         let seed = try XCTUnwrap(
             browserNewTabNavigationSeed(
                 from: request,
+                localFileReadAccessPolicy: .containingDirectory,
                 bypassInsecureHTTPHostOnce: "www.linkedin.com"
             )
         )

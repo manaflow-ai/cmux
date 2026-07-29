@@ -716,10 +716,11 @@ struct BrowserNewTabNavigationSeed {
 /// Preserves the original request metadata for a retargeted new-tab navigation.
 func browserNewTabNavigationSeed(
     from request: URLRequest,
+    localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy,
     bypassInsecureHTTPHostOnce: String? = nil
 ) -> BrowserNewTabNavigationSeed? {
     guard let originalURL = request.url else { return nil }
-    let url = originalURL.isFileURL
+    let url = originalURL.isFileURL && localFileReadAccessPolicy == .fileOnly
         ? originalURL.standardizedFileURL.resolvingSymlinksInPath()
         : originalURL
     var initialRequest = request
@@ -6538,6 +6539,7 @@ extension BrowserPanel {
     func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
         guard let seed = browserNewTabNavigationSeed(
             from: request,
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         ) else {
             return
