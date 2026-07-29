@@ -280,6 +280,29 @@ import Testing
         #expect(!registered)
     }
 
+    @Test func rejectedEventSourcesBalanceTheirInitialSuspension() async {
+        let coordinator = CommandRunCoordinator()
+        _ = await coordinator.claimImmediate()
+
+        let timer = CommandTimer(
+            queue: DispatchQueue(label: "com.cmuxterm.tests.rejected-timer")
+        )
+        timer.setEventHandler {}
+        #expect(!(await coordinator.installDeadlineTimer(timer)))
+        timer.cancelBeforeActivation()
+
+        let exitSource = CommandProcessExitSource(
+            processIdentifier: getpid(),
+            queue: DispatchQueue(label: "com.cmuxterm.tests.rejected-process")
+        )
+        exitSource.setEventHandler {}
+        #expect(!(await coordinator.installExitSource(
+            exitSource,
+            reapProcess: {}
+        )))
+        exitSource.cancelBeforeActivation()
+    }
+
     @Test func taskCancellationTerminatesDescendantProcessGroup() async throws {
         let pidFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-command-runner-child-\(UUID().uuidString)")
