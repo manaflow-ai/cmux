@@ -329,13 +329,20 @@ def test_scheduled_uploads_filter_for_ios_affecting_main_changes() -> None:
 
 
 def test_schedule_decision_executes_ios_path_filter() -> None:
-    ios_change = run_decision_scenario(
-        event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
-        prior_sha="base-sha",
-        head_sha="head-sha",
-        changed_files=("Sources/Mobile/MobileHostService.swift",),
-    )
+    ios_changes = [
+        run_decision_scenario(
+            event_name="schedule",
+            schedule=IOS_SCHEDULES[0],
+            prior_sha="base-sha",
+            head_sha="head-sha",
+            changed_files=(
+                path.removesuffix("**") + "changed"
+                if path.endswith("**")
+                else path,
+            ),
+        )
+        for path in IOS_PATHS
+    ]
     non_ios_change = run_decision_scenario(
         event_name="schedule",
         schedule=IOS_SCHEDULES[0],
@@ -344,11 +351,12 @@ def test_schedule_decision_executes_ios_path_filter() -> None:
         changed_files=("docs/cli-contract.md",),
     )
 
-    assert ios_change["outputs"] == {
-        "should_build": "true",
-        "last_uploaded_sha": "base-sha",
-        "variant": "internal",
-    }
+    for ios_change in ios_changes:
+        assert ios_change["outputs"] == {
+            "should_build": "true",
+            "last_uploaded_sha": "base-sha",
+            "variant": "internal",
+        }
     assert non_ios_change["outputs"] == {
         "should_build": "false",
         "last_uploaded_sha": "base-sha",
@@ -362,7 +370,10 @@ def test_schedule_decision_executes_ios_path_filter() -> None:
             "head": "head-sha",
         }
     ]
-    assert ios_change["compareCalls"] == expected_compare
+    assert all(
+        ios_change["compareCalls"] == expected_compare
+        for ios_change in ios_changes
+    )
     assert non_ios_change["compareCalls"] == expected_compare
 
 
@@ -426,6 +437,16 @@ def test_scheduled_run_waits_for_an_earlier_upload() -> None:
 
     assert result["waitCalls"] == [60_000]
     assert result["workflowRunCalls"] == 3
+    assert result["priorRunStatuses"] == [
+        "in_progress",
+        "in_progress",
+        "in_progress",
+    ]
+    assert result["uploadJobStatuses"] == [
+        "in_progress",
+        "completed",
+        "completed",
+    ]
     assert result["outputs"] == {
         "should_build": "true",
         "last_uploaded_sha": "base-sha",
