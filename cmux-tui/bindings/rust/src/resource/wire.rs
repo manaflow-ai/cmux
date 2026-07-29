@@ -98,6 +98,7 @@ pub(crate) mod field {
     pub(crate) const PALETTE: &str = "palette";
     pub(crate) const COMPLETE: &str = "complete";
     pub(crate) const CONFIRM_CLOSE: &str = "confirm_close";
+    pub(crate) const MANAGED: &str = "managed";
 }
 
 #[derive(Clone, Debug, Default)]

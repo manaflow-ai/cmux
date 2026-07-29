@@ -1,5 +1,5 @@
 use super::id::*;
-use super::model::{Cursor, Document, SidebarViewSnapshot, StreamEnd};
+use super::model::{Cursor, Document, SidebarViewSnapshot, StreamEnd, TypedStreamItem};
 use super::options::{NotificationLevel, PixelSize, Size};
 use super::stream::{ResourceStream, StreamCancellation};
 use super::wire;
@@ -317,7 +317,7 @@ macro_rules! typed_stream {
                 self.inner.cancellation()
             }
 
-            pub fn cancel(&self) -> Result<()> {
+            pub fn cancel(&mut self) -> Result<()> {
                 self.inner.cancel()
             }
 
@@ -325,12 +325,17 @@ macro_rules! typed_stream {
                 self.inner.end()
             }
 
-            pub fn recv(&mut self) -> Result<Option<$item>> {
+            pub fn recv(&mut self) -> Result<Option<TypedStreamItem<$item>>> {
                 if self.finished {
                     return Ok(None);
                 }
                 match self.inner.recv() {
-                    Ok(Some(item)) => $decode(item.value, item.cursor, item.sequence).map(Some),
+                    Ok(Some(item)) => {
+                        let sequence = item.sequence;
+                        let cursor = item.cursor;
+                        let value = $decode(item.value, cursor.clone(), sequence)?;
+                        Ok(Some(TypedStreamItem { sequence, cursor, value }))
+                    }
                     Ok(None) => {
                         self.finished = true;
                         Ok(None)
@@ -344,7 +349,7 @@ macro_rules! typed_stream {
         }
 
         impl Iterator for $name {
-            type Item = Result<$item>;
+            type Item = Result<TypedStreamItem<$item>>;
 
             fn next(&mut self) -> Option<Self::Item> {
                 match self.recv() {

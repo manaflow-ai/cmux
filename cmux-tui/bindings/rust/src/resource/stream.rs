@@ -32,11 +32,23 @@ pub struct StreamCancellation {
 }
 
 impl StreamCancellation {
+    /// Sends a detached cancellation request.
+    ///
+    /// Use the owned typed stream's `cancel` method when the caller must wait
+    /// for the matching response and canceled end state.
     pub fn cancel(&self) -> Result<()> {
+        self.send().map(|_| ())
+    }
+
+    fn request_id(&self) -> String {
+        format!("rust-cancel-{}", self.inner.id.as_str())
+    }
+
+    fn send(&self) -> Result<bool> {
         if self.inner.canceled.swap(true, Ordering::AcqRel) {
-            return Ok(());
+            return Ok(false);
         }
-        let request_id = format!("rust-cancel-{}", self.inner.id.as_str());
+        let request_id = self.request_id();
         let envelope = json!({
             "protocol": "cmux.protocol/1",
             "type": "request",
@@ -60,7 +72,8 @@ impl StreamCancellation {
         writer
             .write_all(&encoded)
             .and_then(|()| writer.write_all(b"\n"))
-            .map_err(|error| Error::Connection(format!("stream cancel failed: {error}")))
+            .map_err(|error| Error::Connection(format!("stream cancel failed: {error}")))?;
+        Ok(true)
     }
 }
 
@@ -103,8 +116,48 @@ impl ResourceStream {
         self.cancellation.clone()
     }
 
-    pub fn cancel(&self) -> Result<()> {
-        self.cancellation.cancel()
+    /// Cancels the stream and discards unread items until cancellation is
+    /// confirmed by both the response and the matching canceled end envelope.
+    pub fn cancel(&mut self) -> Result<()> {
+        if self.end.is_some() {
+            return Ok(());
+        }
+        let request_id = self.cancellation.request_id();
+        self.cancellation.send()?;
+        let mut response_seen = false;
+        let mut end_seen = false;
+        while !response_seen || !end_seen {
+            let envelope = self.connection.recv()?;
+            match envelope.get("type").and_then(Value::as_str) {
+                Some("response") => {
+                    super::client::decode_response(envelope, &request_id)?;
+                    response_seen = true;
+                }
+                Some("stream_item") => {
+                    // Items already in flight before cancellation are stale.
+                    // Decode the envelope for protocol/sequence validation,
+                    // then intentionally discard the typed payload.
+                    self.decode_item(envelope)?;
+                }
+                Some("stream_end") => {
+                    let end = self.decode_end(envelope)?;
+                    if end.reason != StreamEndReason::Canceled {
+                        return Err(Error::UnexpectedEnvelope(format!(
+                            "cancel ended stream with {:?}, expected canceled",
+                            end.reason
+                        )));
+                    }
+                    self.end = Some(end);
+                    end_seen = true;
+                }
+                _ => {
+                    return Err(Error::UnexpectedEnvelope(
+                        "expected cancel response, stream_item, or stream_end".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn end(&self) -> Option<&StreamEnd> {
@@ -161,12 +214,17 @@ impl ResourceStream {
             })?,
             "stream sequence",
         )?;
-        if let Some(last) = self.last_sequence
-            && sequence != last.saturating_add(1)
-        {
-            return Err(Error::UnexpectedEnvelope(format!(
-                "stream sequence jumped from {last} to {sequence}"
-            )));
+        if let Some(last) = self.last_sequence {
+            let expected = last.checked_add(1).ok_or_else(|| {
+                Error::UnexpectedEnvelope(
+                    "stream emitted an item after the maximum sequence".to_string(),
+                )
+            })?;
+            if sequence != expected {
+                return Err(Error::UnexpectedEnvelope(format!(
+                    "stream sequence jumped from {last} to {sequence}"
+                )));
+            }
         }
         self.last_sequence = Some(sequence);
         let cursor = object.get("cursor").map(wire::parse_cursor).transpose()?;
@@ -268,8 +326,9 @@ impl Iterator for ResourceStream {
 impl Drop for ResourceStream {
     fn drop(&mut self) {
         // This releases only the connection-local stream lease. It never
-        // closes or deletes the resource being observed.
-        let _ = self.cancel();
+        // closes or deletes the resource being observed. Drop sends a
+        // best-effort detached request rather than blocking for confirmation.
+        let _ = self.cancellation.cancel();
         self.connection.close();
     }
 }

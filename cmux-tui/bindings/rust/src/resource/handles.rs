@@ -2495,6 +2495,84 @@ impl ProviderScope {
         .ok_or_else(|| not_found("provider scope", id))
     }
 
+    fn workspace_params(&self, workspace: &Workspace) -> Result<Params> {
+        let machine = self.machine.as_ref().ok_or_else(|| {
+            Error::InvalidArgument(
+                "provider workspace management requires a machine-scoped provider handle"
+                    .to_string(),
+            )
+        })?;
+        Ok(Params::new()
+            .selector(field::MACHINE, machine)
+            .selector(field::PROVIDER_SCOPE, &self.selector)
+            .selector(field::SESSION, &workspace.session.selector)
+            .selector(field::WORKSPACE, &workspace.selector))
+    }
+
+    pub fn mark_workspace(
+        &self,
+        workspace: &Workspace,
+        managed: bool,
+    ) -> Result<MutationResult<WorkspaceSnapshot>> {
+        self.mark_workspace_with(workspace, managed, MutationOptions::unique()?)
+    }
+
+    pub fn mark_workspace_with(
+        &self,
+        workspace: &Workspace,
+        managed: bool,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<WorkspaceSnapshot>> {
+        mutation_snapshot(
+            self.client.mutate(
+                ops::PROVIDER_WORKSPACE_MARK,
+                self.workspace_params(workspace)?.boolean(field::MANAGED, managed),
+                mutation,
+            )?,
+            "workspace",
+        )
+    }
+
+    pub fn rename_workspace(
+        &self,
+        workspace: &Workspace,
+        name: impl Into<String>,
+    ) -> Result<MutationResult<WorkspaceSnapshot>> {
+        self.rename_workspace_with(workspace, name, MutationOptions::unique()?)
+    }
+
+    pub fn rename_workspace_with(
+        &self,
+        workspace: &Workspace,
+        name: impl Into<String>,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<WorkspaceSnapshot>> {
+        mutation_snapshot(
+            self.client.mutate(
+                ops::PROVIDER_WORKSPACE_RENAME,
+                self.workspace_params(workspace)?.string(field::NAME, name),
+                mutation,
+            )?,
+            "workspace",
+        )
+    }
+
+    pub fn close_workspace(&self, workspace: &Workspace) -> Result<MutationReceipt> {
+        self.close_workspace_with(workspace, MutationOptions::unique()?)
+    }
+
+    pub fn close_workspace_with(
+        &self,
+        workspace: &Workspace,
+        mutation: MutationOptions,
+    ) -> Result<MutationReceipt> {
+        mutation_empty(self.client.mutate(
+            ops::PROVIDER_WORKSPACE_CLOSE,
+            self.workspace_params(workspace)?,
+            mutation,
+        )?)
+    }
+
     pub fn create_machine(&self) -> Result<MutationResult<MachineSnapshot>> {
         self.create_machine_with(MutationOptions::unique()?)
     }

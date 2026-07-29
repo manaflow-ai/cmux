@@ -16,7 +16,7 @@ fn every_high_level_operation_constant_has_a_facade_call_site() {
             Some(rest.split(':').next().unwrap())
         })
         .collect::<Vec<_>>();
-    assert_eq!(names.len(), 119, "update this count only with the accepted inventory");
+    assert_eq!(names.len(), 122, "update this count only with the accepted inventory");
     for name in names {
         assert!(
             call_sites.contains(&format!("ops::{name}")),
@@ -26,11 +26,15 @@ fn every_high_level_operation_constant_has_a_facade_call_site() {
 }
 
 #[test]
-fn provider_workspace_management_remains_explicitly_raw_only() {
+fn provider_workspace_management_is_high_level_and_scope_first() {
     let operations = include_str!("../src/resource/ops.rs");
+    let handles = include_str!("../src/resource/handles.rs");
     for operation in
         ["provider_workspace.mark", "provider_workspace.rename", "provider_workspace.close"]
     {
-        assert!(!operations.contains(operation));
+        assert!(operations.contains(operation));
+    }
+    for method in ["mark_workspace_with", "rename_workspace_with", "close_workspace_with"] {
+        assert!(handles.contains(method));
     }
 }

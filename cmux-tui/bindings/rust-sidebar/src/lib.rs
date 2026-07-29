@@ -272,7 +272,7 @@ fn stream_worker(
 ) {
     loop {
         let update = match stream.recv() {
-            Ok(Some(item)) => WorkerUpdate::Item(Box::new(item)),
+            Ok(Some(item)) => WorkerUpdate::Item(Box::new(item.value)),
             Ok(None) => {
                 let _ = sender.try_send(WorkerUpdate::Ended);
                 return;

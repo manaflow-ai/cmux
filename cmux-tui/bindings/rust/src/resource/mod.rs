@@ -26,7 +26,7 @@ pub use model::{
     NotificationSnapshot, PairingRequestSnapshot, PaneSnapshot, ParentIds, ProtocolFailure,
     ProviderActionSnapshot, ProviderNoticeSnapshot, ProviderScopeSnapshot, RendererGrant,
     ResourceSnapshot, ScreenSnapshot, SessionSnapshot, SidebarViewSnapshot, Snapshot, StreamEnd,
-    StreamEndReason, TabSnapshot, TerminalSnapshot, WorkspaceSnapshot,
+    StreamEndReason, TabSnapshot, TerminalSnapshot, TypedStreamItem, WorkspaceSnapshot,
 };
 pub use options::{
     AgentListOptions, AgentReportOptions, AgentSource, AgentState, BrowserAttachOptions,

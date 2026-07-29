@@ -213,6 +213,14 @@ pub struct StreamItem {
     pub value: Value,
 }
 
+/// Typed stream payload with resumable envelope metadata.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypedStreamItem<T> {
+    pub sequence: u64,
+    pub cursor: Option<Cursor>,
+    pub value: T,
+}
+
 /// End-of-stream metadata.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StreamEnd {

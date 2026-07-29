@@ -425,7 +425,11 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
                 "protocol": "cmux.protocol/1",
                 "type": "stream_item",
                 "stream_id": stream_id,
-                "sequence": "0",
+                "sequence": "18446744073709551615",
+                "cursor": {
+                    "generation": "g",
+                    "revision": "18446744073709551615"
+                },
                 "item": {"kind": "future_event", "payload": 1}
             })
         )
@@ -457,11 +461,82 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
         .session(SessionId::parse(SESSION).unwrap())
         .events(EventStreamOptions::default())
         .unwrap();
-    assert!(matches!(events.recv().unwrap().unwrap(), SessionEvent::Unknown { .. }));
+    let item = events.recv().unwrap().unwrap();
+    assert_eq!(item.sequence, u64::MAX);
+    assert_eq!(item.cursor.as_ref().unwrap().generation, "g");
+    assert_eq!(item.cursor.as_ref().unwrap().revision, u64::MAX);
+    assert!(matches!(item.value, SessionEvent::Unknown { .. }));
     events.cancel().unwrap();
     events.cancel().unwrap();
     assert!(events.recv().unwrap().is_none());
     assert_eq!(events.end().unwrap().reason, StreamEndReason::Canceled);
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn cancel_discards_unread_items_and_waits_for_response_and_end() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (_control, _) = listener.accept().unwrap();
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let open = request(&mut reader);
+        let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
+        success(&mut stream, &open, json!({"stream_id": stream_id}));
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_item",
+                "stream_id": stream_id,
+                "sequence": "0",
+                "item": {"kind": "future_event", "stale": true}
+            })
+        )
+        .unwrap();
+
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "stream.cancel");
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_end",
+                "stream_id": stream_id,
+                "reason": "canceled"
+            })
+        )
+        .unwrap();
+        success(&mut stream, &cancel, json!({}));
+
+        stream.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+        let mut possible_second_cancel = String::new();
+        match reader.read_line(&mut possible_second_cancel) {
+            Ok(0) => {}
+            Ok(_) => panic!("second cancel sent another request: {possible_second_cancel}"),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(error) => panic!("unexpected read error: {error}"),
+        }
+    });
+
+    let client = connect(&path);
+    let mut events = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .events(EventStreamOptions::default())
+        .unwrap();
+    events.cancel().unwrap();
+    events.cancel().unwrap();
+    assert_eq!(events.end().unwrap().reason, StreamEndReason::Canceled);
+    assert!(events.recv().unwrap().is_none());
     client.close().unwrap();
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();
@@ -559,6 +634,56 @@ fn provider_machine_operations_are_scope_first_and_redacted() {
             })
         );
         success(&mut stream, &action, mutation_result(&action, json!({"accepted": true})));
+
+        let mark = request(&mut reader);
+        assert_eq!(mark["operation"], "provider_workspace.mark");
+        assert_eq!(
+            mark["params"],
+            json!({
+                "machine": MACHINE,
+                "provider_scope": PROVIDER_SCOPE,
+                "session": SESSION,
+                "workspace": WORKSPACE_A,
+                "managed": true,
+                "expected_revision": "20"
+            })
+        );
+        success(
+            &mut stream,
+            &mark,
+            mutation_result(
+                &mark,
+                json!({
+                    "id": WORKSPACE_A,
+                    "session_id": SESSION,
+                    "name": "managed",
+                    "index": 0,
+                    "focused": true
+                }),
+            ),
+        );
+
+        let rename = request(&mut reader);
+        assert_eq!(rename["operation"], "provider_workspace.rename");
+        assert_eq!(rename["params"]["name"], "provider-renamed");
+        success(
+            &mut stream,
+            &rename,
+            mutation_result(
+                &rename,
+                json!({
+                    "id": WORKSPACE_A,
+                    "session_id": SESSION,
+                    "name": "provider-renamed",
+                    "index": 0,
+                    "focused": true
+                }),
+            ),
+        );
+
+        let close = request(&mut reader);
+        assert_eq!(close["operation"], "provider_workspace.close");
+        success(&mut stream, &close, mutation_result(&close, json!({})));
     });
 
     let client = connect(&path);
@@ -567,14 +692,28 @@ fn provider_machine_operations_are_scope_first_and_redacted() {
     let options = MachineConnectOptions::new("ssh://user:secret@host").unwrap();
     assert!(!format!("{options:?}").contains("secret"));
     provider.connect_external_machine(options).unwrap();
-    client
+    let scoped_provider = client
         .machine(cmux::MachineId::parse(MACHINE).unwrap())
-        .provider_scope(cmux::ProviderScopeId::parse(PROVIDER_SCOPE).unwrap())
+        .provider_scope(cmux::ProviderScopeId::parse(PROVIDER_SCOPE).unwrap());
+    scoped_provider
         .action(ProviderActionId::parse(PROVIDER_ACTION).unwrap())
         .invoke(
             ProviderActionOptions::new().parameter("region", "west").parameter("replicas", 3_i32),
         )
         .unwrap();
+    let workspace = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .workspace(WorkspaceId::parse(WORKSPACE_A).unwrap());
+    let marked = scoped_provider
+        .mark_workspace_with(
+            &workspace,
+            true,
+            MutationOptions::new("provider-mark").unwrap().with_expected_revision(20),
+        )
+        .unwrap();
+    assert_eq!(marked.value.id.as_str(), WORKSPACE_A);
+    scoped_provider.rename_workspace(&workspace, "provider-renamed").unwrap();
+    scoped_provider.close_workspace(&workspace).unwrap();
     client.close().unwrap();
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();

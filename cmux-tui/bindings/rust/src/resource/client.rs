@@ -378,6 +378,10 @@ fn request_envelope(
 
 fn receive_response(connection: &mut JsonLineConnection, expected_id: &str) -> Result<Value> {
     let response = connection.recv()?;
+    decode_response(response, expected_id)
+}
+
+pub(crate) fn decode_response(response: Value, expected_id: &str) -> Result<Value> {
     let object = response
         .as_object()
         .ok_or_else(|| Error::UnexpectedEnvelope("response must be an object".to_string()))?;

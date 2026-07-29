@@ -51,11 +51,18 @@ to the corresponding `_with` method. The SDK never retries a mutation. A
 resource state before deciding whether to issue a new request with a new key.
 
 Session events and terminal, browser, sidebar, and provider attachments are
-owned typed iterators. Each exposes `cancel`, a cloneable cancellation handle,
-and typed end metadata. Terminal and sidebar attachments yield styled render
-snapshots, patches, and scroll positions. Unknown union variants retain their
-complete raw object. Provider notices require an explicit
-`notice.acknowledge(sequence)` call after the application paints them.
+owned typed iterators. Each item exposes its decimal sequence, optional resume
+cursor, and typed value. Owned `cancel` discards unread items and waits for the
+matching response and canceled end state; the cloneable cancellation handle
+sends a detached request for cross-thread shutdown. Terminal and sidebar
+attachments yield styled render snapshots, patches, and scroll positions.
+Unknown union variants retain their complete raw object. Provider notices
+require an explicit `notice.acknowledge(sequence)` call after the application
+paints them.
+
+Machine-scoped provider handles expose provider-workspace mark, rename, and
+close operations. They take a typed workspace handle so machine, provider,
+session, and workspace routing remains explicit.
 
 Generated low-level protocol models are isolated under `cmux::raw`:
 

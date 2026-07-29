@@ -118,4 +118,7 @@ pub(crate) const PROVIDER_SCOPE_LIST: &str = "provider_scope.list";
 pub(crate) const PROVIDER_ACTION_INVOKE: &str = "provider_action.invoke";
 pub(crate) const PROVIDER_NOTICE_EVENTS: &str = "provider_notice.events";
 pub(crate) const PROVIDER_NOTICE_ACKNOWLEDGE: &str = "provider_notice.acknowledge";
+pub(crate) const PROVIDER_WORKSPACE_MARK: &str = "provider_workspace.mark";
+pub(crate) const PROVIDER_WORKSPACE_RENAME: &str = "provider_workspace.rename";
+pub(crate) const PROVIDER_WORKSPACE_CLOSE: &str = "provider_workspace.close";
 pub(crate) const STREAM_CANCEL: &str = "stream.cancel";
