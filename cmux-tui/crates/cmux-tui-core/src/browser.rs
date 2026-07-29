@@ -712,7 +712,7 @@ const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_RETAINED_RELEASE_CAPACITY: usize = BROWSER_COMMAND_QUEUE_CAPACITY + 1;
-const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(5);
+const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(30);
 const LOCAL_POINTER_PRESS_LEASE: Duration = Duration::from_secs(30);
 const MAX_RECONFIGURE_WAITERS_PER_RESERVATION: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
@@ -1325,7 +1325,7 @@ fn start_surface_thread(
                         navigation_epoch,
                     ) {
                         if let Some(runtime) = runtime.upgrade() {
-                            let _ = runtime.client.settle_timestampless_screencast_capture(
+                            let _ = runtime.client.cancel_timestampless_screencast_capture(
                                 &session_id,
                                 reservation_id,
                                 frame_epoch,
@@ -1347,7 +1347,7 @@ fn start_surface_thread(
                     {
                         browser.cancel_screencast_capture(reservation_id);
                         if let Some(runtime) = runtime.upgrade() {
-                            let _ = runtime.client.settle_timestampless_screencast_capture(
+                            let _ = runtime.client.cancel_timestampless_screencast_capture(
                                 &session_id,
                                 reservation_id,
                                 frame_epoch,
@@ -4027,7 +4027,7 @@ impl BrowserSurface {
         };
         self.cancel_screencast_capture(reservation_id);
         if let Some(session) = self.session.lock().unwrap().clone() {
-            let _ = session.runtime.client.settle_timestampless_screencast_capture(
+            let _ = session.runtime.client.cancel_timestampless_screencast_capture(
                 &session_id,
                 reservation_id,
                 frame_epoch,
@@ -4606,7 +4606,7 @@ impl BrowserSurface {
         if !self.may_need_screencast_capture(reservation_id, frame_epoch, navigation_epoch) {
             self.cancel_screencast_capture(reservation_id);
             if let Some(session) = self.session.lock().unwrap().clone() {
-                let _ = session.runtime.client.settle_timestampless_screencast_capture(
+                let _ = session.runtime.client.cancel_timestampless_screencast_capture(
                     session_id,
                     reservation_id,
                     frame_epoch,
@@ -4620,7 +4620,7 @@ impl BrowserSurface {
             Err(error) => {
                 self.cancel_screencast_capture(reservation_id);
                 if let Some(session) = self.session.lock().unwrap().clone() {
-                    let _ = session.runtime.client.settle_timestampless_screencast_capture(
+                    let _ = session.runtime.client.cancel_timestampless_screencast_capture(
                         session_id,
                         reservation_id,
                         frame_epoch,
@@ -4632,7 +4632,7 @@ impl BrowserSurface {
         };
         if session.session_id != session_id {
             self.cancel_screencast_capture(reservation_id);
-            let _ = session.runtime.client.settle_timestampless_screencast_capture(
+            let _ = session.runtime.client.cancel_timestampless_screencast_capture(
                 session_id,
                 reservation_id,
                 frame_epoch,
@@ -4644,7 +4644,7 @@ impl BrowserSurface {
         for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
             if !self.may_need_screencast_capture(reservation_id, frame_epoch, navigation_epoch) {
                 self.cancel_screencast_capture(reservation_id);
-                let _ = session.runtime.client.settle_timestampless_screencast_capture(
+                let _ = session.runtime.client.cancel_timestampless_screencast_capture(
                     session_id,
                     reservation_id,
                     frame_epoch,
@@ -4667,13 +4667,20 @@ impl BrowserSurface {
                     );
                     if accepted {
                         self.dirty.store(true, Ordering::Release);
+                        let _ = session.runtime.client.settle_timestampless_screencast_capture(
+                            session_id,
+                            reservation_id,
+                            frame_epoch,
+                            navigation_epoch,
+                        );
+                    } else {
+                        let _ = session.runtime.client.cancel_timestampless_screencast_capture(
+                            session_id,
+                            reservation_id,
+                            frame_epoch,
+                            navigation_epoch,
+                        );
                     }
-                    let _ = session.runtime.client.settle_timestampless_screencast_capture(
-                        session_id,
-                        reservation_id,
-                        frame_epoch,
-                        navigation_epoch,
-                    );
                     return Ok(BrowserWorkerSuccess::BrowserResponded);
                 }
                 Err(error) => {

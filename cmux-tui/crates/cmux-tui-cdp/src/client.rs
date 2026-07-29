@@ -30,6 +30,7 @@ pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
 const TIMESTAMPLESS_CAPTURE_INTERVAL: Duration = Duration::from_secs(1);
+const SCREENCAST_CLOCK_RECOVERY_BUDGET: Duration = Duration::from_secs(1);
 
 #[cfg(test)]
 static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
@@ -941,9 +942,63 @@ impl CdpClient {
         Ok(frame_epoch.current())
     }
 
-    /// Release one completed recovery request without granting its proof to
-    /// any later timestamp-less frame.
+    /// Complete one loader-verified recovery request and restore timestamp
+    /// admission when Chrome's wall clock is available again.
     pub fn settle_timestampless_screencast_capture(
+        &self,
+        session_id: &str,
+        request_id: u64,
+        frame_epoch: u64,
+        navigation_epoch: u64,
+    ) -> bool {
+        let expected = PendingTimestamplessCapture { request_id, frame_epoch, navigation_epoch };
+        let recovery_frame = {
+            let frame_sessions = self.inner.frame_epochs.lock().unwrap();
+            let Some(frame_session) = frame_sessions.get(session_id) else {
+                return false;
+            };
+            if frame_session.epoch.current() != frame_epoch
+                || frame_session.pending_timestampless_capture != Some(expected)
+            {
+                return false;
+            }
+            matches!(
+                frame_session.screencast_barrier,
+                Some(ScreencastBarrier::LoaderVerifiedCapture)
+            )
+            .then(|| frame_session.main_frame_id.clone())
+            .flatten()
+        };
+        let recovered_barrier = recovery_frame.and_then(|frame_id| {
+            self.chrome_wall_time_upper_bound(
+                session_id,
+                &frame_id,
+                Some(Instant::now() + SCREENCAST_CLOCK_RECOVERY_BUDGET),
+            )
+            .ok()
+            .map(ScreencastBarrier::Timestamp)
+        });
+        let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
+        let Some(frame_session) = frame_sessions.get_mut(session_id) else {
+            return false;
+        };
+        if frame_session.epoch.current() != frame_epoch
+            || frame_session.pending_timestampless_capture != Some(expected)
+        {
+            return false;
+        }
+        frame_session.pending_timestampless_capture = None;
+        if let Some(barrier) = recovered_barrier {
+            frame_session.screencast_barrier = Some(barrier);
+            frame_session.timestampless_capture_throttle = None;
+            frame_session.suppressed_timestampless_epoch = None;
+        }
+        true
+    }
+
+    /// Release a recovery request without treating cancellation or
+    /// displacement as loader verification.
+    pub fn cancel_timestampless_screencast_capture(
         &self,
         session_id: &str,
         request_id: u64,
@@ -3179,6 +3234,7 @@ mod tests {
     fn loader_verified_capture_recovers_timestamped_screencast_stream() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
+        let (recovered_tx, recovered_rx) = sync_channel(1);
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             let mut ws = accept(stream).unwrap();
@@ -3201,6 +3257,9 @@ mod tests {
                     json!({"id": request["id"], "result": result}).to_string().into(),
                 ))
                 .unwrap();
+            }
+            if recovered_rx.recv_timeout(Duration::from_secs(1)).is_err() {
+                return false;
             }
             ws.send(Message::Text(
                 json!({
@@ -3244,6 +3303,7 @@ mod tests {
         }
 
         let settled = client.settle_timestampless_screencast_capture("session-1", 7, 0, 0);
+        let _ = recovered_tx.send(());
         let event = event_rx.recv_timeout(Duration::from_millis(250));
 
         drop(client);
