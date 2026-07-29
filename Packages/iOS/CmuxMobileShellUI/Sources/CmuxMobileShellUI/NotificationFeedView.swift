@@ -111,8 +111,8 @@ private struct NotificationFeedList: View {
             } else {
                 ForEach(sections) { section in
                     Section {
-                        ForEach(section.items) { item in
-                            NotificationFeedRow(item: item, actions: actions)
+                        ForEach(section.items) { model in
+                            NotificationFeedRow(model: model, actions: actions)
                                 .equatable()
                                 .disabled(hasStaleSourceSections)
                                 .allowsHitTesting(!hasStaleSourceSections)

@@ -2,7 +2,9 @@ import CmuxMobileShellModel
 import Foundation
 import Observation
 
-/// A stable day bucket prepared outside the list body.
+/// A stable day bucket prepared outside the list body. Rows arrive as
+/// ``NotificationFeedRowModel`` so every derived string is already built on
+/// the projection's background rebuild, not in row bodies during scroll.
 struct NotificationFeedDaySection: Identifiable, Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case today
@@ -12,7 +14,7 @@ struct NotificationFeedDaySection: Identifiable, Equatable, Sendable {
 
     let id: Date
     let kind: Kind
-    let items: [MobileNotificationFeedItem]
+    let items: [NotificationFeedRowModel]
 }
 
 nonisolated let notificationFeedProjectionMaxSourceItemCount = MobileNotificationFeedAggregation.maxItemCount
@@ -139,7 +141,12 @@ final class NotificationFeedProjection {
                 return
             }
 
-            self.sections = output.sections
+            // Publishing identical sections would still notify observers and
+            // make the List re-diff every row, so no-op rebuilds (for example
+            // a source recompute that produced the same items) publish nothing.
+            if self.sections != output.sections {
+                self.sections = output.sections
+            }
             self.hasStaleSourceSections = false
             self.isSourceRebuilding = false
         }
@@ -170,7 +177,7 @@ nonisolated private func notificationFeedProjectionBuild(
     var sections: [NotificationFeedDaySection] = []
     sections.reserveCapacity(min(items.count, 8))
     var currentDay: Date?
-    var currentItems: [MobileNotificationFeedItem] = []
+    var currentItems: [NotificationFeedRowModel] = []
 
     func flushCurrentSection() {
         guard let day = currentDay, !currentItems.isEmpty else { return }
@@ -203,7 +210,7 @@ nonisolated private func notificationFeedProjectionBuild(
             flushCurrentSection()
         }
         currentDay = day
-        currentItems.append(item)
+        currentItems.append(NotificationFeedRowModel(item: item))
     }
     guard !Task.isCancelled else { return nil }
     flushCurrentSection()
