@@ -28,6 +28,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "connection timed out",
             "connection refused",
             "connection reset by peer",
+            "connection closed by remote host",
+            "connection closed by .* port [0-9]+",
             "temporary failure in name resolution",
             "connection closed by unknown port 65535",
             "connection to unknown port 65535: broken pipe",
@@ -56,12 +58,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// unclassified (``unclassifiedFailureExitStatus``), or permanent (255).
     /// Every other exit status is preserved.
     ///
-    /// Stderr is copied live through private FIFOs while `sysread` emits 4 KiB
-    /// records to an incremental classifier with a 128-byte cross-record carry.
-    /// The classifier retains only a bounded result marker. This keeps password,
-    /// host-key, and proxy prompts visible without allowing a noisy remote
-    /// command to grow memory or a diagnostic file. Temporary state is removed
-    /// on normal completion and signals.
+    /// The command runs under `script` so its standard streams remain attached
+    /// to a PTY. A private FIFO receives a duplicate transcript while `sysread`
+    /// emits 4 KiB records to an incremental classifier with a 128-byte
+    /// cross-record carry. The classifier retains only a bounded result marker.
+    /// This keeps interactive prompts visible and terminal-aware without
+    /// allowing a noisy remote command to grow memory or a diagnostic file.
+    /// Temporary state is removed on normal completion and signals.
     ///
     /// - Parameter command: Shell command to execute under zsh.
     /// - Returns: A zsh command suitable for embedding in a startup script.
@@ -88,38 +91,42 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         let script = [
             "umask 077",
             "cmux_ssh_auth_capture_state=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-auth.XXXXXX\") || exit 255",
-            "cmux_ssh_auth_capture_fifo=\"$cmux_ssh_auth_capture_state.capture.fifo\"",
             "cmux_ssh_auth_classifier_fifo=\"$cmux_ssh_auth_capture_state.classifier.fifo\"",
-            "cmux_ssh_auth_capture_tee_pid=",
             "cmux_ssh_auth_classifier_pid=",
+            "cmux_ssh_auth_command_pid=",
             "cmux_ssh_auth_capture_cleanup() {",
-            "  for cmux_ssh_auth_capture_pid in \"${cmux_ssh_auth_capture_tee_pid:-}\" \"${cmux_ssh_auth_classifier_pid:-}\"; do",
+            "  for cmux_ssh_auth_capture_pid in \"${cmux_ssh_auth_command_pid:-}\" \"${cmux_ssh_auth_classifier_pid:-}\"; do",
             "    if [ -n \"$cmux_ssh_auth_capture_pid\" ]; then",
             "      /bin/kill \"$cmux_ssh_auth_capture_pid\" >/dev/null 2>&1 || true",
             "      wait \"$cmux_ssh_auth_capture_pid\" 2>/dev/null || true",
             "    fi",
             "  done",
-            "  /bin/rm -f -- \"$cmux_ssh_auth_capture_fifo\" \"$cmux_ssh_auth_classifier_fifo\" \"$cmux_ssh_auth_capture_state\" 2>/dev/null || true",
+            "  /bin/rm -f -- \"$cmux_ssh_auth_classifier_fifo\" \"$cmux_ssh_auth_capture_state\" 2>/dev/null || true",
             "}",
             "cmux_ssh_auth_capture_signal_exit() {",
             "  cmux_ssh_auth_capture_signal_status=\"$1\"",
+            "  cmux_ssh_auth_capture_signal_name=\"$2\"",
             "  trap - EXIT HUP INT TERM",
+            "  if [ -n \"${cmux_ssh_auth_command_pid:-}\" ]; then",
+            "    /bin/kill -\"$cmux_ssh_auth_capture_signal_name\" \"$cmux_ssh_auth_command_pid\" >/dev/null 2>&1 || true",
+            "    wait \"$cmux_ssh_auth_command_pid\" 2>/dev/null || true",
+            "    cmux_ssh_auth_command_pid=",
+            "  fi",
             "  cmux_ssh_auth_capture_cleanup",
             "  exit \"$cmux_ssh_auth_capture_signal_status\"",
             "}",
             "trap 'cmux_ssh_auth_capture_cleanup' EXIT",
-            "trap 'cmux_ssh_auth_capture_signal_exit 129' HUP",
-            "trap 'cmux_ssh_auth_capture_signal_exit 130' INT",
-            "trap 'cmux_ssh_auth_capture_signal_exit 143' TERM",
-            "if ! /usr/bin/mkfifo \"$cmux_ssh_auth_capture_fifo\" \"$cmux_ssh_auth_classifier_fifo\"; then exit 255; fi",
+            "trap 'cmux_ssh_auth_capture_signal_exit 129 HUP' HUP",
+            "trap 'cmux_ssh_auth_capture_signal_exit 130 INT' INT",
+            "trap 'cmux_ssh_auth_capture_signal_exit 143 TERM' TERM",
+            "if ! /usr/bin/mkfifo \"$cmux_ssh_auth_classifier_fifo\"; then exit 255; fi",
             "( zmodload zsh/system || exit 255; exec {cmux_ssh_auth_classifier_fd}< \"$cmux_ssh_auth_classifier_fifo\" || exit 255; while sysread -i \"$cmux_ssh_auth_classifier_fd\" -s 4096 cmux_ssh_auth_classifier_chunk; do print -r -- \"$cmux_ssh_auth_classifier_chunk\"; done; exec {cmux_ssh_auth_classifier_fd}<&- ) | LC_ALL=C /usr/bin/awk -v cmux_ssh_auth_classification=\"$cmux_ssh_auth_capture_state\" -v cmux_ssh_auth_transient_pattern=\(shellQuote(transientFailurePattern)) -v cmux_ssh_auth_permanent_pattern=\(shellQuote(permanentFailurePattern)) \(shellQuote(classifierProgram)) &",
             "cmux_ssh_auth_classifier_pid=$!",
-            "/usr/bin/tee \"$cmux_ssh_auth_classifier_fifo\" < \"$cmux_ssh_auth_capture_fifo\" >&2 &",
-            "cmux_ssh_auth_capture_tee_pid=$!",
-            "\(nestedCommand) 2> \"$cmux_ssh_auth_capture_fifo\"",
+            "/usr/bin/script -q -e -F \"$cmux_ssh_auth_classifier_fifo\" \(nestedCommand) <&0 >&2 &",
+            "cmux_ssh_auth_command_pid=$!",
+            "wait \"$cmux_ssh_auth_command_pid\"",
             "cmux_ssh_auth_capture_status=$?",
-            "wait \"$cmux_ssh_auth_capture_tee_pid\" 2>/dev/null || true",
-            "cmux_ssh_auth_capture_tee_pid=",
+            "cmux_ssh_auth_command_pid=",
             "wait \"$cmux_ssh_auth_classifier_pid\" 2>/dev/null || true",
             "cmux_ssh_auth_classifier_pid=",
             "if [ \"$cmux_ssh_auth_capture_status\" -eq 255 ]; then",

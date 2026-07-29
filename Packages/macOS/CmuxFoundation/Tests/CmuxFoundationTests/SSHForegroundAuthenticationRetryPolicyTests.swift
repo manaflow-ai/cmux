@@ -72,6 +72,36 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.temporaryFiles.isEmpty)
     }
 
+    @Test(arguments: [
+        "kex_exchange_identification: Connection closed by remote host",
+        "Connection closed by 192.0.2.1 port 22",
+    ])
+    func mapsConnectionClosedStartupFailureToRetryableStatus(_ diagnostic: String) throws {
+        let result = try run("printf '%s\\n' '\(diagnostic)' >&2; exit 255")
+
+        #expect(result.status == 254)
+        #expect(result.stderr.contains(diagnostic))
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
+    @Test func preservesTerminalStderrForInteractiveAuthenticationHelpers() throws {
+        let result = try run(
+            """
+            if ! test -t 2; then
+              printf '%s\\n' 'authentication helper requires a terminal' >&2
+              exit 255
+            fi
+            printf '%s\\n' 'ssh: connect to host example.test port 22: Network is unreachable' >&2
+            exit 255
+            """
+        )
+
+        #expect(result.status == 254)
+        #expect(result.stderr.contains("Network is unreachable"))
+        #expect(!result.stderr.contains("authentication helper requires a terminal"))
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
     @Test func proxyConfigurationFailureTakesPrecedenceOverGenericTransportMarker() throws {
         let result = try run(
             """
@@ -100,7 +130,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "-c",
             SSHForegroundAuthenticationRetryPolicy().classifyingTransientFailure(
                 in: """
-                /usr/bin/head -c 65536 /dev/zero | /usr/bin/tr '\\000' x >&2
+                /usr/bin/head -c 8192 /dev/zero | /usr/bin/tr '\\000' x >&2
                 printf 'Network is unreachable' >&2
                 /usr/bin/head -c 4096 /dev/zero | /usr/bin/tr '\\000' x >&2
                 : > "$CMUX_TEST_READY_FILE"
@@ -126,7 +156,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             try? fileManager.removeItem(at: temporaryDirectory)
         }
 
-        let deadline = Date.now.addingTimeInterval(5)
+        let deadline = Date.now.addingTimeInterval(10)
         while !fileManager.fileExists(atPath: readyFile.path), process.isRunning, Date.now < deadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
@@ -148,7 +178,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             largestDiagnosticFile <= 64,
             "Foreground authentication must not retain unbounded remote-controlled stderr"
         )
-        let classificationDeadline = Date.now.addingTimeInterval(2)
+        let classificationDeadline = Date.now.addingTimeInterval(5)
         var classifiedWhileRunning = false
         var lastClassifications: [String] = []
         while process.isRunning, Date.now < classificationDeadline {

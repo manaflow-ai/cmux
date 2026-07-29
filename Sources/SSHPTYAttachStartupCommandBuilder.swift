@@ -37,12 +37,13 @@ enum SSHPTYAttachStartupCommandBuilder {
         lines.append("cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1")
         lines += [
             "cmux_ssh_attach_lifecycle_ended=0",
+            "cmux_ssh_attach_auth_pid=",
             "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
-            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
+            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; cmux_ssh_attach_signal_name=\"$2\"; trap - EXIT HUP INT TERM; if [ -n \"${cmux_ssh_attach_auth_pid:-}\" ]; then /bin/kill -\"$cmux_ssh_attach_signal_name\" \"$cmux_ssh_attach_auth_pid\" >/dev/null 2>&1 || true; wait \"$cmux_ssh_attach_auth_pid\" 2>/dev/null || true; cmux_ssh_attach_auth_pid=; fi; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
             "trap 'cmux_ssh_attach_lifecycle_end' EXIT",
-            "trap 'cmux_ssh_attach_signal_exit 129' HUP",
-            "trap 'cmux_ssh_attach_signal_exit 130' INT",
-            "trap 'cmux_ssh_attach_signal_exit 143' TERM",
+            "trap 'cmux_ssh_attach_signal_exit 129 HUP' HUP",
+            "trap 'cmux_ssh_attach_signal_exit 130 INT' INT",
+            "trap 'cmux_ssh_attach_signal_exit 143 TERM' TERM",
         ]
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
         let commandB64Flag = normalized(remoteCommand).map {
@@ -91,8 +92,8 @@ enum SSHPTYAttachStartupCommandBuilder {
             "cmux_ssh_attach_reauth_required=\(initialReauthentication)",
             "while :; do",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
-            "    cmux_ssh_attach_foreground_auth",
-            "    cmux_ssh_attach_status=$?",
+            "    ( cmux_ssh_attach_foreground_auth ) <&0 &",
+            "    cmux_ssh_attach_auth_pid=$!; wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; cmux_ssh_attach_auth_pid=",
             "    if [ \"$cmux_ssh_attach_status\" -eq 0 ]; then cmux_ssh_attach_reauth_required=0; cmux_ssh_attach_auth_retry=0; cmux_ssh_attach_auth_established=1; else case \"$cmux_ssh_attach_status:$cmux_ssh_attach_auth_established\" in 254:*|\(unclassifiedAuthFailure):1) cmux_ssh_attach_auth_retry=$((cmux_ssh_attach_auth_retry + 1)); if [ \"$cmux_ssh_attach_auth_retry\" -ge \"$cmux_ssh_attach_auth_retry_limit\" ]; then exit 255; fi ;; *) if [ \"$cmux_ssh_attach_status\" -eq \(unclassifiedAuthFailure) ]; then exit 255; fi; exit \"$cmux_ssh_attach_status\" ;; esac; fi",
             "  fi",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",

@@ -360,20 +360,20 @@ extension CMUXCLI {
             "cmux_ssh_auth_retry_limit=\(authRetryPolicy.maximumConsecutiveTransientFailures); cmux_ssh_auth_retry=0; cmux_ssh_auth_established=0",
             // Initial transient foreground-auth failures are a reconnect phase, so boot-time outages share this loop.
             "cmux_ssh_reauth_required=\(hasOneTimeCommand ? 1 : 0)",
-            "CMUX_SSH_CHILD_PID=",
-            "CMUX_SSH_PENDING_SIGNAL=",
+            "CMUX_SSH_CHILD_PID=; CMUX_SSH_AUTH_PID=",
+            "CMUX_SSH_PENDING_SIGNAL=; CMUX_SSH_PENDING_SIGNAL_NAME=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleCleanup); }",
-            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleRetirement); trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
+            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; cmux_ssh_signal_name=\"$2\"; if [ -n \"${CMUX_SSH_AUTH_PID:-}\" ]; then /bin/kill -\"$cmux_ssh_signal_name\" \"$CMUX_SSH_AUTH_PID\" >/dev/null 2>&1 || true; wait \"$CMUX_SSH_AUTH_PID\" 2>/dev/null || true; CMUX_SSH_AUTH_PID=; elif [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; CMUX_SSH_PENDING_SIGNAL_NAME=\"$cmux_ssh_signal_name\"; return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleRetirement); trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
-            "trap 'cmux_ssh_signal_exit 129' HUP",
-            "trap 'cmux_ssh_signal_exit 130' INT",
-            "trap 'cmux_ssh_signal_exit 143' TERM",
+            "trap 'cmux_ssh_signal_exit 129 HUP' HUP",
+            "trap 'cmux_ssh_signal_exit 130 INT' INT",
+            "trap 'cmux_ssh_signal_exit 143 TERM' TERM",
             "while :; do",
         ]
         if hasOneTimeCommand {
             scriptLines.append("  if [ \"$cmux_ssh_reauth_required\" -eq 1 ]; then")
-            scriptLines += ["    ( cmux_ssh_foreground_auth )", "    cmux_ssh_status=$?; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi", "    if [ \"$cmux_ssh_status\" -eq 0 ]; then cmux_ssh_reauth_required=0; cmux_ssh_auth_retry=0; cmux_ssh_auth_established=1; else case \"$cmux_ssh_status:$cmux_ssh_auth_established\" in 254:*|\(authRetryPolicy.unclassifiedFailureExitStatus):1) cmux_ssh_auth_retry=$((cmux_ssh_auth_retry + 1)); if [ \"$cmux_ssh_auth_retry\" -ge \"$cmux_ssh_auth_retry_limit\" ]; then cmux_ssh_status=255; break; fi ;; *) if [ \"$cmux_ssh_status\" -eq \(authRetryPolicy.unclassifiedFailureExitStatus) ]; then cmux_ssh_status=255; fi; break ;; esac; fi", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
+            scriptLines += ["    ( cmux_ssh_foreground_auth ) <&0 &", "    CMUX_SSH_AUTH_PID=$!; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\" \"${CMUX_SSH_PENDING_SIGNAL_NAME:-TERM}\"; fi; wait \"$CMUX_SSH_AUTH_PID\"; cmux_ssh_status=$?; CMUX_SSH_AUTH_PID=; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi", "    if [ \"$cmux_ssh_status\" -eq 0 ]; then cmux_ssh_reauth_required=0; cmux_ssh_auth_retry=0; cmux_ssh_auth_established=1; else case \"$cmux_ssh_status:$cmux_ssh_auth_established\" in 254:*|\(authRetryPolicy.unclassifiedFailureExitStatus):1) cmux_ssh_auth_retry=$((cmux_ssh_auth_retry + 1)); if [ \"$cmux_ssh_auth_retry\" -ge \"$cmux_ssh_auth_retry_limit\" ]; then cmux_ssh_status=255; break; fi ;; *) if [ \"$cmux_ssh_status\" -eq \(authRetryPolicy.unclassifiedFailureExitStatus) ]; then cmux_ssh_status=255; fi; break ;; esac; fi", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
         }
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty,
            !hasOneTimeCommand {

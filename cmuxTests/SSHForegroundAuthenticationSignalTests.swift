@@ -18,8 +18,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ])
         try writeForegroundAuthSignalShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
+            "trap 'exit 130' HUP INT TERM",
             "kill -INT \"${CMUX_SSH_STARTUP_PID:?}\"",
-            "exit 130",
+            "while :; do /bin/sleep 30; done",
         ])
         for executable in [fakeCLI, fakeSSH] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
