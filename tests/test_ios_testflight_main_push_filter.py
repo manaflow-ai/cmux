@@ -464,6 +464,36 @@ def test_scheduled_run_waits_for_an_earlier_upload() -> None:
     }
 
 
+def test_ordering_includes_manual_current_and_prior_runs() -> None:
+    scenarios = (
+        ("workflow_dispatch", "schedule"),
+        ("schedule", "workflow_dispatch"),
+    )
+
+    for event_name, prior_event in scenarios:
+        result = run_decision_scenario(
+            event_name=event_name,
+            schedule=IOS_SCHEDULES[0],
+            prior_sha="base-sha",
+            prior_event=prior_event,
+            head_sha="head-sha",
+            changed_files=("ios/cmux/App.swift",),
+            blocking_prior_run=True,
+        )
+
+        assert result["waitCalls"] == [60_000]
+        assert result["uploadJobStatuses"] == [
+            "in_progress",
+            "completed",
+            "completed",
+        ]
+        assert result["outputs"] == {
+            "should_build": "true",
+            "last_uploaded_sha": "base-sha",
+            "variant": "internal",
+        }
+
+
 def test_mapping_keys_normalizes_quoted_yaml_keys() -> None:
     triggers = "  push:\n  'schedule':\n  \"workflow_dispatch\":\n"
 
@@ -572,6 +602,7 @@ if __name__ == "__main__":
     test_schedule_decision_routes_demo_cron_to_demo_history()
     test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
     test_scheduled_run_waits_for_an_earlier_upload()
+    test_ordering_includes_manual_current_and_prior_runs()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
     test_scheduled_and_manual_runs_use_independent_concurrency_groups()
