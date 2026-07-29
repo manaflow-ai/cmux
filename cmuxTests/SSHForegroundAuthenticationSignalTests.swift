@@ -2,6 +2,64 @@ import Foundation
 import XCTest
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testSSHDirectSignalTerminatesForegroundAuthenticationProcessTree() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-foreground-auth-tree-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let childPIDFile = root.appendingPathComponent("auth-child-pid")
+        let childSignalLog = root.appendingPathComponent("auth-child-signal")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeForegroundAuthSignalShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try writeForegroundAuthSignalShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "trap '' HUP INT",
+            "trap 'printf \"%s\\n\" term > \"${CMUX_TEST_AUTH_CHILD_SIGNAL:?}\"; exit 143' TERM",
+            "printf '%s\\n' \"$$\" > \"${CMUX_TEST_AUTH_CHILD_PID:?}\"",
+            "kill -INT \"${CMUX_SSH_STARTUP_PID:?}\"",
+            "while :; do /bin/sleep 30; done",
+        ])
+        for executable in [fakeCLI, fakeSSH] {
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        }
+
+        let startupCommand = try generatedVMSSHInitialStartupCommand()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_AUTH_CHILD_PID"] = childPIDFile.path
+        environment["CMUX_TEST_AUTH_CHILD_SIGNAL"] = childSignalLog.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+        let childPID = try XCTUnwrap(Int32(
+            String(contentsOf: childPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        defer {
+            Darwin.kill(childPID, SIGKILL)
+        }
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 130, result.stderr)
+        XCTAssertTrue(
+            waitForSSHSignalLifecycleLog(childSignalLog) { $0.contains("term") },
+            "Direct startup signals must terminate the nested authentication process tree"
+        )
+    }
+
     func testSSHControlCThroughForegroundAuthenticationPTYExitsWithoutWaitingForInput() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
