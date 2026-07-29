@@ -111,7 +111,7 @@ extension TerminalSurface {
            let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") {
             ghostty_surface_set_display_id(s, displayID)
         }
-        rendererPresentationAttachmentDidBecomeReady()
+        rendererPresentationReadinessDidChange()
     }
 
     /// Whether the surface model is attached to `view` with a live runtime
@@ -301,6 +301,8 @@ extension TerminalSurface {
     /// agent-hibernation resume.
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
+        _ = fontSizeLineageSnapshot()
+        mobileViewportFontFitState = nil
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
@@ -411,7 +413,7 @@ extension TerminalSurface {
                let s = surface {
                 ghostty_surface_set_display_id(s, displayID)
             }
-            rendererPresentationAttachmentDidBecomeReady()
+            rendererPresentationReadinessDidChange()
             return
         }
 
@@ -470,7 +472,7 @@ extension TerminalSurface {
             logDebugEvent("surface.attach.displayId surface=\(id.uuidString.prefix(5)) display=\(displayID)")
 #endif
         }
-        rendererPresentationAttachmentDidBecomeReady()
+        rendererPresentationReadinessDidChange()
     }
 
     @MainActor
@@ -609,21 +611,18 @@ extension TerminalSurface {
         // wrapping at Ghostty's default grid.
         flushPendingRemoteOutput(to: createdSurface)
 
-        // Some GhosttyKit builds can drop inherited font_size during post-create
-        // config/scale reconciliation. Re-apply runtime points so all creation
-        // paths preserve zoom from the source terminal.
-        if let inheritedBaseFontPoints = configTemplate?.fontSize,
-           inheritedBaseFontPoints > 0 {
+        // Some GhosttyKit builds can drop explicit font_size during post-create
+        // config/scale reconciliation. Re-apply explicit runtime points so
+        // Ghostty retains surface-local ownership; otherwise Cmd+0 could not
+        // clear the restored override for the next snapshot. Non-explicit
+        // lineage intentionally reconciles to the current terminal config.
+        if let inheritedFontSizeLineage = lastKnownFontSizeLineage,
+           inheritedFontSizeLineage.isExplicitOverride,
+           inheritedFontSizeLineage.basePoints > 0 {
+            let inheritedBaseFontPoints = inheritedFontSizeLineage.basePoints
             let inheritedRuntimeFontPoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: inheritedBaseFontPoints, percent: globalFontMagnificationPercent())
-            let currentFontPoints = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface)
-            let shouldReapply = {
-                guard let currentFontPoints else { return true }
-                return abs(currentFontPoints - inheritedRuntimeFontPoints) > 0.05
-            }()
-            if shouldReapply {
-                let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
-                _ = performInternalBindingAction(action)
-            }
+            let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
+            _ = performInternalBindingAction(action)
         }
 
         // Re-apply the desired focus state after creation so the live runtime
@@ -632,6 +631,7 @@ extension TerminalSurface {
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
 
         flushPendingSocketInputIfNeeded()
+        view.runtimeSurfaceDidBecomeReady()
 
         // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
         // miss the first vsync callback and sit on a blank frame until another focus/visibility

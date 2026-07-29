@@ -380,6 +380,10 @@ final class BrowserProfileStore: ObservableObject {
         repository.profileDefinition(id: id)
     }
 
+    func resolveProfileSelection(_ selector: String) -> BrowserProfileSelectionResolution {
+        repository.resolveProfileSelection(selector)
+    }
+
     func displayName(for id: UUID) -> String {
         repository.displayName(for: id)
     }
@@ -965,9 +969,11 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
     return parent
 }
 
+@MainActor
 @discardableResult
 func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
     guard let url = request.url else { return nil }
+    webView.applyBrowserUserAgentPolicy(for: url)
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
         guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
@@ -1202,13 +1208,6 @@ func browserHandleExternalNavigation(
         )
         return .externalPrompt
     }
-}
-
-enum BrowserUserAgentSettings {
-    // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
-    // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
-    // fallback/old UIs or trigger bot checks.
-    static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15"
 }
 
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
@@ -1757,7 +1756,7 @@ actor BrowserSearchSuggestionService {
         var req = URLRequest(url: url)
         req.timeoutInterval = 0.65
         req.cachePolicy = .returnCacheDataElseLoad
-        req.setValue(BrowserUserAgentSettings.safariUserAgent, forHTTPHeaderField: "User-Agent")
+        req.setValue(BrowserUserAgentPolicy.system.safariCompatibleUserAgent, forHTTPHeaderField: "User-Agent")
         req.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
 
         let data: Data
@@ -3049,7 +3048,7 @@ final class BrowserPanel: Panel, ObservableObject {
         surfaceID: id,
         script: BrowserDesignModeScript(),
         promptFormatter: BrowserDesignModePromptFormatter(),
-        screenshotStore: BrowserDesignModeScreenshotStore(
+        artifactStore: BrowserDesignModeArtifactStore(
             directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-browser-design-mode", isDirectory: true)
         ),
@@ -3613,8 +3612,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // white before content loads. Do not force page appearance or inject color-scheme CSS;
         // websites must keep control of their own theme.
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
-        // Always present as Safari.
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        webView.applyBrowserUserAgentPolicy(for: nil)
         return webView
     }
 
@@ -3900,6 +3898,33 @@ final class BrowserPanel: Panel, ObservableObject {
                 switch cancellationKind {
                 case let .terminal(restoreAttemptID): self.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
                 }
+            }
+        }
+        navigationDelegate.willReplaceNavigationForUserAgentPolicy = {
+            [weak self] webView, replacedNavigation in
+            MainActor.assumeIsolated {
+                guard let self,
+                      self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                    return
+                }
+                self.automationNavigationCoordinator.willReplaceNavigation(
+                    instanceID: boundWebViewInstanceID,
+                    navigationID: replacedNavigation.map { ObjectIdentifier($0) }
+                )
+            }
+        }
+        navigationDelegate.didReplaceNavigationForUserAgentPolicy = {
+            [weak self] webView, replacedNavigation, replacementNavigation in
+            MainActor.assumeIsolated {
+                guard let self,
+                      self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                    return
+                }
+                self.automationNavigationCoordinator.didReplaceNavigation(
+                    instanceID: boundWebViewInstanceID,
+                    replacedNavigationID: replacedNavigation.map { ObjectIdentifier($0) },
+                    replacementNavigationID: replacementNavigation.map { ObjectIdentifier($0) }
+                )
             }
         }
         navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView, cancelledNavigation in
@@ -5517,6 +5542,7 @@ final class BrowserPanel: Panel, ObservableObject {
         for popup in popupsToClose { popup.closeAllChildPopups(); popup.closePopup() }
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         designModeController.webViewWillBeRemoved(webView)
+        designModeController.releaseDeliveredHandoffForTeardown()
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -5662,7 +5688,7 @@ final class BrowserPanel: Panel, ObservableObject {
             var req = URLRequest(url: iconURL)
             req.timeoutInterval = 2.0
             req.cachePolicy = .returnCacheDataElseLoad
-            req.setValue(BrowserUserAgentSettings.safariUserAgent, forHTTPHeaderField: "User-Agent")
+            req.setValue(BrowserUserAgentPolicy.system.safariCompatibleUserAgent, forHTTPHeaderField: "User-Agent")
             let effectiveRequest = remoteProxyPreparedRequest(from: req, logScope: "faviconRewrite")
 
             let data: Data
@@ -6000,8 +6026,6 @@ final class BrowserPanel: Panel, ObservableObject {
             abandonRestoredSessionHistoryIfNeeded()
         }
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
-        // Some installs can end up with a legacy Chrome UA override; keep this pinned.
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         navigationDelegate?.recordAttemptedRequest(effectiveRequest, displayURL: originalURL)
         refreshBackgroundAppearance()
@@ -6543,6 +6567,7 @@ extension BrowserPanel {
                     preserveRestoredSessionHistory: true
                 )
             case .nativeGoBack:
+                webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.backItem?.url)
                 webView.goBack()
             case .nativeGoForward, .refreshOnly:
                 refreshNavigationAvailability()
@@ -6550,6 +6575,7 @@ extension BrowserPanel {
             return
         }
 
+        webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.backItem?.url)
         webView.goBack()
     }
 
@@ -6567,6 +6593,7 @@ extension BrowserPanel {
             )
             switch decision {
             case .nativeGoForward:
+                webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.forwardItem?.url)
                 webView.goForward()
             case .navigate(let targetURL):
                 refreshNavigationAvailability()
@@ -6581,6 +6608,7 @@ extension BrowserPanel {
             return
         }
 
+        webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.forwardItem?.url)
         webView.goForward()
     }
 
@@ -6682,7 +6710,9 @@ extension BrowserPanel {
         if restoreDiscardedWebViewIfNeeded(reason: reason, cachePolicy: mode.recoveryCachePolicy, forceRestartPendingRestore: true) {
             return true
         }
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        webView.applyBrowserUserAgentPolicy(
+            for: Self.remoteProxyDisplayURL(for: webView.url) ?? webView.url ?? currentURL
+        )
         if Self.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: webView.url)) == nil {
             let fallbackURL = resolvedCurrentSessionHistoryURL()
                 ?? Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
@@ -8812,6 +8842,7 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         )
 
         if isScriptedPopup, let popupWebView = openPopup?(configuration, windowFeatures) {
+            popupWebView.applyBrowserUserAgentPolicy(for: navigationAction.request.url)
 #if DEBUG
             cmuxDebugLog("browser.nav.createWebView.action kind=popup")
 #endif

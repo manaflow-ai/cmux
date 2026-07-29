@@ -298,8 +298,12 @@ struct SidebarWorkspaceRowMenuBuilder {
         addPinItem(to: menu, tabManager: tabManager)
         addGroupSection(to: menu, tabManager: tabManager)
         menu.addItem(.separator())
-        addTodoSection(to: menu, tabManager: tabManager)
-        menu.addItem(.separator())
+        // Legacy parity: the todo section renders only while the feature is
+        // enabled (SwiftUI merges the surrounding dividers when it is not).
+        if WorkspaceTodoFeature.isEnabled {
+            addTodoSection(to: menu, tabManager: tabManager)
+            menu.addItem(.separator())
+        }
         addRenameAndDescriptionItems(to: menu, tabManager: tabManager)
         addRemoteSection(to: menu, tabManager: tabManager)
         addColorMenu(to: menu, tabManager: tabManager)

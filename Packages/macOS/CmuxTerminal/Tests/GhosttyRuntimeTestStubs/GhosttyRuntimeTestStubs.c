@@ -133,6 +133,14 @@ void ghostty_surface_binding_action(void) {}
 void ghostty_surface_config_new(void) {}
 void ghostty_surface_free(void) {}
 void ghostty_surface_free_text(void) {}
+float ghostty_surface_font_size(void *surface) {
+    (void)surface;
+    return 0;
+}
+bool ghostty_surface_font_size_adjusted(void *surface) {
+    (void)surface;
+    return false;
+}
 uint64_t ghostty_surface_foreground_pid(void *surface) {
     (void)surface;
     return cmux_test_foreground_pid;
@@ -158,6 +166,23 @@ void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}
 void ghostty_surface_render_grid_json(void) {}
 void ghostty_surface_render_grid_json_with_theme(void) {}
+ghostty_string_s ghostty_surface_render_grid_json_v2(
+    void *surface,
+    const char *surface_id,
+    uintptr_t surface_id_len,
+    uint64_t state_seq,
+    uintptr_t scrollback_lines,
+    bool include_theme,
+    bool anchor_active) {
+    (void)surface;
+    (void)surface_id;
+    (void)surface_id_len;
+    (void)state_seq;
+    (void)scrollback_lines;
+    (void)include_theme;
+    (void)anchor_active;
+    return (ghostty_string_s){0};
+}
 void ghostty_surface_set_content_scale(void) {}
 void ghostty_surface_set_display_id(void) {}
 void ghostty_surface_set_focus(void) {}

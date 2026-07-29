@@ -1717,6 +1717,52 @@ func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {
 	}
 }
 
+func TestDefaultWebSocketPTYEnvAddsStandardExecutableDirectories(t *testing.T) {
+	tests := []struct {
+		name          string
+		inheritedPath string
+	}{
+		{name: "restricted daemon PATH", inheritedPath: "/opt/cmux/bin"},
+		{name: "empty daemon PATH", inheritedPath: ""},
+		{name: "partially complete daemon PATH", inheritedPath: "/opt/cmux/bin:/usr/bin"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("PATH", test.inheritedPath)
+
+			env, _ := envMapWithOrder(defaultWebSocketPTYEnv("/bin/sh"))
+			pathEntries := strings.Split(env["PATH"], string(os.PathListSeparator))
+			inheritedPrefix := test.inheritedPath + string(os.PathListSeparator)
+			if test.inheritedPath != "" && env["PATH"] != test.inheritedPath && !strings.HasPrefix(env["PATH"], inheritedPrefix) {
+				t.Fatalf("PATH should preserve inherited entries first, got %q", env["PATH"])
+			}
+			for _, standardDirectory := range []string{
+				"/usr/local/bin",
+				"/usr/bin",
+				"/bin",
+				"/usr/local/sbin",
+				"/usr/sbin",
+				"/sbin",
+			} {
+				if count := countStrings(pathEntries, standardDirectory); count != 1 {
+					t.Errorf("PATH %q contains standard directory %q %d times, want once", env["PATH"], standardDirectory, count)
+				}
+			}
+		})
+	}
+}
+
+func countStrings(values []string, target string) int {
+	count := 0
+	for _, value := range values {
+		if value == target {
+			count++
+		}
+	}
+	return count
+}
+
 func TestWebSocketPTYSeedsUTF8LocaleAndTerminalEnv(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
 	server, _ := newTestWebSocketPTYServer(t, leasePath)

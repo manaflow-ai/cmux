@@ -338,8 +338,8 @@ Options:
                             CMUX_TESTFLIGHT_SKIP_NOTES=1.
   --notes-from-range <base> Auto-generate the "What to Test" notes from the
                             iOS-affecting commits in <base>..HEAD instead of the
-                            ios/CHANGELOG.md top entry (used by the every-2h beta
-                            lane so each build's notes reflect what changed since
+                            ios/CHANGELOG.md top entry (used by the every-main-push
+                            beta lane so each build's notes reflect what changed since
                             the previous beta for the selected audience). Skips
                             the changelog preflight and version-match guard.
   --auto-version            Stamp the beta build's MARKETING_VERSION at archive time
@@ -432,9 +432,9 @@ if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
   EXTERNAL_TESTING=1
 fi
 # Whether this invocation should assign an uploaded external build to the
-# external beta group itself. The scheduled GitHub Actions lane disables this and
+# external beta group itself. The automatic GitHub Actions lane disables this and
 # runs assignment in a separate post-upload job so a distribution failure cannot
-# cause duplicate uploads of the same SHA on the next schedule.
+# cause duplicate uploads after the IPA already shipped.
 ASSIGN_EXTERNAL_GROUP=1
 if [[ "${CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP:-1}" == "0" ]]; then
   ASSIGN_EXTERNAL_GROUP=0
@@ -448,7 +448,7 @@ if [[ "${CMUX_TESTFLIGHT_SKIP_NOTES:-}" == "1" ]]; then
 fi
 # --notes-from-range <base>: auto-generate the "What to Test" notes from the
 # iOS-affecting commits in <base>..HEAD (via generate-testflight-notes.sh) instead
-# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-2h beta
+# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-main-push beta
 # lane so each build's notes reflect what actually changed since the previous
 # beta for whichever audience is being shipped. When set, the changelog
 # preflight + version-match guard are skipped (the notes no longer come from the

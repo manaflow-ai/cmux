@@ -59,7 +59,8 @@ struct SurfaceResumeAgentBindingGenerationTests {
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelID = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
-            #expect(restoredPanel.surface.debugInitialCommand() != nil)
+            #expect(restoredPanel.surface.debugInitialCommand() == nil)
+            #expect(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
         }
     }
 

@@ -24,6 +24,10 @@ import Testing
             if await log.processedCount() >= expected { return }
             await Task.yield()
         }
+        #expect(
+            await log.processedCount() >= expected,
+            "diagnostic drain did not reach the required barrier"
+        )
     }
 
     /// Record one event and await it draining into the ring, so the next record
@@ -228,7 +232,32 @@ import Testing
         #expect(DiagnosticEventCode.hostAuthenticationFailed.rawValue == 49)
         #expect(DiagnosticEventCode.rpcFailed.rawValue == 50)
         #expect(DiagnosticEventCode.transportSessionLifecycle.rawValue == 51)
+        #expect(DiagnosticEventCode.transportCloseAttribution.rawValue == 54)
+        #expect(DiagnosticEventCode.transportPathEvent.rawValue == 55)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
+    }
+
+    @Test func closeAttributionAndPathEventsExposeTypedPayloads() {
+        let close = DiagnosticEvent(
+            code: .transportCloseAttribution,
+            tNanos: 10,
+            ms: 42,
+            a: 2,
+            b: DiagnosticFailureKind.connectionClosed.rawValue,
+            c: 7
+        )
+        let path = DiagnosticEvent(
+            code: .transportPathEvent,
+            tNanos: 11,
+            a: 3,
+            b: DiagnosticPathKind.privateNetwork.rawValue,
+            c: 7
+        )
+
+        #expect(close.diagnosticFailureKind == .connectionClosed)
+        #expect(close.diagnosticSessionID == 7)
+        #expect(path.diagnosticPathKind == .privateNetwork)
+        #expect(path.diagnosticSessionID == 7)
     }
 
     @Test func diagnosticTaxonomyHasStableRawValuesAndRedactedMappings() {
@@ -238,6 +267,14 @@ import Testing
         #expect(DiagnosticTransportKind(.debugLoopback) == .debugLoopback)
         #expect(CmxAttachTransportKind.iroh.diagnosticTransportKind.rawValue == 1)
         #expect(DiagnosticFailureKind.cancelled.rawValue == 20)
+        #expect(DiagnosticFailureKind.transportIdleTimedOut.rawValue == 21)
+        #expect(DiagnosticFailureKind.admissionLeaseExpired.rawValue == 22)
+        #expect(DiagnosticFailureKind.admissionRevalidationFailed.rawValue == 23)
+        #expect(DiagnosticFailureKind.sendQueueOverflow.rawValue == 24)
+        #expect(
+            Set(DiagnosticFailureKind.allCases.map(\.rawValue)).count
+                == DiagnosticFailureKind.allCases.count
+        )
         #expect(DiagnosticFailureKind.unknown.rawValue == 255)
         #expect(DiagnosticSessionLifecycleKind.established.rawValue == 1)
         #expect(DiagnosticSessionLifecycleKind.controlOwnerReleased.rawValue == 2)

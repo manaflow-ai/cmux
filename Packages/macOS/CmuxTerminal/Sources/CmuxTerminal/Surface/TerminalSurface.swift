@@ -12,9 +12,7 @@ internal import CMUXDebugLog
 /// reclamation state.
 ///
 /// Lifted verbatim from `Sources/GhosttyTerminalView.swift`; the legacy
-/// reach-ups into `GhosttyApp.shared` / `TerminalController.shared` /
-/// `MobileTerminalByteTee.shared` / `RendererRealizationController.shared` /
-/// `AgentHibernationController.shared` are inverted through the seams in
+/// reach-ups into app-owned singletons are inverted through the seams in
 /// ``TerminalSurfaceRuntimeDependencies``.
 ///
 /// Isolation: the model keeps the legacy main-thread-only contract. Members
@@ -150,6 +148,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let portOrdinal: Int
     let surfaceContext: ghostty_surface_context_e
     let configTemplate: CmuxSurfaceConfigTemplate?
+    var lastKnownFontSizeLineage: TerminalFontSizeLineage?
     let workingDirectory: String?
 
     /// The command to run instead of the default shell, if any.
@@ -166,6 +165,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The working directory requested at construction, if any.
     public var requestedWorkingDirectory: String? { workingDirectory }
 
+    /// The working directory reported by Ghostty shell integration, or nil after a reset.
+    @Published public internal(set) var reportedWorkingDirectory: String?
     /// Where the surface participates in focus routing. Mutable so a live
     /// surface can move between the workspace area and the right-sidebar dock
     /// without being recreated (preserving its process). Always mutate through
@@ -184,6 +185,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Remote tmux manual-I/O resize and runtime-readiness hooks.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
     @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
+    /// Called after durable font-size lineage changes.
+    @MainActor public var onFontSizeLineageChanged: (@MainActor (TerminalFontSizeLineage) -> Void)?
     @MainActor var manualSizeReportPendingWindowAttach = false
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
@@ -231,10 +234,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the pinned grid and clips or letterboxes the difference — the same
     /// answer tmux gives a client whose size disagrees with the window.
     var assignedGrid: (columns: Int, rows: Int)?
-    /// Runtime font size to restore when mobile viewport fitting clears.
-    var mobileFitBaseFontPointSize: Float?
-    /// Last runtime font size applied by mobile viewport fitting.
-    var mobileFittedFontPointSize: Float?
+    /// Temporary runtime font-size ownership while a mobile viewport is fitted.
+    var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
     // lock is the sanctioned carve-out for tiny values shared with
     // synchronous off-isolation readers.
@@ -474,7 +475,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
-        self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.lastKnownFontSizeLineage = configTemplate?.fontSizeLineage
+        self.workingDirectory = workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
         self.portOrdinal = portOrdinal
         self.initialCommand = initialCommand.flatMap {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
@@ -558,10 +560,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Moves this surface between focus-routing placements (workspace ↔
     /// right-sidebar dock) and keeps the surface registry's record in sync.
     /// Used when a live terminal is dragged across containers so it is not
-    /// recreated. No-op when the placement is unchanged.
+    /// recreated. Clears placement-owned directory state so a prior Dock tenure
+    /// cannot outrank the incoming container's directory. No-op when unchanged.
     @MainActor
     public func setFocusPlacement(_ placement: TerminalSurfaceFocusPlacement) {
         guard focusPlacement != placement else { return }
+        reportedWorkingDirectory = nil
         focusPlacement = placement
         registry.updateFocusPlacement(id: id, placement)
     }

@@ -26,18 +26,43 @@ public struct MobileDebugLog: Sendable {
             sink: MobileDebugLogSink(
                 fileURL: logFileURL,
                 fileHeader: fileHeader,
-                installCrashCapture: true
+                installCrashCapture: true,
+                startsFileLoggingEnabled: Self.startsFileLoggingEnabled
             )
         )
     }()
 
-    /// Default DEBUG-build file location for the durable iOS debug log.
-    ///
-    /// DEBUG builds write to `Application Support/cmux-debug.log` inside the app
-    /// container. Release builds always return `nil`, so callers cannot enable
-    /// durable debug logging by accident.
-    public static let logFileURL: URL? = {
+    /// UserDefaults key for the user-visible verbose-log opt-in. Release
+    /// builds write to disk only while this is set; DEBUG builds always log.
+    public static let verboseLogDefaultsKey = "cmux.diagnostics.verbose-log-enabled"
+
+    private static var startsFileLoggingEnabled: Bool {
         #if DEBUG
+        true
+        #else
+        UserDefaults.standard.bool(forKey: verboseLogDefaultsKey)
+        #endif
+    }
+
+    /// Turns durable file logging on or off for the shared sink and persists
+    /// the choice for the next launch. Returns whether the sink accepted it;
+    /// a failed enable is not persisted, so the toggle cannot claim to be
+    /// recording when no file could be opened.
+    @discardableResult
+    public func setFileLogging(enabled: Bool) async -> Bool {
+        let accepted = await sink.setFileLogging(enabled: enabled)
+        if accepted {
+            UserDefaults.standard.set(enabled, forKey: Self.verboseLogDefaultsKey)
+        }
+        return accepted
+    }
+
+    /// File location for the durable iOS debug log.
+    ///
+    /// All builds resolve `Application Support/cmux-debug.log` inside the app
+    /// container; whether anything is WRITTEN there is controlled separately
+    /// (always in DEBUG, only behind the user's verbose-log opt-in in Release).
+    public static let logFileURL: URL? = {
         let fileManager = FileManager.default
         guard let applicationSupportURL = fileManager.urls(
             for: .applicationSupportDirectory,
@@ -51,14 +76,13 @@ public struct MobileDebugLog: Sendable {
                 withIntermediateDirectories: true
             )
             let fileURL = applicationSupportURL.appendingPathComponent("cmux-debug.log")
+            #if DEBUG
             NSLog("cmux debug log file: %@", fileURL.path)
+            #endif
             return fileURL
         } catch {
             return nil
         }
-        #else
-        return nil
-        #endif
     }()
 
     /// The actor that owns the ring buffer and broadcast stream.

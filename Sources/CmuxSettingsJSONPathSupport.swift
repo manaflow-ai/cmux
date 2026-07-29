@@ -138,6 +138,10 @@ enum AppSettingsFileMapping {
         ),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
         .init(
+            jsonKey: "focusHistoryIncludesPanesAndTabs",
+            defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
         ),
@@ -224,6 +228,11 @@ enum TerminalSettingsFileMapping {
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
+        ),
+        .init(
+            jsonKey: "autoRetryAgentSessions",
+            defaultsKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey,
+            invalidPath: "terminal.autoRetryAgentSessions"
         ),
     ]
 }
@@ -395,6 +404,7 @@ extension CmuxSettingsFileStore {
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
+        "app.focusHistoryIncludesPanesAndTabs",
         "app.preferredEditor",
         "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",
@@ -413,6 +423,7 @@ extension CmuxSettingsFileStore {
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.autoRetryAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
         "terminal.textBoxDefaultSubmitAction",
