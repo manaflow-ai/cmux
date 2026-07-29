@@ -2146,6 +2146,25 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             19,
             "Closed-panel history must project the accepted workspace mutation"
         )
+        let reopenedPanelId = try XCTUnwrap(
+            workspace.restoreClosedPanel(closedPanel)
+        )
+        let reopenedPanel = try XCTUnwrap(
+            workspace.terminalPanel(for: reopenedPanelId)
+        )
+#if DEBUG
+        coordinator.debugDrainAll()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        XCTAssertEqual(
+            reopenedPanel.surface
+                .fontSizeLineageSnapshot()?
+                .basePoints,
+            19,
+            "Reopening a projected close-history snapshot must not replay the pending mutation"
+        )
     }
 
     func testDestinationSnapshotProjectsTransferredPendingFontChange() throws {
@@ -5542,6 +5561,26 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(
             lineage.isExplicitOverride,
             "Explicit relative input must claim ownership even when its net numeric delta is zero"
+        )
+    }
+
+    func testResetThenZeroNetRelativeChangeMakesProjectedLineageExplicit() {
+        let lineage =
+            WorkspaceTerminalFontSizeChange
+                .resetThen([1, -1])
+                .resultingInheritanceLineage(
+                    from: TerminalFontSizeLineage(
+                        basePoints: 20,
+                        isExplicitOverride: true
+                    ),
+                    configuredRuntimePoints: 12,
+                    magnificationPercent: 100
+                )
+
+        XCTAssertEqual(lineage.basePoints, 12)
+        XCTAssertTrue(
+            lineage.isExplicitOverride,
+            "Relative input after reset must claim ownership even when its net numeric delta is zero"
         )
     }
 
