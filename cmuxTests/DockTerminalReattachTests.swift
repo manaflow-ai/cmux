@@ -54,6 +54,7 @@ extension DockSocketLifecycleTests {
         shellActivityState: PanelShellActivityState? = nil,
         restoredResumeSessionWorkingDirectory: String? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        agentSessionRetryCompletedAttempts: Int? = nil,
         agentRuntime: Workspace.DetachedAgentRuntimeState? = nil
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
@@ -82,7 +83,7 @@ extension DockSocketLifecycleTests {
             shellActivityState: shellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
-            agentSessionRetryCompletedAttempts: nil,
+            agentSessionRetryCompletedAttempts: agentSessionRetryCompletedAttempts,
             agentRuntime: agentRuntime,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
@@ -347,7 +348,8 @@ extension DockSocketLifecycleTests {
             sourceWorkspaceId: sourceWorkspaceId,
             restorableAgent: staleAgent,
             restorableAgentResumeState: .autoResumeCommandRunning,
-            resumeBinding: staleBinding
+            resumeBinding: staleBinding,
+            agentSessionRetryCompletedAttempts: 2
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
 
@@ -374,6 +376,7 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restorableAgent == nil)
         #expect(roundTripped.restorableAgentResumeState == nil)
         #expect(roundTripped.restoredAgentCompletedGeneration == nil)
+        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
     @Test("Registered lifecycle command reaches a panel in a global Dock")
@@ -459,7 +462,8 @@ extension DockSocketLifecycleTests {
             panel: panel,
             sourceWorkspaceId: sourceWorkspaceId,
             restorableAgentResumeState: .awaitingAutoResumeCommand,
-            resumeBinding: binding
+            resumeBinding: binding,
+            agentSessionRetryCompletedAttempts: 2
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
 
@@ -467,6 +471,7 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restorableAgent == nil)
         #expect(roundTripped.restorableAgentResumeState == .awaitingAutoResumeCommand)
         #expect(roundTripped.resumeBinding?.checkpointId == sessionId)
+        #expect(roundTripped.agentSessionRetryCompletedAttempts == 2)
     }
 
     @Test("Dock detach preserves a completed generation without a snapshot")
