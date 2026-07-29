@@ -821,7 +821,7 @@ Result<Json::Object> TerminalHistoryOptions::to_params() const {
             Json(static_cast<std::uint64_t>(*limit)));
     }
     if (styled) {
-        params.emplace("styled", Json(true));
+        params.emplace("styled", Json(*styled));
     }
     return params;
 }

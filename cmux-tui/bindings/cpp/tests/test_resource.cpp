@@ -239,6 +239,17 @@ TEST("terminal history and attach options validate and encode") {
         10'000U);
     CHECK(history_params.value().at("styled").as_bool().value());
 
+    cmux::TerminalHistoryOptions plain_history;
+    plain_history.styled = false;
+    auto plain_history_params = plain_history.to_params();
+    CHECK(plain_history_params);
+    CHECK(!plain_history_params.value().at("styled").as_bool().value());
+
+    cmux::TerminalHistoryOptions default_history;
+    auto default_history_params = default_history.to_params();
+    CHECK(default_history_params);
+    CHECK(!default_history_params.value().contains("styled"));
+
     cmux::TerminalHistoryOptions zero_limit;
     zero_limit.limit = 0;
     auto invalid_zero_limit = zero_limit.to_params();

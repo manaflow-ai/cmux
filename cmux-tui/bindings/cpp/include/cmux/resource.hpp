@@ -439,7 +439,7 @@ struct UndoLayoutOptions {
 struct TerminalHistoryOptions {
     std::optional<std::uint64_t> before;
     std::optional<std::uint32_t> limit;
-    bool styled = false;
+    std::optional<bool> styled;
 
     [[nodiscard]] Result<Json::Object> to_params() const;
 };
