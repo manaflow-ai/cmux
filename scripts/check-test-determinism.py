@@ -206,6 +206,10 @@ _SWIFT_SLEEP_CALL = re.compile(
     """
 )
 _SWIFT_IDENTIFIER_PATTERN = r"[A-Za-z_]\w*"
+_SWIFT_TYPE_IDENTITY_PATTERN = (
+    rf"(?:{_SWIFT_IDENTIFIER_PATTERN}\s*\.\s*)*"
+    rf"{_SWIFT_IDENTIFIER_PATTERN}"
+)
 _SWIFT_CLOCK_TYPE_PATTERN = (
     r"(?:Swift\s*\.\s*)?(?:ContinuousClock|SuspendingClock)"
 )
@@ -600,8 +604,85 @@ def _swift_matching_parenthesis(text: str, start: int) -> Optional[int]:
     return None
 
 
-def _swift_parameter_bindings(parameters: str) -> dict[str, bool]:
+def _swift_matching_closing_brace(
+    text: str,
+    opening: int,
+) -> Optional[int]:
+    """Return the matching close brace for one masked Swift body."""
+    depth = 0
+    for index in range(opening, len(text)):
+        character = text[index]
+        if character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _swift_standard_clock_type_aliases(text: str) -> set[str]:
+    """Resolve unambiguous simple/transitive aliases of standard clocks."""
+    targets_by_alias: dict[str, set[str]] = {}
+    for declaration in re.finditer(
+        rf"\btypealias\s+(?P<name>{_SWIFT_IDENTIFIER_PATTERN})"
+        rf"\s*=\s*(?P<target>{_SWIFT_TYPE_IDENTITY_PATTERN})(?!\w)",
+        text,
+    ):
+        name = declaration.group("name")
+        target = re.sub(r"\s+", "", declaration.group("target"))
+        targets_by_alias.setdefault(name, set()).add(target)
+
+    standard = {
+        "ContinuousClock",
+        "SuspendingClock",
+        "Swift.ContinuousClock",
+        "Swift.SuspendingClock",
+    }
+    known = set(standard)
+    changed = True
+    while changed:
+        changed = False
+        for name, targets in targets_by_alias.items():
+            if name not in known and targets and targets.issubset(known):
+                known.add(name)
+                changed = True
+    return known - standard
+
+
+def _swift_binding_uses_standard_clock_alias(
+    suffix: str,
+    clock_aliases: set[str],
+) -> bool:
+    """Return whether a binding uses one known standard-clock alias."""
+    if not clock_aliases:
+        return False
+    alias_pattern = "|".join(
+        re.escape(alias)
+        for alias in sorted(clock_aliases, key=len, reverse=True)
+    )
+    return bool(
+        re.match(
+            rf"\s*(?::\s*(?:{alias_pattern})\s*\??"
+            rf"|=\s*(?:{alias_pattern})\s*\(\s*\))",
+            suffix,
+        )
+    )
+
+
+def _swift_parameter_bindings(
+    parameters: str,
+    clock_aliases: Optional[set[str]] = None,
+) -> dict[str, bool]:
     """Extract local names and concrete clock identity from Swift parameters."""
+    aliases = clock_aliases or set()
+    clock_type_pattern = _SWIFT_CLOCK_TYPE_PATTERN
+    if aliases:
+        clock_type_pattern = (
+            rf"(?:{clock_type_pattern}|"
+            + "|".join(re.escape(alias) for alias in sorted(aliases))
+            + ")"
+        )
     result: dict[str, bool] = {}
     segment_start = 0
     depths = {"(": 0, "[": 0, "<": 0}
@@ -633,13 +714,12 @@ def _swift_parameter_bindings(parameters: str) -> dict[str, bool]:
         )
         if local_name is not None:
             type_annotation = segment[colon + 1 :].split("=", 1)[0]
-            result[local_name] = bool(
-                re.fullmatch(
-                    rf"\s*(?:(?:borrowing|consuming|inout|isolated|sending)\s+)*"
-                    rf"{_SWIFT_CLOCK_TYPE_PATTERN}\s*",
-                    type_annotation,
-                )
+            annotated_type = re.fullmatch(
+                rf"\s*(?:(?:borrowing|consuming|inout|isolated|sending)\s+)*"
+                rf"{clock_type_pattern}\s*\??\s*",
+                type_annotation,
             )
+            result[local_name] = annotated_type is not None
     return result
 
 
@@ -648,7 +728,10 @@ def _swift_parameter_names(parameters: str) -> set[str]:
     return set(_swift_parameter_bindings(parameters))
 
 
-def _swift_callable_parameter_scopes(text: str) -> dict[int, dict[str, bool]]:
+def _swift_callable_parameter_scopes(
+    text: str,
+    clock_aliases: Optional[set[str]] = None,
+) -> dict[int, dict[str, bool]]:
     """Map callable-body opening braces to their lexically bound parameters."""
     result: dict[int, dict[str, bool]] = {}
     callable_pattern = re.compile(
@@ -682,7 +765,8 @@ def _swift_callable_parameter_scopes(text: str) -> dict[int, dict[str, bool]]:
         ):
             continue
         result[body_opening] = _swift_parameter_bindings(
-            text[opening + 1 : closing]
+            text[opening + 1 : closing],
+            clock_aliases,
         )
     return result
 
@@ -867,7 +951,11 @@ def _swift_standard_clock_members_by_type(
     return result
 
 
-def _swift_closure_bindings(text: str, opening: int) -> dict[str, bool]:
+def _swift_closure_bindings(
+    text: str,
+    opening: int,
+    clock_aliases: Optional[set[str]] = None,
+) -> dict[str, bool]:
     """Return closure-local bindings introduced immediately after a brace."""
     snippet = text[opening + 1 : opening + 513]
     candidate = re.match(
@@ -916,7 +1004,9 @@ def _swift_closure_bindings(text: str, opening: int) -> dict[str, bool]:
 
     typed_parameters = candidate.group("typed_parameters")
     if typed_parameters is not None:
-        result.update(_swift_parameter_bindings(typed_parameters))
+        result.update(
+            _swift_parameter_bindings(typed_parameters, clock_aliases)
+        )
     simple_parameters = candidate.group("simple_parameters")
     if simple_parameters is not None:
         result.update(
@@ -929,6 +1019,23 @@ def _swift_closure_bindings(text: str, opening: int) -> dict[str, bool]:
             }
         )
     return result
+
+
+def _swift_optional_binding_source(
+    suffix: str,
+    local_name: str,
+) -> Optional[str]:
+    """Return the outer binding inherited by a simple optional binding."""
+    explicit = re.match(
+        rf"\s*=\s*(?P<source>{_SWIFT_IDENTIFIER_PATTERN})"
+        rf"\s*(?=,|$)",
+        suffix,
+    )
+    if explicit is not None:
+        return explicit.group("source")
+    if re.match(r"\s*(?=,|$)", suffix) is not None:
+        return local_name
+    return None
 
 
 def _swift_conditional_bindings(
@@ -964,6 +1071,56 @@ def _swift_conditional_bindings(
             bindings.setdefault(body_opening, {})[name] = is_clock
             declaration_offsets.add(conditional.start("header") + offset)
     return bindings, declaration_offsets
+
+
+def _swift_optional_binding_inheritances(
+    text: str,
+) -> tuple[dict[int, dict[str, str]], dict[int, dict[str, str]], set[int]]:
+    """Map optional bindings to the outer names whose identity they inherit."""
+    scoped: dict[int, dict[str, str]] = {}
+    post_guard: dict[int, dict[str, str]] = {}
+    declaration_offsets: set[int] = set()
+
+    def inherited(header: str, base_offset: int) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for event in _SWIFT_CLOCK_EVENT.finditer(header):
+            if event.group("simple_binding") is None:
+                continue
+            name = event.group("binding_name")
+            source = _swift_optional_binding_source(
+                header[event.end() :],
+                name,
+            )
+            if source is not None:
+                result[name] = source
+                declaration_offsets.add(base_offset + event.start())
+        return result
+
+    for conditional in re.finditer(
+        r"\b(?:if|while)\b(?P<header>[^{}]*)(?P<body>\{)",
+        text,
+    ):
+        bindings = inherited(
+            conditional.group("header"),
+            conditional.start("header"),
+        )
+        if bindings:
+            scoped[conditional.start("body")] = bindings
+    for guard in re.finditer(
+        r"\bguard\b(?P<header>[^{}]*?)\belse\s*(?P<body>\{)",
+        text,
+    ):
+        body_opening = guard.start("body")
+        body_closing = _swift_matching_closing_brace(text, body_opening)
+        if body_closing is None:
+            continue
+        bindings = inherited(
+            guard.group("header"),
+            guard.start("header"),
+        )
+        if bindings:
+            post_guard[body_closing + 1] = bindings
+    return scoped, post_guard, declaration_offsets
 
 
 def _swift_catch_bindings(
@@ -1120,7 +1277,11 @@ def _swift_named_clock_sleep_positions(
     indexed_type_members: Optional[dict[str, dict[str, bool]]] = None,
 ) -> set[int]:
     """Resolve immutable standard-clock bindings through lexical Swift scopes."""
-    callable_parameters = _swift_callable_parameter_scopes(text)
+    clock_aliases = _swift_standard_clock_type_aliases(text)
+    callable_parameters = _swift_callable_parameter_scopes(
+        text,
+        clock_aliases,
+    )
     type_identities = _swift_type_scope_identities(text)
     type_scopes = set(type_identities)
     type_members = _swift_type_member_bindings(text, type_scopes)
@@ -1137,6 +1298,14 @@ def _swift_named_clock_sleep_positions(
     conditional_bindings, conditional_declaration_offsets = (
         _swift_conditional_bindings(text)
     )
+    (
+        conditional_inheritances,
+        guard_bindings,
+        inheritance_declaration_offsets,
+    ) = (
+        _swift_optional_binding_inheritances(text)
+    )
+    conditional_declaration_offsets.update(inheritance_declaration_offsets)
     catch_bindings, catch_declaration_offsets = _swift_catch_bindings(text)
     conditional_declaration_offsets.update(catch_declaration_offsets)
     switch_scopes, switch_case_bindings = _swift_switch_case_scopes(text)
@@ -1155,10 +1324,27 @@ def _swift_named_clock_sleep_positions(
         (offset, "binding", None, binding)
         for offset, binding in _swift_secondary_binding_events(text).items()
     ]
+    guard_events = [
+        (offset, "guard", None, bindings)
+        for offset, bindings in guard_bindings.items()
+    ]
+
+    def resolve_binding(name: str) -> bool:
+        for _, scope in reversed(scopes):
+            if name in scope:
+                return scope[name]
+            if "*" in scope:
+                break
+        return False
+
     for event_offset, event_kind, event, payload in sorted(
-        clock_events + case_events + binding_events,
+        clock_events + case_events + binding_events + guard_events,
         key=lambda item: item[0],
     ):
+        if event_kind == "guard":
+            for name, source in payload.items():
+                scopes[-1][1][name] = resolve_binding(source)
+            continue
         if event_kind == "case":
             if len(scopes) > 1 and scopes[-1][0] == "case":
                 scopes.pop()
@@ -1186,9 +1372,18 @@ def _swift_named_clock_sleep_positions(
             bindings = type_members.get(event.start(), {}).copy()
             bindings.update(callable_parameters.get(event.start(), {}))
             bindings.update(conditional_bindings.get(event.start(), {}))
+            for name, source in conditional_inheritances.get(
+                event.start(),
+                {},
+            ).items():
+                bindings[name] = resolve_binding(source)
             bindings.update(catch_bindings.get(event.start(), {}))
             bindings.update(
-                _swift_closure_bindings(text, event.start())
+                _swift_closure_bindings(
+                    text,
+                    event.start(),
+                    clock_aliases,
+                )
             )
             scopes.append((scope_kind, bindings))
             continue
@@ -1210,7 +1405,12 @@ def _swift_named_clock_sleep_positions(
         if event.group("simple_binding") is not None:
             if event.start() in conditional_declaration_offsets:
                 continue
-            scopes[-1][1][event.group("binding_name")] = False
+            scopes[-1][1][event.group("binding_name")] = (
+                _swift_binding_uses_standard_clock_alias(
+                    text[event.end() :],
+                    clock_aliases,
+                )
+            )
             continue
         if event.group("named_call") is None:
             continue
@@ -1392,7 +1592,7 @@ def _javascript_bound_aliases_in_pattern(
         "",
         pattern,
     )
-    return {
+    result = {
         alias
         for alias in aliases
         if re.search(
@@ -1402,6 +1602,30 @@ def _javascript_bound_aliases_in_pattern(
             without_computed_keys,
         )
     }
+    segment_start = 0
+    delimiters: list[str] = []
+    closing_for = {"(": ")", "[": "]", "{": "}", "<": ">"}
+    segments: list[str] = []
+    for index, character in enumerate(pattern):
+        if character in closing_for:
+            delimiters.append(closing_for[character])
+        elif character in ")]}>":
+            if delimiters and character == delimiters[-1]:
+                delimiters.pop()
+        elif character == "," and not delimiters:
+            segments.append(pattern[segment_start:index])
+            segment_start = index + 1
+    segments.append(pattern[segment_start:])
+    for segment in segments:
+        parameter = re.match(
+            rf"\s*(?:\.\.\.\s*)?"
+            rf"(?P<name>{_JAVASCRIPT_IDENTIFIER_PATTERN})(?![$\w])"
+            rf"\s*[?!]?\s*(?=[:=]|$)",
+            segment,
+        )
+        if parameter is not None and parameter.group("name") in aliases:
+            result.add(parameter.group("name"))
+    return result
 
 
 def _javascript_catch_bindings(
@@ -1488,14 +1712,10 @@ def _javascript_callable_parameter_scope(
                 )
         if callable_signature:
             parameters = prefix[parameter_opening + 1 : closing]
-            shadowed = {
-                alias
-                for alias in aliases
-                if re.search(
-                    rf"(?<![$\w]){re.escape(alias)}(?![$\w])",
-                    parameters,
-                )
-            }
+            shadowed = _javascript_bound_aliases_in_pattern(
+                parameters,
+                aliases,
+            )
             return shadowed, (
                 prefix_start + parameter_opening + 1,
                 prefix_start + closing,
@@ -1571,14 +1791,10 @@ def _javascript_expression_arrow_scopes(
                 body_end = index
                 break
 
-        shadowed = {
-            alias
-            for alias in aliases
-            if re.search(
-                rf"(?<![$\w]){re.escape(alias)}(?![$\w])",
-                parameters,
-            )
-        }
+        shadowed = _javascript_bound_aliases_in_pattern(
+            parameters,
+            aliases,
+        )
         scopes.append((body_start, body_end, shadowed))
         parameter_ranges.append((parameter_start, parameter_end))
     return scopes, parameter_ranges
