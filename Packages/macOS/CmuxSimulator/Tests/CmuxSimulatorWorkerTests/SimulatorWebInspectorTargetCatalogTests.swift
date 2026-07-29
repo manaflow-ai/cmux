@@ -30,7 +30,7 @@ struct SimulatorWebInspectorTargetCatalogTests {
         #expect(try #require(catalog.targets.first).isInUse == false)
     }
 
-    @Test("An empty provisional listing preserves pages until application disconnect")
+    @Test("Only one provisional empty listing preserves pages")
     func targetCloseCleanup() {
         var catalog = SimulatorWebInspectorTargetCatalog()
         catalog.apply(Self.applicationList(), ownConnectionIdentifier: "OURS")
@@ -40,10 +40,21 @@ struct SimulatorWebInspectorTargetCatalogTests {
         catalog.apply(Self.pageListing(connectionIdentifier: nil, pages: [:]), ownConnectionIdentifier: "OURS")
         #expect(catalog.targets.count == 1)
         #expect(catalog.target(id: "APP|7") != nil)
-        catalog.apply([
-            "__selector": "_rpc_applicationDisconnected:",
-            "__argument": ["WIRApplicationIdentifierKey": "APP"],
-        ], ownConnectionIdentifier: "OURS")
+        catalog.apply(Self.pageListing(connectionIdentifier: nil, pages: [:]), ownConnectionIdentifier: "OURS")
+        #expect(catalog.targets.isEmpty)
+        #expect(catalog.target(id: "APP|7") == nil)
+    }
+
+    @Test("An authoritative census makes an empty listing remove closed pages")
+    func authoritativeEmptyListing() {
+        var catalog = SimulatorWebInspectorTargetCatalog()
+        catalog.apply(Self.applicationList(), ownConnectionIdentifier: "OURS")
+        catalog.apply(Self.pageListing(connectionIdentifier: nil), ownConnectionIdentifier: "OURS")
+        #expect(catalog.targets.count == 1)
+
+        catalog.apply(Self.applicationList(), ownConnectionIdentifier: "OURS")
+        catalog.apply(Self.pageListing(connectionIdentifier: nil, pages: [:]), ownConnectionIdentifier: "OURS")
+
         #expect(catalog.targets.isEmpty)
         #expect(catalog.target(id: "APP|7") == nil)
     }

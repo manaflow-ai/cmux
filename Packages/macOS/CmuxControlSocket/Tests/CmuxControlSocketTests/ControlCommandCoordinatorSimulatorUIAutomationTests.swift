@@ -220,6 +220,41 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
         }
     }
 
+    @Test("Plans longer than the receipt budget fail admission")
+    func oversizedActionPlans() {
+        let keyCodes = Array(repeating: JSONValue.int(40), count: 100)
+        let batchSteps = Array(
+            repeating: JSONValue.object([
+                "action": .string("tap"),
+                "element_ref": .string("e1"),
+                "pre_delay_milliseconds": .int(10_000),
+                "post_delay_milliseconds": .int(10_000),
+            ]),
+            count: 100
+        )
+        for (method, params) in [
+            ("simulator.key_sequence", [
+                "key_codes": JSONValue.array(keyCodes),
+                "delay_milliseconds": .int(5_000),
+            ]),
+            ("simulator.batch", [
+                "steps": JSONValue.array(batchSteps),
+            ]),
+        ] {
+            let context = FakeSimulatorControlCommandContext()
+            let coordinator = ControlCommandCoordinator(context: context)
+            guard case let .err(code, _, _) = coordinator.handleSocketWorkerV2(
+                request(method, params),
+                context: context
+            ) else {
+                Issue.record("Expected \(method) to reject an oversized action plan")
+                continue
+            }
+            #expect(code == "invalid_params")
+            #expect(context.lastOperation == nil)
+        }
+    }
+
     @Test("Recoverable UI failure details survive the Simulator receipt hop")
     func structuredFailureData() throws {
         let context = FakeSimulatorControlCommandContext()

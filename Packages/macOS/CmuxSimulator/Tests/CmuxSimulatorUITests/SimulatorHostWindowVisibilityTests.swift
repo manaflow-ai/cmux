@@ -48,6 +48,28 @@ struct SimulatorHostWindowVisibilityTests {
 
         #expect(observedVisibility.last == true)
     }
+
+    @Test("Resigning key status reconciles stale occlusion state")
+    func resigningKeyWindowStopsVisibility() {
+        let window = SimulatorVisibilityTestWindow()
+        window.reportedIsVisible = true
+        window.reportedIsKeyWindow = true
+        window.reportedOcclusionState = []
+        let view = SimulatorHostWindowVisibilityView()
+        window.contentView = view
+
+        var observedVisibility: [Bool] = []
+        view.setVisibilityHandler { observedVisibility.append($0) }
+        #expect(observedVisibility.last == true)
+
+        window.reportedIsKeyWindow = false
+        NotificationCenter.default.post(
+            name: NSWindow.didResignKeyNotification,
+            object: window
+        )
+
+        #expect(observedVisibility.last == false)
+    }
 }
 
 @MainActor

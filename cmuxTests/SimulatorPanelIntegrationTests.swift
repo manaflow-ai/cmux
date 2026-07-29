@@ -895,6 +895,61 @@ struct SimulatorPanelIntegrationTests {
         #expect(gesture.map(\.primary) == [expectedPoint, expectedPoint])
     }
 
+    @Test("Ref actions revalidate after their pre-action delay")
+    func refActionRevalidatesAfterPreDelay() async throws {
+        let device = SimulatorDevice(
+            id: "delayed-semantic-tap",
+            name: "Delayed iPhone",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "type",
+            family: .iPhone,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let client = SimulatorDelayedAccessibilityPaneClient(device: device)
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        try await coordinator.selectDeviceAndWait(id: device.id)
+        let timing = SimulatorPreActionMutationTiming(client: client)
+        let executor = SimulatorUIAutomationExecutor(timing: timing)
+        let snapshot = try await executor.perform(
+            .uiSnapshot(sinceScreenHash: nil),
+            coordinator: coordinator
+        )
+        guard case let .object(payload) = snapshot,
+              case let .array(elements)? = payload["elements"] else {
+            Issue.record("Expected a semantic snapshot")
+            await coordinator.close()
+            return
+        }
+        let elementRef = try #require(elements.compactMap { value -> String? in
+            guard case let .object(fields) = value,
+                  fields["identifier"] == .string("continue"),
+                  case let .string(ref)? = fields["ref"] else {
+                return nil
+            }
+            return ref
+        }.first)
+
+        do {
+            _ = try await executor.perform(
+                .uiAction(.tap(
+                    elementRef: elementRef,
+                    preDelayMilliseconds: 100,
+                    postDelayMilliseconds: 0
+                )),
+                coordinator: coordinator
+            )
+            Issue.record("Expected the delayed action to reject changed UI")
+        } catch let failure as SimulatorUIAutomationFailure {
+            #expect(failure.code == "ui_state_changed")
+        }
+
+        #expect(await client.gestureCount == 0)
+        await coordinator.close()
+    }
+
     @Test("Simulator accessibility socket payload preserves axe fields and bounds metadata")
     func accessibilitySocketPayload() throws {
         let node = SimulatorAccessibilityNode(
@@ -1086,6 +1141,129 @@ private actor SimulatorRotatingAccessibilityPaneClient: SimulatorPaneClient {
             ],
             display: display
         )
+    }
+}
+
+private actor SimulatorDelayedAccessibilityPaneClient: SimulatorPaneClient {
+    static let display = SimulatorDisplayMetadata(
+        width: 1_200,
+        height: 2_400,
+        orientation: .portrait,
+        scale: 3
+    )
+
+    private let events = SimulatorWorkerEventStreamSource(
+        maximumBufferedBytes: 16 * 1_024,
+        maximumBufferedEvents: 16,
+        onTermination: {}
+    )
+    private let device: SimulatorDevice
+    private var showsChangedUI = false
+    private(set) var gestureCount = 0
+
+    init(device: SimulatorDevice) {
+        self.device = device
+    }
+
+    func discoverDevices() async throws -> [SimulatorDevice] {
+        [device]
+    }
+
+    func synchronizeOrientation(
+        _ orientation: SimulatorOrientation
+    ) async throws -> SimulatorDisplayMetadata? {
+        Self.display
+    }
+
+    func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {
+        let capabilities: Set<SimulatorCapability> = [.accessibility, .touch]
+        _ = await events.continuation.yield(.message(.display(Self.display)))
+        _ = await events.continuation.yield(.message(.capabilities(capabilities)))
+        _ = await events.continuation.yield(.message(.capabilitiesHydrated(capabilities)))
+    }
+
+    func shutdownDevice(id: String) async throws {}
+    func subscribe() async -> SimulatorWorkerEventStream { events.stream }
+    func send(_ message: SimulatorWorkerInbound) async {}
+
+    func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
+        switch action {
+        case .readAccessibility:
+            return .accessibility(Self.snapshot(changed: showsChangedUI))
+        case .interactive(.gesture):
+            gestureCount += 1
+            return .none
+        default:
+            return .none
+        }
+    }
+
+    func invalidateWorker() async {}
+    func stop() async {}
+
+    func showChangedUI() {
+        showsChangedUI = true
+    }
+
+    private static func snapshot(changed: Bool) -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: [
+                SimulatorAccessibilityNode(
+                    id: "application",
+                    role: "Application",
+                    label: "Example",
+                    frame: SimulatorRect(x: 0, y: 0, width: 400, height: 800),
+                    isEnabled: true,
+                    children: [
+                        SimulatorAccessibilityNode(
+                            id: "button",
+                            identifier: "continue",
+                            role: "Button",
+                            label: changed ? "Changed" : "Continue",
+                            frame: changed
+                                ? SimulatorRect(x: 240, y: 500, width: 80, height: 80)
+                                : SimulatorRect(x: 40, y: 100, width: 80, height: 80),
+                            isEnabled: true,
+                            children: []
+                        ),
+                    ]
+                ),
+            ],
+            display: display
+        )
+    }
+}
+
+private final class SimulatorPreActionMutationTiming:
+    SimulatorUIAutomationTiming,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private let client: SimulatorDelayedAccessibilityPaneClient
+    private var currentMilliseconds: Int64 = 1_000
+    private var hasMutated = false
+
+    init(client: SimulatorDelayedAccessibilityPaneClient) {
+        self.client = client
+    }
+
+    func nowMilliseconds() -> Int64 {
+        lock.withLock { currentMilliseconds }
+    }
+
+    func sleep(for duration: Duration) async throws {
+        let components = duration.components
+        let milliseconds = components.seconds * 1_000
+            + components.attoseconds / 1_000_000_000_000_000
+        let shouldMutate = lock.withLock {
+            currentMilliseconds += milliseconds
+            guard !hasMutated else { return false }
+            hasMutated = true
+            return true
+        }
+        if shouldMutate {
+            await client.showChangedUI()
+        }
     }
 }
 

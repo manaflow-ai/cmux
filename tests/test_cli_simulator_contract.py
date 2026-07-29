@@ -186,6 +186,11 @@ def assert_invalid(
     proc = run_cli(cli_path, socket_path, fake_home, arguments)
     if proc.returncode == 0:
         raise AssertionError(f"simulator {' '.join(arguments)} unexpectedly succeeded")
+    if proc.returncode < 0:
+        raise AssertionError(
+            f"simulator {' '.join(arguments)} crashed with signal {-proc.returncode}\n"
+            f"stdout={proc.stdout!r}\nstderr={proc.stderr!r}"
+        )
     requests = state.requests_since(start)
     if requests:
         raise AssertionError(
@@ -336,6 +341,10 @@ def check_ui_automation(
     assert_invalid(
         cli_path, socket_path, fake_home, state,
         ["swipe", "--ref", "e4", "up", "--duration", "0"],
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["swipe", "--ref", "e4", "up", "--duration", "1e20"],
     )
     assert_invalid(
         cli_path, socket_path, fake_home, state,

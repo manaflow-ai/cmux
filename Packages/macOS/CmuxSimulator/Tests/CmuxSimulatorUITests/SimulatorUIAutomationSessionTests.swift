@@ -69,6 +69,36 @@ struct SimulatorUIAutomationSessionTests {
         }
     }
 
+    @Test("A newer snapshot never rebinds an older ordinal ref")
+    func replacementSnapshotInvalidatesOldRef() throws {
+        let session = SimulatorUIAutomationSession()
+        let first = try session.record(
+            snapshot(),
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 1_000
+        )
+        let oldRef = try #require(first.snapshot.elements.first {
+            $0.identifier == "continue"
+        }?.ref)
+        let second = try session.record(
+            snapshot(),
+            simulatorID: "SIM-1",
+            capturedAtMilliseconds: 2_000
+        )
+        let newRef = try #require(second.snapshot.elements.first {
+            $0.identifier == "continue"
+        }?.ref)
+
+        #expect(oldRef != newRef)
+        #expect(throws: SimulatorUIAutomationReferenceError.elementRefNotFound(oldRef)) {
+            _ = try session.resolve(
+                elementRef: oldRef,
+                requiredActions: [.tap],
+                nowMilliseconds: 2_001
+            )
+        }
+    }
+
     @Test("Recording advances sequence and reset restarts it")
     func sequenceReset() throws {
         let session = SimulatorUIAutomationSession()
