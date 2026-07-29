@@ -90,8 +90,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             currentCommands.contains {
                 $0.hasPrefix("set_agent_lifecycle kiro running ")
+                    && $0.contains("--expected-pid-key=kiro.\(surfaceID)")
+                    && $0.contains("--expected-pid=\(replacementPID)")
             },
-            "The current anonymous occupant must continue reporting lifecycle state: \(currentCommands)"
+            "The current anonymous occupant must report lifecycle state with its PID token: \(currentCommands)"
+        )
+        XCTAssertFalse(
+            currentCommands.contains { $0.hasPrefix("set_agent_pid ") },
+            "Only anonymous session-start may claim PID ownership: \(currentCommands)"
         )
     }
 
@@ -204,8 +210,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             currentCommands.contains {
                 $0.hasPrefix("set_agent_lifecycle rovodev running ")
+                    && $0.contains("--expected-pid-key=rovodev.workspace-scoped-session")
+                    && $0.contains("--expected-pid=\(replacementPID)")
             },
-            "The replacement Rovo Dev occupant must continue reporting lifecycle state: \(currentCommands)"
+            "The replacement Rovo Dev occupant must report lifecycle state with its PID token: \(currentCommands)"
+        )
+        XCTAssertFalse(
+            currentCommands.contains { $0.hasPrefix("set_agent_pid ") },
+            "Only anonymous Rovo Dev session-start may claim PID ownership: \(currentCommands)"
         )
     }
 }

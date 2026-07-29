@@ -362,6 +362,20 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let expectedPIDKey = sidebarNormalizedOptionValue(parsed.options["expected-pid-key"])
+        let expectedPIDRaw = sidebarNormalizedOptionValue(parsed.options["expected-pid"])
+        let expectedPID: Int32?
+        switch (expectedPIDKey, expectedPIDRaw) {
+        case (nil, nil):
+            expectedPID = nil
+        case (_?, let raw?):
+            guard let parsedPID = Int32(raw), parsedPID > 0 else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedPID = parsedPID
+        case (nil, _?), (_?, nil):
+            return "ERROR: Usage: \(usage)"
+        }
         guard context?.controlSidebarIsAllowedAgentLifecycleKey(
             key,
             target: target,
@@ -375,7 +389,9 @@ extension ControlCommandCoordinator {
             lifecycleRawValue: lifecycleRawValue,
             panelID: panelResolution.panelId,
             sessionID: sidebarNormalizedOptionValue(parsed.options["session-id"]),
-            startsNewOccupant: parsed.options["new-occupant"] != nil
+            startsNewOccupant: parsed.options["new-occupant"] != nil,
+            expectedPIDKey: expectedPIDKey,
+            expectedPID: expectedPID
         )
         return "OK"
     }

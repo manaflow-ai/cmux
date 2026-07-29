@@ -94,13 +94,17 @@ public protocol ControlSidebarContext: AnyObject {
     /// Enqueues the `set_agent_lifecycle` mutation.
     ///
     /// `sessionID` identifies the agent occupant that owns the lifecycle.
+    /// `expectedPIDKey` and `expectedPID` atomically reject a stale anonymous
+    /// hook after a replacement process has claimed the panel.
     nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
         panelID: UUID?,
         sessionID: String?,
-        startsNewOccupant: Bool
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?
     )
 
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`

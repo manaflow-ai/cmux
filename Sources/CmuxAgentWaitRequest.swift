@@ -124,34 +124,23 @@ extension TerminalController {
                 ) && !Self.socketPeerClosed(socket)
             }
         )
-        guard let lifecycleSurfaceID = v2MainSync({
-            self.agentWaitSurfaceSnapshot(surfaceID: surfaceID)?.surfaceID
-        }) else {
-            revocationSource?.cancel()
-            writeAgentWaitResponse(
-                v2Error(
-                    id: id,
-                    code: "not_found",
-                    message: String(
-                        localized: "socket.agentWait.error.surfaceNotFound",
-                        defaultValue: "Surface not found"
-                    )
-                ),
-                socket: socket
-            )
-            return
-        }
-        let snapshot = {
+        let prepare = {
             self.v2MainSync {
-                self.agentWaitSurfaceSnapshot(surfaceID: lifecycleSurfaceID)
+                AgentWaitCoordinator.Preparation(
+                    afterSequence: CmuxEventBus.shared.latestSequence,
+                    surface: self.agentWaitSurfaceSnapshot(surfaceID: surfaceID)
+                )
             }
         }
         let waitResult = waitCoordinator.wait(
-            surfaceID: lifecycleSurfaceID,
             until: until,
             timeoutMilliseconds: timeoutMilliseconds,
-            snapshot: snapshot,
-            routingSnapshot: snapshot
+            prepare: prepare,
+            routingSnapshot: { lifecycleSurfaceID in
+                self.v2MainSync {
+                    self.agentWaitSurfaceSnapshot(surfaceID: lifecycleSurfaceID)
+                }
+            }
         )
         revocationSource?.cancel()
 
@@ -183,6 +172,15 @@ extension TerminalController {
                 message: String(
                     localized: "socket.agentWait.error.noAgent",
                     defaultValue: "No agent lifecycle is recorded for this surface"
+                )
+            )
+        case .failure(.liveLifecycleUnavailable):
+            response = v2Error(
+                id: id,
+                code: "live_lifecycle_unavailable",
+                message: String(
+                    localized: "socket.agentWait.error.liveLifecycleUnavailable",
+                    defaultValue: "Live agent lifecycle is unavailable for this surface"
                 )
             )
         case .failure(.subscriptionClosed):

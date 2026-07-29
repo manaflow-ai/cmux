@@ -92,7 +92,9 @@ extension ControlSidebarContext {
         lifecycleRawValue: String,
         panelID: UUID?,
         sessionID: String?,
-        startsNewOccupant: Bool
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?
     ) {}
 
     func controlSidebarSetWorkspaceLoading(

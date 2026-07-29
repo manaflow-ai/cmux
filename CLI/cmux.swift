@@ -30549,6 +30549,8 @@ export default CMUXSessionRestore;
         )
 #endif
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
+        let expectedLifecyclePIDKey = hasExplicitLifecycleSessionId ? nil : pidKey
+        let expectedLifecyclePID = hasExplicitLifecycleSessionId ? nil : inferredPID
         var didSendFeedTelemetry = false
         // Destructive session teardown shared by a genuine (non-turn-boundary)
         // `session-end` and the dedicated `session-finalize` action: consume the
@@ -30966,7 +30968,9 @@ export default CMUXSessionRestore;
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 sessionId: authoritativeLifecycleSessionId,
-                startsNewOccupant: true
+                startsNewOccupant: true,
+                expectedPIDKey: expectedLifecyclePIDKey,
+                expectedPID: expectedLifecyclePID
             )
 
         case .promptSubmit:
@@ -31020,7 +31024,9 @@ export default CMUXSessionRestore;
                         lifecycle: lifecycle,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: authoritativeLifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId,
+                        expectedPIDKey: expectedLifecyclePIDKey,
+                        expectedPID: expectedLifecyclePID
                     )
                 }
                 switch latest.runtimeStatus {
@@ -31031,7 +31037,9 @@ export default CMUXSessionRestore;
                         lifecycle: .running,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: authoritativeLifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId,
+                        expectedPIDKey: expectedLifecyclePIDKey,
+                        expectedPID: expectedLifecyclePID
                     )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
@@ -31046,7 +31054,9 @@ export default CMUXSessionRestore;
                             lifecycle: .idle,
                             workspaceId: workspaceId,
                             surfaceId: surfaceId,
-                            sessionId: authoritativeLifecycleSessionId
+                            sessionId: authoritativeLifecycleSessionId,
+                            expectedPIDKey: expectedLifecyclePIDKey,
+                            expectedPID: expectedLifecyclePID
                         )
                     }
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -31057,7 +31067,9 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: authoritativeLifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId,
+                        expectedPIDKey: expectedLifecyclePIDKey,
+                        expectedPID: expectedLifecyclePID
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
@@ -31074,7 +31086,9 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: authoritativeLifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId,
+                        expectedPIDKey: expectedLifecyclePIDKey,
+                        expectedPID: expectedLifecyclePID
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -31227,7 +31241,7 @@ export default CMUXSessionRestore;
                 stopStaleCodexPromptSubmit()
                 return
             }
-            if let pid, !suppressVisibleMutations {
+            if let pid, !suppressVisibleMutations, hasExplicitLifecycleSessionId {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -31248,7 +31262,9 @@ export default CMUXSessionRestore;
                     lifecycle: .running,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: authoritativeLifecycleSessionId
+                    sessionId: authoritativeLifecycleSessionId,
+                    expectedPIDKey: expectedLifecyclePIDKey,
+                    expectedPID: expectedLifecyclePID
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -31494,7 +31510,7 @@ export default CMUXSessionRestore;
                     launchCommand: resumeLaunchCommand
                 )
             }
-            if let pid, !suppressVisibleMutations {
+            if let pid, !suppressVisibleMutations, hasExplicitLifecycleSessionId {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -31583,7 +31599,9 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: authoritativeLifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId,
+                        expectedPIDKey: expectedLifecyclePIDKey,
+                        expectedPID: expectedLifecyclePID
                     )
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31596,7 +31614,9 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: authoritativeLifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId,
+                        expectedPIDKey: expectedLifecyclePIDKey,
+                        expectedPID: expectedLifecyclePID
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -31613,7 +31633,9 @@ export default CMUXSessionRestore;
                         lifecycle: .running,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: authoritativeLifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId,
+                        expectedPIDKey: expectedLifecyclePIDKey,
+                        expectedPID: expectedLifecyclePID
                     )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
@@ -31627,7 +31649,9 @@ export default CMUXSessionRestore;
                         lifecycle: .idle,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: authoritativeLifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId,
+                        expectedPIDKey: expectedLifecyclePIDKey,
+                        expectedPID: expectedLifecyclePID
                     )
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
@@ -31702,7 +31726,7 @@ export default CMUXSessionRestore;
                     launchCommand: resumeLaunchCommand
                 )
             }
-            if let pid, !suppressVisibleMutations {
+            if let pid, !suppressVisibleMutations, hasExplicitLifecycleSessionId {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -31715,7 +31739,9 @@ export default CMUXSessionRestore;
                     lifecycle: .running,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: authoritativeLifecycleSessionId
+                    sessionId: authoritativeLifecycleSessionId,
+                    expectedPIDKey: expectedLifecyclePIDKey,
+                    expectedPID: expectedLifecyclePID
                 )
                 _ = try? sendV1Command(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31988,7 +32014,9 @@ export default CMUXSessionRestore;
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: authoritativeLifecycleSessionId
+                    sessionId: authoritativeLifecycleSessionId,
+                    expectedPIDKey: expectedLifecyclePIDKey,
+                    expectedPID: expectedLifecyclePID
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
@@ -32005,7 +32033,9 @@ export default CMUXSessionRestore;
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: authoritativeLifecycleSessionId
+                    sessionId: authoritativeLifecycleSessionId,
+                    expectedPIDKey: expectedLifecyclePIDKey,
+                    expectedPID: expectedLifecyclePID
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -32023,7 +32053,9 @@ export default CMUXSessionRestore;
                         lifecycle: .idle,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: authoritativeLifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId,
+                        expectedPIDKey: expectedLifecyclePIDKey,
+                        expectedPID: expectedLifecyclePID
                     )
                 }
                 setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)

@@ -507,7 +507,9 @@ normal nonzero CLI error path.
 The corresponding v2 method is `agent.wait`, advertised by `capabilities`.
 Its params are `surface_id`, `until`, and optional `timeout_ms`. Like
 `events.stream`, it owns the socket connection until it returns and must run on
-a dedicated connection.
+a dedicated connection. Dock surfaces return `live_lifecycle_unavailable`
+instead of waiting on their transfer-time lifecycle snapshot; a wait that starts
+in a workspace returns the same error if the surface moves into the Dock.
 
 ## Workspace todos
 

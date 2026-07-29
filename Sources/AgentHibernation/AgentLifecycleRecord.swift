@@ -12,12 +12,16 @@ struct AgentLifecycleRecord: Sendable, Equatable {
 
     func identifiesSameOccupant(as other: AgentLifecycleRecord) -> Bool {
         guard agent == other.agent else { return false }
+        if revision == other.revision {
+            if let sessionID, let otherSessionID = other.sessionID {
+                return sessionID == otherSessionID
+            }
+            return true
+        }
         switch (sessionID, other.sessionID) {
         case let (sessionID?, otherSessionID?):
             return sessionID == otherSessionID
-        case (nil, nil):
-            return revision == other.revision
-        default:
+        case (nil, nil), (nil, _?), (_?, nil):
             return false
         }
     }

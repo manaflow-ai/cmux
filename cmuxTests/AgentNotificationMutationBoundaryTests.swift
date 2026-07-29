@@ -326,7 +326,9 @@ extension AgentNotificationRegressionTests {
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
             panelID: fixture.panelId,
             sessionID: "session-1",
-            startsNewOccupant: false
+            startsNewOccupant: false,
+            expectedPIDKey: nil,
+            expectedPID: nil
         )
 
         try movePanel(fixture)

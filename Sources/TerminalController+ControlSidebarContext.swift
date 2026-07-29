@@ -169,7 +169,9 @@ extension TerminalController: ControlSidebarContext {
         lifecycleRawValue: String,
         panelID: UUID?,
         sessionID: String?,
-        startsNewOccupant: Bool
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
@@ -181,7 +183,9 @@ extension TerminalController: ControlSidebarContext {
                 panelId: panelID,
                 lifecycle: lifecycle,
                 sessionID: sessionID,
-                startsNewOccupant: startsNewOccupant
+                startsNewOccupant: startsNewOccupant,
+                expectedPIDKey: expectedPIDKey,
+                expectedPID: expectedPID
             )
         }
     }

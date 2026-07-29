@@ -1,6 +1,11 @@
 import Foundation
 
 struct AgentWaitCoordinator {
+    struct Preparation {
+        let afterSequence: Int64
+        let surface: AgentWaitSurfaceSnapshot?
+    }
+
     private static let eventNames: Set<String> = [
         "agent.state.changed",
         "surface.closed",
@@ -27,35 +32,54 @@ struct AgentWaitCoordinator {
     }
 
     func wait(
-        surfaceID: UUID,
         until: AgentWaitUntil,
         timeoutMilliseconds: Int64?,
-        snapshot: () -> AgentWaitSurfaceSnapshot?,
-        routingSnapshot: (() -> AgentWaitSurfaceSnapshot?)? = nil
+        prepare: () -> Preparation,
+        routingSnapshot: ((UUID) -> AgentWaitSurfaceSnapshot?)? = nil
     ) -> Result<AgentWaitResult, AgentWaitError> {
+        let preparation = prepare()
+        guard var surface = preparation.surface else {
+            return .failure(.surfaceNotFound)
+        }
+        guard surface.hasAuthoritativeLiveLifecycle else {
+            return .failure(.liveLifecycleUnavailable)
+        }
+        let lifecycleSurfaceID = surface.surfaceID
         let subscriptionSnapshot = eventBus.subscribe(
-            afterSequence: nil,
+            afterSequence: preparation.afterSequence,
             names: Self.eventNames,
             categories: [],
-            surfaceIDs: [surfaceID.uuidString]
+            surfaceIDs: [lifecycleSurfaceID.uuidString]
         )
         onSubscribe(subscriptionSnapshot.subscription)
         defer {
             eventBus.unsubscribe(subscriptionSnapshot.subscription)
         }
-
-        guard var surface = snapshot() else {
-            return .failure(.surfaceNotFound)
+        guard !subscriptionSnapshot.subscription.isClosed else {
+            return .failure(.subscriptionClosed)
+        }
+        if let resume = subscriptionSnapshot.ack["resume"] as? [String: Any],
+           resume["gap"] as? Bool == true {
+            return .failure(.subscriptionClosed)
         }
         guard let occupant = surface.occupant else {
             return .failure(.noAgent)
         }
 
         func refreshSurfaceRouting() -> AgentWaitSurfaceSnapshot {
-            if let refreshed = routingSnapshot?() {
+            if let refreshed = routingSnapshot?(lifecycleSurfaceID) {
                 surface = refreshed
             }
             return surface
+        }
+
+        var replayIndex = 0
+        func nextEvent(timeout: TimeInterval) -> [String: Any]? {
+            if replayIndex < subscriptionSnapshot.replay.count {
+                defer { replayIndex += 1 }
+                return subscriptionSnapshot.replay[replayIndex]
+            }
+            return subscriptionSnapshot.subscription.next(timeout: timeout)
         }
 
         var pinnedState = occupant.publicState
@@ -98,15 +122,25 @@ struct AgentWaitCoordinator {
                 waitInterval = Self.peerCheckInterval
             }
 
-            if let event = subscriptionSnapshot.subscription.next(timeout: waitInterval) {
+            if let event = nextEvent(timeout: waitInterval) {
                 if event["name"] as? String == "surface.closed" {
-                    if let closedRouting = routing(from: event),
-                       closedRouting.surfaceID == surfaceID {
-                        surface = closedRouting
+                    guard let closedRouting = routing(from: event),
+                          closedRouting.surfaceID == lifecycleSurfaceID else {
+                        if let timeout = timeoutResultIfExpired() {
+                            return .success(timeout)
+                        }
+                        continue
                     }
+                    surface = closedRouting
                     let payload = event["payload"] as? [String: Any]
                     if payload?["origin"] as? String == "detach" {
-                        _ = refreshSurfaceRouting()
+                        if let refreshed = routingSnapshot?(lifecycleSurfaceID),
+                           refreshed.surfaceID == lifecycleSurfaceID {
+                            surface = refreshed
+                            guard refreshed.hasAuthoritativeLiveLifecycle else {
+                                return .failure(.liveLifecycleUnavailable)
+                            }
+                        }
                         if let timeout = timeoutResultIfExpired() {
                             return .success(timeout)
                         }
@@ -128,6 +162,12 @@ struct AgentWaitCoordinator {
                     }
                     continue
                 }
+                guard transition.routing?.surfaceID == lifecycleSurfaceID else {
+                    if let timeout = timeoutResultIfExpired() {
+                        return .success(timeout)
+                    }
+                    continue
+                }
                 guard transition.record.identifiesSameOccupant(as: occupant) else {
                     if let timeout = timeoutResultIfExpired() {
                         return .success(timeout)
@@ -135,7 +175,7 @@ struct AgentWaitCoordinator {
                     continue
                 }
                 if let routing = transition.routing,
-                   routing.surfaceID == surfaceID {
+                   routing.surfaceID == lifecycleSurfaceID {
                     surface = routing
                 }
                 pinnedState = transition.state

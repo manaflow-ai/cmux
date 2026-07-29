@@ -13,7 +13,8 @@ extension DockSplitStore {
             workspaceID: workspaceId,
             surfaceID: panelID,
             paneID: paneId(forPanelId: panelID)?.id,
-            occupant: occupant
+            occupant: occupant,
+            hasAuthoritativeLiveLifecycle: false
         )
     }
 

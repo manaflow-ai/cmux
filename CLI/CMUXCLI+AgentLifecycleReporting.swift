@@ -8,7 +8,9 @@ extension CMUXCLI {
         workspaceId: String,
         surfaceId: String?,
         sessionId: String?,
-        startsNewOccupant: Bool = false
+        startsNewOccupant: Bool = false,
+        expectedPIDKey: String? = nil,
+        expectedPID: Int? = nil
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
             cliWriteStderr("Warning: unsupported agent lifecycle key\n")
@@ -21,6 +23,12 @@ extension CMUXCLI {
         }
         if startsNewOccupant {
             command += " --new-occupant"
+        }
+        if let expectedPIDKey = normalizedAgentLifecycleSessionID(expectedPIDKey),
+           let expectedPID,
+           expectedPID > 0 {
+            command += " --expected-pid-key=\(socketQuote(expectedPIDKey))"
+            command += " --expected-pid=\(expectedPID)"
         }
         do {
             _ = try sendV1Command(command, client: client)

@@ -221,11 +221,26 @@ extension Workspace {
     func takeAgentLifecycleRecordsForTransfer(
         panelID: UUID
     ) -> [String: AgentLifecycleRecord] {
-        guard let records = agentLifecycleRecordsByPanelId.removeValue(forKey: panelID) else {
+        guard let records = agentLifecycleRecordsByPanelId[panelID] else {
             return [:]
         }
+        let transferredRecords = records.filter {
+            !AgentHibernationLifecycleStatusKeys.isManualKey($0.key)
+        }
+        let workspaceRecords = records.filter {
+            AgentHibernationLifecycleStatusKeys.isManualKey($0.key)
+        }
+        if workspaceRecords.isEmpty {
+            agentLifecycleRecordsByPanelId.removeValue(forKey: panelID)
+        } else {
+            // The close cleanup that follows a detach removes this panel and
+            // rehomes its workspace-scoped manual records onto a surviving
+            // source panel. Keeping them here until then prevents a surface
+            // transfer from moving workspace loading state to its destination.
+            agentLifecycleRecordsByPanelId[panelID] = workspaceRecords
+        }
         recordAgentLifecycleChange(panelId: panelID)
-        return records
+        return transferredRecords
     }
 
     private func adoptDetachedAgentLifecycleRecords(
@@ -247,10 +262,25 @@ extension Workspace {
         panelId: UUID?,
         lifecycle: AgentHibernationLifecycleState,
         sessionID: String? = nil,
-        startsNewOccupant: Bool = false
+        startsNewOccupant: Bool = false,
+        expectedPIDKey: String? = nil,
+        expectedPID: Int32? = nil
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
+        switch (expectedPIDKey, expectedPID) {
+        case let (expectedPIDKey?, expectedPID?):
+            guard expectedPID > 0,
+                  agentStatusKey(forAgentPIDKey: expectedPIDKey) == key,
+                  agentPIDPanelIdsByKey[expectedPIDKey] == targetPanelId,
+                  agentPIDs[expectedPIDKey] == expectedPID else {
+                return
+            }
+        case (nil, nil):
+            break
+        case (nil, _?), (_?, nil):
+            return
+        }
         let normalizedSessionID = normalizedAgentLifecycleSessionID(sessionID)
         let previous = agentLifecycleRecordsByPanelId[targetPanelId]?[key]
         let hasDifferentAuthoritativeSession = previous?.sessionID != nil

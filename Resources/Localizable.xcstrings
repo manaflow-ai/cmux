@@ -226918,6 +226918,23 @@
         }
       }
     },
+    "socket.agentWait.error.liveLifecycleUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live agent lifecycle is unavailable for this surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサーフェスではエージェントのライブライフサイクルを利用できません"
+          }
+        }
+      }
+    },
     "socket.agentWait.error.noAgent": {
       "extractionState": "manual",
       "localizations": {

@@ -14,10 +14,9 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .idle)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
-            snapshot: { fixture.snapshot(occupant: fixture.original) }
+            prepare: { fixture.preparation(occupant: fixture.original) }
         )
 
         let value = try result.get()
@@ -27,22 +26,66 @@ struct AgentWaitCoordinatorTests {
     }
 
     @Test
-    func stateReachedDuringSnapshotSetupSatisfiesWait() throws {
+    func stateReachedAfterPreparedSnapshotSequenceReplaysBeforeSubscription() throws {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
-            snapshot: {
-                fixture.publish(record: fixture.original, state: .idle, previous: .running)
-                return fixture.snapshot(occupant: fixture.original)
+            prepare: {
+                fixture.preparation(occupant: fixture.original) {
+                    fixture.publish(record: fixture.original, state: .idle, previous: .running)
+                }
             }
         )
 
         let value = try result.get()
         #expect(value.status == .satisfied)
         #expect(value.state == .idle)
+    }
+
+    @Test
+    func dockSnapshotRejectsWaitWithoutLiveLifecycleAuthority() {
+        let fixture = Fixture(state: .running)
+        let dockSnapshot = AgentWaitSurfaceSnapshot(
+            workspaceID: UUID(),
+            surfaceID: fixture.surfaceID,
+            paneID: UUID(),
+            occupant: fixture.original,
+            hasAuthoritativeLiveLifecycle: false
+        )
+
+        let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            until: .idle,
+            timeoutMilliseconds: nil,
+            prepare: {
+                AgentWaitCoordinator.Preparation(
+                    afterSequence: fixture.bus.latestSequence,
+                    surface: dockSnapshot
+                )
+            }
+        )
+
+        #expect(result == .failure(.liveLifecycleUnavailable))
+    }
+
+    @Test
+    func routingRefreshUsesPreparedCanonicalSurfaceID() throws {
+        let fixture = Fixture(state: .idle)
+        var refreshedSurfaceID: UUID?
+
+        let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            until: .idle,
+            timeoutMilliseconds: nil,
+            prepare: { fixture.preparation(occupant: fixture.original) },
+            routingSnapshot: { surfaceID in
+                refreshedSurfaceID = surfaceID
+                return fixture.snapshot(occupant: fixture.original)
+            }
+        )
+
+        #expect(try result.get().status == .satisfied)
+        #expect(refreshedSurfaceID == fixture.surfaceID)
     }
 
     @Test
@@ -65,10 +108,9 @@ struct AgentWaitCoordinatorTests {
         )
 
         let result = coordinator.wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 1_000,
-            snapshot: { fixture.snapshot(occupant: fixture.original) }
+            prepare: { fixture.preparation(occupant: fixture.original) }
         )
 
         let value = try result.get()
@@ -87,13 +129,13 @@ struct AgentWaitCoordinatorTests {
         )
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
-            snapshot: {
-                fixture.publish(record: fixture.original, state: .exit, previous: .running)
-                fixture.publish(record: replacement, state: .idle, previous: nil)
-                return fixture.snapshot(occupant: fixture.original)
+            prepare: {
+                fixture.preparation(occupant: fixture.original) {
+                    fixture.publish(record: fixture.original, state: .exit, previous: .running)
+                    fixture.publish(record: replacement, state: .idle, previous: nil)
+                }
             }
         )
 
@@ -108,10 +150,9 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
-            snapshot: { fixture.snapshot(occupant: fixture.original) }
+            prepare: { fixture.preparation(occupant: fixture.original) }
         )
 
         let value = try result.get()
@@ -133,10 +174,9 @@ struct AgentWaitCoordinatorTests {
         )
 
         let result = coordinator.wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 250,
-            snapshot: { fixture.snapshot(occupant: fixture.original) }
+            prepare: { fixture.preparation(occupant: fixture.original) }
         )
 
         let value = try result.get()
@@ -149,17 +189,17 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
-            snapshot: {
-                fixture.bus.publish(
-                    name: "surface.closed",
-                    category: "surface",
-                    source: "test",
-                    surfaceId: UUID().uuidString
-                )
-                return fixture.snapshot(occupant: fixture.original)
+            prepare: {
+                fixture.preparation(occupant: fixture.original) {
+                    fixture.bus.publish(
+                        name: "surface.closed",
+                        category: "surface",
+                        source: "test",
+                        surfaceId: UUID().uuidString
+                    )
+                }
             }
         )
 
@@ -173,24 +213,24 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .running, maxPendingEvents: 2)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
-            snapshot: {
-                for _ in 0..<16 {
-                    fixture.bus.publish(
-                        name: "agent.state.changed",
-                        category: "agent",
-                        source: "test",
-                        surfaceId: UUID().uuidString
+            prepare: {
+                fixture.preparation(occupant: fixture.original) {
+                    for _ in 0..<16 {
+                        fixture.bus.publish(
+                            name: "agent.state.changed",
+                            category: "agent",
+                            source: "test",
+                            surfaceId: UUID().uuidString
+                        )
+                    }
+                    fixture.publish(
+                        record: fixture.original,
+                        state: .idle,
+                        previous: .running
                     )
                 }
-                fixture.publish(
-                    record: fixture.original,
-                    state: .idle,
-                    previous: .running
-                )
-                return fixture.snapshot(occupant: fixture.original)
             }
         )
 
@@ -204,16 +244,16 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .needsInput,
             timeoutMilliseconds: 0,
-            snapshot: {
-                fixture.publish(
-                    record: fixture.original,
-                    state: .needsInput,
-                    previous: .running
-                )
-                return fixture.snapshot(occupant: fixture.original)
+            prepare: {
+                fixture.preparation(occupant: fixture.original) {
+                    fixture.publish(
+                        record: fixture.original,
+                        state: .needsInput,
+                        previous: .running
+                    )
+                }
             }
         )
 
@@ -227,12 +267,12 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .exit,
             timeoutMilliseconds: 0,
-            snapshot: {
-                fixture.publish(record: fixture.original, state: .exit, previous: .running)
-                return fixture.snapshot(occupant: fixture.original)
+            prepare: {
+                fixture.preparation(occupant: fixture.original) {
+                    fixture.publish(record: fixture.original, state: .exit, previous: .running)
+                }
             }
         )
 
@@ -258,12 +298,12 @@ struct AgentWaitCoordinatorTests {
         )
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
-            snapshot: {
-                fixture.publish(record: replacement, state: .idle, previous: nil)
-                return fixture.snapshot(occupant: anonymousOccupant)
+            prepare: {
+                fixture.preparation(occupant: anonymousOccupant) {
+                    fixture.publish(record: replacement, state: .idle, previous: nil)
+                }
             }
         )
 
@@ -274,7 +314,7 @@ struct AgentWaitCoordinatorTests {
     }
 
     @Test
-    func partiallyKnownSessionIdentityDoesNotMatch() {
+    func sessionIdentityEnrichmentKeepsTheRevisionPinnedOccupant() {
         let known = AgentLifecycleRecord(
             agent: "codex",
             state: .running,
@@ -288,8 +328,8 @@ struct AgentWaitCoordinatorTests {
             revision: 41
         )
 
-        #expect(!known.identifiesSameOccupant(as: unknown))
-        #expect(!unknown.identifiesSameOccupant(as: known))
+        #expect(known.identifiesSameOccupant(as: unknown))
+        #expect(unknown.identifiesSameOccupant(as: known))
     }
 
     @Test
@@ -301,10 +341,9 @@ struct AgentWaitCoordinatorTests {
         )
 
         let result = coordinator.wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: nil,
-            snapshot: { fixture.snapshot(occupant: fixture.original) }
+            prepare: { fixture.preparation(occupant: fixture.original) }
         )
 
         #expect(result == .failure(.subscriptionClosed))
@@ -315,19 +354,19 @@ struct AgentWaitCoordinatorTests {
         let fixture = Fixture(state: .running)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
-            snapshot: {
-                fixture.bus.publish(
-                    name: "surface.closed",
-                    category: "surface",
-                    source: "test",
-                    workspaceId: fixture.workspaceID.uuidString,
-                    surfaceId: fixture.surfaceID.uuidString,
-                    paneId: fixture.paneID.uuidString
-                )
-                return fixture.snapshot(occupant: fixture.original)
+            prepare: {
+                fixture.preparation(occupant: fixture.original) {
+                    fixture.bus.publish(
+                        name: "surface.closed",
+                        category: "surface",
+                        source: "test",
+                        workspaceId: fixture.workspaceID.uuidString,
+                        surfaceId: fixture.surfaceID.uuidString,
+                        paneId: fixture.paneID.uuidString
+                    )
+                }
             }
         )
 
@@ -343,28 +382,28 @@ struct AgentWaitCoordinatorTests {
         let destinationPaneID = UUID()
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 1_000,
-            snapshot: {
-                fixture.bus.publish(
-                    name: "surface.closed",
-                    category: "surface",
-                    source: "workspace.lifecycle",
-                    workspaceId: fixture.workspaceID.uuidString,
-                    surfaceId: fixture.surfaceID.uuidString,
-                    paneId: fixture.paneID.uuidString,
-                    payload: ["origin": "detach"]
-                )
-                fixture.bus.publishAgentStateChanged(
-                    workspaceID: destinationWorkspaceID,
-                    surfaceID: fixture.surfaceID,
-                    paneID: destinationPaneID,
-                    record: fixture.original,
-                    state: .idle,
-                    previousState: .running
-                )
-                return fixture.snapshot(occupant: fixture.original)
+            prepare: {
+                fixture.preparation(occupant: fixture.original) {
+                    fixture.bus.publish(
+                        name: "surface.closed",
+                        category: "surface",
+                        source: "workspace.lifecycle",
+                        workspaceId: fixture.workspaceID.uuidString,
+                        surfaceId: fixture.surfaceID.uuidString,
+                        paneId: fixture.paneID.uuidString,
+                        payload: ["origin": "detach"]
+                    )
+                    fixture.bus.publishAgentStateChanged(
+                        workspaceID: destinationWorkspaceID,
+                        surfaceID: fixture.surfaceID,
+                        paneID: destinationPaneID,
+                        record: fixture.original,
+                        state: .idle,
+                        previousState: .running
+                    )
+                }
             }
         )
 
@@ -388,11 +427,13 @@ struct AgentWaitCoordinatorTests {
         var currentRouting = fixture.snapshot(occupant: fixture.original)
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
-            snapshot: {
-                let initial = currentRouting
+            prepare: {
+                let preparation = AgentWaitCoordinator.Preparation(
+                    afterSequence: fixture.bus.latestSequence,
+                    surface: currentRouting
+                )
                 fixture.bus.publish(
                     name: "surface.closed",
                     category: "surface",
@@ -403,9 +444,9 @@ struct AgentWaitCoordinatorTests {
                     payload: ["origin": "detach"]
                 )
                 currentRouting = destination
-                return initial
+                return preparation
             },
-            routingSnapshot: { currentRouting }
+            routingSnapshot: { _ in currentRouting }
         )
 
         let value = try result.get()
@@ -416,16 +457,25 @@ struct AgentWaitCoordinatorTests {
     }
 
     @Test
-    func destinationClosureRefreshesRoutingWithoutLifecycleTransition() throws {
+    func transferIntoDockTerminatesInsteadOfWaitingOnFrozenLifecycle() {
         let fixture = Fixture(state: .running)
-        let destinationWorkspaceID = UUID()
-        let destinationPaneID = UUID()
+        var currentRouting = fixture.snapshot(occupant: fixture.original)
+        let dockRouting = AgentWaitSurfaceSnapshot(
+            workspaceID: UUID(),
+            surfaceID: fixture.surfaceID,
+            paneID: UUID(),
+            occupant: fixture.original,
+            hasAuthoritativeLiveLifecycle: false
+        )
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
-            timeoutMilliseconds: 1_000,
-            snapshot: {
+            timeoutMilliseconds: nil,
+            prepare: {
+                let preparation = AgentWaitCoordinator.Preparation(
+                    afterSequence: fixture.bus.latestSequence,
+                    surface: currentRouting
+                )
                 fixture.bus.publish(
                     name: "surface.closed",
                     category: "surface",
@@ -435,16 +485,45 @@ struct AgentWaitCoordinatorTests {
                     paneId: fixture.paneID.uuidString,
                     payload: ["origin": "detach"]
                 )
-                fixture.bus.publish(
-                    name: "surface.closed",
-                    category: "surface",
-                    source: "workspace.lifecycle",
-                    workspaceId: destinationWorkspaceID.uuidString,
-                    surfaceId: fixture.surfaceID.uuidString,
-                    paneId: destinationPaneID.uuidString,
-                    payload: ["origin": "tab_close"]
-                )
-                return fixture.snapshot(occupant: fixture.original)
+                currentRouting = dockRouting
+                return preparation
+            },
+            routingSnapshot: { _ in currentRouting }
+        )
+
+        #expect(result == .failure(.liveLifecycleUnavailable))
+    }
+
+    @Test
+    func destinationClosureRefreshesRoutingWithoutLifecycleTransition() throws {
+        let fixture = Fixture(state: .running)
+        let destinationWorkspaceID = UUID()
+        let destinationPaneID = UUID()
+
+        let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
+            until: .idle,
+            timeoutMilliseconds: 1_000,
+            prepare: {
+                fixture.preparation(occupant: fixture.original) {
+                    fixture.bus.publish(
+                        name: "surface.closed",
+                        category: "surface",
+                        source: "workspace.lifecycle",
+                        workspaceId: fixture.workspaceID.uuidString,
+                        surfaceId: fixture.surfaceID.uuidString,
+                        paneId: fixture.paneID.uuidString,
+                        payload: ["origin": "detach"]
+                    )
+                    fixture.bus.publish(
+                        name: "surface.closed",
+                        category: "surface",
+                        source: "workspace.lifecycle",
+                        workspaceId: destinationWorkspaceID.uuidString,
+                        surfaceId: fixture.surfaceID.uuidString,
+                        paneId: destinationPaneID.uuidString,
+                        payload: ["origin": "tab_close"]
+                    )
+                }
             }
         )
 
@@ -473,25 +552,24 @@ struct AgentWaitCoordinatorTests {
         }
 
         let blocked = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 0,
-            snapshot: { fixture.snapshot(occupant: fixture.original) }
+            prepare: { fixture.preparation(occupant: fixture.original) }
         )
         #expect(blocked == .failure(.subscriptionClosed))
 
         fixture.bus.unsubscribe(reservations.removeLast().subscription)
         let admitted = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            surfaceID: fixture.surfaceID,
             until: .idle,
             timeoutMilliseconds: 1_000,
-            snapshot: {
-                fixture.publish(
-                    record: fixture.original,
-                    state: .idle,
-                    previous: .running
-                )
-                return fixture.snapshot(occupant: fixture.original)
+            prepare: {
+                fixture.preparation(occupant: fixture.original) {
+                    fixture.publish(
+                        record: fixture.original,
+                        state: .idle,
+                        previous: .running
+                    )
+                }
             }
         )
 
@@ -529,6 +607,18 @@ struct AgentWaitCoordinatorTests {
                 surfaceID: surfaceID,
                 paneID: paneID,
                 occupant: occupant
+            )
+        }
+
+        func preparation(
+            occupant: AgentLifecycleRecord?,
+            action: () -> Void = {}
+        ) -> AgentWaitCoordinator.Preparation {
+            let afterSequence = bus.latestSequence
+            action()
+            return AgentWaitCoordinator.Preparation(
+                afterSequence: afterSequence,
+                surface: snapshot(occupant: occupant)
             )
         }
 

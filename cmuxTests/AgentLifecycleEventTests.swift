@@ -137,11 +137,15 @@ struct AgentLifecycleEventTests {
         )
 
         let result = coordinator.wait(
-            surfaceID: fixture.surfaceID,
             until: .exit,
             timeoutMilliseconds: 1_000,
-            snapshot: {
-                fixture.workspace.agentWaitSurfaceSnapshot(surfaceID: fixture.surfaceID)
+            prepare: {
+                AgentWaitCoordinator.Preparation(
+                    afterSequence: CmuxEventBus.shared.latestSequence,
+                    surface: fixture.workspace.agentWaitSurfaceSnapshot(
+                        surfaceID: fixture.surfaceID
+                    )
+                )
             }
         )
 
@@ -190,6 +194,60 @@ struct AgentLifecycleEventTests {
         #expect(duplicate.revision == original.revision)
         #expect(duplicate.identifiesSameOccupant(as: original))
         #expect(fixture.agentEvents(after: baselineSequence).isEmpty)
+    }
+
+    @Test
+    func sessionIdentityEnrichmentSatisfiesWaitPinnedToAnonymousRevision() throws {
+        let fixture = try Fixture()
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            startsNewOccupant: true
+        )
+        let original = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+        var didEnrich = false
+        let coordinator = AgentWaitCoordinator(
+            eventBus: .shared,
+            shouldContinue: {
+                if !didEnrich {
+                    didEnrich = true
+                    fixture.workspace.setAgentLifecycle(
+                        key: "codex",
+                        panelId: fixture.surfaceID,
+                        lifecycle: .idle,
+                        sessionID: "session-known"
+                    )
+                }
+                return true
+            }
+        )
+
+        let result = coordinator.wait(
+            until: .idle,
+            timeoutMilliseconds: 1_000,
+            prepare: {
+                AgentWaitCoordinator.Preparation(
+                    afterSequence: CmuxEventBus.shared.latestSequence,
+                    surface: fixture.workspace.agentWaitSurfaceSnapshot(
+                        surfaceID: fixture.surfaceID
+                    )
+                )
+            }
+        )
+
+        let value = try result.get()
+        let enriched = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]
+        )
+        #expect(value.status == .satisfied)
+        #expect(value.state == .idle)
+        #expect(value.sessionID == nil)
+        #expect(enriched.sessionID == "session-known")
+        #expect(enriched.revision == original.revision)
+        #expect(enriched.identifiesSameOccupant(as: original))
     }
 
     @Test
@@ -290,6 +348,51 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
+    func staleAnonymousLifecycleCommandCannotMutateReplacementPIDOwner() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            TerminalMutationBus.shared.drainForTesting()
+        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let target = "--tab=\(workspace.id.uuidString) --panel=\(surfaceID.uuidString)"
+        let pidKey = "kiro.\(surfaceID.uuidString)"
+
+        for pid in [41_001, 41_002] {
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_agent_pid \(pidKey) \(pid) \(target)"
+                ) == "OK"
+            )
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_agent_lifecycle kiro running \(target) --new-occupant " +
+                    "--expected-pid-key=\(pidKey) --expected-pid=\(pid)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+        }
+        let replacement = try #require(
+            workspace.agentLifecycleRecordsByPanelId[surfaceID]?["kiro"]
+        )
+
+        #expect(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_lifecycle kiro idle \(target) " +
+                "--expected-pid-key=\(pidKey) --expected-pid=41001"
+            ) == "OK"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        #expect(
+            workspace.agentLifecycleRecordsByPanelId[surfaceID]?["kiro"] == replacement
+        )
+    }
+
+    @Test
     func staleSessionTeardownCannotClearReplacementLifecycle() throws {
         let fixture = try Fixture()
         fixture.workspace.recordAgentPID(
@@ -376,6 +479,53 @@ struct AgentLifecycleEventTests {
                 == original
         )
         #expect(fixture.agentEvents(after: baselineSequence).isEmpty)
+    }
+
+    @Test
+    func liveDetachTransfersOnlyAgentRecordsAndRehomesManualStateInSource() throws {
+        let fixture = try Fixture()
+        let paneID = try #require(fixture.workspace.bonsplitController.allPaneIds.first)
+        let sourceSurvivor = try #require(
+            fixture.workspace.newTerminalSurface(inPane: paneID, focus: false)
+        )
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-live"
+        )
+        fixture.workspace.setAgentLifecycle(
+            key: "manual:build",
+            panelId: fixture.surfaceID,
+            lifecycle: .running
+        )
+
+        let detached = try #require(
+            fixture.workspace.detachSurface(panelId: fixture.surfaceID)
+        )
+
+        #expect(detached.agentLifecycleRecords["codex"]?.sessionID == "session-live")
+        #expect(detached.agentLifecycleRecords["manual:build"] == nil)
+        #expect(
+            fixture.workspace.agentLifecycleRecordsByPanelId[sourceSurvivor.id]?["manual:build"]?.state
+                == .running
+        )
+
+        let destination = Workspace()
+        let destinationPane = try #require(
+            destination.bonsplitController.allPaneIds.first
+        )
+        _ = try #require(
+            destination.attachDetachedSurface(
+                detached,
+                inPane: destinationPane,
+                focus: false
+            )
+        )
+        #expect(
+            destination.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["manual:build"]
+                == nil
+        )
     }
 
     @Test
