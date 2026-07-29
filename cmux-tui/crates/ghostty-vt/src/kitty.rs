@@ -373,6 +373,16 @@ enum KittyTransmissionState {
     Unknown,
 }
 
+fn kitty_u32(value: &[u8]) -> Option<u32> {
+    if value.is_empty() {
+        return None;
+    }
+    value.iter().try_fold(0_u32, |parsed, byte| {
+        let digit = byte.checked_sub(b'0').filter(|digit| *digit <= 9)?;
+        parsed.checked_mul(10)?.checked_add(u32::from(digit))
+    })
+}
+
 fn kitty_transmission_state(command: &[u8]) -> KittyTransmissionState {
     let header_start = if command.starts_with(b"\x1b_G") {
         3
@@ -403,7 +413,12 @@ fn kitty_transmission_state(command: &[u8]) -> KittyTransmissionState {
                 action = *value;
             }
             b"t" => direct = value == b"d",
-            b"m" => more = value != b"0",
+            b"m" => {
+                let Some(value) = kitty_u32(value) else {
+                    return KittyTransmissionState::Unknown;
+                };
+                more = value > 0;
+            }
             _ => {}
         }
     }
