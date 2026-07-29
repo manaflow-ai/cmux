@@ -1,4 +1,6 @@
+import Darwin
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -9,6 +11,71 @@ import Testing
 
 @Suite
 struct SessionIndexJSONLReaderTests {
+    private enum ReadDirection: Sendable {
+        case start
+        case tail
+
+        func read(url: URL) -> SessionIndexJSONLReadMetrics {
+            switch self {
+            case .start:
+                SessionIndexJSONLReader().fromStart(url: url) { _ in false }
+            case .tail:
+                SessionIndexJSONLReader().fromTail(url: url, maxBytes: 64 * 1024) { _ in false }
+            }
+        }
+    }
+
+    private final class ReadResult: Sendable {
+        private let storage = OSAllocatedUnfairLock<SessionIndexJSONLReadMetrics?>(initialState: nil)
+
+        var value: SessionIndexJSONLReadMetrics? {
+            storage.withLock { $0 }
+        }
+
+        func store(_ value: SessionIndexJSONLReadMetrics) {
+            storage.withLock { $0 = value }
+        }
+    }
+
+    @Test(
+        "Reader rejects a FIFO without waiting for a writer",
+        .timeLimit(.minutes(1)),
+        arguments: [ReadDirection.start, .tail]
+    )
+    func readerRejectsFIFOWithoutBlocking(_ direction: ReadDirection) throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-special-file-\(UUID().uuidString).fifo")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try #require(Darwin.mkfifo(url.path, 0o600) == 0)
+
+        let result = ReadResult()
+        let started = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            started.signal()
+            result.store(direction.read(url: url))
+            completed.signal()
+        }
+
+        try #require(started.wait(timeout: .now() + 1) == .success)
+        let returnedWithoutWriter = completed.wait(timeout: .now() + 1) == .success
+        if !returnedWithoutWriter {
+            let writerCompleted = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .userInitiated).async {
+                let descriptor = Darwin.open(url.path, O_WRONLY)
+                if descriptor >= 0 {
+                    Darwin.close(descriptor)
+                }
+                writerCompleted.signal()
+            }
+            _ = completed.wait(timeout: .now() + 2)
+            _ = writerCompleted.wait(timeout: .now() + 2)
+        }
+
+        #expect(returnedWithoutWriter)
+        #expect(result.value == SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0))
+    }
+
     @Test
     func startReaderParsesCompleteRecordEndingAtByteCap() throws {
         let url = FileManager.default.temporaryDirectory

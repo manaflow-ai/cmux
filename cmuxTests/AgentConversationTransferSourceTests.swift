@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SQLite3
 import Testing
@@ -130,6 +131,60 @@ struct AgentConversationTransferSourceTests {
                 #expect(selection?.requiresNativeForkCapability == false)
             }
         }
+    }
+
+    @Test
+    func contextMenuOffersSameHarnessWhenNativeProbeIsUnavailable() throws {
+        let home = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "context-menu-transfer-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                processDetectedLauncher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: [
+                    "/opt/homebrew/bin/opencode",
+                    "--session",
+                    "context-menu-transfer-session",
+                ],
+                workingDirectory: nil,
+                environment: ["HOME": home.path]
+            )
+        )
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let terminalPanel = try #require(workspace.terminalPanel(for: panelID))
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelID)
+        defer {
+            tabManager.closeWorkspace(workspace)
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let surfaceView = GhosttyNSView(frame: .zero)
+        surfaceView.terminalSurface = terminalPanel.surface
+        let menu = NSMenu()
+
+        #expect(surfaceView.appendForkCurrentAgentConversationMenuItems(to: menu))
+        let harnessMenu = try #require(
+            menu.items.first {
+                $0.title == String(
+                    localized: "terminalContextMenu.forkConversationWith",
+                    defaultValue: "Fork Conversation with"
+                )
+            }?.submenu
+        )
+        #expect(
+            harnessMenu.items.contains {
+                $0.title == AgentConversationForkRequest.TargetHarness.opencode.title
+            }
+        )
     }
 
     @Test(arguments: [RestorableAgentKind.opencode, .hermesAgent])
