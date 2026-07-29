@@ -12,8 +12,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
     /// Internal shell status for a status-255 failure with no recognized diagnostic.
     ///
-    /// Callers surface this as 255 during initial authentication, but may retry
-    /// it after a previously established connection is interrupted.
+    /// Callers surface this as 255 without retrying. Only a recognized transient
+    /// transport diagnostic enters the foreground-authentication reconnect loop.
     public let unclassifiedFailureExitStatus = 252
 
     private let transientFailurePattern: String
@@ -158,11 +158,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         let classifierProgram = """
         {
           cmux_ssh_auth_line = tolower(cmux_ssh_auth_overlap $0)
+          cmux_ssh_auth_transient_line = cmux_ssh_auth_line
+          gsub(/connection closed by unknown port 65535/, "", cmux_ssh_auth_transient_line)
+          gsub(/connection to unknown port 65535: broken pipe/, "", cmux_ssh_auth_transient_line)
           if (cmux_ssh_auth_line ~ cmux_ssh_auth_permanent_pattern) {
             print "permanent" > cmux_ssh_auth_classification
             close(cmux_ssh_auth_classification)
             cmux_ssh_auth_saw_permanent = 1
-          } else if (!cmux_ssh_auth_saw_permanent && cmux_ssh_auth_line ~ cmux_ssh_auth_transient_pattern) {
+          } else if (!cmux_ssh_auth_saw_permanent && cmux_ssh_auth_transient_line ~ cmux_ssh_auth_transient_pattern) {
             print "transient" > cmux_ssh_auth_classification
             close(cmux_ssh_auth_classification)
           }
