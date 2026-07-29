@@ -599,6 +599,13 @@ struct ClosedMainWindowRoutingTests {
         #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.tabManagerFor(windowId: windowCId) == nil)
         #expect(app.windowId(for: managerC) == nil)
+        #expect(!TerminalController.shared.controlFocusWindow(for: managerC))
+        #expect(!TerminalController.shared.controlWorkspaceMutationTargetIsAvailable(managerC))
+        #expect(!TerminalController.shared.v2PrepareWorkspaceMutation(
+            managerC,
+            workspace: unselectedWorkspaceC,
+            requestedFocus: false
+        ))
     }
 
     @Test("Initial and menu-bar routing skip close-committed contexts")
