@@ -20,8 +20,9 @@ enum ApplicationWindowListFilter {
             !owner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             (window[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
             window[kCGWindowIsOnscreen as String] as? Bool == true,
-            (window[kCGWindowSharingState as String] as? NSNumber)?
-                .intValue != 0,
+            let sharingState =
+                window[kCGWindowSharingState as String] as? NSNumber,
+            sharingState.intValue != 0,
             let bounds =
                 window[kCGWindowBounds as String] as? NSDictionary,
             let frame = CGRect(dictionaryRepresentation: bounds)

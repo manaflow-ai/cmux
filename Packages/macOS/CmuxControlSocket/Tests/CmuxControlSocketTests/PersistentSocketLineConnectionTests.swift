@@ -192,6 +192,135 @@ import Testing
         }
     }
 
+    @Test func trickledResponseBytesCannotExtendTheCommandDeadline()
+        async throws
+    {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+        let handled = UnixSocketFixture.acceptSingleClient(
+            on: listenerFD
+        ) { clientFD in
+            #expect(readLine(from: clientFD) == "trickle")
+            _ = SocketTransport().configureNoSigPipe(clientFD)
+            for _ in 0..<50 {
+                guard SocketTransport().writeAll(
+                    Data([0x78]),
+                    to: clientFD
+                ) else {
+                    break
+                }
+                Darwin.usleep(25_000)
+            }
+        }
+        let connection = PersistentSocketLineConnection()
+        let startedAt = ContinuousClock.now
+
+        let response = await connection.command(
+            "trickle",
+            at: path,
+            timeout: 0.12
+        )
+
+        #expect(response == nil)
+        #expect(ContinuousClock.now - startedAt < .milliseconds(600))
+        await connection.invalidate()
+        #expect(await wait(
+            for: handled,
+            timeout: .now() + 2
+        ) == .success)
+    }
+
+    @Test func taskCancellationInterruptsAStalledResponseRead()
+        async throws
+    {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+        let commandReceived = DispatchSemaphore(value: 0)
+        let handled = UnixSocketFixture.acceptSingleClient(
+            on: listenerFD
+        ) { clientFD in
+            #expect(readLine(from: clientFD) == "wait")
+            commandReceived.signal()
+            var byte: UInt8 = 0
+            _ = Darwin.read(clientFD, &byte, 1)
+        }
+        let connection = PersistentSocketLineConnection()
+        let command = Task {
+            await connection.command(
+                "wait",
+                at: path,
+                timeout: 5
+            )
+        }
+        #expect(await wait(
+            for: commandReceived,
+            timeout: .now() + 1
+        ) == .success)
+        let startedAt = ContinuousClock.now
+
+        command.cancel()
+        let response = await command.value
+
+        #expect(response == nil)
+        #expect(ContinuousClock.now - startedAt < .milliseconds(500))
+        await connection.invalidate()
+        #expect(await wait(
+            for: handled,
+            timeout: .now() + 1
+        ) == .success)
+    }
+
+    @Test func invalidationInterruptsAStalledResponseRead()
+        async throws
+    {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+        let commandReceived = DispatchSemaphore(value: 0)
+        let handled = UnixSocketFixture.acceptSingleClient(
+            on: listenerFD
+        ) { clientFD in
+            #expect(readLine(from: clientFD) == "wait")
+            commandReceived.signal()
+            var byte: UInt8 = 0
+            _ = Darwin.read(clientFD, &byte, 1)
+        }
+        let connection = PersistentSocketLineConnection()
+        let command = Task {
+            await connection.command(
+                "wait",
+                at: path,
+                timeout: 5
+            )
+        }
+        #expect(await wait(
+            for: commandReceived,
+            timeout: .now() + 1
+        ) == .success)
+        let startedAt = ContinuousClock.now
+
+        await connection.invalidate()
+        let response = await command.value
+
+        #expect(response == nil)
+        #expect(ContinuousClock.now - startedAt < .milliseconds(500))
+        #expect(await wait(
+            for: handled,
+            timeout: .now() + 1
+        ) == .success)
+    }
+
     private func wait(
         for semaphore: DispatchSemaphore,
         timeout: DispatchTime

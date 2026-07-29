@@ -1177,6 +1177,22 @@ struct ApplicationSurfaceTests {
         ) == nil)
 
         invalid = base
+        invalid.removeValue(forKey: kCGWindowSharingState as String)
+        #expect(ApplicationWindowListFilter.entry(
+            invalid,
+            excludedProcessIDs: excludedProcessIDs,
+            isRegularApplication: regularApplication
+        ) == nil)
+
+        invalid = base
+        invalid[kCGWindowSharingState as String] = "1"
+        #expect(ApplicationWindowListFilter.entry(
+            invalid,
+            excludedProcessIDs: excludedProcessIDs,
+            isRegularApplication: regularApplication
+        ) == nil)
+
+        invalid = base
         invalid[kCGWindowAlpha as String] = NSNumber(value: 0)
         #expect(ApplicationWindowListFilter.entry(
             invalid,
