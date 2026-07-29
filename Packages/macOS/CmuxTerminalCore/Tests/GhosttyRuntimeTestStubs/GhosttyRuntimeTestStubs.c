@@ -28,7 +28,7 @@ static void initialize_linked_ghostty_runtime(void) {
     if (ghostty_init == NULL) return;
 
     static char process_name[] = "CmuxTerminalCoreTests";
-    char *argv[] = {process_name, NULL};
+    static char *argv[] = {process_name, NULL};
     if (ghostty_init(1, argv) != 0) abort();
 }
 #endif
