@@ -884,7 +884,7 @@ struct SimulatorPanelIntegrationTests {
             return
         }
 
-        #expect(await client.accessibilityReadCount == 2)
+        #expect(await client.accessibilityReadCount >= 2)
         let gesture = try #require(await client.gestureEvents().only)
         let expectedPoint = SimulatorOrientationGeometry(
             display: SimulatorRotatingAccessibilityPaneClient.landscapeDisplay

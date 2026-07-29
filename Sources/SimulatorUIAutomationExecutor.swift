@@ -47,12 +47,81 @@ struct SimulatorUIAutomationExecutor {
                     throw simulatorUIActionFailure(failure.message)
                 }
             }
+        case let .accessibilityTap(label, identifier, role):
+            return try await coordinator.withUIAutomationTransaction {
+                do {
+                    return try await performSimulatorAccessibilityTap(
+                        label: label,
+                        identifier: identifier,
+                        role: role,
+                        coordinator: coordinator
+                    )
+                } catch let failure as SimulatorUIAutomationFailure {
+                    throw failure
+                } catch let failure as SimulatorFailure {
+                    throw simulatorUIActionFailure(failure.message)
+                }
+            }
         default:
             throw invalidSimulatorOperation(String(
                 localized: "cli.simulator.error.uiOperationInvalid",
                 defaultValue: "The Simulator UI automation operation is invalid"
             ))
         }
+    }
+
+    private func performSimulatorAccessibilityTap(
+        label: String?,
+        identifier: String?,
+        role: String?,
+        coordinator: SimulatorPaneCoordinator
+    ) async throws -> JSONValue {
+        try requireSimulatorCapability(.accessibility, coordinator: coordinator)
+        try requireSimulatorCapability(.touch, coordinator: coordinator)
+        let initial = try await captureSimulatorUIAutomationSnapshot(
+            coordinator: coordinator,
+            retryingUntil: simulatorUINowMilliseconds() + 2_500
+        )
+        let refreshed = try await captureSimulatorUIAutomationSnapshot(
+            coordinator: coordinator,
+            retryingUntil: simulatorUINowMilliseconds() + 2_500
+        )
+        guard refreshed.snapshot.screenHash == initial.snapshot.screenHash else {
+            throw simulatorUIStateChangedFailure()
+        }
+        let targets = refreshed.accessibilityInteractionTargets(
+            label: label,
+            identifier: identifier,
+            role: role
+        )
+        guard !targets.isEmpty else {
+            throw invalidSimulatorOperation(String(
+                localized: "cli.simulator.error.tapTargetNotFound",
+                defaultValue: "No visible enabled Simulator element matched the accessibility selector"
+            ))
+        }
+        guard targets.count == 1, let target = targets.first else {
+            throw invalidSimulatorOperation(String(
+                localized: "cli.simulator.error.tapTargetAmbiguous",
+                defaultValue: "Multiple visible Simulator elements matched; add --identifier or --role"
+            ))
+        }
+        try await performSimulatorUITap(
+            target,
+            snapshotDisplay: refreshed.display,
+            coordinator: coordinator
+        )
+        return .object([
+            "completed": .bool(true),
+            "event_count": .int(2),
+            "target": .object([
+                "identifier": target.node.identifier.map(JSONValue.string) ?? .null,
+                "label": target.node.label.map(JSONValue.string) ?? .null,
+                "role": target.node.role.map(JSONValue.string) ?? .null,
+                "x": .double(target.activationPoint.x),
+                "y": .double(target.activationPoint.y),
+            ]),
+        ])
     }
 
     private func performSimulatorUIAction(
@@ -73,8 +142,13 @@ struct SimulatorUIAutomationExecutor {
                 requiredActions: [.tap],
                 coordinator: coordinator
             )
+            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
             try await simulatorUIDelay(preDelayMilliseconds)
-            try await performSimulatorUITap(target, coordinator: coordinator)
+            try await performSimulatorUITap(
+                target,
+                snapshotDisplay: record.display,
+                coordinator: coordinator
+            )
             try await simulatorUIDelay(postDelayMilliseconds)
             actionPayload = [
                 "type": .string("tap"),
@@ -89,10 +163,12 @@ struct SimulatorUIAutomationExecutor {
                 requiredActions: [.touch],
                 coordinator: coordinator
             )
-            let events = simulatorUITouchEvents(
+            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
+            let events = try simulatorUITouchEvents(
                 point: target.activationPoint,
                 down: down,
                 up: up,
+                snapshotDisplay: record.display,
                 coordinator: coordinator
             )
             _ = try await coordinator.perform(.interactive(.touch(
@@ -132,6 +208,7 @@ struct SimulatorUIAutomationExecutor {
                 edge: .none,
                 steps: steps,
                 durationMilliseconds: durationMilliseconds,
+                snapshotDisplay: record.display,
                 coordinator: coordinator
             )
             try await simulatorUIDelay(postDelayMilliseconds)
@@ -168,6 +245,7 @@ struct SimulatorUIAutomationExecutor {
                 edge: .none,
                 steps: steps,
                 durationMilliseconds: durationMilliseconds,
+                snapshotDisplay: record.display,
                 coordinator: coordinator
             )
             try await simulatorUIDelay(postDelayMilliseconds)
@@ -186,10 +264,12 @@ struct SimulatorUIAutomationExecutor {
                 requiredActions: [.longPress],
                 coordinator: coordinator
             )
-            let events = simulatorUITouchEvents(
+            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
+            let events = try simulatorUITouchEvents(
                 point: target.activationPoint,
                 down: true,
                 up: true,
+                snapshotDisplay: record.display,
                 coordinator: coordinator
             )
             _ = try await coordinator.perform(.interactive(.touch(
@@ -211,6 +291,7 @@ struct SimulatorUIAutomationExecutor {
                 requiredActions: [.typeText],
                 coordinator: coordinator
             )
+            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
             let sequence: SimulatorTextInputSequence
             do {
                 sequence = try SimulatorUSKeyboardTextEncoder().encode(text)
@@ -220,7 +301,11 @@ struct SimulatorUIAutomationExecutor {
                     defaultValue: "The text cannot be encoded by Simulator's US keyboard input"
                 ))
             }
-            try await performSimulatorUITap(target, coordinator: coordinator)
+            try await performSimulatorUITap(
+                target,
+                snapshotDisplay: record.display,
+                coordinator: coordinator
+            )
             if replaceExisting {
                 _ = try await coordinator.perform(.interactive(.keyChord(
                     modifiers: [0xE3],
@@ -295,11 +380,13 @@ struct SimulatorUIAutomationExecutor {
                 distance: distance
             )
             try await simulatorUIDelay(preDelayMilliseconds)
+            let snapshotDisplay = coordinator.display
             try await performSimulatorUITimedGesture(
                 points: points,
                 edge: edge,
                 steps: steps,
                 durationMilliseconds: durationMilliseconds,
+                snapshotDisplay: snapshotDisplay,
                 coordinator: coordinator
             )
             try await simulatorUIDelay(postDelayMilliseconds)
@@ -312,6 +399,7 @@ struct SimulatorUIAutomationExecutor {
             ]
         case let .batch(steps):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
+            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
             let targets = try steps.map { step in
                 (
                     step,
@@ -324,7 +412,11 @@ struct SimulatorUIAutomationExecutor {
             }
             for (step, target) in targets {
                 try await simulatorUIDelay(step.preDelayMilliseconds)
-                try await performSimulatorUITap(target, coordinator: coordinator)
+                try await performSimulatorUITap(
+                    target,
+                    snapshotDisplay: record.display,
+                    coordinator: coordinator
+                )
                 try await simulatorUIDelay(step.postDelayMilliseconds)
             }
             actionPayload = [
@@ -394,15 +486,7 @@ struct SimulatorUIAutomationExecutor {
             retryingUntil: simulatorUINowMilliseconds() + 2_500
         )
         guard refreshed.snapshot.screenHash == current.snapshot.screenHash else {
-            throw SimulatorUIAutomationFailure(
-                code: "ui_state_changed",
-                message: String(
-                    localized: "cli.simulator.error.uiStateChanged",
-                    defaultValue: "The Simulator UI changed after the element ref was captured"
-                ),
-                recoveryHint: simulatorUICaptureRecoveryHint(),
-                elementRef: elementRefs.first
-            )
+            throw simulatorUIStateChangedFailure(elementRef: elementRefs.first)
         }
         return current.snapshot.screenHash
     }
@@ -665,6 +749,9 @@ struct SimulatorUIAutomationExecutor {
                 defaultValue: "The Simulator worker returned no accessibility snapshot"
             ))
         }
+        guard coordinator.display == snapshot.display else {
+            throw simulatorUISnapshotCaptureFailure(simulatorUIDisplayChangedMessage())
+        }
         do {
             return try coordinator.recordUIAutomationSnapshot(
                 snapshot,
@@ -833,6 +920,27 @@ struct SimulatorUIAutomationExecutor {
         )
     }
 
+    private func simulatorUIStateChangedFailure(
+        elementRef: String? = nil
+    ) -> SimulatorUIAutomationFailure {
+        SimulatorUIAutomationFailure(
+            code: "ui_state_changed",
+            message: String(
+                localized: "cli.simulator.error.uiStateChanged",
+                defaultValue: "The Simulator UI changed after the element ref was captured"
+            ),
+            recoveryHint: simulatorUICaptureRecoveryHint(),
+            elementRef: elementRef
+        )
+    }
+
+    private func simulatorUIDisplayChangedMessage() -> String {
+        String(
+            localized: "cli.simulator.error.uiDisplayChanged",
+            defaultValue: "The Simulator display changed while UI state was captured"
+        )
+    }
+
     private func simulatorUIActionFailure(
         _ message: String
     ) -> SimulatorUIAutomationFailure {
@@ -882,12 +990,14 @@ struct SimulatorUIAutomationExecutor {
 
     private func performSimulatorUITap(
         _ target: SimulatorUIAutomationElementRecord,
+        snapshotDisplay: SimulatorDisplayMetadata?,
         coordinator: SimulatorPaneCoordinator
     ) async throws {
-        let events = simulatorUITouchEvents(
+        let events = try simulatorUITouchEvents(
             point: target.activationPoint,
             down: true,
             up: true,
+            snapshotDisplay: snapshotDisplay,
             coordinator: coordinator
         )
         _ = try await coordinator.perform(.interactive(.gesture(events)))
@@ -897,8 +1007,9 @@ struct SimulatorUIAutomationExecutor {
         point: SimulatorPoint,
         down: Bool,
         up: Bool,
+        snapshotDisplay: SimulatorDisplayMetadata?,
         coordinator: SimulatorPaneCoordinator
-    ) -> [SimulatorPointerEvent] {
+    ) throws -> [SimulatorPointerEvent] {
         var events: [SimulatorPointerEvent] = []
         if down {
             events.append(SimulatorPointerEvent(phase: .began, primary: point))
@@ -906,7 +1017,11 @@ struct SimulatorUIAutomationExecutor {
         if up {
             events.append(SimulatorPointerEvent(phase: .ended, primary: point))
         }
-        return simulatorUIRawPointerEvents(events, coordinator: coordinator)
+        return try simulatorUIRawPointerEvents(
+            events,
+            snapshotDisplay: snapshotDisplay,
+            coordinator: coordinator
+        )
     }
 
     private func performSimulatorUITimedGesture(
@@ -914,6 +1029,7 @@ struct SimulatorUIAutomationExecutor {
         edge: SimulatorEdge,
         steps: Int,
         durationMilliseconds: Int,
+        snapshotDisplay: SimulatorDisplayMetadata?,
         coordinator: SimulatorPaneCoordinator
     ) async throws {
         let events = (0...steps).map { index in
@@ -931,16 +1047,24 @@ struct SimulatorUIAutomationExecutor {
             )
         }
         _ = try await coordinator.perform(.interactive(.timedGesture(
-            events: simulatorUIRawPointerEvents(events, coordinator: coordinator),
+            events: try simulatorUIRawPointerEvents(
+                events,
+                snapshotDisplay: snapshotDisplay,
+                coordinator: coordinator
+            ),
             durationMilliseconds: durationMilliseconds
         )))
     }
 
     private func simulatorUIRawPointerEvents(
         _ events: [SimulatorPointerEvent],
+        snapshotDisplay: SimulatorDisplayMetadata?,
         coordinator: SimulatorPaneCoordinator
-    ) -> [SimulatorPointerEvent] {
-        guard let display = coordinator.display else { return events }
+    ) throws -> [SimulatorPointerEvent] {
+        guard coordinator.display == snapshotDisplay else {
+            throw simulatorUIStateChangedFailure()
+        }
+        guard let display = snapshotDisplay else { return events }
         let geometry = SimulatorOrientationGeometry(display: display)
         return events.map(geometry.rawPointerEvent)
     }

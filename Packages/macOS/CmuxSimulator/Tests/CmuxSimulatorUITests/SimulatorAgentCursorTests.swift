@@ -190,7 +190,7 @@ struct SimulatorAgentCursorTests {
             SimulatorPointerEvent(phase: .ended, primary: point),
         ])))
 
-        coordinator.selectDevice(id: device.id)
+        try await coordinator.selectDeviceAndWait(id: device.id)
 
         #expect(coordinator.agentCursorPresentation?.destination == point)
     }

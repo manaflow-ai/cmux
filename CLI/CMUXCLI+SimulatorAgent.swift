@@ -247,10 +247,19 @@ extension CMUXCLI {
             guard values.count <= 1, let rawCodes else {
                 throw simulatorArgumentsError(subcommand)
             }
-            let codes = rawCodes.split(separator: ",").compactMap {
+            let tokens = rawCodes.split(
+                separator: ",",
+                omittingEmptySubsequences: false
+            )
+            let parsedCodes = tokens.map {
                 Int($0.trimmingCharacters(in: .whitespacesAndNewlines))
             }
-            guard !codes.isEmpty, codes.count <= 100,
+            guard !tokens.isEmpty, tokens.count <= 100,
+                  parsedCodes.allSatisfy({ $0 != nil }) else {
+                throw simulatorArgumentsError(subcommand)
+            }
+            let codes = parsedCodes.compactMap { $0 }
+            guard !codes.isEmpty,
                   codes.allSatisfy({ (0...255).contains($0) }) else {
                 throw simulatorArgumentsError(subcommand)
             }
@@ -355,7 +364,11 @@ extension CMUXCLI {
                 options: ["duration"]
             )
             guard let value = oneSimulatorValue(arguments) else { throw simulatorArgumentsError(subcommand) }
-            var params: [String: Any] = ["button": simulatorButtonName(value)]
+            let button = simulatorButtonName(value)
+            guard SimulatorHardwareButton(rawValue: button) != nil else {
+                throw simulatorArgumentsError(subcommand)
+            }
+            var params: [String: Any] = ["button": button]
             if arguments.option("duration") != nil {
                 params["duration_milliseconds"] = try simulatorUIMilliseconds(
                     arguments.option("duration"),

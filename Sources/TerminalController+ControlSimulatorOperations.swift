@@ -149,7 +149,7 @@ extension TerminalController {
                 try await coordinator.recoverAndWait()
                 mutationCommitted = operation.commitsExternalMutation
                 payload = .object(["completed": .bool(true)])
-            case .uiSnapshot, .uiWait, .uiAction:
+            case .uiSnapshot, .uiWait, .uiAction, .accessibilityTap:
                 payload = try await performSimulatorUIAutomationOperation(
                     operation,
                     coordinator: coordinator
@@ -164,66 +164,6 @@ extension TerminalController {
                 payload = .object([
                     "completed": .bool(true),
                     "event_count": .int(Int64(eventCount)),
-                ])
-            case let .accessibilityTap(label, identifier, role):
-                guard coordinator.supports(.touch) else {
-                    throw SimulatorFailure(
-                        code: "simulator_capability_unavailable",
-                        message: String(
-                            localized: "cli.simulator.error.capabilityUnavailable",
-                            defaultValue: "The active Simulator worker does not support this operation"
-                        ),
-                        isRecoverable: true
-                    )
-                }
-                guard case let .accessibility(snapshot) = try await coordinator.perform(
-                    .readAccessibility
-                ) else {
-                    throw invalidSimulatorOperation(String(
-                        localized: "cli.simulator.error.accessibilityMissing",
-                        defaultValue: "The Simulator worker returned no accessibility snapshot"
-                    ))
-                }
-                let targets = snapshot.interactionTargets(
-                    label: label,
-                    identifier: identifier,
-                    role: role
-                )
-                guard !targets.isEmpty else {
-                    throw invalidSimulatorOperation(String(
-                        localized: "cli.simulator.error.tapTargetNotFound",
-                        defaultValue: "No visible enabled Simulator element matched the accessibility selector"
-                    ))
-                }
-                guard targets.count == 1, let target = targets.first else {
-                    throw invalidSimulatorOperation(String(
-                        localized: "cli.simulator.error.tapTargetAmbiguous",
-                        defaultValue: "Multiple visible Simulator elements matched; add --identifier or --role"
-                    ))
-                }
-                let touches = [
-                    ControlSimulatorTouch(
-                        phase: "began", x: target.point.x, y: target.point.y
-                    ),
-                    ControlSimulatorTouch(
-                        phase: "ended", x: target.point.x, y: target.point.y
-                    ),
-                ]
-                let eventCount = try await performSimulatorGesture(
-                    touches,
-                    coordinator: coordinator
-                )
-                mutationCommitted = operation.commitsExternalMutation
-                payload = .object([
-                    "completed": .bool(true),
-                    "event_count": .int(Int64(eventCount)),
-                    "target": .object([
-                        "identifier": target.node.identifier.map(JSONValue.string) ?? .null,
-                        "label": target.node.label.map(JSONValue.string) ?? .null,
-                        "role": target.node.role.map(JSONValue.string) ?? .null,
-                        "x": .double(target.point.x),
-                        "y": .double(target.point.y),
-                    ]),
                 ])
             case let .hardwareButton(raw):
                 guard let button = SimulatorHardwareButton(rawValue: raw) else {
@@ -468,7 +408,7 @@ extension TerminalController {
         _ operation: ControlSimulatorOperation
     ) -> Bool {
         switch operation {
-        case .gesture, .accessibilityTap, .hardwareButton, .rotate,
+        case .gesture, .hardwareButton, .rotate,
              .memoryWarning, .permissionsSet, .interfaceSet:
             true
         default:
@@ -486,6 +426,7 @@ extension TerminalController {
             return min(160, Double(wait.timeoutMilliseconds) / 1_000 + 35)
         }
         if case .uiAction = operation { return 140 }
+        if case .accessibilityTap = operation { return 140 }
         if case .cameraConfigure = operation { return 160 }
         if case .cameraSwitch = operation { return 160 }
         if case .interfaceStatus = operation { return simulatorOperationDeadlines.interfaceRead }

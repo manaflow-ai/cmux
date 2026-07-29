@@ -1,6 +1,38 @@
 import Foundation
 
 extension SimulatorUIAutomationSnapshotRecord {
+    /// Returns visible enabled records matching an exact accessibility selector.
+    ///
+    /// Labels and roles use case-insensitive comparison. Identifiers retain
+    /// the native bridge's exact-match contract.
+    public func accessibilityInteractionTargets(
+        label: String?,
+        identifier: String?,
+        role: String?
+    ) -> [SimulatorUIAutomationElementRecord] {
+        guard label != nil || identifier != nil else { return [] }
+        return elementRecords.filter { record in
+            let node = record.node
+            return node.isEnabled != false
+                && record.element.state.isVisible
+                && accessibilityValue(
+                    node.label,
+                    matches: label,
+                    caseInsensitive: true
+                )
+                && accessibilityValue(
+                    node.id,
+                    matches: identifier,
+                    caseInsensitive: false
+                )
+                && accessibilityValue(
+                    node.role,
+                    matches: role,
+                    caseInsensitive: true
+                )
+        }
+    }
+
     /// Returns candidates whose populated selector fields all match exactly.
     ///
     /// - Parameter selector: The exact semantic selector.
@@ -30,11 +62,13 @@ extension SimulatorUIAutomationSnapshotRecord {
     /// - Parameter text: The nonempty text fragment.
     /// - Returns: Matching public elements in snapshot order.
     public func containingText(_ text: String) -> [SimulatorUIAutomationElement] {
-        let needle = normalizedText(text).lowercased()
+        let needle = (simulatorUIAutomationNormalizedText(text) ?? "").lowercased()
         guard !needle.isEmpty else { return [] }
         return snapshot.elements.filter {
-            normalizedText($0.label).lowercased().contains(needle)
-                || normalizedText($0.value).lowercased().contains(needle)
+            (simulatorUIAutomationNormalizedText($0.label) ?? "")
+                .lowercased().contains(needle)
+                || (simulatorUIAutomationNormalizedText($0.value) ?? "")
+                .lowercased().contains(needle)
         }
     }
 
@@ -154,7 +188,8 @@ extension SimulatorUIAutomationSnapshotRecord {
         centeredOnActivationPoint: Bool,
         activationPoint: SimulatorPoint
     ) -> SimulatorUIAutomationGesturePoints? {
-        guard isValidFrame(frame), isValidFrame(viewport),
+        guard simulatorUIAutomationIsValidFrame(frame),
+              simulatorUIAutomationIsValidFrame(viewport),
               distance.isFinite, distance > 0, distance <= 1 else {
             return nil
         }
@@ -226,35 +261,34 @@ extension SimulatorUIAutomationSnapshotRecord {
         return SimulatorUIAutomationGesturePoints(from: rawFrom, to: rawTo)
     }
 
-    private func isValidFrame(_ frame: SimulatorRect) -> Bool {
-        frame.x.isFinite && frame.y.isFinite
-            && frame.width.isFinite && frame.height.isFinite
-            && frame.width > 0 && frame.height > 0
-    }
-
-    private func normalizedText(_ value: String?) -> String {
-        guard let normalized = value?.replacingOccurrences(
-            of: #"\s+"#,
-            with: " ",
-            options: .regularExpression
-        ).trimmingCharacters(in: .whitespacesAndNewlines),
-              !normalized.isEmpty else {
-            return ""
-        }
-        return normalized
-    }
-
     private func matchingText(
         in element: SimulatorUIAutomationElement,
         containing text: String
     ) -> String? {
-        let needle = normalizedText(text).lowercased()
+        let needle = (simulatorUIAutomationNormalizedText(text) ?? "").lowercased()
         guard !needle.isEmpty else { return nil }
-        let value = normalizedText(element.value).lowercased()
+        let value = (simulatorUIAutomationNormalizedText(element.value) ?? "").lowercased()
         if value.contains(needle) {
             return value
         }
-        let label = normalizedText(element.label).lowercased()
+        let label = (simulatorUIAutomationNormalizedText(element.label) ?? "").lowercased()
         return label.contains(needle) ? label : nil
+    }
+
+    private func accessibilityValue(
+        _ actual: String?,
+        matches expected: String?,
+        caseInsensitive: Bool
+    ) -> Bool {
+        guard let expected else { return true }
+        guard let actual else { return false }
+        if caseInsensitive {
+            return actual.compare(
+                expected,
+                options: [.caseInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            ) == .orderedSame
+        }
+        return actual == expected
     }
 }

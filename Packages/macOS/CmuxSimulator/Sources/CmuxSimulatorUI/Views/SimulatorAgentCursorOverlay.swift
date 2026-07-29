@@ -46,6 +46,7 @@ struct SimulatorAgentCursorOverlay: View {
             pulseScale = 0.4
             pulseOpacity = 0
             await Task.yield()
+            guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(
                 duration: Double(presentation.durationMilliseconds) / 1_000
             )) {

@@ -50,19 +50,17 @@ extension SimulatorHIDTransport {
               events.count <= simulatorUIAutomationMaximumGestureEventCount else {
             return false
         }
-        let interEventDelay: Duration
+        let requestedTiming: (baseNanoseconds: Int64, remainderNanoseconds: Int64)?
         if let totalDurationMilliseconds {
             guard (0...10_000).contains(totalDurationMilliseconds) else { return false }
-            interEventDelay = .nanoseconds(
-                events.count > 1
-                    ? (Int64(totalDurationMilliseconds) * 1_000_000)
-                        / Int64(events.count - 1)
-                    : 0
+            let gapCount = Int64(max(events.count - 1, 1))
+            let totalNanoseconds = Int64(totalDurationMilliseconds) * 1_000_000
+            requestedTiming = (
+                totalNanoseconds / gapCount,
+                totalNanoseconds % gapCount
             )
         } else {
-            interEventDelay = simulatorIsTapSequence(events)
-                ? .milliseconds(50)
-                : .milliseconds(4)
+            requestedTiming = nil
         }
         for (index, event) in events.enumerated() {
             guard send(event) else {
@@ -70,6 +68,17 @@ extension SimulatorHIDTransport {
                 return false
             }
             guard index < events.index(before: events.endIndex) else { continue }
+            let interEventDelay: Duration
+            if let requestedTiming {
+                interEventDelay = .nanoseconds(
+                    requestedTiming.baseNanoseconds
+                        + (Int64(index) < requestedTiming.remainderNanoseconds ? 1 : 0)
+                )
+            } else {
+                interEventDelay = simulatorIsTapSequence(events)
+                    ? .milliseconds(50)
+                    : .milliseconds(4)
+            }
             do {
                 try await sleeper.sleep(for: interEventDelay)
             } catch {

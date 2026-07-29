@@ -3,6 +3,8 @@ import Foundation
 
 /// Builds one compact UI automation snapshot from a native accessibility tree.
 struct SimulatorUIAutomationSnapshotBuilder {
+    private static let hexDigits = Array("0123456789abcdef".utf8)
+
     private struct FlattenedNode {
         let node: SimulatorAccessibilityNode
         let path: String
@@ -35,7 +37,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
     func build() throws -> SimulatorUIAutomationSnapshotRecord {
         guard let viewport = source.roots
             .compactMap(\.frame)
-            .filter(isValidFrame)
+            .filter(simulatorUIAutomationIsValidFrame)
             .max(by: {
                 $0.width * $0.height < $1.width * $1.height
             }) else {
@@ -77,7 +79,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
         )
         return SimulatorUIAutomationSnapshotRecord(
             snapshot: snapshot,
-            elementRecords: records
+            elementRecords: records,
+            display: source.display
         )
     }
 
@@ -126,9 +129,9 @@ struct SimulatorUIAutomationSnapshotBuilder {
         let element = SimulatorUIAutomationElement(
             ref: "e\(index + 1)",
             role: role,
-            label: nonempty(node.label),
-            value: nonempty(node.value),
-            identifier: nonempty(node.identifier),
+            label: simulatorUIAutomationNormalizedText(node.label),
+            value: simulatorUIAutomationNormalizedText(node.value),
+            identifier: simulatorUIAutomationNormalizedText(node.identifier),
             frame: frame,
             state: SimulatorUIAutomationElementState(
                 isEnabled: enabled,
@@ -157,12 +160,12 @@ struct SimulatorUIAutomationSnapshotBuilder {
         description: String?,
         identifier: String?
     ) -> SimulatorUIAutomationRole? {
-        let normalizedDescription = nonempty(description)?.lowercased()
+        let normalizedDescription = simulatorUIAutomationNormalizedText(description)?.lowercased()
         if normalizedDescription == "tab" {
             return .tab
         }
         let text = [rawRole, description]
-            .compactMap(nonempty)
+            .compactMap(simulatorUIAutomationNormalizedText)
             .joined(separator: " ")
             .lowercased()
         guard !text.isEmpty else { return nil }
@@ -213,8 +216,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
         let tapRoles: Set<SimulatorUIAutomationRole> = [
             .button, .cell, .keyboardKey, .switch, .tab, .textField,
         ]
-        let hasSemanticIdentity = nonempty(node.label) != nil
-            || nonempty(node.identifier) != nil
+        let hasSemanticIdentity = simulatorUIAutomationNormalizedText(node.label) != nil
+            || simulatorUIAutomationNormalizedText(node.identifier) != nil
         if role.map(tapRoles.contains) == true
             || (hasSemanticIdentity && node.children.isEmpty && role != .text) {
             actions.append(.tap)
@@ -246,7 +249,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
         let tolerance = 8.0
         var pending = node.children
         while let descendant = pending.popLast() {
-            if let childFrame = descendant.frame, isValidFrame(childFrame),
+            if let childFrame = descendant.frame,
+               simulatorUIAutomationIsValidFrame(childFrame),
                childFrame.x < frame.x - tolerance
                 || childFrame.y < frame.y - tolerance
                 || childFrame.x + childFrame.width > frame.x + frame.width + tolerance
@@ -259,7 +263,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
     }
 
     private func isScrollSemanticIdentifier(_ identifier: String?) -> Bool {
-        guard let identifier = nonempty(identifier)?.lowercased() else {
+        guard let identifier = simulatorUIAutomationNormalizedText(identifier)?.lowercased() else {
             return false
         }
         return identifier.contains("scrollview")
@@ -305,15 +309,13 @@ struct SimulatorUIAutomationSnapshotBuilder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = (try? encoder.encode(payload)) ?? Data()
-        return SHA256.hash(data: data).prefix(12).map {
-            String(format: "%02x", $0)
-        }.joined()
-    }
-
-    private func isValidFrame(_ frame: SimulatorRect) -> Bool {
-        frame.x.isFinite && frame.y.isFinite
-            && frame.width.isFinite && frame.height.isFinite
-            && frame.width > 0 && frame.height > 0
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(24)
+        for byte in SHA256.hash(data: data).prefix(12) {
+            bytes.append(Self.hexDigits[Int(byte >> 4)])
+            bytes.append(Self.hexDigits[Int(byte & 0x0F)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     private func framesIntersect(
@@ -339,17 +341,5 @@ struct SimulatorUIAutomationSnapshotBuilder {
             width: min(first.x + first.width, second.x + second.width) - x,
             height: min(first.y + first.height, second.y + second.height) - y
         )
-    }
-
-    private func nonempty(_ value: String?) -> String? {
-        guard let normalized = value?.replacingOccurrences(
-            of: #"\s+"#,
-            with: " ",
-            options: .regularExpression
-        ).trimmingCharacters(in: .whitespacesAndNewlines),
-              !normalized.isEmpty else {
-            return nil
-        }
-        return normalized
     }
 }

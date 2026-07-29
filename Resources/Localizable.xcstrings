@@ -48465,6 +48465,23 @@
         }
       }
     },
+    "cli.simulator.error.uiDisplayChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator display changed while UI state was captured"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UI状態の取得中にSimulatorのディスプレイが変更されました"
+          }
+        }
+      }
+    },
     "cli.simulator.error.uiRoleInvalid": {
       "extractionState": "manual",
       "localizations": {

@@ -58,8 +58,9 @@ extension ControlCommandCoordinator {
                 operation = .uiAction(action)
                 break
             }
-            let hasCoordinates = request.params["x"] != nil || request.params["y"] != nil
-                || request.params["x2"] != nil || request.params["y2"] != nil
+            let hasCoordinates = ["x", "y", "x1", "y1", "x2", "y2"].contains {
+                request.params[$0] != nil
+            }
             let hasSelector = request.params["label"] != nil
                 || request.params["identifier"] != nil || request.params["role"] != nil
             guard !hasCoordinates || !hasSelector else {

@@ -138,7 +138,11 @@ extension ControlCommandCoordinator {
                 delayMilliseconds: delay
             )
         case "simulator.button":
-            guard let button = string(params, "button") else { return nil }
+            guard let rawButton = string(params, "button"),
+                  rawButton.utf8.count <= controlSimulatorMaximumCommandTokenUTF8ByteCount,
+                  let button = simulatorButtonName(rawButton) else {
+                return nil
+            }
             let duration: Int?
             if params["duration_milliseconds"] == nil {
                 duration = nil
@@ -149,7 +153,7 @@ extension ControlCommandCoordinator {
                 guard duration != nil else { return nil }
             }
             return .button(
-                button: simulatorButtonName(button),
+                button: button,
                 durationMilliseconds: duration
             )
         case "simulator.gesture_preset":
