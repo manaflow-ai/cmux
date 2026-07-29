@@ -184,9 +184,6 @@ struct WorkspaceShellView: View {
     @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
-    /// True once this shell has held a live connection, so only genuine
-    /// reconnections toast (the expected first attach stays silent).
-    @State private var hasHeldConnection = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -320,11 +317,16 @@ struct WorkspaceShellView: View {
                 )
             }
         }
+        // Root-mounted on purpose: inside a tab, every return to that tab
+        // remounts the content and re-fires onChange(initial:), which used to
+        // toast "Reconnected" on plain tab switches while connected.
+        .reconnectedToastPresenter(connectionState: store.connectionState)
         #else
         workspaceTabContent(canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection)
         .onAppear {
             consumeDeeplinkNavigationRequestIfNeeded()
         }
+        .reconnectedToastPresenter(connectionState: store.connectionState)
         #endif
     }
 
@@ -430,21 +432,6 @@ struct WorkspaceShellView: View {
             )
         }
         #endif
-        // `initial: true` primes `hasHeldConnection` when the view mounts
-        // already connected, so the first genuine reconnect still toasts.
-        .onChange(of: store.connectionState, initial: true) { _, state in
-            guard state == .connected else { return }
-            if hasHeldConnection {
-                toasts.present(.success(
-                    L10n.string(
-                        "mobile.connection.reconnectedToast",
-                        defaultValue: "Reconnected to your Mac."
-                    ),
-                    coalescingKey: "connection.reconnected"
-                ))
-            }
-            hasHeldConnection = true
-        }
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 

@@ -20,6 +20,6 @@ public struct MobileReconnectedToastGate: Equatable, Sendable {
     ) -> Bool {
         guard current == .connected else { return false }
         defer { hasHeldConnection = true }
-        return hasHeldConnection
+        return previous != current && hasHeldConnection
     }
 }
