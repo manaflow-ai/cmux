@@ -620,6 +620,34 @@ import Testing
         await registry.finishConnect(lease: otherPeerLease)
     }
 
+    @Test func connectAttemptKeyCanonicalizesEquivalentHostSpellings()
+        throws {
+        func route(host: String) throws -> CmxAttachRoute {
+            try CmxAttachRoute(
+                id: host,
+                kind: .debugLoopback,
+                endpoint: .hostPort(host: host, port: 58_581)
+            )
+        }
+
+        #expect(
+            MobileRPCConnectAttemptKey(route: try route(
+                host: "2001:db8:0:0:0:0:0:1"
+            ))
+                == MobileRPCConnectAttemptKey(route: try route(
+                    host: "2001:DB8::1"
+                ))
+        )
+        #expect(
+            MobileRPCConnectAttemptKey(route: try route(
+                host: "Mac.Example.Test."
+            ))
+                == MobileRPCConnectAttemptKey(route: try route(
+                    host: "mac.example.test"
+                ))
+        )
+    }
+
     @Test func cleanupDebtCapSurfacesRestartRequiredError() async throws {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = debugConnectAttemptKey(

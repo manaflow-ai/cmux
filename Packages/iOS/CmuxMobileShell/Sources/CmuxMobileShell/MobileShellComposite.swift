@@ -906,6 +906,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var notificationFeedRefreshTasksByMac: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var notificationFeedRefreshTokensByMac: [String: UUID] = [:]
     @ObservationIgnored var notificationFeedRefreshPendingMacIDs: Set<String> = []
+    @ObservationIgnored var notificationFeedRefreshRetryTasksByMac: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var notificationFeedRefreshRetryTokensByMac: [String: UUID] = [:]
+    @ObservationIgnored var notificationFeedRefreshGenerationByMac: [String: UInt64] = [:]
+    @ObservationIgnored var notificationFeedRefreshRetryConsumedGenerationByMac: [String: UInt64] = [:]
     @ObservationIgnored var notificationFeedOpenTask: Task<Void, Never>?
     @ObservationIgnored var notificationFeedOpenToken: UUID?
     let notificationFeedAggregation = MobileNotificationFeedAggregation()

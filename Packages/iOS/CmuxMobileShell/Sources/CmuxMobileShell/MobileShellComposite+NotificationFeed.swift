@@ -362,9 +362,16 @@ extension MobileShellComposite {
         for task in notificationFeedRefreshTasksByMac.values {
             task.cancel()
         }
+        for task in notificationFeedRefreshRetryTasksByMac.values {
+            task.cancel()
+        }
         notificationFeedRefreshTasksByMac = [:]
         notificationFeedRefreshTokensByMac = [:]
         notificationFeedRefreshPendingMacIDs = []
+        notificationFeedRefreshRetryTasksByMac = [:]
+        notificationFeedRefreshRetryTokensByMac = [:]
+        notificationFeedRefreshGenerationByMac = [:]
+        notificationFeedRefreshRetryConsumedGenerationByMac = [:]
         notificationFeedKnownRevisionsByMac = [:]
         notificationFeedSuccessfulMacIDs = []
         notificationFeedSnapshotsByMac = [:]
@@ -390,9 +397,14 @@ extension MobileShellComposite {
     /// - Parameter macDeviceID: The hidden Mac's stable device id.
     func removeNotificationFeedSnapshot(macDeviceID: String) {
         notificationFeedRefreshTasksByMac[macDeviceID]?.cancel()
+        notificationFeedRefreshRetryTasksByMac[macDeviceID]?.cancel()
         notificationFeedRefreshTasksByMac[macDeviceID] = nil
         notificationFeedRefreshTokensByMac[macDeviceID] = nil
         notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
+        notificationFeedRefreshRetryTasksByMac[macDeviceID] = nil
+        notificationFeedRefreshRetryTokensByMac[macDeviceID] = nil
+        notificationFeedRefreshGenerationByMac[macDeviceID] = nil
+        notificationFeedRefreshRetryConsumedGenerationByMac[macDeviceID] = nil
         notificationFeedKnownRevisionsByMac[macDeviceID] = nil
         notificationFeedSuccessfulMacIDs.remove(macDeviceID)
         notificationFeedSnapshotsByMac[macDeviceID] = nil
@@ -567,10 +579,18 @@ extension MobileShellComposite {
     private func scheduleNotificationFeedRefresh(
         macDeviceID: String,
         client: MobileCoreRPCClient,
-        displayName: String
+        displayName: String,
+        advancesGeneration: Bool = true
     ) -> Task<Void, Never>? {
         guard notificationFeedClient(for: macDeviceID) === client,
               notificationFeedClientSupportsCapability(macDeviceID: macDeviceID) else { return nil }
+        if advancesGeneration {
+            notificationFeedRefreshGenerationByMac[macDeviceID, default: 0]
+                &+= 1
+            notificationFeedRefreshRetryTasksByMac[macDeviceID]?.cancel()
+            notificationFeedRefreshRetryTasksByMac[macDeviceID] = nil
+            notificationFeedRefreshRetryTokensByMac[macDeviceID] = nil
+        }
         if let task = notificationFeedRefreshTasksByMac[macDeviceID] {
             notificationFeedRefreshPendingMacIDs.insert(macDeviceID)
             return task
@@ -581,7 +601,6 @@ extension MobileShellComposite {
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             var attemptCount = 0
-            var shouldStartFreshPass = false
             repeat {
                 self.notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
                 let requiredRevision =
@@ -593,28 +612,26 @@ extension MobileShellComposite {
                     requiredRevision: requiredRevision
                 )
                 attemptCount += 1
-                let knownRevision =
-                    self.notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
-                shouldStartFreshPass =
-                    self.notificationFeedRefreshPendingMacIDs.contains(macDeviceID)
-                    && knownRevision > requiredRevision
             } while attemptCount
                 < mobileShellNotificationFeedMaximumImmediateRefreshAttempts
                 && !Task.isCancelled
                 && self.notificationFeedClient(for: macDeviceID) === client
                 && self.notificationFeedRefreshPendingMacIDs.contains(macDeviceID)
             guard self.notificationFeedRefreshTokensByMac[macDeviceID] == token else { return }
+            let stillPending =
+                self.notificationFeedRefreshPendingMacIDs.contains(macDeviceID)
             self.notificationFeedRefreshTasksByMac[macDeviceID] = nil
             self.notificationFeedRefreshTokensByMac[macDeviceID] = nil
-            self.notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
-            if shouldStartFreshPass,
+            if stillPending,
                !Task.isCancelled,
                self.notificationFeedClient(for: macDeviceID) === client {
-                _ = self.scheduleNotificationFeedRefresh(
+                self.scheduleDelayedNotificationFeedRefresh(
                     macDeviceID: macDeviceID,
                     client: client,
                     displayName: displayName
                 )
+            } else {
+                self.notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
             }
             let connectedTargetIDs = Set(self.notificationFeedTargets().map(\.macDeviceID))
             let hasConnectedRefreshInFlight = self.notificationFeedRefreshTasksByMac.keys.contains {
@@ -626,6 +643,57 @@ extension MobileShellComposite {
         }
         notificationFeedRefreshTasksByMac[macDeviceID] = task
         return task
+    }
+
+    private func scheduleDelayedNotificationFeedRefresh(
+        macDeviceID: String,
+        client: MobileCoreRPCClient,
+        displayName: String
+    ) {
+        let generation =
+            notificationFeedRefreshGenerationByMac[macDeviceID] ?? 0
+        guard notificationFeedRefreshRetryConsumedGenerationByMac[macDeviceID]
+                != generation,
+              notificationFeedRefreshRetryTasksByMac[macDeviceID] == nil else {
+            return
+        }
+        notificationFeedRefreshRetryConsumedGenerationByMac[macDeviceID] =
+            generation
+        let token = UUID()
+        notificationFeedRefreshRetryTokensByMac[macDeviceID] = token
+        let clock = controlPlaneSchedulingClock
+        notificationFeedRefreshRetryTasksByMac[macDeviceID] = Task {
+            @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.notificationFeedRefreshRetryTokensByMac[macDeviceID]
+                    == token {
+                    self.notificationFeedRefreshRetryTasksByMac[macDeviceID] =
+                        nil
+                    self.notificationFeedRefreshRetryTokensByMac[macDeviceID] =
+                        nil
+                }
+            }
+            do {
+                try await clock.sleep(for: .seconds(1))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  self.notificationFeedRefreshRetryTokensByMac[macDeviceID]
+                    == token,
+                  self.notificationFeedRefreshGenerationByMac[macDeviceID]
+                    == generation,
+                  self.notificationFeedClient(for: macDeviceID) === client else {
+                return
+            }
+            _ = self.scheduleNotificationFeedRefresh(
+                macDeviceID: macDeviceID,
+                client: client,
+                displayName: displayName,
+                advancesGeneration: false
+            )
+        }
     }
 
     private func fetchNotificationFeed(

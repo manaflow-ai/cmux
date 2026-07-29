@@ -3255,6 +3255,7 @@ import Testing
     @Test
     func notificationFeedRefreshStopsAfterOneTrailingStaleSnapshot()
         async throws {
+        let clock = ControlPoolManualClock()
         let route = try CmxAttachRoute(
             id: "bounded-notification-refresh",
             kind: .debugLoopback,
@@ -3296,7 +3297,8 @@ import Testing
         )
         let shell = MobileShellComposite(
             runtime: runtime,
-            isSignedIn: true
+            isSignedIn: true,
+            controlPlaneSchedulingClock: clock
         )
         shell.secondaryMacSubscriptions["mac-b"] = subscription
         shell.notificationFeedKnownRevisionsByMac["mac-b"] = 3
@@ -3313,11 +3315,29 @@ import Testing
         ))
         #expect(try await pollUntil {
             shell.notificationFeedRefreshTasksByMac["mac-b"] == nil
+                && shell.notificationFeedRefreshRetryTasksByMac["mac-b"]
+                    != nil
+                && clock.sleeperCount == 1
         })
-        for _ in 0 ..< 8 { await Task.yield() }
         #expect(await router.count(of: "notification.feed.list") == 2)
+
+        clock.advance(by: .seconds(1))
+        #expect(await router.waitForCount(
+            of: "notification.feed.list",
+            atLeast: 4
+        ))
+        #expect(try await pollUntil {
+            shell.notificationFeedRefreshTasksByMac["mac-b"] == nil
+                && shell.notificationFeedRefreshRetryTasksByMac["mac-b"]
+                    == nil
+        })
+        clock.advance(by: .seconds(10))
+        for _ in 0 ..< 8 { await Task.yield() }
+        #expect(await router.count(of: "notification.feed.list") == 4)
+        #expect(shell.notificationFeedRefreshPendingMacIDs.contains("mac-b"))
         #expect(shell.notificationFeedSnapshotsByMac["mac-b"] == nil)
 
+        shell.removeNotificationFeedSnapshot(macDeviceID: "mac-b")
         subscription.detachKeepingClient()
         shell.secondaryMacSubscriptions["mac-b"] = nil
         await client.disconnect()
