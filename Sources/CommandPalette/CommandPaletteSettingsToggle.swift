@@ -457,6 +457,26 @@ enum CommandPaletteSettingsToggleCommands {
                     )
                 }
             ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "deferAgentResumeUntilFirstFocus",
+                settingsKey: "terminal.deferAgentResumeUntilFirstFocus",
+                title: {
+                    String(
+                        localized: "settings.terminal.agentDeferResumeUntilFirstFocus",
+                        defaultValue: "Resume Agents on First Focus"
+                    )
+                },
+                sectionTitle: terminal,
+                keywords: ["terminal.deferAgentResumeUntilFirstFocus", "terminal", "agent", "defer", "resume", "focus", "lazy", "startup"],
+                isOn: { defaults in AgentSessionDeferredResumeSettings.isEnabled(defaults: defaults) },
+                setOn: { newValue, defaults, notificationCenter in
+                    AgentSessionDeferredResumeSettings.setEnabled(
+                        newValue,
+                        defaults: defaults,
+                        notificationCenter: notificationCenter
+                    )
+                }
+            ),
             agentSessionAutoRetryDescriptor(sectionTitle: terminal),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "agentHibernation",

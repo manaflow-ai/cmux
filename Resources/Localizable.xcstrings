@@ -194361,6 +194361,57 @@
         }
       }
     },
+    "settings.terminal.agentDeferResumeUntilFirstFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume Agents on First Focus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "初めてフォーカスした時にエージェントを再開"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentDeferResumeUntilFirstFocus.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored agent terminals run their resume command immediately, even for tabs you haven't looked at yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元されたエージェント端末は、まだ表示していないタブでもすぐに再開コマンドを実行します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentDeferResumeUntilFirstFocus.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored agent terminals wait until you focus or view their tab before running their resume command, so opening many sessions at once doesn't launch them all immediately."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元されたエージェント端末は、タブをフォーカスまたは表示するまで再開コマンドを実行しません。これにより、多数のセッションを一度に開いてもすべてがすぐには起動しません。"
+          }
+        }
+      }
+    },
     "settings.terminal.agentHibernation": {
       "extractionState": "manual",
       "localizations": {

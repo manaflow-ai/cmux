@@ -112,6 +112,7 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(section: .terminal, id: "copy-on-select", title: "Copy on Selection", synonyms: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
             .init(section: .terminal, id: "agent-auto-resume", title: "Resume Agent Sessions on Reopen", synonyms: "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
+            .init(section: .terminal, id: "agent-defer-resume-until-focus", title: String(localized: "settings.terminal.agentDeferResumeUntilFirstFocus", defaultValue: "Resume Agents on First Focus"), synonyms: "terminal.deferAgentResumeUntilFirstFocus defer lazy resume focus startup thundering herd many sessions agents claude code codex opencode toggle"),
             .init(
                 section: .terminal,
                 id: "agent-auto-retry",

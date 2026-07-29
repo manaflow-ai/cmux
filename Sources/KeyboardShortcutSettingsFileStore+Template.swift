@@ -96,6 +96,7 @@ extension CmuxSettingsFileStore {
                     "sessionContentAlignment": SessionContentAlignment.center.rawValue,
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
+                    "deferAgentResumeUntilFirstFocus": AgentSessionDeferredResumeSettings.defaultDeferUntilFirstFocus,
                     "autoRetryAgentSessions": AgentSessionAutoRetrySettings.defaultAutoRetryAgentSessions,
                     "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
                     "focusTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultFocusOnNewTerminals,

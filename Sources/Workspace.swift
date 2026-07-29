@@ -182,6 +182,9 @@ extension Workspace {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+        let previousSuppressesHibernationResume = suppressesHibernationResumeDuringRestore
+        suppressesHibernationResumeDuringRestore = true
+        defer { suppressesHibernationResumeDuringRestore = previousSuppressesHibernationResume }
         sessionRestoreIdentityExclusions.beginRestore(excluding: excludingStableIdentities)
         defer { sessionRestoreIdentityExclusions.endRestore() }
 
@@ -1326,9 +1329,25 @@ extension Workspace {
                 locatedResumeBinding,
                 restorableAgent: restorableAgent
             )
+            // "Resume Agents on First Focus" candidate: the agent itself is
+            // resumable, so any startup resume — the agent's own command AND
+            // a local agent-hook binding for the same session — can be
+            // deferred into the synthetic hibernation state below.
+            // `restorableAgent` is already validated against the binding
+            // (`restorableAgentForSessionRestore`), and the hibernation wake
+            // rebuilds the command from the captured launch argv, so
+            // suppressing the binding here replays the same session later.
+            // Non-agent-hook bindings (tmux attach) and remote/persistent-SSH
+            // bindings are never deferred.
+            let deferAgentResumeCandidate = AgentSessionDeferredResumeSettings.isEnabled(
+                defaults: agentSessionAutoResumeDefaults
+            ) && shouldAutoResumeAgent && restoredHibernation == nil
+                && restorableAgent?.resumeCommand != nil
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
-                (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
+                (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true) ||
+                (deferAgentResumeCandidate && resumeBinding?.isAgentHookBinding == true
+                    && resumeBinding?.launchFlavor == .local)
                     ? nil
                     : resumeBinding
             let effectiveResumeBindingForStartup = sessionRestorePolicy.approvedSurfaceResumeBinding(
@@ -1424,9 +1443,19 @@ extension Workspace {
                     sessionId: restorableAgent.sessionId
                 )
             }()
+            // When enabled, defer this panel's resume the same way the dock
+            // split restore path does: skip firing it now and instead enter
+            // the existing synthetic-hibernation state below so the
+            // focus/visibility-triggered resume fires it lazily (avoids a
+            // startup thundering herd of concurrent agent resumes).
+            // `restoredBindingLaunch` is nil for deferred local agent-hook
+            // bindings (suppressed above) but still set for tmux/SSH
+            // bindings, which keep their immediate startup launch.
+            let deferAgentResumeUntilFocus = deferAgentResumeCandidate
+                && restoredBindingLaunch == nil && !agentSessionAlreadyActive
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
-                    && !agentSessionAlreadyActive {
+                    && !agentSessionAlreadyActive && !deferAgentResumeUntilFocus {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
@@ -1673,6 +1702,12 @@ extension Workspace {
                         agent: restorableAgent,
                         lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
                         hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
+                    )
+                } else if deferAgentResumeUntilFocus {
+                    terminalPanel.enterAgentHibernation(
+                        agent: restorableAgent,
+                        lastActivityAt: Date(),
+                        hibernatedAt: Date()
                     )
                 }
             } else {
@@ -3544,6 +3579,14 @@ final class Workspace: Identifiable, ObservableObject {
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
     private var suppressClosedPanelHistory = false
+    /// True while `restoreSessionSnapshot` runs. Tab creation during restore
+    /// emits transient bonsplit selection, focus, and portal-visibility
+    /// events; without this guard those events immediately resume agents the
+    /// restore just put into (deferred) hibernation. Actual visibility-driven
+    /// resume stays with the post-restore render passes and the view layer
+    /// (`onAutoResumeAgentHibernation`), which only fire for panels the user
+    /// really sees.
+    private var suppressesHibernationResumeDuringRestore = false
     /// Stable identities not re-adopted by the in-flight snapshot restore.
     let sessionRestoreIdentityExclusions = SessionRestoreIdentityExclusions()
     private var tabStripCloseButtonByTabId: [TabID: Bool] = [:]
@@ -4862,7 +4905,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func resumeAgentHibernation(panelId: UUID, focus: Bool) -> Bool {
-        guard let terminalPanel = panels[panelId] as? TerminalPanel,
+        guard !suppressesHibernationResumeDuringRestore,
+              let terminalPanel = panels[panelId] as? TerminalPanel,
               terminalPanel.isAgentHibernated else {
             return false
         }
