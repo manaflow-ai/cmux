@@ -43,20 +43,43 @@ extension MobileShellComposite {
     }
 
     /// UI reconnect entry for a specific workspace's Mac (status pill, toast
-    /// Reconnect action). Switches the foreground connection when the Mac is
-    /// not the current foreground; otherwise goes straight to the recovery
-    /// redial. `switchToMac`'s already-foreground fast path returns true
-    /// without dialing, so routing an unavailable foreground Mac through it
-    /// would make the reconnect control a no-op (e.g. after the live event
-    /// stream fails while the RPC transport object survives).
+    /// Reconnect action). Unlike ``reconnectOrRefresh()``, which gates on the
+    /// AGGREGATE ``workspaceListConnectionStatus`` (a healthy secondary Mac
+    /// makes it refresh or switch elsewhere), this redials the supplied Mac
+    /// directly when it is the unavailable foreground target.
     public func reconnectToMac(macDeviceID: String?) async {
-        if let macDeviceID,
-           !macDeviceID.isEmpty,
-           macDeviceID != foregroundMacDeviceID,
-           await switchToMac(macDeviceID: macDeviceID) {
+        guard let macDeviceID, !macDeviceID.isEmpty else {
+            await reconnectOrRefresh()
             return
         }
-        await reconnectOrRefresh()
+        if macDeviceID != foregroundMacDeviceID {
+            if await switchToMac(macDeviceID: macDeviceID) {
+                return
+            }
+            await reconnectOrRefresh()
+            return
+        }
+        if connectionState == .connected, macConnectionStatus == .connected {
+            // Defensive: the target is healthy, don't tear down a live
+            // connection for a stray reconnect gesture.
+            await refreshWorkspaces()
+            return
+        }
+        // Explicit user gesture: bypass the automatic-retry cooldown, mirror
+        // of the disconnected branch in reconnectOrRefresh().
+        if let accountID = identityProvider?.currentUserID {
+            clearTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
+        if connectionState == .connected {
+            // The live event stream can fail before the RPC client's
+            // transport closes. Tear down the stale client so switchToMac
+            // cannot take its already-connected fast path and skip the dial.
+            disconnectLiveConnection()
+        }
+        if await switchToMac(macDeviceID: macDeviceID) {
+            return
+        }
+        _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
     }
 
     /// UI-facing recover action for the workspace list when it is showing an
