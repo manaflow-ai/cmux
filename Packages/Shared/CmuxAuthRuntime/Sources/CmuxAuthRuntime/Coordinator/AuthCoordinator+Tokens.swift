@@ -132,15 +132,15 @@ extension AuthCoordinator {
     /// separate awaits, so a ``forceRefreshAccessToken()`` landing between them
     /// can rotate the pair and return an old access token with a rotated refresh
     /// token. This instead brackets the read with the refresh token: capture the
-    /// refresh, resolve a usable access token FOR that exact refresh via
-    /// ``AuthClient/freshAccessToken(accessToken:refreshToken:)`` — which REUSES
-    /// the stored access when it is still valid and only mints over the network
-    /// when it is not, so an offline caller with a valid stored pair still
-    /// succeeds — then re-read the refresh token. An unchanged refresh proves no
-    /// rotation crossed the window, so the resolved access belongs to the
-    /// returned refresh; a changed one retries against the new capture. The read
-    /// runs inside the coordinator's bounded token-touching phase like every
-    /// other token accessor.
+    /// refresh, resolve the access token through the LIVE store — a still-fresh
+    /// stored token comes back without the network (an offline caller with a
+    /// valid stored pair succeeds), and a stale one is refreshed through the
+    /// SDK's own store, persisted and deduplicated with concurrent refreshes so
+    /// repeated captures never re-mint — then re-read the refresh token. An
+    /// unchanged refresh proves no rotation crossed the window, so the resolved
+    /// access belongs to the returned refresh; a changed one retries against
+    /// the new capture. The read runs inside the coordinator's bounded
+    /// token-touching phase like every other token accessor.
     /// - Returns: The access and refresh tokens from one coherent capture.
     /// - Throws: ``AuthError/networkError`` when the refresh token survives but a
     ///   usable access token cannot be resolved for it (transient), when token
@@ -159,18 +159,15 @@ extension AuthCoordinator {
             guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
                 throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
             }
-            // The RAW stored access as the reuse hint: `freshAccessToken`
-            // returns it when it is still likely valid (no network) and mints
-            // from the captured refresh only when it is not.
-            let hint = await client.storedAccessToken()
-            guard let access = await client.freshAccessToken(
-                accessToken: hint,
-                refreshToken: refresh
-            ), !access.isEmpty else {
+            // Resolve the access token through the LIVE store: a still-fresh
+            // stored token is returned without the network, and a stale one is
+            // refreshed through the SDK's own store — persisted, and
+            // deduplicated with any concurrent refresh — so repeated captures
+            // never re-mint a token the store already refreshed.
+            guard let access = await client.accessToken(), !access.isEmpty else {
                 // The refresh token survived but no usable access token could
-                // be resolved for it: stay retryable, matching
-                // currentTokens()'s classification of a surviving-refresh
-                // access miss.
+                // be resolved: stay retryable, matching currentTokens()'s
+                // classification of a surviving-refresh access miss.
                 throw AuthError.networkError
             }
             // The bracket: an unchanged refresh across the access resolution
@@ -291,7 +288,8 @@ extension AuthCoordinator {
 /// The generation lets a long operation (revoking bindings, say) detect that the
 /// session was replaced after the snapshot, so it aborts before acting with one
 /// account's identity and another's credentials.
-public struct AuthenticatedSessionSnapshot: Sendable, Equatable {
+public struct AuthenticatedSessionSnapshot: Sendable, Equatable,
+    CustomStringConvertible, CustomDebugStringConvertible {
     /// The session generation the account id and tokens were captured under.
     public let generation: UInt64
     /// The signed-in account id (`currentUser.id`) at capture.
@@ -312,4 +310,13 @@ public struct AuthenticatedSessionSnapshot: Sendable, Equatable {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
     }
+
+    /// Redacted: the synthesized reflection would copy live tokens (and the
+    /// account id) into logs, assertion output, and crash reports.
+    public var description: String {
+        "AuthenticatedSessionSnapshot(generation: \(generation), "
+            + "accountID: <redacted>, accessToken: <redacted>, refreshToken: <redacted>)"
+    }
+
+    public var debugDescription: String { description }
 }

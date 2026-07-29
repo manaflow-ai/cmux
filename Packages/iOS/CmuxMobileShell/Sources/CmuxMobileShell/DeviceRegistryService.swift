@@ -83,8 +83,12 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// (iOS `UserDefaults` does not): the iroh binding slot is keyed on
     /// `(user, device, tag)`, so a returning phone must present the same device
     /// id to overwrite its own binding in place instead of stranding a new one.
-    /// A pre-Keychain `UserDefaults` id is migrated on first read. Mirrors the
-    /// Mac side's `MobileHostIdentity.deviceID()`.
+    /// The pre-Keychain `UserDefaults` value survives only as a best-effort
+    /// mirror while the Keychain is temporarily locked — it is NEVER adopted as
+    /// the identity when the Keychain authoritatively reports the id absent,
+    /// because `UserDefaults` travels in device backups onto NEW phones while
+    /// the `ThisDeviceOnly` Keychain item does not. Mirrors the Mac side's
+    /// `MobileHostIdentity.deviceID()`.
     ///
     /// This is the best-effort read used by non-binding callers (the device
     /// registry HTTP client, which only reads the team's Macs). It never returns
@@ -108,7 +112,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             // persisted. This best-effort path (registry reads only, never binding
             // registration) returns a process-stable ephemeral id so repeated
             // lookups agree within the launch; it is never persisted, so a later
-            // launch that can read/persist adopts or mints the durable id.
+            // launch that can read/persist mints the durable id.
             return ephemeralFallbackID
         }
     }
@@ -139,9 +143,9 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     /// The outcome of resolving the device id from the authoritative store.
     enum DurableDeviceIDResolution: Equatable, Sendable {
-        /// A durable id is available: read from the store, adopted from a legacy
-        /// mirror (already the id an existing binding uses), or freshly minted
-        /// AND confirmed persisted.
+        /// A durable id is available: read from the store, or freshly minted
+        /// AND confirmed persisted. (While the store is temporarily unreadable,
+        /// the legacy mirror of a continuing install also resolves as durable.)
         case durable(String)
         /// No durable id can be produced right now — the store is unreadable with
         /// no mirror, or a fresh mint could not be persisted.
@@ -160,7 +164,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 // Present but blank: treat as corrupt and re-mint/adopt.
-                return adoptOrGenerateDeviceID(store: store, defaults: defaults)
+                return generateDeviceID(store: store, defaults: defaults)
             }
             // Re-mirror to UserDefaults so a later downgrade to a build that reads
             // only UserDefaults finds the same id. Write only when it differs, so
@@ -170,7 +174,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             }
             return .durable(trimmed)
         case .absent:
-            return adoptOrGenerateDeviceID(store: store, defaults: defaults)
+            return generateDeviceID(store: store, defaults: defaults)
         case .unavailable:
             // Fail closed: the store exists but is unreadable right now (a
             // background launch before first unlock leaves the Keychain locked).
@@ -192,37 +196,28 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         }
     }
 
-    /// Adopt a pre-Keychain `UserDefaults` id (so existing installs keep their
-    /// slot), or mint a fresh one. Either id is durable ONLY once the Keychain
-    /// confirms it holds it: until then the sole copy lives in reinstall-volatile
-    /// `UserDefaults`, so registering a binding under it lets a
-    /// delete-and-reinstall wipe the id, mint a different one, and strand the
-    /// existing `(user, device, tag)` slot — the exact failure the durable store
-    /// exists to prevent.
+    /// Mint a fresh device id when the Keychain authoritatively reports the id
+    /// ABSENT — never adopt the `UserDefaults` mirror here. The mirror travels
+    /// in device backups: restoring a backup onto a NEW phone carries
+    /// `UserDefaults` over, while the `ThisDeviceOnly` Keychain item does not
+    /// migrate. Adopting the mirror on the restored phone would give TWO
+    /// physical devices the same device id, and their registrations would fight
+    /// over one `(user, device, tag)` binding slot, each displacing the other —
+    /// the flapping this identity exists to prevent, on every ordinary phone
+    /// upgrade. The mirror is trusted only while the Keychain is temporarily
+    /// UNREADABLE (see `resolveDurableDeviceID`'s locked-store branch), where a
+    /// continuing install's Keychain most likely still holds the same id.
     ///
     /// Persistence goes through ``DeviceIdentityStoring/createOrAdopt(_:)``, which
     /// never overwrites a value a concurrent resolution already won, so two
     /// launches that each mint a different candidate converge on one id instead of
     /// the last writer clobbering the winner (which would strand the winner's
-    /// binding on the next launch).
-    private static func adoptOrGenerateDeviceID(
+    /// binding on the next launch). A failed persist defers (`.unavailable`):
+    /// an id only the reinstall-volatile mirror holds is not durable.
+    private static func generateDeviceID(
         store: any DeviceIdentityStoring,
         defaults: UserDefaults
     ) -> DurableDeviceIDResolution {
-        if let legacy = trimmedLegacyDeviceID(defaults) {
-            // If a concurrent resolution already persisted a winner, adopt it so
-            // all callers agree. A failed persist (the store is READABLE — it
-            // reported the id absent — but cannot write right now) must defer:
-            // the legacy value is not durable until the Keychain confirms the
-            // migration, and a later launch re-attempts the upgrade.
-            guard let winner = store.createOrAdopt(legacy) else {
-                return .unavailable
-            }
-            if defaults.string(forKey: deviceIDKey) != winner {
-                defaults.set(winner, forKey: deviceIDKey)
-            }
-            return .durable(winner)
-        }
         guard let winner = store.createOrAdopt(UUID().uuidString.lowercased()) else {
             return .unavailable
         }

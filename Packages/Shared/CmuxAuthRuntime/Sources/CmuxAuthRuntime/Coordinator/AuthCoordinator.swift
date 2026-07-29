@@ -581,11 +581,22 @@ public final class AuthCoordinator {
     // MARK: - State helpers
 
     func applySignedInUser(_ user: CMUXAuthUser) async {
-        // Publishing a session advances the epoch exactly like clearing one:
-        // any other flow that captured the pre-publish generation (a stale
-        // revalidation of the previous session still parked in its fetch)
-        // must not clear or overwrite this newer session when it resumes.
-        sessionGeneration &+= 1
+        // Publishing a session TRANSITION advances the epoch exactly like
+        // clearing one: any other flow that captured the pre-publish generation
+        // (a stale revalidation of the previous session still parked in its
+        // fetch) must not clear or overwrite this newer session when it
+        // resumes. A same-account re-publish (an ordinary foreground
+        // revalidation) is NOT a transition and must keep the generation:
+        // long-lived operations pin their broker credentials to the generation
+        // (the forget flow, the activation runtime's token source), and bumping
+        // it on every foreground would permanently starve those pins of
+        // credentials even though the very same session remains signed in. The
+        // fences that matter — sign-out and sign-in — still bump: a sign-out
+        // always advances the epoch, so a re-sign-in lands here with
+        // `isAuthenticated == false` and bumps again.
+        if !isAuthenticated || currentUser?.id != user.id {
+            sessionGeneration &+= 1
+        }
         let generation = sessionGeneration
         currentUser = user
         isAuthenticated = true

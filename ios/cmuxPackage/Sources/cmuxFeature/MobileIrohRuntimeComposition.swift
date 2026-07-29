@@ -2642,29 +2642,32 @@ extension MobileIrohRuntimeComposition {
     }
 
     /// Broker token source for LONG-LIVED clients (the activation runtime):
-    /// pinned to the activating session's identity, re-reading a coherent pair
-    /// from the token store on every request. Freezing an activation-time pair
-    /// would go stale the moment an ordinary force refresh rotates the Stack
-    /// pair (rotation does not bump the session generation), leaving the
+    /// pinned to the activating session's identity, re-reading an ATOMIC
+    /// authenticated snapshot on every request. Freezing an activation-time
+    /// pair would go stale the moment an ordinary force refresh rotates the
+    /// Stack pair (rotation does not bump the session generation), leaving the
     /// runtime's relay refresh and discovery failing until an unrelated
-    /// reconcile; the per-request read stays current for the runtime's whole
-    /// lifetime, is store-level (no network while the stored access is valid),
-    /// and the pin still fails closed after a sign-out or account switch.
+    /// reconcile. The snapshot binds identity and credentials in one capture —
+    /// it rejects reads while a session transition owns the token store and
+    /// re-validates the generation and account across the token read — so a
+    /// sign-out/sign-in completing while the read is suspended can never hand
+    /// this old-account runtime the new session's credentials; validating the
+    /// snapshot against the activation pin then fails closed on any switch.
+    /// The snapshot's pair capture is store-level (no network while the stored
+    /// access token is valid), so this stays cheap per request.
     private func brokerTokenSource(
         pinnedTo expectedAccountID: String,
         generation: UInt64
     ) -> CmxIrohBrokerTokenSource {
         CmxIrohBrokerTokenSource(
-            credentialPair: { [weak self, weak auth] in
-                guard let self, let auth,
-                      await self.sessionMatches(
-                          generation: generation,
-                          accountID: expectedAccountID
-                      ),
-                      let pair = try? await auth.coherentTokenPair() else { return nil }
+            credentialPair: { [weak auth] in
+                guard let auth,
+                      let session = try? await auth.authenticatedSessionSnapshot(),
+                      session.generation == generation,
+                      session.accountID == expectedAccountID else { return nil }
                 return CmxIrohBrokerCredentials(
-                    accessToken: pair.accessToken,
-                    refreshToken: pair.refreshToken
+                    accessToken: session.accessToken,
+                    refreshToken: session.refreshToken
                 )
             }
         )
