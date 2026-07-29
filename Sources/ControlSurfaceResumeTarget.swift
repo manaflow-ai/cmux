@@ -60,7 +60,7 @@ enum ControlSurfaceResumeTarget {
     ) -> SurfaceResumeBindingSnapshot? {
         switch self {
         case .workspace:
-            binding
+            return binding
         case .dock(_, let dock, let surfaceID):
             if expectedSource == "agent-hook" || agentSessionEnded {
                 return dock.managedAgentResumeBinding(panelId: surfaceID)

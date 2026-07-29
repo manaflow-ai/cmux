@@ -320,12 +320,13 @@ extension DockSplitStore {
             }
             return candidate
         }()
-        let compatible = [
+        let candidates: [SessionRestorableAgentSnapshot?] = [
             terminal.agentHibernationState?.agent,
             observed,
             coordinated,
             cachedTransferAgent,
-        ].compactMap { candidate in
+        ]
+        let compatible = candidates.compactMap { candidate -> SessionRestorableAgentSnapshot? in
             if requiresCurrentManagedSession,
                managedResumeBinding?.hasCompleteManagedSessionIdentity != true {
                 return nil
