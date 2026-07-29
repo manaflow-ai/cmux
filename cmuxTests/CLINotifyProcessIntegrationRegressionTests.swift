@@ -4692,7 +4692,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     $0 == "workspace.remote.terminal_session_connected"
                 }.count
                 if readinessReportCount <= 4 {
-                    return nil
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "busy", "message": "Lifecycle commit is temporarily busy"]
+                    )
                 }
                 if readinessReportCount > 5 {
                     unexpectedReadinessAfterAcknowledgement.fulfill()
@@ -4778,6 +4782,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
+        environment["CMUX_SSH_ATTEMPT_ID"] = "44444444-4444-4444-4444-444444444444"
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
@@ -4828,9 +4833,201 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             5,
             "A live PTY must keep retrying authoritative readiness beyond transient local backpressure"
         )
+        let readinessTimestamps = state.timestampedSnapshot().compactMap { record -> TimeInterval? in
+            self.jsonObject(record.command)?["method"] as? String ==
+                "workspace.remote.terminal_session_connected"
+                ? record.timestamp
+                : nil
+        }
+        XCTAssertEqual(readinessTimestamps.count, 5)
+        if readinessTimestamps.count == 5 {
+            XCTAssertGreaterThanOrEqual(
+                readinessTimestamps[4] - readinessTimestamps[0],
+                1.25,
+                "Transient v2 rejections must use exponential backoff before the fifth attempt"
+            )
+        }
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_resize" }.count, 1)
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 1)
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1)
+    }
+
+    func testSSHPTYAttachPermanentReadinessRejectionDoesNotRetryWhileBridgeLives() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptyreject")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let bridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+        let token = "bridge-token"
+        let bridgeReady = DispatchSemaphore(value: 0)
+        let closeBridge = DispatchSemaphore(value: 0)
+        let readinessRejected = DispatchSemaphore(value: 0)
+        let unexpectedReadinessRetry = expectation(
+            description: "permanent readiness rejection is not retried"
+        )
+        unexpectedReadinessRetry.isInverted = true
+
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.close(bridge.fd)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 8
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.remote.pty_bridge":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": token,
+                        "session_id": sessionId,
+                        "attachment_id": surfaceId,
+                    ]
+                )
+            case "workspace.remote.pty_resize":
+                return self.v2Response(id: id, ok: true, result: ["resized": true])
+            case "workspace.remote.terminal_session_connected":
+                let readinessCount = state.snapshot().compactMap {
+                    self.jsonObject($0)?["method"] as? String
+                }.filter {
+                    $0 == "workspace.remote.terminal_session_connected"
+                }.count
+                if readinessCount == 1 {
+                    readinessRejected.signal()
+                } else {
+                    unexpectedReadinessRetry.fulfill()
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "not_found", "message": "Workspace not found"]
+                )
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: ["sessions": []])
+            case "workspace.remote.pty_attach_end":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "session_id": sessionId,
+                        "cleared_remote_pty_session": true,
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        let bridgeHandled = expectation(description: "controlled bridge handled")
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { bridgeHandled.fulfill() }
+            var clientAddr = sockaddr_in()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(bridge.fd, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while !pending.contains(0x0A) {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+            }
+
+            let ready = #"{"type":"ready","attachment_token":"attach-token"}"# + "\n"
+            _ = ready.withCString { ptr in
+                Darwin.write(clientFD, ptr, strlen(ptr))
+            }
+            bridgeReady.signal()
+            _ = closeBridge.wait(timeout: .now() + 5)
+        }
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = [
+            "ssh-pty-attach",
+            "--workspace", workspaceId,
+            "--session-id", sessionId,
+            "--attachment-id", surfaceId,
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
+        environment["CMUX_SSH_ATTEMPT_ID"] = "44444444-4444-4444-4444-444444444444"
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+        XCTAssertEqual(bridgeReady.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(readinessRejected.wait(timeout: .now() + 5), .success)
+        wait(for: [unexpectedReadinessRetry], timeout: 0.5)
+
+        closeBridge.signal()
+        wait(for: [bridgeHandled], timeout: 5)
+        let exited = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exited.signal()
+        }
+        XCTAssertEqual(exited.wait(timeout: .now() + 5), .success)
+        wait(for: [socketHandled], timeout: 5)
+
+        let stdout = String(
+            data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        let stderr = String(
+            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertEqual(process.terminationStatus, 0, stderr)
+        XCTAssertEqual(stdout, "")
+        XCTAssertEqual(stderr, "")
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(
+            methods.filter { $0 == "workspace.remote.terminal_session_connected" }.count,
+            1
+        )
     }
 
     func testSSHSessionAttachCreatesSurfaceWithPersistedPTYSessionID() throws {

@@ -191,6 +191,37 @@ struct SSHDeepSleepReattachTests {
     }
 
     @MainActor
+    @Test func confirmedPersistentPTYExitClearsConnectedPresentation() throws {
+        let workspace = Workspace()
+        let configuration = Self.persistentConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let sessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: workspace.id,
+            panelId: panel.id
+        )
+        #expect(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panel.id,
+                authority: .persistentTransport(configuration.proxyBrokerTransportKey),
+                terminalLifecycleID: panel.surface.terminalLifecycleId
+            )
+        )
+        #expect(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        #expect(workspace.remoteConnectionState == .connected)
+
+        let ended = workspace.markRemotePTYAttachEnded(
+            surfaceId: panel.id,
+            sessionID: sessionID
+        )
+
+        #expect(ended.clearedRemotePTYSession)
+        #expect(ended.untrackedRemoteTerminal)
+        #expect(!workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        #expect(workspace.remoteConnectionState != .connected)
+    }
+
+    @MainActor
     @Test func confirmedCloudPTYExitRestartsWithInheritedCustomIdentity() throws {
         let workspace = Workspace()
         let initialPanel = try #require(workspace.focusedTerminalPanel)
