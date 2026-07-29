@@ -37,8 +37,7 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
         // excluded while a machine filter is active, since it can't be confirmed
         // to belong to a selected machine. An entry may be a bare device id
         // (matches every build on that device) or a pairing id
-        // (device + unit separator + tag: matches that build's rows, plus
-        // legacy rows with no tag, whose build is unknowable).
+        // (device + unit separator + tag: matches only that build's rows).
         let machineOK = machines.isEmpty || (workspace.macDeviceID.map { deviceID in
             machines.contains(where: { entry in
                 Self.machineEntryMatches(
@@ -64,7 +63,11 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
             return false
         }
         guard parts.count == 2 else { return true }
-        guard let rowTag, !rowTag.isEmpty else { return true }
+        // An exact pairing entry matches only rows proven to be that build.
+        // Unknown-tag rows stay visible under device entries and All Computers,
+        // never inside a sibling build's scope where acting on them could
+        // route to the wrong build.
+        guard let rowTag, !rowTag.isEmpty else { return false }
         return String(parts[1]) == rowTag
     }
 

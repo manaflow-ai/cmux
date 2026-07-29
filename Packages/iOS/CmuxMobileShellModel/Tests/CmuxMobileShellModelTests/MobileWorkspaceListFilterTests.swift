@@ -85,11 +85,13 @@ import Testing
 }
 
 @Suite struct MobileWorkspaceListFilterPairingTests {
-    @Test func pairingEntryMatchesOwnBuildAndLegacyRowsOnly() {
+    @Test func pairingEntryMatchesExactlyItsOwnBuild() {
         let pairing = "mac-a\u{1F}nightly"
         #expect(MobileWorkspaceListFilter.machineEntryMatches(
             pairing, deviceID: "mac-a", rowTag: "nightly"))
-        #expect(MobileWorkspaceListFilter.machineEntryMatches(
+        // Unknown-tag rows never enter an exact build scope: acting on them
+        // could route to a sibling. They stay under device entries only.
+        #expect(!MobileWorkspaceListFilter.machineEntryMatches(
             pairing, deviceID: "mac-a", rowTag: nil))
         #expect(!MobileWorkspaceListFilter.machineEntryMatches(
             pairing, deviceID: "mac-a", rowTag: "default"))

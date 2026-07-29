@@ -24,12 +24,21 @@ extension MobileShellComposite {
         let candidates = secondaryMacSubscriptions.filter { _, candidate in
             candidate.macDeviceID == macID && (
                 instanceTag == nil || MobileMacInstanceTagAuthority.sameStoredAuthority(
-                    candidate.authenticatedInstanceTag ?? candidate.storedInstanceTag,
+                    candidate.storedInstanceTag,
                     instanceTag
                 )
             )
         }
         guard candidates.count == 1, let entry = candidates.first else { return false }
+        if instanceTag == nil {
+            // A device-only request is unambiguous only when the device has one
+            // stored pairing at all: "the only LIVE sibling" may still be the
+            // wrong one when the intended sibling is merely offline.
+            let storedSiblings = pairedMacsForIdentityMatching.filter {
+                $0.macDeviceID == macID
+            }
+            guard storedSiblings.count <= 1 else { return false }
+        }
         let ownerKey = entry.key
         guard runtime != nil,
               let sub = secondaryMacSubscriptions[ownerKey],
@@ -91,6 +100,9 @@ extension MobileShellComposite {
         sub.detachKeepingClient()
         let displayName = workspacesByMac[ownerKey]?.displayName
         workspacesByMac[ownerKey] = nil
+        // The foreground refetches this feed under the bare device key; the
+        // pairing-keyed source would otherwise linger as stale offline rows.
+        removeNotificationFeedSnapshot(macDeviceID: ownerKey)
         activeTicket = sub.ticket
         activeRoute = sub.route
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag

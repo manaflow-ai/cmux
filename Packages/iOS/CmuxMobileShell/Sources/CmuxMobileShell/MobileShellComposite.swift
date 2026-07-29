@@ -3674,7 +3674,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let previews = await fetchSecondaryWorkspaces(
                     on: existing.client,
                     macDeviceID: mac.macDeviceID,
-                    instanceTag: existing.authenticatedInstanceTag ?? existing.storedInstanceTag
+                    instanceTag: existing.storedInstanceTag
                 )
                 guard await isSecondaryRefreshStillCurrent(
                     ownerKey: mac.id,
@@ -3902,7 +3902,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let previews = await fetchSecondaryWorkspaces(
             on: client,
             macDeviceID: macID,
-            instanceTag: handle.authenticatedInstanceTag ?? handle.storedInstanceTag
+            instanceTag: handle.storedInstanceTag
         )
         // The fetch await is another sign-out window: drop the just-opened
         // connection and entry rather than seed another account's workspaces.
@@ -3932,7 +3932,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let previews {
             workspacesByMac[pairingID] = MacWorkspaceState(
                 macDeviceID: macID,
-                instanceTag: subscription.authenticatedInstanceTag ?? subscription.storedInstanceTag,
+                instanceTag: subscription.storedInstanceTag,
                 displayName: displayName,
                 workspaces: previews,
                 status: .connected,
@@ -4024,7 +4024,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let previews = await self.fetchSecondaryWorkspaces(
                     on: client,
                     macDeviceID: macID,
-                    instanceTag: subscription.authenticatedInstanceTag ?? subscription.storedInstanceTag
+                    instanceTag: subscription.storedInstanceTag
                 )
                 // Revalidate both scope and per-Mac authority across the fetch.
                 // A backup refresh can replace A with B while A's RPC is in flight;
@@ -4064,7 +4064,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let previews {
                     self.workspacesByMac[ownerKey] = MacWorkspaceState(
                         macDeviceID: macID,
-                        instanceTag: current.authenticatedInstanceTag ?? current.storedInstanceTag,
+                        instanceTag: current.storedInstanceTag,
                         displayName: displayName,
                         workspaces: previews,
                         status: .connected,

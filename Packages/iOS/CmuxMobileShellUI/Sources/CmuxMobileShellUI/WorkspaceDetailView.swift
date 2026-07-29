@@ -326,7 +326,10 @@ struct WorkspaceDetailView: View {
                     Task {
                         if let macDeviceID = workspace.macDeviceID,
                            !macDeviceID.isEmpty,
-                           await store.switchToMac(macDeviceID: macDeviceID) {
+                           await store.switchToMac(
+                               macDeviceID: macDeviceID,
+                               instanceTag: workspace.macInstanceTag
+                           ) {
                             return
                         }
                         await store.reconnectOrRefresh()

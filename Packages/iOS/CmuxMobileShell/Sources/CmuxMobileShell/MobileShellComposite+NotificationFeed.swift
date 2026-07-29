@@ -72,7 +72,7 @@ extension MobileShellComposite {
             )
         }
         var hasConnectedMac = secondaryMacSubscriptions.values.contains {
-            matches(deviceID: $0.macDeviceID, tag: $0.authenticatedInstanceTag ?? $0.storedInstanceTag)
+            matches(deviceID: $0.macDeviceID, tag: $0.storedInstanceTag)
         }
         if !hasConnectedMac, remoteClient != nil,
            let foregroundID = normalizedForegroundNotificationFeedMacID(),
@@ -685,7 +685,7 @@ extension MobileShellComposite {
         where subscription.supportedHostCapabilities.contains(Self.notificationFeedCapability) {
             targets.append(NotificationFeedClientTarget(
                 macDeviceID: subscription.macDeviceID,
-                instanceTag: subscription.authenticatedInstanceTag ?? subscription.storedInstanceTag,
+                instanceTag: subscription.storedInstanceTag,
                 displayName: notificationFeedDisplayName(for: subscription.macDeviceID),
                 ownerKey: ownerKey,
                 client: subscription.client
@@ -715,8 +715,7 @@ extension MobileShellComposite {
         if normalizedForegroundNotificationFeedMacID() == ownerKey {
             return activeMacInstanceTag
         }
-        let subscription = secondaryMacSubscriptions[ownerKey]
-        return subscription?.authenticatedInstanceTag ?? subscription?.storedInstanceTag
+        return secondaryMacSubscriptions[ownerKey]?.storedInstanceTag
     }
 
     private func notificationFeedClient(forOwnerKey ownerKey: String) -> MobileCoreRPCClient? {

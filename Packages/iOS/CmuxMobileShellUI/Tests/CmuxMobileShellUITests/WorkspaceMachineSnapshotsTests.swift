@@ -178,7 +178,7 @@ import Testing
             return preview
         }
         #expect(filter.matches(row("mac-old", "nightly")))
-        #expect(filter.matches(row("mac-new", nil)))
+        #expect(!filter.matches(row("mac-new", nil)))
         #expect(!filter.matches(row("mac-new", "default")))
     }
 
