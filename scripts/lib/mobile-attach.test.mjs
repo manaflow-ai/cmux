@@ -608,6 +608,28 @@ test("release gate grants asynchronous Iroh publication a bounded startup window
   );
 });
 
+test("simulator launch seeds a deterministic durable device id before app launch", () => {
+  const launcher = fs.readFileSync(
+    path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
+    "utf8",
+  );
+  const simulatorBranch = launcher.slice(
+    launcher.indexOf('if [[ "$TARGET" == "simulator" ]]'),
+    launcher.indexOf("\nelse\n", launcher.indexOf('if [[ "$TARGET" == "simulator" ]]')),
+  );
+  const seed = simulatorBranch.indexOf(
+    'cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"',
+  );
+  const terminate = simulatorBranch.indexOf('xcrun simctl terminate');
+  const launch = simulatorBranch.indexOf('xcrun simctl "${launch_args[@]}"');
+
+  assert.notEqual(terminate, -1, "existing simulator app must terminate before seeding");
+  assert.notEqual(seed, -1, "simulator launch must seed the durable identity mirror");
+  assert.notEqual(launch, -1, "simulator launch command is missing");
+  assert.ok(terminate < seed, "existing app must terminate before its durable identity is seeded");
+  assert.ok(seed < launch, "durable identity must be seeded before the app starts");
+});
+
 test("release gate assigns each mode to its transport proof", () => {
   const cases = [
     ["automatic", "app-rpc"],
@@ -667,6 +689,24 @@ test("local iOS reload never hides a requested setup failure with a plain launch
   assert.match(
     iosReload,
     /elif ! auto_setup_launch device \"\$selected_device_install_id\"; then[\s\S]{0,640}return 1/,
+  );
+});
+
+test("release gate builds and installs on its exact isolated simulator", () => {
+  const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+  const gate = fs.readFileSync(
+    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
+    "utf8",
+  );
+
+  assert.match(iosReload, /--simulator-id\)/);
+  assert.match(
+    iosReload,
+    /DESTINATION="platform=iOS Simulator,id=\$SIMULATOR_ID"/,
+  );
+  assert.match(
+    gate,
+    /\.\/ios\/scripts\/reload\.sh[\s\S]{0,320}--simulator-id "\$SIMULATOR_ID"/,
   );
 });
 
