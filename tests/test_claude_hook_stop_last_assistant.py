@@ -119,6 +119,18 @@ class CapturingSocketServer:
                 request = json.loads(line)
                 if "id" not in request:
                     return None
+                if request.get("method") == "agent.resolve_delivery_target":
+                    return json.dumps(
+                        {
+                            "id": request.get("id"),
+                            "ok": True,
+                            "result": {
+                                "source": "pid",
+                                "workspace_id": self.workspace_id,
+                                "surface_id": self.surface_id,
+                            },
+                        }
+                    )
                 if request.get("method") == "surface.list":
                     return json.dumps(
                         {
