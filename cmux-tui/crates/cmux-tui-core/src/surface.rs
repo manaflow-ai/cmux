@@ -2210,9 +2210,16 @@ impl Surface {
                             | Err(_) => {}
                         }
 
-                        let replacement = match crate::terminal_host_runtime::adopt_terminal_host(
+                        let Some(reconnect_mux) = mux.upgrade() else { return };
+                        let Ok(kitty_limits) =
+                            reconnect_mux.kitty_image_limits_for_reconnect(&surface)
+                        else {
+                            return;
+                        };
+                        let replacement = match crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
                             record,
                             record_path,
+                            kitty_limits,
                         ) {
                             Ok(replacement) if replacement.identity() == identity => replacement,
                             Ok(_) | Err(_) => {
@@ -2394,7 +2401,11 @@ impl Surface {
                                 rows: replacement_snapshot.rows,
                                 reservation_id: None,
                             });
-                            if !mux.terminal_host_reconnected(surface.id, &identity) {
+                            if !mux.terminal_host_reconnected(
+                                surface.id,
+                                &identity,
+                                replacement_snapshot.kitty_state.limits,
+                            ) {
                                 return;
                             }
                         }
@@ -2436,7 +2447,15 @@ impl Surface {
     ) -> anyhow::Result<Arc<Surface>> {
         let kitty_reservation =
             mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
-        let attachment = crate::terminal_host_runtime::adopt_terminal_host(record, record_path)?;
+        let initial_kitty_limits = kitty_reservation
+            .as_ref()
+            .map(crate::mux::KittyImageBudgetReservation::initial_limits)
+            .unwrap_or_default();
+        let attachment = crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
+            record,
+            record_path,
+            initial_kitty_limits,
+        )?;
         Self::spawn_hosted(id, opts, mux, attachment, kitty_reservation, false)
     }
 

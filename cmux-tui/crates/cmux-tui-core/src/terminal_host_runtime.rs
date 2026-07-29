@@ -403,6 +403,16 @@ mod unix {
         Ok(PtySize { rows, cols, pixel_width, pixel_height })
     }
 
+    fn kitty_graphics_limits_within(
+        candidate: KittyGraphicsLimits,
+        ceiling: KittyGraphicsLimits,
+    ) -> bool {
+        candidate.image_bytes <= ceiling.image_bytes
+            && candidate.inflight_bytes <= ceiling.inflight_bytes
+            && candidate.images <= ceiling.images
+            && candidate.placements <= ceiling.placements
+    }
+
     struct SpawnedHostProcess {
         child: Option<std::process::Child>,
     }
@@ -1046,6 +1056,101 @@ mod unix {
             Ok(true)
         }
 
+        fn reconfigure_kitty_graphics_for_adoption(
+            &mut self,
+            limits: KittyGraphicsLimits,
+        ) -> anyhow::Result<()> {
+            anyhow::ensure!(
+                self.protocol_version >= 3,
+                "terminal host cannot synchronize Kitty graphics limits"
+            );
+            let limits = limits
+                .validate()
+                .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
+            let mut payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
+            encode_kitty_graphics_limits(&mut payload, limits)?;
+            let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
+            if request_id == 0 {
+                self.disconnect();
+                anyhow::bail!("terminal host control request id exhausted");
+            }
+            let mut request = Frame::new(MessageKind::SetKittyGraphicsLimits, payload);
+            request.version = self.protocol_version;
+            request.request_id = request_id;
+            let write_result = {
+                let mut writer = self.writer.lock().unwrap();
+                write_frame(&mut *writer, &request).map_err(protocol_io_error)
+            };
+            if let Err(error) = write_result {
+                self.disconnect();
+                return Err(error.into());
+            }
+
+            // No Surface reader exists yet. Drain the old live stream through
+            // the targeted acknowledgement, then reconnect for the fresh
+            // authoritative Snapshot produced before that acknowledgement.
+            let protocol_version = self.protocol_version;
+            let deadline = Instant::now() + CONTROL_RESPONSE_TIMEOUT;
+            let result = (|| -> anyhow::Result<()> {
+                let reader = self
+                    .reader
+                    .as_mut()
+                    .ok_or_else(|| anyhow::anyhow!("terminal-host reader already taken"))?;
+                let previous_timeout = reader
+                    .read_timeout()
+                    .context("read terminal-host timeout before Kitty quota adoption")?;
+                let response = (|| -> anyhow::Result<()> {
+                    loop {
+                        let remaining = deadline.saturating_duration_since(Instant::now());
+                        anyhow::ensure!(
+                            !remaining.is_zero(),
+                            "terminal host did not apply Kitty graphics limits before adoption"
+                        );
+                        reader
+                            .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                            .context("set terminal-host Kitty quota adoption timeout")?;
+                        let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
+                            .map_err(protocol_io_error)?
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "terminal host disconnected while applying Kitty graphics limits"
+                                )
+                            })?;
+                        anyhow::ensure!(
+                            frame.version == protocol_version,
+                            "terminal host changed protocol during Kitty quota adoption"
+                        );
+                        if frame.request_id == 0 {
+                            continue;
+                        }
+                        anyhow::ensure!(
+                            frame.request_id == request_id
+                                && frame.kind == MessageKind::KittyGraphicsLimitsAck
+                                && frame.flags == 0
+                                && frame.sequence == 0,
+                            "terminal host returned an invalid Kitty quota adoption response"
+                        );
+                        let mut decoder = PayloadDecoder::new(&frame.payload);
+                        let acknowledged = decode_kitty_graphics_limits(&mut decoder)?;
+                        decoder.finish()?;
+                        anyhow::ensure!(
+                            acknowledged == limits,
+                            "terminal host acknowledged different Kitty graphics limits"
+                        );
+                        return Ok(());
+                    }
+                })();
+                let restored = reader
+                    .set_read_timeout(previous_timeout)
+                    .context("restore terminal-host timeout after Kitty quota adoption");
+                response.and(restored)
+            })();
+            if result.is_err() {
+                self.disconnect();
+            }
+            result
+        }
+
         fn defer_or_receive_raced_cell_pixel_ack(
             &self,
             request_id: u64,
@@ -1452,6 +1557,31 @@ mod unix {
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
         connect_record(record, record_path)
+    }
+
+    pub(crate) fn adopt_terminal_host_with_kitty_limits(
+        record: TerminalHostRecord,
+        record_path: PathBuf,
+        ceiling: KittyGraphicsLimits,
+    ) -> anyhow::Result<HostAttachment> {
+        let ceiling = ceiling
+            .validate()
+            .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
+        let mut attachment = adopt_terminal_host(record.clone(), record_path.clone())?;
+        if kitty_graphics_limits_within(attachment.snapshot.kitty_state.limits, ceiling) {
+            return Ok(attachment);
+        }
+
+        attachment.reconfigure_kitty_graphics_for_adoption(ceiling)?;
+        attachment.disconnect();
+        drop(attachment);
+
+        let attachment = adopt_terminal_host(record, record_path)?;
+        anyhow::ensure!(
+            kitty_graphics_limits_within(attachment.snapshot.kitty_state.limits, ceiling),
+            "terminal host retained Kitty graphics state above its adoption quota"
+        );
+        Ok(attachment)
     }
 
     /// Validate a discovery record without trusting paths or alternate
@@ -4881,7 +5011,10 @@ mod unix {
                 write_frame(&mut host, &resized).unwrap();
                 let mut colors = Frame::new(
                     MessageKind::Colors,
-                    encode_terminal_color_overrides(&TerminalColorOverrides::default()),
+                    encode_terminal_color_overrides(&TerminalColorOverrides {
+                        cursor_visual: Some((CursorShape::Block, false)),
+                        ..TerminalColorOverrides::default()
+                    }),
                 );
                 colors.version = PROTOCOL_VERSION;
                 colors.sequence = 2;
@@ -4893,9 +5026,11 @@ mod unix {
                 ack.version = PROTOCOL_VERSION;
                 ack.request_id = request.request_id;
                 write_frame(&mut host, &ack).unwrap();
+                assert!(read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().is_none());
             });
 
             attachment.reconfigure_kitty_graphics_for_adoption(ceiling).unwrap();
+            attachment.disconnect();
             responder.join().unwrap();
 
             drop(attachment);
@@ -5368,7 +5503,7 @@ mod unix {
 #[cfg(unix)]
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
-    decode_host_resize_payload_for_version,
+    adopt_terminal_host_with_kitty_limits, decode_host_resize_payload_for_version,
 };
 #[cfg(unix)]
 pub use unix::{

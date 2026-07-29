@@ -2817,18 +2817,19 @@ impl Mux {
     }
 
     pub(crate) fn terminal_host_reconnected(
-        &self,
+        self: &Arc<Self>,
         surface_id: SurfaceId,
         identity: &TerminalHostIdentity,
+        applied_kitty_limits: KittyGraphicsLimits,
     ) -> bool {
         if self.shutting_down.load(Ordering::Acquire) {
             return false;
         }
         let mut registry = self.workspace_registry.lock().unwrap();
         let state = self.state.lock().unwrap();
-        let identity_matches = state
-            .surfaces
-            .get(&surface_id)
+        let surface = state.surfaces.get(&surface_id).cloned();
+        let identity_matches = surface
+            .as_ref()
             .and_then(|surface| surface.terminal_host_identity())
             .is_some_and(|current| current == *identity);
         drop(state);
@@ -2846,30 +2847,36 @@ impl Mux {
         {
             return false;
         }
-        if terminal.lifecycle == TerminalLifecycle::Running {
-            return true;
-        }
-        match commit_terminal_lifecycle(
-            &mut registry,
-            "terminal-ready",
-            "terminal-admin-stream-reconnected",
-            &identity.terminal_id,
-            TerminalLifecycle::Running,
-            Some(&identity.incarnation),
-            None,
-        ) {
-            Ok((_, revision)) => {
-                self.emit_terminal_registry_changed(&registry, revision);
-                true
+        let lifecycle_ready = if terminal.lifecycle == TerminalLifecycle::Running {
+            true
+        } else {
+            match commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "terminal-admin-stream-reconnected",
+                &identity.terminal_id,
+                TerminalLifecycle::Running,
+                Some(&identity.incarnation),
+                None,
+            ) {
+                Ok((_, revision)) => {
+                    self.emit_terminal_registry_changed(&registry, revision);
+                    true
+                }
+                Err(error) => {
+                    self.emit(MuxEvent::Status(format!(
+                        "could not persist terminal {} reconnect completion: {error}",
+                        identity.terminal_id
+                    )));
+                    false
+                }
             }
-            Err(error) => {
-                self.emit(MuxEvent::Status(format!(
-                    "could not persist terminal {} reconnect completion: {error}",
-                    identity.terminal_id
-                )));
-                false
-            }
-        }
+        };
+        drop(registry);
+        lifecycle_ready
+            && surface.is_some_and(|surface| {
+                self.reconcile_reconnected_kitty_image_surface(&surface, applied_kitty_limits)
+            })
     }
 
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
@@ -4698,6 +4705,67 @@ impl Mux {
         }
         self.start_kitty_image_budget_worker();
         Ok(())
+    }
+
+    pub(crate) fn kitty_image_limits_for_reconnect(
+        &self,
+        surface: &Arc<Surface>,
+    ) -> anyhow::Result<KittyGraphicsLimits> {
+        let mut budget = self.kitty_image_budget.lock().unwrap();
+        Self::prune_dead_kitty_image_surfaces(&mut budget);
+        let target = kitty_image_limits_for_capacity(budget.capacity);
+        let entry = budget
+            .entries
+            .get(&surface.id)
+            .ok_or_else(|| anyhow::anyhow!("Kitty image budget entry disappeared on reconnect"))?;
+        anyhow::ensure!(
+            entry
+                .surface
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .is_some_and(|registered| Arc::ptr_eq(&registered, surface)),
+            "Kitty image budget entry changed ownership on reconnect"
+        );
+        Ok(if entry.removing || !entry.owns_quota {
+            KittyGraphicsLimits::disabled()
+        } else {
+            target
+        })
+    }
+
+    fn reconcile_reconnected_kitty_image_surface(
+        self: &Arc<Self>,
+        surface: &Arc<Surface>,
+        applied: KittyGraphicsLimits,
+    ) -> bool {
+        let reconciled = {
+            let mut budget = self.kitty_image_budget.lock().unwrap();
+            Self::prune_dead_kitty_image_surfaces(&mut budget);
+            let target = kitty_image_limits_for_capacity(budget.capacity);
+            let Some(entry) = budget.entries.get_mut(&surface.id) else { return false };
+            let owns_entry = entry
+                .surface
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .is_some_and(|registered| Arc::ptr_eq(&registered, surface));
+            let desired = if entry.removing || !entry.owns_quota {
+                KittyGraphicsLimits::disabled()
+            } else {
+                target
+            };
+            if !owns_entry || !kitty_image_limits_within(applied, desired) {
+                false
+            } else {
+                entry.applied = applied;
+                budget.blocked_surfaces.remove(&surface.id);
+                true
+            }
+        };
+        if reconciled {
+            self.kitty_image_budget_changed.notify_all();
+            self.start_kitty_image_budget_worker();
+        }
+        reconciled
     }
 
     fn prune_dead_kitty_image_surfaces(budget: &mut KittyImageBudgetState) {
