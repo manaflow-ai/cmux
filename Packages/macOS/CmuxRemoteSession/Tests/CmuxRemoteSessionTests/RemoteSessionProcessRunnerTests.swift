@@ -112,6 +112,29 @@ struct RemoteSessionProcessRunnerTests {
         #expect(ProcessInfo.processInfo.systemUptime - startedAt < 4)
     }
 
+    @Test("A late stdin write error wins over an earlier child exit")
+    func lateStdinWriteErrorWinsOverChildExit() {
+        let runner = RemoteSessionProcessRunner(stdinWriter: DelayedFailingRemoteProcessStdinWriter())
+
+        #expect {
+            try runner.run(
+                RemoteProcessRequest(
+                    executable: "/usr/bin/true",
+                    arguments: [],
+                    stdin: Data("payload".utf8),
+                    timeout: 5
+                ),
+                operation: nil
+            )
+        } throws: { error in
+            let nsError = error as NSError
+            let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? POSIXError
+            return nsError.domain == "cmux.remote.process"
+                && nsError.code == 3
+                && underlyingError?.code == .EIO
+        }
+    }
+
     @Test("A child retaining unread stdin cannot delay the process timeout")
     func unreadStdinCannotDelayProcessTimeout() {
         let runner = RemoteSessionProcessRunner()
