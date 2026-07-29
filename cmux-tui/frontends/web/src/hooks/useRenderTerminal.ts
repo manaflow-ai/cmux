@@ -48,6 +48,7 @@ interface RenderHistoryView {
   active: boolean;
   loading: boolean;
   total: number;
+  epoch: number | undefined;
   rows: readonly RenderRow[];
 }
 
@@ -72,7 +73,13 @@ type RenderTerminalViewAction =
   | { type: "focus"; client: CmuxClient; surface: Id; focused: boolean }
   | { type: "history"; client: CmuxClient; surface: Id; history: RenderHistoryView };
 
-const emptyHistory: RenderHistoryView = { active: false, loading: false, total: 0, rows: [] };
+const emptyHistory: RenderHistoryView = {
+  active: false,
+  loading: false,
+  total: 0,
+  epoch: undefined,
+  rows: [],
+};
 const initialState: RenderTerminalViewState = {
   client: null,
   surface: null,
@@ -203,6 +210,7 @@ export function useRenderTerminal({
       active: historyActive,
       loading: historyLoading,
       total: cache.total,
+      epoch: cache.epoch,
       rows: cache.rows,
     });
     const publishHistory = () => {
@@ -322,7 +330,10 @@ export function useRenderTerminal({
     const enterHistory = () => {
       if (historyActive || (currentModel?.scrollbackRows ?? 0) === 0) return;
       const reachesLatest = cache.rows.at(-1)?.row === cache.total - 1;
-      if (!reachesLatest) resetHistoryCache(currentModel!.scrollbackRows);
+      const matchesCurrentEpoch = cache.epoch === currentModel!.historyEpoch;
+      if (!reachesLatest || !matchesCurrentEpoch) {
+        resetHistoryCache(currentModel!.scrollbackRows);
+      }
       historyActive = true;
       publishHistory();
       if (cache.rows.length === 0) {

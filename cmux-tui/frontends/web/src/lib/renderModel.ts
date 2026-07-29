@@ -26,6 +26,7 @@ export interface RenderModel {
   defaultFg: string;
   defaultBg: string;
   scrollbackRows: number;
+  historyEpoch: number | undefined;
   rows: readonly RenderRow[];
   graphics: RenderGraphicsModel;
 }
@@ -403,6 +404,7 @@ export function applySnapshot(
     defaultFg: snapshot.default_fg,
     defaultBg: snapshot.default_bg,
     scrollbackRows: snapshot.scrollback_rows,
+    historyEpoch: snapshot.history_epoch,
     rows: normalizeRows(snapshot.rows, snapshot.size.rows),
     graphics: snapshotGraphics(snapshot.graphics, graphicsBudget, graphicsBudgetOwner),
   };
@@ -439,6 +441,7 @@ export function applyDelta(
     defaultFg: delta.default_fg ?? model.defaultFg,
     defaultBg: delta.default_bg ?? model.defaultBg,
     scrollbackRows: delta.scrollback_rows ?? model.scrollbackRows,
+    historyEpoch: delta.history_epoch ?? model.historyEpoch,
     rows,
     graphics: applyGraphicsDelta(
       model.graphics,

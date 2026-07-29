@@ -29,6 +29,7 @@ const model: RenderModel = {
   defaultFg: "#eeeeee",
   defaultBg: "#111111",
   scrollbackRows: 10,
+  historyEpoch: 1,
   graphics: {
     generation: 4,
     images: [{
@@ -136,6 +137,7 @@ vi.mock("../src/hooks/useRenderTerminal", () => ({
       active: renderHook.historyActive,
       loading: false,
       total: 10,
+      epoch: 1,
       rows: [{ row: 9, runs: [{ text: "old ", fg: null, bg: null, attrs: 0 }] }],
     },
     backToLive: vi.fn(),

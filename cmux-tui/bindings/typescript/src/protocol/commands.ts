@@ -314,6 +314,8 @@ export interface ReadScrollbackResult {
   rows: RenderRow[];
   start: number;
   total: number;
+  /** Matches render history_epoch; omitted by older additive protocol servers. */
+  epoch?: number;
 }
 
 export interface SidebarPluginRequest extends CmuxRequestBase {

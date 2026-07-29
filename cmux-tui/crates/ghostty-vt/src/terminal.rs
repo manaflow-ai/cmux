@@ -17,6 +17,7 @@ use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Error, Result, check};
 
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_HISTORY_EPOCH: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
 const DEFAULT_KITTY_IMAGE_STORAGE_LIMIT: u64 = MAX_KITTY_IMAGE_BYTES as u64;
 const DEFAULT_KITTY_IMAGE_COUNT_LIMIT: u64 = MAX_KITTY_IMAGES;
@@ -724,6 +725,7 @@ impl PromptSemanticTracker {
 pub struct Terminal {
     raw: sys::GhosttyTerminal,
     instance_id: u64,
+    history_epoch: u64,
     mouse_mode_revision: u64,
     mouse_mode_scan: MouseModeScan,
     kitty_inflight: Box<KittyInFlightTracker>,
@@ -1813,6 +1815,7 @@ impl Terminal {
         let mut term = Terminal {
             raw,
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
+            history_epoch: NEXT_HISTORY_EPOCH.fetch_add(1, Ordering::Relaxed),
             mouse_mode_revision: 0,
             mouse_mode_scan: MouseModeScan::default(),
             kitty_inflight: Box::new(KittyInFlightTracker::default()),
@@ -1859,6 +1862,13 @@ impl Terminal {
         self.instance_id
     }
 
+    /// Monotonic token for retained-history row contents and coordinates.
+    /// Frontends must match this with a paged history read before projecting
+    /// absolute graphics anchors onto those rows.
+    pub fn history_epoch(&self) -> u64 {
+        self.history_epoch
+    }
+
     /// Feed VT-encoded bytes (pty output) into the terminal.
     pub fn vt_write(&mut self, data: &[u8]) {
         let _ = self.vt_write_with_normalized(data);
@@ -1885,6 +1895,9 @@ impl Terminal {
         self.palette_override.write(&normalized);
         self.color_overrides.write(&normalized);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
+        if !normalized.is_empty() {
+            self.history_epoch = NEXT_HISTORY_EPOCH.fetch_add(1, Ordering::Relaxed);
+        }
         normalized
     }
 
@@ -2299,7 +2312,9 @@ impl Terminal {
                 cell_width_px,
                 cell_height_px,
             )
-        })
+        })?;
+        self.history_epoch = NEXT_HISTORY_EPOCH.fetch_add(1, Ordering::Relaxed);
+        Ok(())
     }
 
     /// Copy the active screen's Kitty image storage into owned Rust values.
@@ -3966,6 +3981,21 @@ mod tests {
         let second = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
 
         assert_ne!(first.instance_id(), second.instance_id());
+    }
+
+    #[test]
+    fn history_epochs_change_across_mutations_and_terminal_instances() {
+        let mut first = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        let initial = first.history_epoch();
+        first.vt_write(b"output");
+        let after_output = first.history_epoch();
+        first.resize(40, 12, 8, 16).unwrap();
+        let after_resize = first.history_epoch();
+        let second = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+
+        assert!(after_output > initial);
+        assert!(after_resize > after_output);
+        assert_ne!(second.history_epoch(), after_resize);
     }
 
     #[test]

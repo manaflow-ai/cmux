@@ -4540,6 +4540,7 @@ struct RenderStateMessage {
     default_fg: String,
     default_bg: String,
     scrollback_rows: u32,
+    history_epoch: u64,
     rows: Vec<Value>,
     graphics: RenderGraphicsMessage,
 }
@@ -4558,6 +4559,7 @@ fn render_state_message(
         default_fg: rgb_hex(frame.frame.default_colors.1),
         default_bg: rgb_hex(frame.frame.default_colors.0),
         scrollback_rows: frame.scrollback_rows,
+        history_epoch: frame.history_epoch,
         rows: render_rows_json(frame, 0..rows),
         graphics: render_graphics_message(
             render_service,
@@ -4585,6 +4587,8 @@ struct RenderDeltaMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     scrollback_rows: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    history_epoch: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     graphics: Option<RenderGraphicsMessage>,
 }
 
@@ -4593,6 +4597,7 @@ struct RenderClientState {
     size: (u16, u16),
     default_colors: (Rgb, Rgb),
     scrollback_rows: u32,
+    history_epoch: u64,
     graphics_snapshot_id: u64,
     graphics_image_revision: u64,
     graphics_placement_revision: u64,
@@ -4662,6 +4667,7 @@ impl RenderClientState {
             size: frame.frame.size,
             default_colors: frame.frame.default_colors,
             scrollback_rows: frame.scrollback_rows,
+            history_epoch: frame.history_epoch,
             graphics_snapshot_id: graphics_delta.snapshot_id,
             graphics_image_revision: graphics_delta.image_revision,
             graphics_placement_revision: graphics_delta.placement_revision,
@@ -4679,6 +4685,7 @@ impl RenderClientState {
         let foreground_changed = self.default_colors.1 != frame.frame.default_colors.1;
         let background_changed = self.default_colors.0 != frame.frame.default_colors.0;
         let scrollback_changed = self.scrollback_rows != frame.scrollback_rows;
+        let history_epoch_changed = self.history_epoch != frame.history_epoch;
         let full = size_changed
             || foreground_changed
             || background_changed
@@ -4701,6 +4708,7 @@ impl RenderClientState {
             default_fg: foreground_changed.then(|| rgb_hex(frame.frame.default_colors.1)),
             default_bg: background_changed.then(|| rgb_hex(frame.frame.default_colors.0)),
             scrollback_rows: scrollback_changed.then_some(frame.scrollback_rows),
+            history_epoch: history_epoch_changed.then_some(frame.history_epoch),
             graphics: None,
         };
         let graphics_delta = &frame.frame.kitty_graphics_delta;
@@ -4747,6 +4755,7 @@ impl RenderClientState {
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
         self.scrollback_rows = frame.scrollback_rows;
+        self.history_epoch = frame.history_epoch;
         message
     }
 }
@@ -5346,10 +5355,11 @@ fn handle_command_with_cancellation(
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
             let count = u16::try_from(count).map_err(|_| anyhow::anyhow!("count out of range"))?;
-            let (start, total, rows) = surface.try_with_terminal(|term| {
+            let (start, total, epoch, rows) = surface.try_with_terminal(|term| {
                 let total = term.history_rows();
                 let start = start.min(total);
-                term.styled_history_rows(start, count).map(|rows| (start, total, rows))
+                let epoch = term.history_epoch();
+                term.styled_history_rows(start, count).map(|rows| (start, total, epoch, rows))
             })??;
             let runs = rows_to_runs(&rows);
             let rows = runs
@@ -5362,7 +5372,7 @@ fn handle_command_with_cancellation(
                     })
                 })
                 .collect::<Vec<_>>();
-            Ok(json!({ "rows": rows, "start": start, "total": total }))
+            Ok(json!({ "rows": rows, "start": start, "total": total, "epoch": epoch }))
         }
         Command::SidebarPlugin { cols, rows, relaunch } => {
             Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
@@ -6948,6 +6958,7 @@ mod tests {
         SurfaceRenderFrame {
             frame: render_state.build_frame().unwrap(),
             scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
             palette_colors: [Rgb::default(); 256],
             palette_overridden: [false; 256],
         }
@@ -7271,14 +7282,12 @@ mod tests {
         assert!(graphics.get("images").is_none(), "{delta:#}");
         assert!(graphics.get("removed_image_ids").is_none(), "{delta:#}");
         assert_eq!(graphics["placements"].as_array().unwrap().len(), 2);
-        assert!(
-            graphics["placements"].as_array().unwrap().iter().any(|placement| {
-                placement["placement_id"] == 9
-                    && placement["viewport_col"] == 2
-                    && placement["anchor_col"] == 2
-                    && placement["anchor_row"] == 0
-            })
-        );
+        assert!(graphics["placements"].as_array().unwrap().iter().any(|placement| {
+            placement["placement_id"] == 9
+                && placement["viewport_col"] == 2
+                && placement["anchor_col"] == 2
+                && placement["anchor_row"] == 0
+        }));
     }
 
     #[test]

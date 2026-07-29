@@ -131,7 +131,7 @@ export function RenderTerminal({
     color: cursor.color ?? "var(--terminal-cursor)",
   } satisfies CSSProperties;
   const projectedGraphics = history.active
-    ? projectRenderGraphicsToRows(model?.graphics, rows)
+    ? projectRenderGraphicsToRows(model?.graphics, rows, model?.historyEpoch, history.epoch)
     : model?.graphics;
   const layeredGraphics = projectedGraphics !== undefined
     && projectedGraphics.images.length > 0

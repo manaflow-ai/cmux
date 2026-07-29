@@ -112,6 +112,8 @@ export interface RenderStateEvent {
   default_fg: ColorHex;
   default_bg: ColorHex;
   scrollback_rows: number;
+  /** Retained-history mutation token, omitted by older additive protocol servers. */
+  history_epoch?: number;
   rows: RenderRow[];
   /** Complete initial graphics state, omitted by older additive protocol servers. */
   graphics?: RenderGraphics;
@@ -127,6 +129,8 @@ export interface RenderDeltaEvent {
   default_fg?: ColorHex;
   default_bg?: ColorHex;
   scrollback_rows?: number;
+  /** Present when the retained-history mutation token changed. */
+  history_epoch?: number;
   rows: RenderRow[];
   /** Incremental graphics changes, omitted when only text or cursor state changed. */
   graphics?: RenderGraphicsDelta;

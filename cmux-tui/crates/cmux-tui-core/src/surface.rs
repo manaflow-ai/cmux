@@ -541,11 +541,12 @@ impl AttachTap {
     }
 }
 
-/// One immutable terminal frame plus the scrollback count captured with it.
+/// One immutable terminal frame plus retained-history metadata captured with it.
 #[derive(Debug, Clone)]
 pub struct SurfaceRenderFrame {
     pub frame: RenderFrame,
     pub scrollback_rows: u32,
+    pub history_epoch: u64,
     pub palette_colors: [Rgb; 256],
     pub palette_overridden: [bool; 256],
 }
@@ -3966,6 +3967,7 @@ impl PtySurface {
                 let frame = Arc::new(SurfaceRenderFrame {
                     frame: render.state.build_frame()?,
                     scrollback_rows: term.history_rows(),
+                    history_epoch: term.history_epoch(),
                     palette_colors,
                     palette_overridden,
                 });

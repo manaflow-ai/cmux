@@ -684,6 +684,7 @@ object{
   default_fg:ColorHex,
   default_bg:ColorHex,
   scrollback_rows:uint32,
+  history_epoch:uint64,
   rows:array<Row>
 }
 ```
@@ -710,6 +711,7 @@ object{
   default_fg?:ColorHex,
   default_bg?:ColorHex,
   scrollback_rows?:uint32,
+  history_epoch?:uint64,
   rows:array<Row>
 }
 ```

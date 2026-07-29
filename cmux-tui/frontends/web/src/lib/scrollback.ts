@@ -8,6 +8,7 @@ export interface ScrollbackRequest {
 
 export interface ScrollbackWindow {
   total: number;
+  epoch: number | undefined;
   pageSize: number;
   maxRows: number;
   rows: readonly RenderRow[];
@@ -25,6 +26,7 @@ export function createScrollbackWindow(
 ): ScrollbackWindow {
   return {
     total: Math.max(0, total),
+    epoch: undefined,
     pageSize: Math.max(1, pageSize),
     maxRows: Math.max(1, maxRows),
     rows: [],
@@ -87,7 +89,10 @@ export function mergeScrollbackPage(
   window: ScrollbackWindow,
   page: ReadScrollbackResult,
 ): ScrollbackWindow {
-  const existing = page.total < window.total ? [] : window.rows;
+  const epoch = Number.isSafeInteger(page.epoch) && (page.epoch ?? -1) >= 0
+    ? page.epoch
+    : undefined;
+  const existing = page.total < window.total || epoch !== window.epoch ? [] : window.rows;
   const byIndex = new Map<number, RenderRow>();
   for (const row of existing) byIndex.set(row.row, row);
   for (const row of page.rows) {
@@ -103,16 +108,20 @@ export function mergeScrollbackPage(
     rows = prepended ? rows.slice(0, window.maxRows) : rows.slice(-window.maxRows);
   }
 
-  return { ...window, total: page.total, rows };
+  return { ...window, total: page.total, epoch, rows };
 }
 
 /** Remap absolute libghostty placement anchors onto one contiguous history window. */
 export function projectRenderGraphicsToRows(
   graphics: RenderGraphicsModel | undefined,
   rows: readonly RenderRow[],
+  graphicsEpoch: number | undefined,
+  rowsEpoch: number | undefined,
 ): RenderGraphicsModel | undefined {
   const firstRow = rows[0]?.row;
-  if (graphics === undefined || graphics.images.length === 0 || firstRow === undefined
+  if (graphics === undefined || graphics.images.length === 0
+    || !Number.isSafeInteger(graphicsEpoch) || (graphicsEpoch ?? -1) < 0
+    || graphicsEpoch !== rowsEpoch || firstRow === undefined
     || !Number.isSafeInteger(firstRow) || firstRow < 0
     || rows.some((row, index) => row.row !== firstRow + index)) return undefined;
 

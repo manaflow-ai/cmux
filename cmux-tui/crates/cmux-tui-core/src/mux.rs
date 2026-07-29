@@ -4614,8 +4614,8 @@ impl Mux {
                 "Kitty image budget already reserved for surface {surface}"
             );
             let owner_count = Self::kitty_image_budget_owner_count(&budget);
-            let owns_quota = budget.blocked_surfaces.is_empty()
-                && owner_count < KITTY_IMAGE_BUDGET_OWNER_LIMIT;
+            let owns_quota =
+                budget.blocked_surfaces.is_empty() && owner_count < KITTY_IMAGE_BUDGET_OWNER_LIMIT;
             if owns_quota {
                 budget.capacity = kitty_image_budget_capacity(owner_count + 1, budget.capacity);
             }
@@ -4631,57 +4631,56 @@ impl Mux {
         }
         self.start_kitty_image_budget_worker();
         let deadline = Instant::now() + crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
-        let initial_limits = loop {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
-            if !budget.blocked_surfaces.is_empty() {
-                let entry = budget
+        let initial_limits =
+            loop {
+                let mut budget = self.kitty_image_budget.lock().unwrap();
+                if !budget.blocked_surfaces.is_empty() {
+                    let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
+                        anyhow::anyhow!("Kitty image budget reservation disappeared")
+                    })?;
+                    entry.owns_quota = false;
+                    entry.applied = KittyGraphicsLimits::disabled();
+                    Self::rebalance_kitty_image_budget_owners(&mut budget);
+                    break KittyGraphicsLimits::disabled();
+                }
+                let owns_quota = budget
                     .entries
-                    .get_mut(&surface)
-                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?;
-                entry.owns_quota = false;
-                entry.applied = KittyGraphicsLimits::disabled();
-                Self::rebalance_kitty_image_budget_owners(&mut budget);
-                break KittyGraphicsLimits::disabled();
-            }
-            let owns_quota = budget
-                .entries
-                .get(&surface)
-                .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?
-                .owns_quota;
-            if !owns_quota {
-                break KittyGraphicsLimits::disabled();
-            }
-            let target = kitty_image_limits_for_capacity(budget.capacity);
-            if !budget.expansion_in_flight
-                && kitty_image_limits_enabled(target)
-                && budget.entries.iter().all(|(&id, entry)| {
-                    id == surface || kitty_image_limits_within(entry.applied, target)
-                })
-            {
-                let entry = budget
-                    .entries
-                    .get_mut(&surface)
-                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?;
-                entry.applied = target;
-                break target;
-            }
-            if self.shutting_down.load(Ordering::Acquire) {
-                drop(budget);
-                self.cancel_kitty_image_surface_reservation(surface);
-                anyhow::bail!("multiplexer shut down while reserving Kitty image quota");
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                drop(budget);
-                self.cancel_kitty_image_surface_reservation(surface);
-                anyhow::bail!(
-                    "timed out waiting for existing terminals to release Kitty image quota"
-                );
-            }
-            let (next, _) =
-                self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
-            drop(next);
-        };
+                    .get(&surface)
+                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?
+                    .owns_quota;
+                if !owns_quota {
+                    break KittyGraphicsLimits::disabled();
+                }
+                let target = kitty_image_limits_for_capacity(budget.capacity);
+                if !budget.expansion_in_flight
+                    && kitty_image_limits_enabled(target)
+                    && budget.entries.iter().all(|(&id, entry)| {
+                        id == surface || kitty_image_limits_within(entry.applied, target)
+                    })
+                {
+                    let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
+                        anyhow::anyhow!("Kitty image budget reservation disappeared")
+                    })?;
+                    entry.applied = target;
+                    break target;
+                }
+                if self.shutting_down.load(Ordering::Acquire) {
+                    drop(budget);
+                    self.cancel_kitty_image_surface_reservation(surface);
+                    anyhow::bail!("multiplexer shut down while reserving Kitty image quota");
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    drop(budget);
+                    self.cancel_kitty_image_surface_reservation(surface);
+                    anyhow::bail!(
+                        "timed out waiting for existing terminals to release Kitty image quota"
+                    );
+                }
+                let (next, _) =
+                    self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
+                drop(next);
+            };
         Ok(KittyImageBudgetReservation {
             mux: Arc::downgrade(self),
             surface,
@@ -4819,9 +4818,7 @@ impl Mux {
         let owner_count = Self::kitty_image_budget_owner_count(budget);
         debug_assert!(owner_count <= KITTY_IMAGE_BUDGET_OWNER_LIMIT);
         let available = KITTY_IMAGE_BUDGET_OWNER_LIMIT.saturating_sub(owner_count);
-        if budget.blocked_surfaces.is_empty()
-            && available > 0
-            && owner_count < budget.entries.len()
+        if budget.blocked_surfaces.is_empty() && available > 0 && owner_count < budget.entries.len()
         {
             let mut candidates = budget
                 .entries

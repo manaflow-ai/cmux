@@ -1445,6 +1445,7 @@ impl SurfaceHandle {
                 Ok(Arc::new(SurfaceRenderFrame {
                     frame: rs.build_frame()?,
                     scrollback_rows: term.history_rows(),
+                    history_epoch: term.history_epoch(),
                     palette_colors,
                     palette_overridden,
                 }))
