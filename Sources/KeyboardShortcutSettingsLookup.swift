@@ -16,7 +16,7 @@ extension KeyboardShortcutSettings {
             managedBySettingsFile: managedBySettingsFile
         )
 
-        if action == .reopenClosedWorkspace,
+        if action == .reopenClosedBrowserPanel,
            resolvedShortcut == action.defaultShortcut,
            configuredShortcut != resolvedShortcut {
             return defaultShortcutResolvingLegacyConflicts(
@@ -33,12 +33,12 @@ extension KeyboardShortcutSettings {
         explicitlyConfiguredShortcut: (Action) -> StoredShortcut?
     ) -> StoredShortcut? {
         let defaultShortcut = action.defaultShortcut
-        if action == .reopenClosedWorkspace,
-           let legacyBrowserShortcut = explicitlyConfiguredShortcut(.reopenClosedBrowserPanel),
-           Action.reopenClosedBrowserPanel.conflicts(
+        if action == .reopenClosedBrowserPanel,
+           let legacyWorkspaceShortcut = explicitlyConfiguredShortcut(.reopenClosedWorkspace),
+           Action.reopenClosedWorkspace.conflicts(
                with: defaultShortcut,
                proposedAction: action,
-               configuredShortcut: legacyBrowserShortcut
+               configuredShortcut: legacyWorkspaceShortcut
            ) {
             return nil
         }
