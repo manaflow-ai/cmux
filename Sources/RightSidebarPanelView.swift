@@ -393,7 +393,7 @@ struct RightSidebarPanelView: View {
                     presentation: .find
                 )
             case .sessions:
-                SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
+                VaultPaneView(store: sessionIndexStore, onResume: onResumeSession)
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }

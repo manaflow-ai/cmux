@@ -284,7 +284,7 @@ struct RightSidebarToolPanelView: View {
                 onContainerChange: panel.attachFileExplorerContainer
             )
         case .sessions:
-            SessionIndexView(
+            VaultPaneView(
                 store: panel.sessionIndexStore,
                 onResume: { entry in
                     SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
