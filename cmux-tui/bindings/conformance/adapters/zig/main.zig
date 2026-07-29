@@ -33,6 +33,13 @@ fn optionalStringField(value: Value, name: []const u8) ?[]const u8 {
     };
 }
 
+fn arrayField(value: Value, name: []const u8) !Array {
+    return switch (try field(value, name)) {
+        .array => |items| items,
+        else => error.ExpectedArray,
+    };
+}
+
 fn putString(
     object: *Object,
     allocator: Allocator,
@@ -423,6 +430,102 @@ fn containsWorkspace(value: Value, id: cmux.WorkspaceId) !bool {
     return false;
 }
 
+fn workspaceHasName(
+    value: Value,
+    id: cmux.WorkspaceId,
+    expected_name: []const u8,
+) !bool {
+    const object = try asObject(value);
+    const workspaces_value = object.get("workspaces") orelse
+        return error.MissingField;
+    const workspaces = switch (workspaces_value) {
+        .array => |items| items,
+        else => return error.ExpectedArray,
+    };
+    for (workspaces.items) |candidate_value| {
+        const candidate = try asObject(candidate_value);
+        const encoded_id = switch (candidate.get("id") orelse continue) {
+            .string => |text| text,
+            else => continue,
+        };
+        if (!std.mem.eql(u8, encoded_id, id.slice())) continue;
+        const encoded_name = switch (candidate.get("name") orelse return false) {
+            .string => |text| text,
+            else => return false,
+        };
+        return std.mem.eql(u8, encoded_name, expected_name);
+    }
+    return false;
+}
+
+fn createdWorkspaceId(result: *const cmux.MutationResult) !cmux.WorkspaceId {
+    const created_path = (try result.createdPath()) orelse
+        return error.MissingCreatedPath;
+    return switch (created_path) {
+        .workspace => |path| path.workspace_id,
+        else => error.ExpectedWorkspacePath,
+    };
+}
+
+fn derivedMutationOptions(
+    allocator: Allocator,
+    prefix: []const u8,
+    suffix: []const u8,
+) !cmux.MutationOptions {
+    if (prefix.len + suffix.len > 128) {
+        return error.InvalidIdempotencyKey;
+    }
+    const key = try std.fmt.allocPrint(
+        allocator,
+        "{s}{s}",
+        .{ prefix, suffix },
+    );
+    return cmux.MutationOptions.withKey(key);
+}
+
+fn candidateIdsMatch(
+    details: ?Value,
+    first: cmux.WorkspaceId,
+    second: cmux.WorkspaceId,
+) !bool {
+    const value = details orelse return false;
+    const candidates = try arrayField(value, "candidates");
+    if (candidates.items.len != 2) return false;
+    var found_first = false;
+    var found_second = false;
+    for (candidates.items) |candidate| {
+        const encoded = switch (candidate) {
+            .string => |text| text,
+            else => return false,
+        };
+        if (std.mem.eql(u8, encoded, first.slice())) {
+            if (found_first) return false;
+            found_first = true;
+        } else if (std.mem.eql(u8, encoded, second.slice())) {
+            if (found_second) return false;
+            found_second = true;
+        } else {
+            return false;
+        }
+    }
+    return found_first and found_second;
+}
+
+fn workspaceIdArray(
+    allocator: Allocator,
+    first: cmux.WorkspaceId,
+    second: cmux.WorkspaceId,
+) !Value {
+    var output = Array.init(allocator);
+    try output.append(.{
+        .string = try allocator.dupe(u8, first.slice()),
+    });
+    try output.append(.{
+        .string = try allocator.dupe(u8, second.slice()),
+    });
+    return .{ .array = output };
+}
+
 fn liveFlow(
     allocator: Allocator,
     client: *cmux.Client,
@@ -440,12 +543,7 @@ fn liveFlow(
         try cmux.MutationOptions.withKey("live-create"),
     );
     defer created.deinit();
-    const created_path = (try created.createdPath()) orelse
-        return error.MissingCreatedPath;
-    const workspace_id = switch (created_path) {
-        .workspace => |path| path.workspace_id,
-        else => return error.ExpectedWorkspacePath,
-    };
+    const workspace_id = try createdWorkspaceId(&created);
     const scoped_workspace = scoped_session.workspace(workspace_id);
     const renamed_name = try std.fmt.allocPrint(
         allocator,
@@ -493,6 +591,277 @@ fn liveFlow(
     return .{ .object = output };
 }
 
+fn liveSetup(
+    allocator: Allocator,
+    client: *cmux.Client,
+    request: Value,
+) !Value {
+    const scoped_session = client.session(.current);
+    const ping_value = try ping(allocator, scoped_session);
+    const pinged = switch ((try asObject(ping_value)).get("alive") orelse return error.MissingField) {
+        .bool => |value| value,
+        else => return error.ExpectedBool,
+    };
+    const base_name = try stringField(request, "workspace_name");
+    const key_prefix = try stringField(request, "key_prefix");
+    const renamed_name = try std.fmt.allocPrint(
+        allocator,
+        "{s}-renamed",
+        .{base_name},
+    );
+    const duplicate_name = try std.fmt.allocPrint(
+        allocator,
+        "{s}-duplicate",
+        .{base_name},
+    );
+    const forbidden_name = try std.fmt.allocPrint(
+        allocator,
+        "{s}-must-not-apply",
+        .{base_name},
+    );
+
+    var stable_created = try scoped_session.createWorkspace(
+        .{ .name = base_name, .initial_content = .empty },
+        try derivedMutationOptions(
+            allocator,
+            key_prefix,
+            "-stable-create",
+        ),
+    );
+    defer stable_created.deinit();
+    const stable_id = try createdWorkspaceId(&stable_created);
+    var stable_rename = try scoped_session.workspace(stable_id).rename(
+        renamed_name,
+        try derivedMutationOptions(
+            allocator,
+            key_prefix,
+            "-stable-rename",
+        ),
+    );
+    defer stable_rename.deinit();
+    const renamed_object = try asObject(stable_rename.value);
+    const stable_renamed = std.mem.eql(
+        u8,
+        switch (renamed_object.get("name") orelse return error.MissingField) {
+            .string => |text| text,
+            else => return error.ExpectedString,
+        },
+        renamed_name,
+    );
+
+    var duplicate_a = try scoped_session.createWorkspace(
+        .{ .name = duplicate_name, .initial_content = .empty },
+        try derivedMutationOptions(
+            allocator,
+            key_prefix,
+            "-duplicate-a",
+        ),
+    );
+    defer duplicate_a.deinit();
+    const duplicate_a_id = try createdWorkspaceId(&duplicate_a);
+    var duplicate_b = try scoped_session.createWorkspace(
+        .{ .name = duplicate_name, .initial_content = .empty },
+        try derivedMutationOptions(
+            allocator,
+            key_prefix,
+            "-duplicate-b",
+        ),
+    );
+    defer duplicate_b.deinit();
+    const duplicate_b_id = try createdWorkspaceId(&duplicate_b);
+
+    var unexpected = scoped_session.workspace(.{
+        .name = duplicate_name,
+    }).rename(
+        forbidden_name,
+        try derivedMutationOptions(
+            allocator,
+            key_prefix,
+            "-ambiguous-rename",
+        ),
+    ) catch |failure| {
+        if (failure != error.RemoteError) return failure;
+        var ambiguity = client.takeResourceError() orelse
+            return error.MissingResourceError;
+        defer ambiguity.deinit();
+        const ambiguity_code = try allocator.dupe(
+            u8,
+            ambiguity.value.code,
+        );
+        const preserved_candidates = std.mem.eql(
+            u8,
+            ambiguity.value.code,
+            "selector.ambiguous",
+        ) and try candidateIdsMatch(
+            ambiguity.value.details,
+            duplicate_a_id,
+            duplicate_b_id,
+        );
+
+        var listed = try scoped_session.read(.workspace_list, null);
+        defer listed.deinit();
+        const no_mutation =
+            try workspaceHasName(
+                listed.value,
+                duplicate_a_id,
+                duplicate_name,
+            ) and
+            try workspaceHasName(
+                listed.value,
+                duplicate_b_id,
+                duplicate_name,
+            );
+
+        var output = Object.init(allocator);
+        try output.put("pinged", .{ .bool = pinged });
+        try putString(
+            &output,
+            allocator,
+            "stable_id",
+            stable_id.slice(),
+        );
+        try output.put(
+            "stable_renamed",
+            .{ .bool = stable_renamed },
+        );
+        try output.put(
+            "duplicate_ids",
+            try workspaceIdArray(
+                allocator,
+                duplicate_a_id,
+                duplicate_b_id,
+            ),
+        );
+        try putString(
+            &output,
+            allocator,
+            "ambiguity_code",
+            ambiguity_code,
+        );
+        try output.put(
+            "ambiguity_preserved_all_candidates",
+            .{ .bool = preserved_candidates },
+        );
+        try output.put(
+            "no_mutation",
+            .{ .bool = no_mutation },
+        );
+        return .{ .object = output };
+    };
+    unexpected.deinit();
+    return error.AmbiguousMutationUnexpectedlySucceeded;
+}
+
+fn expectedDuplicateIds(request: Value) ![2]cmux.WorkspaceId {
+    const encoded = try arrayField(request, "expected_duplicate_ids");
+    if (encoded.items.len != 2) return error.ExpectedTwoDuplicateIds;
+    var result: [2]cmux.WorkspaceId = undefined;
+    for (encoded.items, 0..) |item, index| {
+        result[index] = try cmux.WorkspaceId.parse(switch (item) {
+            .string => |text| text,
+            else => return error.ExpectedString,
+        });
+    }
+    return result;
+}
+
+fn liveRestart(
+    allocator: Allocator,
+    client: *cmux.Client,
+    request: Value,
+) !Value {
+    const scoped_session = client.session(.current);
+    const base_name = try stringField(request, "workspace_name");
+    const key_prefix = try stringField(request, "key_prefix");
+    const stable_id = try cmux.WorkspaceId.parse(
+        try stringField(request, "expected_stable_id"),
+    );
+    const duplicate_ids = try expectedDuplicateIds(request);
+    const stable_name = try std.fmt.allocPrint(
+        allocator,
+        "{s}-renamed",
+        .{base_name},
+    );
+    const duplicate_name = try std.fmt.allocPrint(
+        allocator,
+        "{s}-duplicate",
+        .{base_name},
+    );
+
+    var listed = try scoped_session.read(.workspace_list, null);
+    defer listed.deinit();
+    const same_ids =
+        try containsWorkspace(listed.value, stable_id) and
+        try containsWorkspace(listed.value, duplicate_ids[0]) and
+        try containsWorkspace(listed.value, duplicate_ids[1]);
+    const stable_name_preserved = try workspaceHasName(
+        listed.value,
+        stable_id,
+        stable_name,
+    );
+    const duplicates_preserved =
+        try workspaceHasName(
+            listed.value,
+            duplicate_ids[0],
+            duplicate_name,
+        ) and
+        try workspaceHasName(
+            listed.value,
+            duplicate_ids[1],
+            duplicate_name,
+        );
+
+    var stable_close = try scoped_session.workspace(stable_id).close(
+        try derivedMutationOptions(
+            allocator,
+            key_prefix,
+            "-close-stable",
+        ),
+    );
+    defer stable_close.deinit();
+    var duplicate_a_close = try scoped_session.workspace(
+        duplicate_ids[0],
+    ).close(
+        try derivedMutationOptions(
+            allocator,
+            key_prefix,
+            "-close-a",
+        ),
+    );
+    defer duplicate_a_close.deinit();
+    var duplicate_b_close = try scoped_session.workspace(
+        duplicate_ids[1],
+    ).close(
+        try derivedMutationOptions(
+            allocator,
+            key_prefix,
+            "-close-b",
+        ),
+    );
+    defer duplicate_b_close.deinit();
+
+    var remaining = try scoped_session.read(.workspace_list, null);
+    defer remaining.deinit();
+    const disappeared =
+        !try containsWorkspace(remaining.value, stable_id) and
+        !try containsWorkspace(remaining.value, duplicate_ids[0]) and
+        !try containsWorkspace(remaining.value, duplicate_ids[1]);
+
+    var output = Object.init(allocator);
+    try output.put("same_ids", .{ .bool = same_ids });
+    try output.put(
+        "stable_name_preserved",
+        .{ .bool = stable_name_preserved },
+    );
+    try output.put(
+        "duplicates_preserved",
+        .{ .bool = duplicates_preserved },
+    );
+    try output.put("closed", .{ .bool = true });
+    try output.put("disappeared", .{ .bool = disappeared });
+    return .{ .object = output };
+}
+
 fn dispatch(allocator: Allocator, request: Value) !Value {
     const operation = try stringField(request, "op");
     if (std.mem.eql(u8, operation, "redaction")) {
@@ -504,6 +873,15 @@ fn dispatch(allocator: Allocator, request: Value) !Value {
         clientOptions(request),
     );
     defer client.deinit();
+    if (std.mem.eql(u8, operation, "live-setup")) {
+        return liveSetup(allocator, &client, request);
+    }
+    if (std.mem.eql(u8, operation, "live-restart")) {
+        return liveRestart(allocator, &client, request);
+    }
+    if (std.mem.eql(u8, operation, "live-flow")) {
+        return liveFlow(allocator, &client, request);
+    }
     const scoped_session = try session(&client, request);
     const scoped_workspace = try workspace(scoped_session, request);
 
@@ -533,9 +911,6 @@ fn dispatch(allocator: Allocator, request: Value) !Value {
     }
     if (std.mem.eql(u8, operation, "stream-overflow")) {
         return streamOverflow(allocator, scoped_session);
-    }
-    if (std.mem.eql(u8, operation, "live-flow")) {
-        return liveFlow(allocator, &client, request);
     }
     return error.UnknownOperation;
 }
