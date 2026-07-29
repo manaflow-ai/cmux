@@ -1760,14 +1760,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let workspace = Workspace()
         workspace.remoteSessionProcessRunnerOverrideForTesting =
             ScriptedRemoteProcessRunner(script: remoteProcessScript)
-        let relayStartupReached = expectation(
-            description: "dedicated reverse-relay transport reached startup"
-        )
-        let relayStatusObservation = workspace.$remoteDaemonStatus.sink { status in
-            if status.detail?.contains("Remote SSH relay unavailable") == true {
-                relayStartupReached.fulfill()
-            }
-        }
         let config = WorkspaceRemoteConfiguration(
             destination: "test@hpc.example",
             port: 2222,
@@ -1957,6 +1949,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let workspace = Workspace()
         workspace.remoteSessionProcessRunnerOverrideForTesting =
             ScriptedRemoteProcessRunner(script: remoteProcessScript)
+        let relayStartupReached = expectation(
+            description: "dedicated reverse-relay transport reached startup"
+        )
+        let relayStatusObservation = workspace.$remoteDaemonStatus.sink { status in
+            if status.detail?.contains("Remote SSH relay unavailable") == true {
+                relayStartupReached.fulfill()
+            }
+        }
         let config = WorkspaceRemoteConfiguration(
             destination: "127.0.0.1",
             port: 1,
