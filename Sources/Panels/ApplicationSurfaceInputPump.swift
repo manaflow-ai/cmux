@@ -2,10 +2,10 @@ import Foundation
 
 @MainActor
 final class ApplicationSurfaceInputPump {
-    typealias Sender = @MainActor (ApplicationSurfaceInputEvent) async -> Bool
+    typealias BatchSender = @MainActor ([ApplicationSurfaceInputEvent]) async -> Bool
 
     private let maximumQueuedEventCount: Int
-    private let sender: Sender
+    private let batchSender: BatchSender
     private var queue: [ApplicationSurfaceInputEvent] = []
     private var drainTask: Task<Void, Never>?
     private var possiblyPressedKeyCodes: Set<UInt16> = []
@@ -14,11 +14,11 @@ final class ApplicationSurfaceInputPump {
 
     init(
         maximumQueuedEventCount: Int = 64,
-        sender: @escaping Sender
+        batchSender: @escaping BatchSender
     ) {
         precondition(maximumQueuedEventCount > 0)
         self.maximumQueuedEventCount = maximumQueuedEventCount
-        self.sender = sender
+        self.batchSender = batchSender
     }
 
     @discardableResult
@@ -115,10 +115,18 @@ final class ApplicationSurfaceInputPump {
         drainTask = Task { @MainActor [weak self] in
             guard let self else { return }
             while !self.queue.isEmpty {
-                let event = self.queue.removeFirst()
-                self.recordPossibleDelivery(of: event)
-                let delivered = await self.sender(event)
-                self.recordAcknowledgedDelivery(of: event, delivered: delivered)
+                let batch = self.queue
+                self.queue.removeAll(keepingCapacity: true)
+                for event in batch {
+                    self.recordPossibleDelivery(of: event)
+                }
+                let delivered = await self.batchSender(batch)
+                for event in batch {
+                    self.recordAcknowledgedDelivery(
+                        of: event,
+                        delivered: delivered
+                    )
+                }
             }
             self.drainTask = nil
             if !self.queue.isEmpty {

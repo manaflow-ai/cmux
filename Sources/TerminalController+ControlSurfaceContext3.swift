@@ -239,6 +239,28 @@ extension TerminalController {
         return .surface(focused)
     }
 
+    private func resolveSendKeySurface(
+        in ws: Workspace,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        paneID: UUID?
+    ) -> SendSurfaceTarget {
+        if hasSurfaceIDParam {
+            guard let surfaceId = surfaceID else {
+                return .unresolved(.surfaceNotFoundForID)
+            }
+            return .surface(surfaceId)
+        }
+        guard
+            let focused = ws.controlDefaultSurfaceTarget(
+                paneID: paneID
+            )?.surfaceID
+        else {
+            return .unresolved(.noFocusedSurface)
+        }
+        return .surface(focused)
+    }
+
     func controlSurfaceSendText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
@@ -384,7 +406,7 @@ extension TerminalController {
             return .workspaceNotFound
         }
         let requestedSurfaceID: UUID
-        switch resolveSendSurface(
+        switch resolveSendKeySurface(
             in: ws,
             surfaceID: surfaceID,
             hasSurfaceIDParam: hasSurfaceIDParam,

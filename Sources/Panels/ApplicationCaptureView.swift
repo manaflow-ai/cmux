@@ -53,7 +53,7 @@ final class ApplicationCaptureView: NSView {
     private let onMovedToWindow: (ApplicationCaptureView) -> Void
     private let onPointerDown: () -> Void
     private let remoteFrameView = CmuxRemoteFrameView(frame: .zero)
-    private lazy var inputPump = ApplicationSurfaceInputPump { [weak self] event in
+    private lazy var inputPump = ApplicationSurfaceInputPump { [weak self] events in
         guard
             let self,
             let lease = self.lease,
@@ -62,10 +62,10 @@ final class ApplicationCaptureView: NSView {
             return false
         }
         do {
-            try await self.runtime.sendApplicationSurfaceEvent(
+            try await self.runtime.sendApplicationSurfaceEvents(
                 lease: lease,
                 sessionID: sessionID,
-                event: event
+                events: events
             )
             return true
         } catch ApplicationSurfaceRuntimeError.pointOutsideContent {
@@ -626,11 +626,11 @@ final class ApplicationCaptureView: NSView {
         let task = Task { @MainActor [weak self] in
             let releases = await inputPump.takeReleaseEventsAfterDraining()
             if let session, let lease {
-                for event in releases {
-                    try? await runtime.sendApplicationSurfaceEvent(
+                if !releases.isEmpty {
+                    try? await runtime.sendApplicationSurfaceEvents(
                         lease: lease,
                         sessionID: session.sessionID,
-                        event: event
+                        events: releases
                     )
                 }
             }

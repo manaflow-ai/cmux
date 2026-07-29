@@ -1,24 +1,32 @@
 import CmuxExtensionKit
 
-extension VerticalTabsSidebar {
-    func cmuxSidebarSurfaceKind(for panelType: PanelType) -> CmuxSidebarSurfaceKind {
+extension CmuxSidebarSurfaceKind {
+    init(panelType: PanelType) {
         switch panelType {
         case .terminal:
-            return .terminal
+            self = .terminal
         case .browser:
-            return .browser
+            self = .browser
+        case .application:
+            self = .application
         case .markdown:
-            return .markdown
+            self = .markdown
         case .filePreview:
-            return .filePreview
+            self = .filePreview
         case .rightSidebarTool:
-            return .rightSidebarTool
-        case .application, .customSidebar, .simulator, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
-            return .unknown
+            self = .rightSidebarTool
+        case .customSidebar, .simulator, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
+            self = .unknown
         case .agentSession:
-            return .agentSession
+            self = .agentSession
         case .project:
-            return .project
+            self = .project
         }
+    }
+}
+
+extension VerticalTabsSidebar {
+    func cmuxSidebarSurfaceKind(for panelType: PanelType) -> CmuxSidebarSurfaceKind {
+        CmuxSidebarSurfaceKind(panelType: panelType)
     }
 }

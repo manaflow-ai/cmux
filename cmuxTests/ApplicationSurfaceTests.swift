@@ -207,8 +207,8 @@ struct ApplicationSurfaceTests {
 
     @Test func inputPumpRejectsNonMotionEventsBeyondItsBound() async {
         var delivered: [ApplicationSurfaceInputEvent] = []
-        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { event in
-            delivered.append(event)
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { events in
+            delivered.append(contentsOf: events)
             return true
         }
         let first = ApplicationSurfaceInputEvent(kind: .key, keyCode: 1, keyDown: true)
@@ -225,8 +225,8 @@ struct ApplicationSurfaceTests {
 
     @Test func inputPumpQueuesNamedKeyPairAtomically() async {
         var delivered: [ApplicationSurfaceInputEvent] = []
-        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 1) { event in
-            delivered.append(event)
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 1) { events in
+            delivered.append(contentsOf: events)
             return true
         }
         let keyDown = ApplicationSurfaceInputEvent(kind: .key, keyCode: 12, keyDown: true)
@@ -240,8 +240,8 @@ struct ApplicationSurfaceTests {
 
     @Test func inputPumpCoalescesMotionBeforeApplyingBackpressure() async {
         var delivered: [ApplicationSurfaceInputEvent] = []
-        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { event in
-            delivered.append(event)
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { events in
+            delivered.append(contentsOf: events)
             return true
         }
         for coordinate in 0..<100 {
@@ -264,8 +264,8 @@ struct ApplicationSurfaceTests {
 
     @Test func inputPumpCoalescesScrollBurstsBeforeApplyingBackpressure() async {
         var delivered: [ApplicationSurfaceInputEvent] = []
-        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { event in
-            delivered.append(event)
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { events in
+            delivered.append(contentsOf: events)
             return true
         }
 
@@ -338,8 +338,8 @@ struct ApplicationSurfaceTests {
 
     @Test func inputPumpSynthesizesReleasesForDeliveredPresses() async {
         var delivered: [ApplicationSurfaceInputEvent] = []
-        let pump = ApplicationSurfaceInputPump { event in
-            delivered.append(event)
+        let pump = ApplicationSurfaceInputPump { events in
+            delivered.append(contentsOf: events)
             return true
         }
         let keyDown = ApplicationSurfaceInputEvent(kind: .key, keyCode: 56, keyDown: true)

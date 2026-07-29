@@ -201,25 +201,45 @@ extension Workspace {
 
     /// Resolves the selected terminal target. A mirror container projects its
     /// active inner pane; a requested pane projects that pane's selected surface.
+    func controlDefaultSurfaceTarget(
+        paneID requestedPaneID: UUID?
+    ) -> ControlSurfaceProjection? {
+        if let requestedPaneID {
+            if let remote = remoteTmuxControlPane(paneID: requestedPaneID) {
+                return (
+                    remote.pane.panel.id,
+                    remote.pane.paneID.id,
+                    remote.pane.panel
+                )
+            }
+            guard
+                let paneID = bonsplitController.allPaneIds.first(
+                    where: { $0.id == requestedPaneID }
+                ),
+                let tab = bonsplitController.selectedTab(inPane: paneID),
+                let panelID = panelIdFromSurfaceId(tab.id),
+                !isRemoteTmuxControlContainer(panelID)
+            else {
+                return nil
+            }
+            return controlSurfaceProjection(
+                forContainerPanelID: panelID
+            )
+        }
+
+        guard let focusedPanelId else { return nil }
+        return controlSurfaceProjection(
+            forContainerPanelID: focusedPanelId
+        )
+    }
+
     func controlDefaultTerminalTarget(
         paneID requestedPaneID: UUID?
     ) -> (surfaceID: UUID, panel: TerminalPanel)? {
-        if let requestedPaneID {
-            if let remote = remoteTmuxControlPane(paneID: requestedPaneID) {
-                return (remote.pane.panel.id, remote.pane.panel)
-            }
-            if let paneID = bonsplitController.allPaneIds.first(where: { $0.id == requestedPaneID }),
-               let tab = bonsplitController.selectedTab(inPane: paneID),
-               let panelID = panelIdFromSurfaceId(tab.id),
-               !isRemoteTmuxControlContainer(panelID),
-               let panel = terminalPanel(for: panelID) {
-                return (panelID, panel)
-            }
-            return nil
-        }
-
-        guard let focusedPanelId,
-              let projection = controlSurfaceProjection(forContainerPanelID: focusedPanelId),
+        guard
+            let projection = controlDefaultSurfaceTarget(
+                paneID: requestedPaneID
+            ),
               let panel = projection.panel as? TerminalPanel else { return nil }
         return (projection.surfaceID, panel)
     }

@@ -23,4 +23,25 @@ protocol ApplicationSurfaceRuntime: AnyObject {
         sessionID: String,
         event: ApplicationSurfaceInputEvent
     ) async throws
+    func sendApplicationSurfaceEvents(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String,
+        events: [ApplicationSurfaceInputEvent]
+    ) async throws
+}
+
+extension ApplicationSurfaceRuntime {
+    func sendApplicationSurfaceEvents(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String,
+        events: [ApplicationSurfaceInputEvent]
+    ) async throws {
+        for event in events {
+            try await sendApplicationSurfaceEvent(
+                lease: lease,
+                sessionID: sessionID,
+                event: event
+            )
+        }
+    }
 }

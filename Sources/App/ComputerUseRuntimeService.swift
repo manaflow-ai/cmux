@@ -5,6 +5,12 @@ import Darwin
 import Foundation
 import Security
 
+private enum ComputerUseFinalHelperCleanupState: Equatable {
+    case idle
+    case retrying
+    case awaitingTermination
+}
+
 /// The single app-side owner of the standalone Computer Use helper lifecycle.
 ///
 /// The main cmux process never calls TCC-protected APIs and never executes the
@@ -32,6 +38,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     private var recoveryTask: Task<Void, Never>?
     private var finalHelperCleanupTask: Task<Void, Never>?
     private var finalHelperCleanupGeneration = UUID()
+    private var finalHelperCleanupState =
+        ComputerUseFinalHelperCleanupState.idle
     private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var permissionRefreshGeneration = 0
     private var acceptsNewLaunches = true
@@ -492,25 +500,39 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         sessionID: String,
         event: ApplicationSurfaceInputEvent
     ) async throws {
+        try await sendApplicationSurfaceEvents(
+            lease: lease,
+            sessionID: sessionID,
+            events: [event]
+        )
+    }
+
+    func sendApplicationSurfaceEvents(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String,
+        events: [ApplicationSurfaceInputEvent]
+    ) async throws {
         let identity = try validatedApplicationSurfaceIdentity(lease: lease)
-        guard !sessionID.isEmpty else {
+        guard
+            !sessionID.isEmpty,
+            !events.isEmpty,
+            events.count <= 64,
+            applicationSurfaceSessionIDsByLease[lease.identifier]?
+                .contains(sessionID) == true
+        else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
         let args: [String: Any] = [
-            "session": sessionID,
-            "kind": event.kind.rawValue,
-            "x": event.x,
-            "y": event.y,
-            "key_code": Int(event.keyCode),
-            "key_down": event.keyDown,
-            "modifiers": event.modifiers,
-            "click_count": event.clickCount,
-            "delta_x": event.deltaX,
-            "delta_y": event.deltaY,
+            "events": events.map {
+                Self.applicationSurfaceEventArguments(
+                    sessionID: sessionID,
+                    event: $0
+                )
+            },
         ]
         guard let response = await Self.sendDaemonRequest(
             [
-                "method": "application_surface_event",
+                "method": "application_surface_events",
                 "args": args,
             ],
             paths: paths,
@@ -522,6 +544,24 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
         try Self.throwApplicationSurfaceResponseError(response)
+    }
+
+    nonisolated private static func applicationSurfaceEventArguments(
+        sessionID: String,
+        event: ApplicationSurfaceInputEvent
+    ) -> [String: Any] {
+        [
+            "session": sessionID,
+            "kind": event.kind.rawValue,
+            "x": event.x,
+            "y": event.y,
+            "key_code": Int(event.keyCode),
+            "key_down": event.keyDown,
+            "modifiers": event.modifiers,
+            "click_count": event.clickCount,
+            "delta_x": event.deltaX,
+            "delta_y": event.deltaY,
+        ]
     }
 
     private func validatedApplicationSurfaceIdentity(
@@ -1083,18 +1123,34 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         !desiredEnabled && !helperStopped
     }
 
-    /// Keeps one serialized, rate-limited cleanup owner alive after the last
-    /// pane closes. It exits only after helper termination is confirmed or new
-    /// demand takes ownership of the helper again.
+    nonisolated static func finalHelperCleanupRetryDelay(
+        afterFailedAttempt failedAttempt: Int
+    ) -> Duration? {
+        guard failedAttempt >= 0, failedAttempt < 4 else { return nil }
+        return .seconds(1 << failedAttempt)
+    }
+
+    /// Performs four serialized, exponentially delayed cleanup attempts after
+    /// the last pane closes. If the exact helper still has not exited, the
+    /// termination observer retains passive ownership without recurring work.
     private func scheduleFinalHelperCleanup() {
-        guard finalHelperCleanupTask == nil else { return }
+        guard
+            finalHelperCleanupTask == nil,
+            finalHelperCleanupState == .idle
+        else {
+            return
+        }
         let generation = UUID()
         finalHelperCleanupGeneration = generation
+        finalHelperCleanupState = .retrying
         finalHelperCleanupTask = Task { @MainActor [weak self] in
             let clock = ContinuousClock()
-            while !Task.isCancelled {
+            var failedAttempt = 0
+            while let delay = Self.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: failedAttempt
+            ) {
                 do {
-                    try await clock.sleep(for: .seconds(1))
+                    try await clock.sleep(for: delay)
                 } catch {
                     break
                 }
@@ -1102,6 +1158,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 guard await self?.retryFinalHelperCleanupOnce() == true else {
                     break
                 }
+                failedAttempt += 1
             }
             guard
                 let self,
@@ -1110,6 +1167,17 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 return
             }
             self.finalHelperCleanupTask = nil
+            if
+                !Task.isCancelled,
+                !self.desiredEnabled,
+                Self.finalHelperCleanupRetryDelay(
+                    afterFailedAttempt: failedAttempt
+                ) == nil
+            {
+                self.finalHelperCleanupState = .awaitingTermination
+            } else {
+                self.finalHelperCleanupState = .idle
+            }
         }
     }
 
@@ -1134,6 +1202,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         finalHelperCleanupGeneration = UUID()
         finalHelperCleanupTask?.cancel()
         finalHelperCleanupTask = nil
+        finalHelperCleanupState = .idle
     }
 
     private func serializeHelperLifecycle<Result: Sendable>(
@@ -1572,7 +1641,10 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         if let bundleIdentifier = Bundle(url: helperURL)?.bundleIdentifier {
             for application in NSRunningApplication.runningApplications(
                 withBundleIdentifier: bundleIdentifier
-            ) where application.bundleURL?.standardizedFileURL == expectedURL {
+            ) where
+                application.bundleURL?.standardizedFileURL == expectedURL
+                    && !application.isTerminated
+            {
                 applicationsByPID[application.processIdentifier] = application
             }
         }
@@ -1707,17 +1779,29 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     }
 
     private func helperDidTerminate(_ application: NSRunningApplication) {
+        let helperURL = installedHelperURL ?? paths.installedHelperAppURL
         let trackedProfile = trackedHelperProfile(
             for: application.processIdentifier
         )
+        let isTrackedHelperProcess = trackedProfile != nil
+        let matchesInstalledHelper =
+            application.bundleURL?.standardizedFileURL
+                == helperURL.standardizedFileURL
         if let trackedProfile {
             clearTrackedHelperProcess(for: trackedProfile)
         }
-        let isTrackedHelperProcess = trackedProfile != nil
         let wasExpected = expectedTerminationProcessIdentifiers.remove(
             application.processIdentifier
         ) != nil
-        let helperURL = installedHelperURL ?? paths.installedHelperAppURL
+        if
+            finalHelperCleanupState != .idle,
+            !desiredEnabled,
+            isTrackedHelperProcess || matchesInstalledHelper,
+            runningHelperApplications(at: helperURL).isEmpty
+        {
+            clearApplicationSurfaceSessionsAfterHelperExit()
+            cancelFinalHelperCleanup()
+        }
         guard Self.shouldRecoverAfterHelperTermination(
             desiredEnabled: desiredEnabled,
             acceptsNewLaunches: acceptsNewLaunches,
