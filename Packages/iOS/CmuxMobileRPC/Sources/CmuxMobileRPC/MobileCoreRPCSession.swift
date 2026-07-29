@@ -696,7 +696,7 @@ actor MobileCoreRPCSession {
               write.cancelledRequestResolutionTask == nil else { return }
         let connectionID = write.connectionID
         let sendTask = write.task
-        write.cancelledRequestResolutionTask = Task { [weak self] in
+        let resolutionTask = Task { [weak self] in
             do {
                 try await sendTask.value
                 await self?.cancelledActiveWriteDidComplete(
@@ -710,7 +710,49 @@ actor MobileCoreRPCSession {
                 )
             }
         }
+        write.cancelledRequestResolutionTask = resolutionTask
         activeWrite = write
+        startQueuedDemandRecovery(
+            requestID: requestID,
+            resolutionTask: resolutionTask
+        )
+    }
+
+    /// Requests already queued behind the cancelled write have passed the
+    /// `send()` recovery gate, so without this watchdog a stalled cancelled
+    /// write would block them until their own deadlines and even then leave
+    /// the wedged transport installed (their timeout cannot recycle a write
+    /// owned by another request ID).
+    private func startQueuedDemandRecovery(
+        requestID: String,
+        resolutionTask: Task<Void, Never>
+    ) {
+        guard !queuedWriteIDs.isEmpty else { return }
+        Task { [weak self, taskTimeout, cancelledWriteCompletionGraceNanoseconds] in
+            let waitTask = Task<Void, any Error> {
+                await resolutionTask.value
+            }
+            do {
+                try await taskTimeout.value(
+                    waitTask,
+                    timeoutNanoseconds: cancelledWriteCompletionGraceNanoseconds
+                )
+            } catch {
+                waitTask.cancel()
+                await self?.recycleCancelledActiveWriteForQueuedDemand(
+                    requestID: requestID
+                )
+            }
+        }
+    }
+
+    private func recycleCancelledActiveWriteForQueuedDemand(
+        requestID: String
+    ) async {
+        // Re-check demand at grace expiry: if every queued request was
+        // cancelled meanwhile, preserve the transport like the no-demand path.
+        guard !queuedWriteIDs.isEmpty else { return }
+        _ = await recycleTransportIfActiveWrite(requestID: requestID)
     }
 
     private func waitForCancelledActiveWriteResolution(
