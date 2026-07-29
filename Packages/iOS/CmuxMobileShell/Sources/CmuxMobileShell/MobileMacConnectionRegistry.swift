@@ -154,6 +154,21 @@ final class MobileMacConnectionRegistry {
         }
     }
 
+    /// Publish a newly established control owner only while the pool still has
+    /// capacity. The count check and insertion share one MainActor operation,
+    /// so concurrent dial completions cannot each consume the last slot.
+    func insertControlIfAbsent(
+        _ subscription: SecondaryMacSubscription,
+        maximumControlCount: Int
+    ) -> Bool {
+        guard entriesByMacDeviceID[subscription.macDeviceID] == nil,
+              controlEntryCount < maximumControlCount else {
+            return false
+        }
+        entriesByMacDeviceID[subscription.macDeviceID] = .control(subscription)
+        return true
+    }
+
     private func focusedConnection(for macDeviceID: String) -> MacConnection? {
         guard case .focused(let connection) = entriesByMacDeviceID[macDeviceID] else {
             return nil
@@ -194,12 +209,14 @@ final class MobileMacConnectionRegistry {
     /// focused client means another handoff won and this transition is refused.
     func transitionToControl(
         _ subscription: SecondaryMacSubscription,
-        replacing connection: MacConnection
+        replacing connection: MacConnection,
+        maximumControlCount: Int
     ) -> Bool {
         guard case .focused(let current) =
                 entriesByMacDeviceID[connection.macDeviceID],
               current.client === connection.client,
-              current.generation == connection.generation else {
+              current.generation == connection.generation,
+              controlEntryCount < maximumControlCount else {
             return false
         }
         entriesByMacDeviceID[connection.macDeviceID] = .control(subscription)

@@ -101,8 +101,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
         self.session = MobileCoreRPCSession(
             connectAttemptKey: MobileRPCConnectAttemptKey(
-                route: route,
-                expectedPeerDeviceID: ticket.macDeviceID
+                route: route
             ),
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,

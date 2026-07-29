@@ -325,19 +325,15 @@ actor MobileCoreRPCSession {
             task = existing.task
             connectionTask?.waiters.insert(waiterID)
         } else {
-            if let connectAttemptKey {
-                switch await connectAttemptRegistry.beginConnect(
-                    key: connectAttemptKey
-                ) {
-                case .granted(let lease):
-                    connectLease = lease
-                case .busy:
-                    throw MobileShellConnectionError.requestTimedOut
-                case .cleanupBlocked:
-                    throw MobileShellConnectionError.routeCleanupBlocked
-                }
-            } else {
-                connectLease = .untracked
+            switch await connectAttemptRegistry.beginConnect(
+                key: connectAttemptKey
+            ) {
+            case .granted(let lease):
+                connectLease = lease
+            case .busy:
+                throw MobileShellConnectionError.requestTimedOut
+            case .cleanupBlocked:
+                throw MobileShellConnectionError.routeCleanupBlocked
             }
             let connectAttemptID = Int.random(in: 1...Int.max)
             let connectStartedAt = ContinuousClock.now

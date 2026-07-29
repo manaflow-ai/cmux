@@ -5090,13 +5090,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux paused connections to this Mac because two earlier connection cleanups are still stuck."
+            "value": "cmux paused new connections because earlier connection cleanups are still stuck."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "以前の2件の接続クリーンアップが停止したままのため、このMacへの接続を一時停止しました。"
+            "value": "以前の接続クリーンアップが停止したままのため、新しい接続を一時停止しました。"
           }
         }
       }

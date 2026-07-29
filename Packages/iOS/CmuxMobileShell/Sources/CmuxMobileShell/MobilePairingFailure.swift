@@ -282,7 +282,7 @@ extension MobilePairingFailureCategory {
         case .routeCleanupBlocked:
             return L10n.string(
                 "mobile.pairing.routeCleanupBlocked",
-                defaultValue: "cmux paused connections to this Mac because two earlier connection cleanups are still stuck."
+                defaultValue: "cmux paused new connections because earlier connection cleanups are still stuck."
             )
         case .cancelled:
             return ""

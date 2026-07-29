@@ -8,12 +8,15 @@ import Foundation
 /// that outlives its session's bounded drain. Active admission and unresolved
 /// cleanup debt are independent identities, so a successful recovery cannot
 /// erase an older cleanup. One unresolved cleanup permits one recovery dial;
-/// two block the route until either exact cleanup finishes.
+/// two block the route until either exact cleanup finishes. A global admission
+/// budget also bounds cleanup debt across many distinct or anonymous routes.
 public actor MobileRPCConnectAttemptRegistry {
     private static let maximumUnresolvedCleanupsPerRoute = 2
+    private static let maximumGlobalOutstandingAttempts = 16
 
     private var routeStates:
         [MobileRPCConnectAttemptKey: MobileRPCConnectRouteState] = [:]
+    private var activeUntrackedLeaseIDs: Set<UUID> = []
     private var untrackedPhysicalCleanupTasks: [UUID: Task<Void, Never>] = [:]
 
     /// Creates an empty registry.
@@ -22,7 +25,22 @@ public actor MobileRPCConnectAttemptRegistry {
     func beginConnect(
         key: MobileRPCConnectAttemptKey?
     ) -> MobileRPCConnectAdmission {
-        guard let key else { return .granted(.untracked) }
+        guard unresolvedPhysicalCleanupCount
+                < Self.maximumGlobalOutstandingAttempts else {
+            return .cleanupBlocked
+        }
+        guard globalOutstandingAttemptCount
+                < Self.maximumGlobalOutstandingAttempts else {
+            return .busy
+        }
+        guard let key else {
+            let lease = MobileRPCConnectAttemptLease(
+                key: nil,
+                id: UUID()
+            )
+            activeUntrackedLeaseIDs.insert(lease.id)
+            return .granted(lease)
+        }
         var state = routeStates[key] ?? MobileRPCConnectRouteState()
         guard state.activeLeaseID == nil else {
             return .busy
@@ -38,7 +56,11 @@ public actor MobileRPCConnectAttemptRegistry {
     }
 
     func finishConnect(lease: MobileRPCConnectAttemptLease?) {
-        guard let lease, let key = lease.key else { return }
+        guard let lease else { return }
+        guard let key = lease.key else {
+            activeUntrackedLeaseIDs.remove(lease.id)
+            return
+        }
         guard var state = routeStates[key],
               state.activeLeaseID == lease.id else {
             return
@@ -53,6 +75,7 @@ public actor MobileRPCConnectAttemptRegistry {
     ) {
         guard let lease, let key = lease.key else {
             let cleanupID = lease?.id ?? UUID()
+            activeUntrackedLeaseIDs.remove(cleanupID)
             untrackedPhysicalCleanupTasks[cleanupID] = Task.detached {
                 [weak self] in
                 await operation()
@@ -98,6 +121,23 @@ public actor MobileRPCConnectAttemptRegistry {
 
     private func untrackedPhysicalCleanupDidFinish(_ cleanupID: UUID) {
         untrackedPhysicalCleanupTasks[cleanupID] = nil
+    }
+
+    private var unresolvedPhysicalCleanupCount: Int {
+        untrackedPhysicalCleanupTasks.count
+            + routeStates.values.reduce(into: 0) {
+                $0 += $1.physicalCleanupTasks.count
+            }
+    }
+
+    private var globalOutstandingAttemptCount: Int {
+        unresolvedPhysicalCleanupCount
+            + activeUntrackedLeaseIDs.count
+            + routeStates.values.reduce(into: 0) {
+                if $1.activeLeaseID != nil {
+                    $0 += 1
+                }
+            }
     }
 
     private func store(

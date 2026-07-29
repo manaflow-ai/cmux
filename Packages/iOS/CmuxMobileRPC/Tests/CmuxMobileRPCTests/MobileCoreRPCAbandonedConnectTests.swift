@@ -338,7 +338,6 @@ import Testing
         async throws {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = debugConnectAttemptKey(
-            macDeviceID: "test-mac",
             port: 59_135
         )
         guard case let .granted(lease) =
@@ -409,7 +408,6 @@ import Testing
         async {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = debugConnectAttemptKey(
-            macDeviceID: "test-mac",
             port: 59_129
         )
         let firstCleanup = PhysicalCleanupGate()
@@ -449,7 +447,6 @@ import Testing
         async throws {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = debugConnectAttemptKey(
-            macDeviceID: "test-mac",
             port: 59_128
         )
         guard case let .granted(firstLease) =
@@ -496,12 +493,10 @@ import Testing
     @Test func connectAttemptLeaseOnlyReleasesMatchingRouteReservation() async {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = debugConnectAttemptKey(
-            macDeviceID: "test-mac",
             port: 59_130
         )
         let otherKey = debugConnectAttemptKey(
-            macDeviceID: "test-mac-other",
-            port: 59_130
+            port: 59_131
         )
 
         guard case let .granted(firstLease) =
@@ -560,26 +555,16 @@ import Testing
             kind: .iroh,
             endpoint: .peer(identity: identityB, pathHints: [])
         )
-        let initialKey = MobileRPCConnectAttemptKey(
-            route: initialRoute,
-            expectedPeerDeviceID: "mac-a"
-        )
-        let refreshedKey = MobileRPCConnectAttemptKey(
-            route: refreshedRoute,
-            expectedPeerDeviceID: "mac-a"
-        )
-        let otherPeerKey = MobileRPCConnectAttemptKey(
-            route: otherPeerRoute,
-            expectedPeerDeviceID: "mac-b"
-        )
-        let otherMacKey = MobileRPCConnectAttemptKey(
-            route: initialRoute,
-            expectedPeerDeviceID: "mac-c"
+        let initialKey = MobileRPCConnectAttemptKey(route: initialRoute)
+        let refreshedKey = MobileRPCConnectAttemptKey(route: refreshedRoute)
+        let otherPeerKey = MobileRPCConnectAttemptKey(route: otherPeerRoute)
+        let adoptedIdentityKey = MobileRPCConnectAttemptKey(
+            route: initialRoute
         )
 
         #expect(initialKey == refreshedKey)
         #expect(initialKey != otherPeerKey)
-        #expect(initialKey != otherMacKey)
+        #expect(initialKey == adoptedIdentityKey)
 
         let firstWebSocketRoute = try CmxAttachRoute(
             id: "websocket-first",
@@ -597,12 +582,25 @@ import Testing
         )
         #expect(
             MobileRPCConnectAttemptKey(
-                route: firstWebSocketRoute,
-                expectedPeerDeviceID: "mac-websocket"
+                route: firstWebSocketRoute
             )
                 == MobileRPCConnectAttemptKey(
-                    route: rotatedWebSocketRoute,
-                    expectedPeerDeviceID: "mac-websocket"
+                    route: rotatedWebSocketRoute
+                )
+        )
+        let otherWebSocketRoute = try CmxAttachRoute(
+            id: "websocket-other-host",
+            kind: .websocket,
+            endpoint: .url(
+                "wss://other.example.test/mobile?token=first-secret"
+            )
+        )
+        #expect(
+            MobileRPCConnectAttemptKey(
+                route: firstWebSocketRoute
+            )
+                != MobileRPCConnectAttemptKey(
+                    route: otherWebSocketRoute
                 )
         )
 
@@ -625,7 +623,6 @@ import Testing
     @Test func cleanupDebtCapSurfacesRestartRequiredError() async throws {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = debugConnectAttemptKey(
-            macDeviceID: "test-mac",
             port: 59_133
         )
         let firstCleanup = PhysicalCleanupGate()
@@ -675,6 +672,57 @@ import Testing
 
         await firstCleanup.release()
         await secondCleanup.release()
+    }
+
+    @Test func globalCleanupBudgetIncludesEveryRouteAndUntrackedDial()
+        async throws {
+        let registry = MobileRPCConnectAttemptRegistry()
+        var leases: [MobileRPCConnectAttemptLease] = []
+        for index in 0..<15 {
+            let key = debugConnectAttemptKey(port: 58_900 + index)
+            guard case let .granted(lease) =
+                    await registry.beginConnect(key: key) else {
+                Issue.record("Expected global admission \(index)")
+                return
+            }
+            leases.append(lease)
+        }
+        guard case let .granted(untrackedLease) =
+                await registry.beginConnect(key: nil) else {
+            Issue.record("Expected untracked global admission")
+            return
+        }
+        leases.append(untrackedLease)
+        let overflowKey = debugConnectAttemptKey(port: 58_999)
+        #expect(await registry.beginConnect(key: overflowKey) == .busy)
+
+        let cleanupGates = (0..<leases.count).map { _ in
+            PhysicalCleanupGate()
+        }
+        for (lease, gate) in zip(leases, cleanupGates) {
+            await registry.handOffPhysicalCleanup(lease: lease) {
+                await gate.wait()
+            }
+        }
+        #expect(
+            await registry.beginConnect(key: overflowKey)
+                == .cleanupBlocked
+        )
+
+        await cleanupGates[0].release()
+        var reopenedLease: MobileRPCConnectAttemptLease?
+        for _ in 0..<20 {
+            if case let .granted(lease) =
+                await registry.beginConnect(key: overflowKey) {
+                reopenedLease = lease
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        await registry.finishConnect(lease: reopenedLease)
+        for gate in cleanupGates.dropFirst() {
+            await gate.release()
+        }
     }
 
     @Test func callerCancelledRPCClosesSlowConnectionBeforeSendingAuthenticatedRequest() async throws {
@@ -728,7 +776,6 @@ import Testing
 }
 
 private func debugConnectAttemptKey(
-    macDeviceID: String,
     port: Int
 ) -> MobileRPCConnectAttemptKey {
     let route = try! CmxAttachRoute(
@@ -737,8 +784,7 @@ private func debugConnectAttemptKey(
         endpoint: .hostPort(host: "127.0.0.1", port: port)
     )
     return MobileRPCConnectAttemptKey(
-        route: route,
-        expectedPeerDeviceID: macDeviceID
+        route: route
     )
 }
 

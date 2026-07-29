@@ -4742,8 +4742,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             actionCapabilities: handle.actionCapabilities,
             displayName: mac.displayName
         )
-        secondaryMacSubscriptions[macID] = subscription
-        guard secondaryMacSubscriptions[macID] === subscription else {
+        guard secondaryMacDrainReservation(
+                  forMacDeviceID: macID
+              ) == nil,
+              macConnectionRegistry.insertControlIfAbsent(
+                  subscription,
+                  maximumControlCount:
+                      Self.maximumWarmControlConnectionCount
+              ) else {
             await client.disconnect()
             return .superseded
         }
@@ -7833,7 +7839,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> Bool {
         macConnectionRegistry.transitionToControl(
             subscription,
-            replacing: connection
+            replacing: connection,
+            maximumControlCount: Self.maximumWarmControlConnectionCount
         )
     }
 

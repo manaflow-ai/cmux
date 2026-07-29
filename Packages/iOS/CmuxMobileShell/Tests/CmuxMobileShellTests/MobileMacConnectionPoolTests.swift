@@ -504,6 +504,112 @@ import Testing
         #expect(!candidates.contains { $0.macDeviceID == "mac-0" })
     }
 
+    @Test func controlPublicationAtomicallyEnforcesResourceCap() throws {
+        let registry = MobileMacConnectionRegistry()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "atomic-control-cap",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 50_811)
+        )
+        func connectionParts(
+            _ macDeviceID: String
+        ) throws -> (
+            subscription: SecondaryMacSubscription,
+            connection: MacConnection
+        ) {
+            let ticket = try CmxAttachTicket(
+                workspaceID: "",
+                terminalID: nil,
+                macDeviceID: macDeviceID,
+                macDisplayName: macDeviceID,
+                routes: [route],
+                expiresAt: Date().addingTimeInterval(3_600)
+            )
+            let client = MobileCoreRPCClient(
+                runtime: runtime,
+                route: route,
+                ticket: ticket,
+                allowsStackAuthFallback: true
+            )
+            return (
+                SecondaryMacSubscription(
+                    macDeviceID: macDeviceID,
+                    client: client,
+                    route: route,
+                    ticket: ticket,
+                    supportedHostCapabilities: [],
+                    actionCapabilities: .none
+                ),
+                MacConnection(
+                    macDeviceID: macDeviceID,
+                    ticket: ticket,
+                    route: route,
+                    client: client,
+                    generation: UUID(),
+                    displayName: macDeviceID,
+                    instanceTag: nil,
+                    supportedHostCapabilities: [],
+                    actionCapabilities: .none
+                )
+            )
+        }
+
+        let focus = try connectionParts("mac-focus")
+        _ = registry.transitionToFocused(focus.connection)
+        var controls: [SecondaryMacSubscription] = []
+        for index in 0 ..<
+            MobileShellComposite.maximumWarmControlConnectionCount {
+            let control = try connectionParts("mac-control-\(index)")
+                .subscription
+            controls.append(control)
+            #expect(registry.insertControlIfAbsent(
+                control,
+                maximumControlCount:
+                    MobileShellComposite.maximumWarmControlConnectionCount
+            ))
+        }
+        let overflow = try connectionParts("mac-overflow").subscription
+        #expect(!registry.insertControlIfAbsent(
+            overflow,
+            maximumControlCount:
+                MobileShellComposite.maximumWarmControlConnectionCount
+        ))
+        #expect(!registry.transitionToControl(
+            focus.subscription,
+            replacing: focus.connection,
+            maximumControlCount:
+                MobileShellComposite.maximumWarmControlConnectionCount
+        ))
+        #expect(
+            registry.controlSubscriptions.count
+                == MobileShellComposite.maximumWarmControlConnectionCount
+        )
+
+        registry.controlSubscriptions["mac-control-0"] = nil
+        #expect(registry.transitionToControl(
+            focus.subscription,
+            replacing: focus.connection,
+            maximumControlCount:
+                MobileShellComposite.maximumWarmControlConnectionCount
+        ))
+        #expect(
+            registry.controlSubscriptions.count
+                == MobileShellComposite.maximumWarmControlConnectionCount
+        )
+        for control in controls {
+            control.cancel()
+        }
+        overflow.cancel()
+        focus.subscription.cancel()
+    }
+
     @Test func targetedPresenceRefreshUsesCachedPerMacIndex() async throws {
         let records = try (0 ..< 1_000).map { index in
             try Self.pairedMac(
