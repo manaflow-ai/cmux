@@ -168,6 +168,11 @@ private struct NotificationFeedUnreadIndicator: View {
     }
 }
 
+// Icon-and-label lines are single interpolated `Text`s rather than
+// HStack{Image, Text} pairs: cell self-sizing dominated the scroll profile,
+// and every stack and image node here is measured again for each trial layout
+// a materializing cell runs. The row ignores child accessibility, so the
+// interpolated symbols never reach VoiceOver.
 private struct NotificationFeedHeadline: View {
     let title: String
     let createdAt: Date
@@ -176,20 +181,9 @@ private struct NotificationFeedHeadline: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                if representsWorkspace {
-                    Image(systemName: "rectangle.stack")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                }
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(isRead ? .medium : .semibold)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-            }
-            .layoutPriority(1)
+            titleText
+                .lineLimit(2)
+                .layoutPriority(1)
 
             Spacer(minLength: 6)
 
@@ -199,6 +193,19 @@ private struct NotificationFeedHeadline: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
+    }
+
+    private var titleText: Text {
+        let base = Text(title)
+            .font(.subheadline)
+            .fontWeight(isRead ? .medium : .semibold)
+            .foregroundStyle(.primary)
+        guard representsWorkspace else { return base }
+        return Text(Image(systemName: "rectangle.stack"))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            + Text(" ")
+            + base
     }
 }
 
@@ -248,14 +255,10 @@ private struct NotificationFeedWorkspace: View {
     let allowsWrapping: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Image(systemName: "rectangle.stack")
-                .accessibilityHidden(true)
-            Text(name)
-        }
-        .font(.footnote.weight(.semibold))
-        .foregroundStyle(.secondary)
-        .lineLimit(allowsWrapping ? 2 : 1)
+        (Text(Image(systemName: "rectangle.stack")) + Text(" ") + Text(name))
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(allowsWrapping ? 2 : 1)
     }
 }
 
@@ -265,14 +268,10 @@ private struct NotificationFeedComputer: View {
     let allowsWrapping: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Image(systemName: "desktopcomputer")
-                .accessibilityHidden(true)
-            Text(name)
-        }
-        .font(.caption)
-        .foregroundStyle(isReachable ? Color.secondary.opacity(0.7) : Color.orange)
-        .lineLimit(allowsWrapping ? 2 : 1)
+        (Text(Image(systemName: "desktopcomputer")) + Text(" ") + Text(name))
+            .font(.caption)
+            .foregroundStyle(isReachable ? Color.secondary.opacity(0.7) : Color.orange)
+            .lineLimit(allowsWrapping ? 2 : 1)
     }
 }
 
