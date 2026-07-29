@@ -48,6 +48,7 @@ const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
 const MAX_REMOTE_RUNTIME_WORKERS: usize = 4;
 const INITIAL_GROUP_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const CLIENT_SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn remote_runtime_worker_count() -> usize {
     thread::available_parallelism()
@@ -1467,6 +1468,14 @@ pub fn start_daemon_runtime(
     mux_socket: PathBuf,
     options: DaemonRuntimeOptions,
 ) -> anyhow::Result<DaemonRuntimeHandle> {
+    start_daemon_runtime_with_timeout(mux_socket, options, DAEMON_STARTUP_TIMEOUT)
+}
+
+fn start_daemon_runtime_with_timeout(
+    mux_socket: PathBuf,
+    options: DaemonRuntimeOptions,
+    startup_timeout: Duration,
+) -> anyhow::Result<DaemonRuntimeHandle> {
     let (state_dir, default_link, default_admin) =
         daemon_paths(&options.session, options.state_dir.as_deref())?;
     let link_socket = options.link_socket.clone().unwrap_or(default_link);
@@ -1491,7 +1500,7 @@ pub fn start_daemon_runtime(
         })
         .context("could not start remote daemon thread")?;
 
-    let info = match ready_rx.recv_timeout(Duration::from_secs(30)) {
+    let info = match ready_rx.recv_timeout(startup_timeout) {
         Ok(Ok(info)) => info,
         Ok(Err(error)) => {
             let _ = shutdown_tx.send(true);
@@ -2159,6 +2168,203 @@ mod tests {
             panic!("intermediate state symlink was accepted");
         }
         assert!(!target.join("sessions").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn client_startup_timeout_returns_while_the_socket_path_lock_is_held() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let daemon_root = directory.path().join("daemon");
+        let daemon = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "client-startup-lock".into(),
+                state_dir: Some(daemon_root.clone()),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        let providers = test_providers(SshProviderConfig::default());
+        let route = ResolvedRouteCandidate::resolve(
+            unix_test_route(&daemon.info().link_socket),
+            BTreeMap::new(),
+            &providers,
+        )
+        .unwrap();
+        let local_socket = directory.path().join("client/mux.sock");
+        fs::create_dir_all(local_socket.parent().unwrap()).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(client_socket_lock_path(&local_socket).unwrap())
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+
+        let ssh = SshProviderConfig::default();
+        let client_state = directory.path().join("client-state");
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let caller = thread::spawn(move || {
+            let result = start_client_runtime(ClientRuntimeOptions {
+                routes: vec![route],
+                providers,
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "client-startup-lock-test".into(),
+                session: SessionId([31; 16]),
+                lane_policy: LanePolicy::Single,
+                reconnect: ReconnectPolicy {
+                    maximum_attempts: Some(1),
+                    heartbeat_interval: None,
+                    ..ReconnectPolicy::default()
+                },
+                startup_timeout: Duration::from_millis(100),
+                state_dir: client_state,
+                local_socket: Some(local_socket),
+                ssh,
+                ssh_bootstrap: SshBootstrapOptions {
+                    auto_install: false,
+                    upgrade: false,
+                    attempt_timeout: Duration::from_secs(1),
+                },
+            });
+            let _ = done_tx.send(result.map(|runtime| runtime.shutdown()));
+        });
+
+        let completed_while_locked = done_rx.recv_timeout(Duration::from_millis(500)).is_ok();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        if !completed_while_locked {
+            done_rx
+                .recv_timeout(Duration::from_secs(3))
+                .expect("client startup stayed blocked after releasing the socket lock")
+                .unwrap_err();
+        }
+        caller.join().unwrap();
+        daemon.shutdown().unwrap();
+
+        assert!(
+            completed_while_locked,
+            "client startup timeout joined a worker blocked on the socket path lock"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_timeout_returns_while_the_identity_path_lock_is_held() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let (session_state, link_socket, _) =
+            daemon_paths("daemon-startup-lock", Some(&state_root)).unwrap();
+        let auth_state = session_state.join("auth");
+        fs::create_dir_all(&auth_state).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(auth_state.join("identity.json.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+
+        let mux_socket = directory.path().join("missing-mux.sock");
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let caller = thread::spawn(move || {
+            let result = start_daemon_runtime_with_timeout(
+                mux_socket,
+                DaemonRuntimeOptions {
+                    session: "daemon-startup-lock".into(),
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+                Duration::from_millis(100),
+            );
+            let _ = done_tx.send(result.map(|runtime| runtime.shutdown()));
+        });
+
+        let completed_while_locked = done_rx.recv_timeout(Duration::from_millis(500)).is_ok();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        if !completed_while_locked {
+            done_rx
+                .recv_timeout(Duration::from_secs(3))
+                .expect("daemon startup stayed blocked after releasing the identity lock")
+                .unwrap_err();
+        }
+        caller.join().unwrap();
+        let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while link_socket.exists() && std::time::Instant::now() < cleanup_deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(
+            completed_while_locked,
+            "daemon startup timeout joined a worker blocked on the identity path lock"
+        );
+        assert!(!link_socket.exists(), "timed-out daemon left its link socket behind");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_paths_bound_session_components_and_unix_socket_names() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let root =
+            PathBuf::from("/tmp").join("long-root-a".repeat(6)).join("long-root-b".repeat(6));
+        let session = "long-session".repeat(128);
+        let first = daemon_paths(&session, Some(&root)).unwrap();
+        let second = daemon_paths(&session, Some(&root)).unwrap();
+
+        assert_eq!(first, second, "daemon path fallback was not deterministic");
+        assert!(first.0.starts_with(root.join("sessions")));
+        assert!(
+            first.0.file_name().unwrap().as_bytes().len() <= 255,
+            "encoded session exceeded NAME_MAX: {}",
+            first.0.display()
+        );
+        assert!(
+            unix_socket_path_fits(&first.1),
+            "link socket path was too long: {}",
+            first.1.display()
+        );
+        assert!(
+            unix_socket_path_fits(&first.2),
+            "admin socket path was too long: {}",
+            first.2.display()
+        );
+        assert_ne!(first.1, first.2);
+        for parent in [first.1.parent().unwrap(), first.2.parent().unwrap()] {
+            let metadata = fs::symlink_metadata(parent).unwrap();
+            assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+            assert_eq!(metadata.permissions().mode() & 0o077, 0);
+        }
     }
 
     #[test]

@@ -2076,6 +2076,135 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
+    async fn dropped_wait_requests_release_control_admission() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let directory = tempdir().unwrap();
+                let workspace = WorkspaceService::new();
+                let services = DaemonServices::new(workspace.clone(), None);
+                let request_slots = RequestAdmission::new();
+                let (client_endpoint, daemon_endpoint) = endpoint_pair();
+                let client_multiplexer =
+                    ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+                let daemon_multiplexer =
+                    ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+                let server = tokio::task::spawn_local({
+                    let services = services.clone();
+                    let daemon_multiplexer = daemon_multiplexer.clone();
+                    let request_slots = request_slots.clone();
+                    async move {
+                        let scope = ClientScope::new(
+                            "dropped-wait-test",
+                            cmux_remote_protocol::SessionId([32; 16]),
+                        );
+                        while let Some(incoming) = daemon_multiplexer.accept().await.unwrap() {
+                            let services = services.clone();
+                            let scope = scope.clone();
+                            let request_slots = request_slots.clone();
+                            tokio::task::spawn_local(async move {
+                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                            });
+                        }
+                    }
+                });
+                let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+                let opened = client
+                    .request(WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+                    panic!("open-workspace returned the wrong response")
+                };
+                let started = client
+                    .request(WorkspaceRequest::SpawnProcess {
+                        workspace: workspace_id,
+                        argv: vec!["/bin/sleep".into(), "30".into()],
+                        cwd: None,
+                        env: BTreeMap::new(),
+                        io: ProcessIo::Pipes { stdin: false },
+                        lifetime: ProcessLifetime::Workspace,
+                        operation: None,
+                        timeout_ms: None,
+                        retained_output_bytes: None,
+                        environment: ProcessEnvironment::Inherit,
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::ProcessStarted { process, .. } = started else {
+                    panic!("spawn-process returned the wrong response")
+                };
+
+                let mut pending = Vec::with_capacity(MAX_CONTROL_RPC_REQUESTS);
+                for _ in 0..MAX_CONTROL_RPC_REQUESTS {
+                    pending.push(
+                        client
+                            .begin_request(WorkspaceRequest::WaitProcess { process })
+                            .await
+                            .unwrap(),
+                    );
+                }
+                let admission_filled =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                        while request_slots.control.available_permits() != 0 {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                    .is_ok();
+                drop(pending);
+                let admission_recovered =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                        while request_slots.control.available_permits() != MAX_CONTROL_RPC_REQUESTS
+                        {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                    .is_ok();
+                let capabilities_succeeded = if admission_recovered {
+                    matches!(
+                        tokio::time::timeout(
+                            std::time::Duration::from_secs(1),
+                            client.request(WorkspaceRequest::Capabilities),
+                        )
+                        .await,
+                        Ok(Ok(WorkspaceResponse::Capabilities { .. }))
+                    )
+                } else {
+                    false
+                };
+
+                workspace
+                    .handle_request(WorkspaceRequest::SignalProcess {
+                        process,
+                        signal: ProcessSignal::Kill,
+                    })
+                    .await
+                    .unwrap();
+                workspace.handle_request(WorkspaceRequest::WaitProcess { process }).await.unwrap();
+                drop(client);
+                client_multiplexer.shutdown().await;
+                daemon_multiplexer.shutdown().await;
+                server.abort();
+                let _ = server.await;
+
+                assert!(admission_filled, "48 wait requests never filled control admission");
+                assert!(
+                    admission_recovered,
+                    "dropping transmitted wait requests left server work and admission active"
+                );
+                assert!(
+                    capabilities_succeeded,
+                    "control RPC stayed unavailable after dropped waits were canceled"
+                );
+            })
+            .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
     async fn predeclared_process_stream_never_silently_loses_immediate_large_output() {
         tokio::task::LocalSet::new()
             .run_until(async {

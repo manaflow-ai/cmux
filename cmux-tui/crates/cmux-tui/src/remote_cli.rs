@@ -7,7 +7,7 @@ use std::io::{self, BufRead, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -1910,22 +1910,13 @@ fn ensure_daemon(
             .stderr(Stdio::from(log));
         configure_detached_process(&mut mux_owner);
         let mut child = mux_owner.spawn().context("could not start remote mux owner")?;
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while Instant::now() < deadline {
-            if UnixStream::connect(&mux_socket).is_ok() {
-                break;
-            }
-            if let Some(status) = child.try_wait()? {
-                return Err(anyhow!(
-                    "remote mux owner exited {status}; inspect {}",
-                    log_path.display()
-                ));
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-        if UnixStream::connect(&mux_socket).is_err() {
-            return Err(anyhow!("remote mux owner did not create {}", mux_socket.display()));
-        }
+        wait_for_detached_socket(
+            &mut child,
+            &mux_socket,
+            Duration::from_secs(20),
+            "remote mux owner",
+            &log_path,
+        )?;
     }
 
     let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
@@ -1942,17 +1933,27 @@ fn ensure_daemon(
     command.stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log));
     configure_detached_process(&mut command);
     let mut child = command.spawn().context("could not start remote daemon")?;
-    let deadline = Instant::now() + Duration::from_secs(20);
+    wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
+}
+
+fn wait_for_detached_socket(
+    child: &mut Child,
+    socket: &Path,
+    timeout: Duration,
+    process_name: &str,
+    log_path: &Path,
+) -> anyhow::Result<()> {
+    let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if UnixStream::connect(link).is_ok() {
+        if UnixStream::connect(socket).is_ok() {
             return Ok(());
         }
         if let Some(status) = child.try_wait()? {
-            return Err(anyhow!("remote daemon exited {status}; inspect {}", log_path.display()));
+            return Err(anyhow!("{process_name} exited {status}; inspect {}", log_path.display()));
         }
         thread::sleep(Duration::from_millis(50));
     }
-    Err(anyhow!("remote daemon did not create {}", link.display()))
+    Err(anyhow!("{process_name} did not create {}", socket.display()))
 }
 
 fn configure_detached_process(command: &mut Command) {
@@ -2676,6 +2677,38 @@ mod tests {
         close_tx.send(()).unwrap();
         server.join().unwrap();
         assert!(mux_monitor_disconnected(&mut monitor, &mux).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn timed_out_detached_child_is_killed_and_reaped() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("missing.sock");
+        let log = directory.path().join("daemon.log");
+        let mut command = Command::new("/bin/sleep");
+        command.arg("30");
+        configure_detached_process(&mut command);
+        let mut child = command.spawn().unwrap();
+        let pid = child.id() as libc::pid_t;
+
+        let error = wait_for_detached_socket(
+            &mut child,
+            &socket,
+            Duration::from_millis(100),
+            "test detached child",
+            &log,
+        )
+        .unwrap_err();
+        let survived_timeout = child.try_wait().unwrap().is_none();
+        if survived_timeout {
+            unsafe {
+                libc::kill(-pid, libc::SIGKILL);
+            }
+            child.wait().unwrap();
+        }
+
+        assert!(error.to_string().contains("did not create"), "{error:#}");
+        assert!(!survived_timeout, "timed-out detached child was left running");
     }
 
     #[test]
