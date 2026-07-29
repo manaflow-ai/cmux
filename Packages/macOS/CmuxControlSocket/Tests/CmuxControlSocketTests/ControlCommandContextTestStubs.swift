@@ -372,13 +372,18 @@ extension ControlWorkspaceContext {
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID: UUID,
         surfaceID: UUID,
-        authority: ControlWorkspaceRemoteTerminalAuthority
+        authority: ControlWorkspaceRemoteTerminalAuthority,
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution { .notFound }
 
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int?, sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
+        relayPort: Int?,
+        terminalLifecycleID: UUID?,
+        sessionID: String?,
+        lifecycleID: String?,
+        lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution { .notFound }
 }
 

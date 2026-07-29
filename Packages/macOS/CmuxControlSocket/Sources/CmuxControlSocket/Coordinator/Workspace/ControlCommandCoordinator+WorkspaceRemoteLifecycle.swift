@@ -26,12 +26,12 @@ extension ControlCommandCoordinator {
         let sessionID = optionalTrimmedRawString(params, "session_id")
         let lifecycleID = optionalTrimmedRawString(params, "lifecycle_id")
         let invalidRelayPort = relayPort.map { $0 <= 0 || $0 > 65535 } ?? false
-        let hasRelayAuthority = relayPort != nil && terminalLifecycleID != nil
+        let hasRelayAuthority = relayPort != nil
         let hasPersistentAuthority = sessionID != nil && lifecycleID != nil
         if invalidRelayPort ||
             (params["relay_port"] != nil && relayPort == nil) ||
             (params["terminal_lifecycle_id"] != nil && terminalLifecycleID == nil) ||
-            (relayPort == nil) != (terminalLifecycleID == nil) ||
+            terminalLifecycleID == nil ||
             (sessionID == nil) != (lifecycleID == nil) ||
             hasRelayAuthority == hasPersistentAuthority {
             return .err(
@@ -54,12 +54,16 @@ extension ControlCommandCoordinator {
             persistentOwner = nil
         } else if let sessionID,
                   let lifecycleID,
+                  let terminalLifecycleID,
                   let owner = context.controlCurrentRemotePTYLifecycleOwner(
                       sessionID: sessionID,
                       lifecycleID: lifecycleID
                   ),
-                  owner.attachmentID == surfaceID.uuidString {
-            authority = .persistentTransport(owner.transportKey)
+                  UUID(uuidString: owner.attachmentID) == surfaceID {
+            authority = .persistentTransport(
+                owner.transportKey,
+                terminalLifecycleID: terminalLifecycleID
+            )
             persistentOwner = owner
         } else {
             authority = nil
@@ -74,17 +78,22 @@ extension ControlCommandCoordinator {
                     resolution = seam.controlWorkspaceRemoteTerminalSessionConnected(
                         workspaceID: workspaceID,
                         surfaceID: surfaceID,
-                        authority: authority
+                        authority: authority,
+                        commitLease: nil
                     )
                 case .persistentTransport:
                     if let persistentOwner {
-                        resolution = persistentOwner.commitLease.commitIfCurrent {
-                            seam.controlWorkspaceRemoteTerminalSessionConnected(
+                        var committedResolution:
+                            ControlWorkspaceRemoteTerminalSessionConnectedResolution = .notFound
+                        let committed = persistentOwner.commitLease.commitIfCurrent {
+                            committedResolution = seam.controlWorkspaceRemoteTerminalSessionConnected(
                                 workspaceID: workspaceID,
                                 surfaceID: surfaceID,
-                                authority: authority
+                                authority: authority,
+                                commitLease: persistentOwner.commitLease
                             )
-                        } ?? .notFound
+                        }
+                        resolution = committed ? committedResolution : .notFound
                     } else {
                         resolution = .notFound
                     }
@@ -127,13 +136,21 @@ extension ControlCommandCoordinator {
         }
         let sessionID = optionalTrimmedRawString(params, "session_id")
         let lifecycleID = optionalTrimmedRawString(params, "lifecycle_id")
+        let terminalLifecycleID = optionalTrimmedRawString(
+            params,
+            "terminal_lifecycle_id"
+        ).flatMap(UUID.init(uuidString:))
         let lifecycleOnly = bool(params, "lifecycle_only") ?? false
         if lifecycleOnly, sessionID == nil || lifecycleID == nil {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
         let relayPort = strictInt(params, "relay_port")
         let invalidRelayPort = relayPort.map { $0 <= 0 || $0 > 65535 } ?? false
-        if invalidRelayPort || (params["relay_port"] != nil && relayPort == nil) || (!lifecycleOnly && relayPort == nil) {
+        if invalidRelayPort ||
+            (params["relay_port"] != nil && relayPort == nil) ||
+            (params["terminal_lifecycle_id"] != nil && terminalLifecycleID == nil) ||
+            (sessionID == nil) != (lifecycleID == nil) ||
+            (!lifecycleOnly && (relayPort == nil || terminalLifecycleID == nil)) {
             return .err(code: "invalid_params", message: "Missing or invalid relay_port", data: nil)
         }
 
@@ -141,6 +158,7 @@ extension ControlCommandCoordinator {
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             relayPort: relayPort,
+            terminalLifecycleID: terminalLifecycleID,
             sessionID: sessionID,
             lifecycleID: lifecycleID,
             lifecycleOnly: lifecycleOnly

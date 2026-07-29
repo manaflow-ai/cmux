@@ -6256,8 +6256,25 @@ final class Workspace: Identifiable, ObservableObject {
     func markRemoteTerminalSessionEnded(
         surfaceId: UUID,
         relayPort: Int?,
-        allowUntracked: Bool = false
+        allowUntracked: Bool = false,
+        terminalLifecycleID: UUID? = nil,
+        terminalLifecycleAlreadyValidated: Bool = false
     ) -> Bool {
+        if let terminalLifecycleID, !terminalLifecycleAlreadyValidated {
+            guard let terminalPanel = panels[surfaceId] as? TerminalPanel,
+                  terminalPanel.surface.terminalLifecycleId == terminalLifecycleID else {
+                return false
+            }
+        }
+        let removedPendingConnection: Bool
+        if let terminalLifecycleID,
+           pendingRemoteTerminalConnectionsBySurfaceId[surfaceId]?.terminalLifecycleID ==
+            terminalLifecycleID {
+            pendingRemoteTerminalConnectionsBySurfaceId.removeValue(forKey: surfaceId)
+            removedPendingConnection = true
+        } else {
+            removedPendingConnection = false
+        }
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
             return true
         }
@@ -6268,7 +6285,7 @@ final class Workspace: Identifiable, ObservableObject {
                 configuration: configuration,
                 allowUntracked: allowUntracked
               ) else {
-            return false
+            return removedPendingConnection
         }
         let preservesRemotePTYSession = configuration.preserveAfterTerminalExit
         let previousPresentedDirectory = presentedCurrentDirectory

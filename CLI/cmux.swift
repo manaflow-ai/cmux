@@ -12414,7 +12414,7 @@ struct CMUXCLI {
             "if [ -z \"${CMUX_WORKSPACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required workspace context missing for SSH PTY attach.' >&2; exit 1; fi",
             "cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1",
             "cmux_ssh_attach_lifecycle_ended=0",
-            "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --session-id \(quotedSessionID) --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
+            "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --terminal-lifecycle-id \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" --session-id \(quotedSessionID) --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
             "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
             "trap 'cmux_ssh_attach_lifecycle_end' EXIT",
             "trap 'cmux_ssh_attach_signal_exit 129' HUP",
@@ -12643,7 +12643,10 @@ struct CMUXCLI {
             try Self.writeAll(fd: fd, data: handshakeData)
             attachmentToken = try readSSHPTYBridgeReady(fd: fd)
             bridgeReachedReady = true
-            if let surfaceID {
+            if let surfaceID,
+               let terminalLifecycleID = Self.normalizedEnvValue(
+                   ProcessInfo.processInfo.environment["CMUX_TERMINAL_LIFECYCLE_ID"]
+               ) {
                 _ = try? client.sendV2(
                     method: "workspace.remote.terminal_session_connected",
                     params: [
@@ -12651,6 +12654,7 @@ struct CMUXCLI {
                         "surface_id": surfaceID,
                         "session_id": sessionID,
                         "lifecycle_id": lifecycleID,
+                        "terminal_lifecycle_id": terminalLifecycleID,
                     ]
                 )
             }
@@ -12803,12 +12807,25 @@ struct CMUXCLI {
         }
         let sessionID = Self.normalizedEnvValue(optionValue(commandArgs, name: "--session-id"))
         let lifecycleID = Self.normalizedEnvValue(optionValue(commandArgs, name: "--lifecycle-id"))
+        let terminalLifecycleID = Self.normalizedEnvValue(
+            optionValue(commandArgs, name: "--terminal-lifecycle-id") ??
+                ProcessInfo.processInfo.environment["CMUX_TERMINAL_LIFECYCLE_ID"]
+        )
+        if !lifecycleOnly, terminalLifecycleID == nil {
+            throw CLIError(
+                message:
+                    "ssh-session-end requires --terminal-lifecycle-id or CMUX_TERMINAL_LIFECYCLE_ID"
+            )
+        }
         var params: [String: Any] = [
             "workspace_id": workspaceId,
             "surface_id": surfaceId,
             "lifecycle_only": lifecycleOnly,
         ]
         if let relayPort { params["relay_port"] = relayPort }
+        if let terminalLifecycleID {
+            params["terminal_lifecycle_id"] = terminalLifecycleID
+        }
         if let sessionID, let lifecycleID {
             params["session_id"] = sessionID
             params["lifecycle_id"] = lifecycleID

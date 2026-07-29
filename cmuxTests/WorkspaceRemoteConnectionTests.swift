@@ -1,6 +1,7 @@
 import Darwin
 import Combine
 import XCTest
+import CmuxControlSocket
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
@@ -18,6 +19,19 @@ import CmuxTerminal
 /// legacy `runProcessOverrideForTesting` static signature so the scripted
 /// bodies stay byte-identical.
 private typealias RemoteProcessScript = (_ executable: String, _ arguments: [String], _ stdin: Data?, _ timeout: TimeInterval) throws -> (status: Int32, stdout: String, stderr: String)
+
+@MainActor
+private final class ManualRemotePTYLifecycleCommitLease:
+    ControlRemotePTYLifecycleCommitLease
+{
+    var isCurrent = true
+
+    func commitIfCurrent(_ operation: @MainActor () -> Void) -> Bool {
+        guard isCurrent else { return false }
+        operation()
+        return true
+    }
+}
 
 /// Test fake for the coordinator's injected process-runner seam: scripts each
 /// subprocess invocation. `@unchecked Sendable` because the scripts capture
@@ -1796,6 +1810,43 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.clearRemoteTerminalSessionPhase(surfaceId: panelID)
 
         XCTAssertNil(workspace.pendingRemoteTerminalConnectionsBySurfaceId[panelID])
+    }
+
+    @MainActor
+    func testPendingPersistentReadinessRetainsCommitLease() throws {
+        let workspace = Workspace()
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let lease = ManualRemotePTYLifecycleCommitLease()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_016,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "pending-lease"
+        )
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panel.id,
+                authority: .persistentTransport(config.proxyBrokerTransportKey),
+                terminalLifecycleID: panel.surface.terminalLifecycleId,
+                commitLease: lease
+            )
+        )
+        lease.isCurrent = false
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNil(workspace.remoteTerminalSessionStatesBySurfaceId[panel.id])
+        XCTAssertNil(workspace.pendingRemoteTerminalConnectionsBySurfaceId[panel.id])
     }
 
     @MainActor

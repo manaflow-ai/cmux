@@ -4,6 +4,6 @@ public import Foundation
 public enum ControlWorkspaceRemoteTerminalAuthority: Sendable, Equatable {
     /// A non-persistent relay identified by its port and terminal process generation.
     case relayPort(Int, terminalLifecycleID: UUID)
-    /// A persistent PTY generation authenticated by its broker transport.
-    case persistentTransport(String)
+    /// A persistent PTY authenticated by broker ownership and terminal process generation.
+    case persistentTransport(String, terminalLifecycleID: UUID)
 }

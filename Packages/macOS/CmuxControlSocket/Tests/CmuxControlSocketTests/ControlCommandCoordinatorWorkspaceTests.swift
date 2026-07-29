@@ -16,10 +16,11 @@ private final class FixedRemotePTYLifecycleCommitLease:
 
     @MainActor
     func commitIfCurrent(
-        _ operation: @MainActor () -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
-    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution? {
-        guard isCurrent else { return nil }
-        return operation()
+        _ operation: @MainActor () -> Void
+    ) -> Bool {
+        guard isCurrent else { return false }
+        operation()
+        return true
     }
 }
 
@@ -274,6 +275,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
         let surfaceID = UUID()
         let sessionID = "ssh-session"
         let lifecycleID = UUID().uuidString.lowercased()
+        let terminalLifecycleID = UUID()
         let context = FakeWorkspaceControlCommandContext(
             currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner(
                 transportKey: "persistent-transport",
@@ -294,6 +296,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
                 "surface_id": .string(surfaceID.uuidString),
                 "session_id": .string(sessionID),
                 "lifecycle_id": .string(lifecycleID),
+                "terminal_lifecycle_id": .string(terminalLifecycleID.uuidString),
             ]),
             context: context
         ) else {
@@ -303,7 +306,10 @@ struct ControlCommandCoordinatorWorkspaceTests {
 
         #expect(
             context.terminalSessionConnectedCall?.authority ==
-                .persistentTransport("persistent-transport")
+                .persistentTransport(
+                    "persistent-transport",
+                    terminalLifecycleID: terminalLifecycleID
+                )
         )
     }
 
@@ -325,6 +331,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
                 "surface_id": .string(surfaceID.uuidString),
                 "session_id": .string("ssh-session"),
                 "lifecycle_id": .string("current-lifecycle"),
+                "terminal_lifecycle_id": .string(UUID().uuidString),
             ]),
             context: context
         ) else {
@@ -341,6 +348,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
         let surfaceID = UUID()
         let sessionID = "ssh-session"
         let lifecycleID = UUID().uuidString.lowercased()
+        let terminalLifecycleID = UUID()
         let owner = ControlRemotePTYLifecycleOwner(
             transportKey: "persistent-transport",
             attachmentID: surfaceID.uuidString,
@@ -368,6 +376,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
                 "surface_id": .string(surfaceID.uuidString),
                 "session_id": .string(sessionID),
                 "lifecycle_id": .string(lifecycleID),
+                "terminal_lifecycle_id": .string(terminalLifecycleID.uuidString),
             ]),
             context: context
         ) else {
@@ -448,5 +457,39 @@ struct ControlCommandCoordinatorWorkspaceTests {
 
         #expect(code == "invalid_params")
         #expect(context.terminalSessionEndCall == nil)
+    }
+
+    @Test func relaySessionEndForwardsTerminalGeneration() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let terminalLifecycleID = UUID()
+        context.terminalSessionEndResolution = .resolved(
+            windowID: nil,
+            workspaceID: workspaceID,
+            remoteStatus: .object([:])
+        )
+
+        guard case .ok = coordinator.handle(request(
+            "workspace.remote.terminal_session_end",
+            [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "relay_port": .int(64_007),
+                "terminal_lifecycle_id": .string(terminalLifecycleID.uuidString),
+            ]
+        )) else {
+            Issue.record("relay end with a terminal generation was rejected")
+            return
+        }
+
+        #expect(context.terminalSessionEndCall?.workspaceID == workspaceID)
+        #expect(context.terminalSessionEndCall?.surfaceID == surfaceID)
+        #expect(context.terminalSessionEndCall?.relayPort == 64_007)
+        #expect(
+            context.terminalSessionEndCall?.terminalLifecycleID ==
+                terminalLifecycleID
+        )
+        #expect(context.terminalSessionEndCall?.lifecycleOnly == false)
     }
 }

@@ -8,9 +8,12 @@ import Foundation
 extension RemotePTYLifecycleCommitLease: @retroactive ControlRemotePTYLifecycleCommitLease {
     @MainActor
     public func commitIfCurrent(
-        _ operation: @MainActor () -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
-    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution? {
-        withCurrentCommit(operation)
+        _ operation: @MainActor () -> Void
+    ) -> Bool {
+        withCurrentCommit {
+            operation()
+            return true
+        } ?? false
     }
 }
 
@@ -737,7 +740,8 @@ extension TerminalController: ControlWorkspaceContext {
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
-        authority: ControlWorkspaceRemoteTerminalAuthority
+        authority: ControlWorkspaceRemoteTerminalAuthority,
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)? = nil
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
         let (terminalAuthority, terminalLifecycleID) = switch authority {
         case .relayPort(let relayPort, let terminalLifecycleID):
@@ -745,10 +749,10 @@ extension TerminalController: ControlWorkspaceContext {
                 WorkspaceRemoteTerminalAuthority.relayPort(relayPort),
                 Optional(terminalLifecycleID)
             )
-        case .persistentTransport(let transportKey):
+        case .persistentTransport(let transportKey, let terminalLifecycleID):
             (
                 WorkspaceRemoteTerminalAuthority.persistentTransport(transportKey),
-                Optional<UUID>.none
+                Optional(terminalLifecycleID)
             )
         }
 
@@ -770,6 +774,7 @@ extension TerminalController: ControlWorkspaceContext {
                     surfaceId: surfaceId,
                     authority: terminalAuthority,
                     terminalLifecycleID: terminalLifecycleID,
+                    commitLease: commitLease,
                     dock: dock
                 )
             } else if dock.scope == .global {
@@ -801,7 +806,8 @@ extension TerminalController: ControlWorkspaceContext {
               workspace.markRemoteTerminalSessionConnected(
                   surfaceId: surfaceId,
                   authority: terminalAuthority,
-                  terminalLifecycleID: terminalLifecycleID
+                  terminalLifecycleID: terminalLifecycleID,
+                  commitLease: commitLease
               ) else {
             return .notFound
         }
@@ -817,6 +823,7 @@ extension TerminalController: ControlWorkspaceContext {
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
         relayPort: Int?,
+        terminalLifecycleID: UUID?,
         sessionID: String?,
         lifecycleID: String?,
         lifecycleOnly: Bool
@@ -833,9 +840,9 @@ extension TerminalController: ControlWorkspaceContext {
         let generationIsCurrent = switch (sessionID, lifecycleID) {
         case (.some, .some):
             lifecycleClaim?.wasCurrent == true &&
-                lifecycleClaim?.attachmentID == surfaceId.uuidString
+                lifecycleClaim.flatMap { UUID(uuidString: $0.attachmentID) } == surfaceId
         case (nil, nil):
-            true
+            terminalLifecycleID != nil
         case (.some, nil), (nil, .some):
             false
         }
@@ -873,12 +880,14 @@ extension TerminalController: ControlWorkspaceContext {
                         surfaceId: surfaceId,
                         authority: terminalAuthority,
                         relayPort: relayPort,
+                        terminalLifecycleID: terminalLifecycleID,
                         dock: dock
                     )
                 } else if dock.scope == .global {
                     didEnd = dock.markRemoteTerminalSessionEnded(
                         panelId: surfaceId,
-                        authority: terminalAuthority
+                        authority: terminalAuthority,
+                        terminalLifecycleID: terminalLifecycleID
                     )
                 } else {
                     didEnd = false
@@ -903,7 +912,13 @@ extension TerminalController: ControlWorkspaceContext {
             return .notFound
         }
         if !lifecycleOnly, generationIsCurrent {
-            workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+            guard workspace.markRemoteTerminalSessionEnded(
+                surfaceId: surfaceId,
+                relayPort: relayPort,
+                terminalLifecycleID: terminalLifecycleID
+            ) else {
+                return .notFound
+            }
         }
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(

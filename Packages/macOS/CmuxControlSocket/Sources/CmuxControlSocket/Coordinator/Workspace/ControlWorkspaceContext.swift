@@ -291,11 +291,14 @@ public protocol ControlWorkspaceContext: AnyObject {
     ///   - surfaceID: The connected terminal surface id.
     ///   - authority: The relay or broker transport authority already validated
     ///     on the socket worker.
+    ///   - commitLease: The persistent broker lease to retain if configuration
+    ///     has not reached the workspace yet.
     /// - Returns: The connected-session resolution.
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID: UUID,
         surfaceID: UUID,
-        authority: ControlWorkspaceRemoteTerminalAuthority
+        authority: ControlWorkspaceRemoteTerminalAuthority,
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
 
     /// Records a remote terminal session-end for
@@ -305,6 +308,7 @@ public protocol ControlWorkspaceContext: AnyObject {
     ///   - workspaceID: The workspace id.
     ///   - surfaceID: The surface id.
     ///   - relayPort: The validated relay port, omitted for lifecycle-only retirement.
+    ///   - terminalLifecycleID: The terminal process generation for a full end.
     ///   - sessionID: The persistent PTY session, when this wrapper owns one.
     ///   - lifecycleID: The wrapper-owned PTY lifecycle generation, when present.
     ///   - lifecycleOnly: Whether to retire the generation without ending the shared terminal session.
@@ -313,6 +317,7 @@ public protocol ControlWorkspaceContext: AnyObject {
         workspaceID: UUID,
         surfaceID: UUID,
         relayPort: Int?,
+        terminalLifecycleID: UUID?,
         sessionID: String?,
         lifecycleID: String?,
         lifecycleOnly: Bool

@@ -21,7 +21,8 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     var terminalSessionConnectedResolution: ControlWorkspaceRemoteTerminalSessionConnectedResolution = .notFound
     var terminalSessionEndCall: (
         workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
-        sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
+        terminalLifecycleID: UUID?, sessionID: String?,
+        lifecycleID: String?, lifecycleOnly: Bool
     )?
     var terminalSessionConnectedCall: (
         workspaceID: UUID,
@@ -99,16 +100,26 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
 
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
-        sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
+        terminalLifecycleID: UUID?, sessionID: String?,
+        lifecycleID: String?, lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
-        terminalSessionEndCall = (workspaceID, surfaceID, relayPort, sessionID, lifecycleID, lifecycleOnly)
+        terminalSessionEndCall = (
+            workspaceID,
+            surfaceID,
+            relayPort,
+            terminalLifecycleID,
+            sessionID,
+            lifecycleID,
+            lifecycleOnly
+        )
         return terminalSessionEndResolution
     }
 
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID: UUID,
         surfaceID: UUID,
-        authority: ControlWorkspaceRemoteTerminalAuthority
+        authority: ControlWorkspaceRemoteTerminalAuthority,
+        commitLease _: (any ControlRemotePTYLifecycleCommitLease)?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
         terminalSessionConnectedCall = (workspaceID, surfaceID, authority)
         return terminalSessionConnectedResolution

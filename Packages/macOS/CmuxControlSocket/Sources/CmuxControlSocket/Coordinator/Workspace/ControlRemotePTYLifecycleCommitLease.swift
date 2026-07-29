@@ -3,9 +3,9 @@ public protocol ControlRemotePTYLifecycleCommitLease: Sendable {
     /// Runs `operation` only while the authenticated PTY generation is current.
     ///
     /// - Parameter operation: The short main-actor model mutation to commit.
-    /// - Returns: The mutation result, or `nil` when the generation was retired.
+    /// - Returns: Whether the operation ran before the generation was retired.
     @MainActor
     func commitIfCurrent(
-        _ operation: @MainActor () -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
-    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution?
+        _ operation: @MainActor () -> Void
+    ) -> Bool
 }

@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import CmuxCore
 import Foundation
 
@@ -31,8 +32,10 @@ struct WorkspaceRemoteTerminalSessionState: Equatable {
     let authority: WorkspaceRemoteTerminalAuthority
 }
 
-struct PendingWorkspaceRemoteTerminalConnection: Equatable {
+struct PendingWorkspaceRemoteTerminalConnection {
     let authority: WorkspaceRemoteTerminalAuthority
+    let terminalLifecycleID: UUID?
+    let commitLease: (any ControlRemotePTYLifecycleCommitLease)?
 }
 
 private enum WorkspaceRemoteTerminalConnectionTarget {
@@ -99,7 +102,8 @@ extension Workspace {
         surfaceId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
         allowUntracked: Bool = false,
-        terminalLifecycleID: UUID? = nil
+        terminalLifecycleID: UUID? = nil,
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)? = nil
     ) -> Bool {
         if let terminalLifecycleID {
             guard let terminalPanel = panels[surfaceId] as? TerminalPanel,
@@ -117,7 +121,9 @@ extension Workspace {
         applyRemoteTerminalSessionConnected(
             target: target,
             surfaceId: surfaceId,
-            authority: authority
+            authority: authority,
+            terminalLifecycleID: terminalLifecycleID,
+            commitLease: commitLease
         )
         return true
     }
@@ -126,6 +132,7 @@ extension Workspace {
         surfaceId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
         terminalLifecycleID: UUID? = nil,
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)? = nil,
         dock: DockSplitStore
     ) -> Bool {
         guard dock.ownsRemoteTerminalTransfer(
@@ -147,7 +154,9 @@ extension Workspace {
         applyRemoteTerminalSessionConnected(
             target: target,
             surfaceId: surfaceId,
-            authority: authority
+            authority: authority,
+            terminalLifecycleID: terminalLifecycleID,
+            commitLease: commitLease
         )
         return true
     }
@@ -156,24 +165,29 @@ extension Workspace {
         surfaceId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
         relayPort: Int?,
+        terminalLifecycleID: UUID?,
         dock: DockSplitStore
     ) -> Bool {
         guard dock.ownsRemoteTerminalTransfer(
                   panelId: surfaceId,
                   presentationWorkspaceID: id
               ),
-              let configuration = remoteConfiguration,
-              authority.matches(configuration) else {
+              remoteConfiguration.map(authority.matches) ??
+                (pendingRemoteTerminalConnectionsBySurfaceId[surfaceId]?.authority ==
+                    authority) else {
             return false
         }
         return dock.markRemoteTerminalSessionEnded(
             panelId: surfaceId,
-            authority: authority
+            authority: authority,
+            terminalLifecycleID: terminalLifecycleID
         ) {
             markRemoteTerminalSessionEnded(
                 surfaceId: surfaceId,
                 relayPort: relayPort,
-                allowUntracked: true
+                allowUntracked: true,
+                terminalLifecycleID: terminalLifecycleID,
+                terminalLifecycleAlreadyValidated: true
             )
         }
     }
@@ -198,12 +212,18 @@ extension Workspace {
     private func applyRemoteTerminalSessionConnected(
         target: WorkspaceRemoteTerminalConnectionTarget,
         surfaceId: UUID,
-        authority: WorkspaceRemoteTerminalAuthority
+        authority: WorkspaceRemoteTerminalAuthority,
+        terminalLifecycleID: UUID?,
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)?
     ) {
         switch target {
         case .pending:
             pendingRemoteTerminalConnectionsBySurfaceId[surfaceId] =
-                PendingWorkspaceRemoteTerminalConnection(authority: authority)
+                PendingWorkspaceRemoteTerminalConnection(
+                    authority: authority,
+                    terminalLifecycleID: terminalLifecycleID,
+                    commitLease: commitLease
+                )
         case .configured(let isTracked):
             if isTracked {
                 remoteTerminalSessionStatesBySurfaceId[surfaceId] =
@@ -228,15 +248,25 @@ extension Workspace {
         let pendingConnections = pendingRemoteTerminalConnectionsBySurfaceId
         pendingRemoteTerminalConnectionsBySurfaceId.removeAll()
         for (surfaceId, connection) in pendingConnections {
-            _ = markRemoteTerminalSessionConnected(
-                surfaceId: surfaceId,
-                authority: connection.authority
-            )
+            let applyConnection = {
+                _ = self.markRemoteTerminalSessionConnected(
+                    surfaceId: surfaceId,
+                    authority: connection.authority,
+                    terminalLifecycleID: connection.terminalLifecycleID,
+                    commitLease: connection.commitLease
+                )
+            }
+            if let commitLease = connection.commitLease {
+                _ = commitLease.commitIfCurrent(applyConnection)
+            } else {
+                applyConnection()
+            }
         }
     }
 
     func clearRemoteTerminalSessionPhase(surfaceId: UUID) {
         remoteTerminalSessionStatesBySurfaceId.removeValue(forKey: surfaceId)
+        pendingRemoteTerminalConnectionsBySurfaceId.removeValue(forKey: surfaceId)
     }
 
     func restoreRemoteTerminalSessionPhase(

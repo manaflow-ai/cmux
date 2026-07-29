@@ -78,11 +78,13 @@ extension DockSplitStore {
 
     func markRemoteTerminalSessionEnded(
         panelId: UUID,
-        authority: WorkspaceRemoteTerminalAuthority
+        authority: WorkspaceRemoteTerminalAuthority,
+        terminalLifecycleID: UUID? = nil
     ) -> Bool {
         markRemoteTerminalSessionEnded(
             panelId: panelId,
             authority: authority,
+            terminalLifecycleID: terminalLifecycleID,
             afterValidation: { true }
         )
     }
@@ -91,12 +93,17 @@ extension DockSplitStore {
     func markRemoteTerminalSessionEnded(
         panelId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
+        terminalLifecycleID: UUID? = nil,
         afterValidation workspaceTransition: () -> Bool
     ) -> Bool {
         guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
               transfer.isRemoteTerminal,
               transfer.remoteCleanupConfiguration.map(authority.matches) ?? true,
               transfer.remoteTerminalAuthority.map({ $0 == authority }) ?? true,
+              matchesTerminalLifecycle(
+                  panelId: panelId,
+                  terminalLifecycleID: terminalLifecycleID
+              ),
               workspaceTransition() else {
             return false
         }

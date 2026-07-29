@@ -3954,6 +3954,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
                 XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["terminal_lifecycle_id"] as? String, surfaceId)
                 XCTAssertNotNil(
                     (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
                 )
@@ -4000,6 +4001,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
         environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
 
         let result = runProcess(
@@ -4067,6 +4069,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
+            case "workspace.remote.terminal_session_connected":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["terminal_lifecycle_id"] as? String, surfaceId)
+                XCTAssertNotNil(
+                    (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
+                )
+                return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
                     id: id,
@@ -4103,6 +4115,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4255,6 +4268,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
+            case "workspace.remote.terminal_session_connected":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["terminal_lifecycle_id"] as? String, surfaceId)
+                XCTAssertNotNil(
+                    (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
+                )
+                return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
                     id: id,
@@ -4291,6 +4314,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4388,6 +4412,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertEqual(params["cols"] as? Int, 132)
                 XCTAssertEqual(params["rows"] as? Int, 43)
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
+            case "workspace.remote.terminal_session_connected":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["terminal_lifecycle_id"] as? String, surfaceId)
+                XCTAssertNotNil(
+                    (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
+                )
+                return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(id: id, ok: true, result: ["sessions": []])
             case "workspace.remote.pty_attach_end":
@@ -4464,6 +4498,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = slaveHandle
@@ -4550,6 +4585,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     ok: true,
                     result: ["errors": [["error": "resize response marker"]]]
                 )
+            case "workspace.remote.terminal_session_connected":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["terminal_lifecycle_id"] as? String, surfaceId)
+                XCTAssertNotNil(
+                    (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
+                )
+                return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(id: id, ok: true, result: ["sessions": []])
             case "workspace.remote.pty_attach_end":
@@ -4619,6 +4664,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
