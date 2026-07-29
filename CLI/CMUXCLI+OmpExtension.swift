@@ -135,9 +135,15 @@ function boundedHookText(value: string | undefined): string | undefined {
   return value.slice(0, 32768);
 }
 
+function isNestedArtifactSession(ctx: ExtensionContext): boolean {
+  const sessionFile = firstString(ctx.sessionManager.getSessionFile());
+  return sessionFile !== null && fs.existsSync(`${path.dirname(sessionFile)}.jsonl`);
+}
+
 function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): HookInvocation | null {
   if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return null;
   if (!process.env.CMUX_SURFACE_ID) return null;
+  if (isNestedArtifactSession(ctx)) return null;
 
   const sessionId = firstString(ctx.sessionManager.getSessionId());
   if (!sessionId) return null;

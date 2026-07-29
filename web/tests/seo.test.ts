@@ -8,6 +8,9 @@ import sitemap from "../app/sitemap";
 import { legalMetadata } from "../app/[locale]/(legal)/legal-metadata";
 import middleware from "../proxy";
 import {
+  browserOpenGraphDefaults,
+  browserOpenGraphImage,
+  browserTwitterSummary,
   buildAlternates,
   canonicalUrl,
   completeMetadataSentence,
@@ -25,6 +28,7 @@ import {
   bestTerminalSeoCopy,
   blogIndexSeoCopy,
   blogPostSeoCopy,
+  browserDownloadSeoCopy,
   cmuxHistorySeoCopy,
   communitySeoCopy,
   compareIndexSeoCopy,
@@ -213,6 +217,22 @@ describe("SEO metadata helpers", () => {
     });
     expect(twitterSummary("ja", "Title", "Description").images).toEqual([
       "https://cmux.com/ja/opengraph-image",
+    ]);
+    expect(browserOpenGraphDefaults("Descargar cmux para Windows")).toEqual({
+      siteName: "cmux",
+      type: "website",
+      images: [
+        {
+          url: "https://cmux.com/browser-opengraph-image",
+          width: 2400,
+          height: 1260,
+          alt: "Descargar cmux para Windows",
+        },
+      ],
+    });
+    expect(browserOpenGraphImage("متصفح cmux").alt).toBe("متصفح cmux");
+    expect(browserTwitterSummary("Title", "Description").images).toEqual([
+      "https://cmux.com/browser-opengraph-image",
     ]);
   });
 
@@ -515,6 +535,31 @@ describe("SEO metadata helpers", () => {
           [messages.landing.guides.metaTitle, messages.landing.guides.title],
         ),
       );
+      for (const platform of ["windows", "linux"] as const) {
+        const page = messages.browserDownloads[platform];
+        const copy = browserDownloadSeoCopy(
+          locale,
+          messageLookup(page),
+          messages.browserDownloads.eyebrow,
+        );
+        expect(`${copy.title}${copy.description}`).not.toContain("macOS");
+        if (copy.title !== page.metaTitle) {
+          expect(copy.title).toContain(messages.browserDownloads.eyebrow);
+        }
+        rows.push(
+          auditedRow(
+            `/${platform}`,
+            copy,
+            [
+              page.metaDescription,
+              page.subtitle,
+              page.installBody,
+              page.name,
+            ],
+            [page.metaTitle, page.name],
+          ),
+        );
+      }
       if (locale === "en" || locale === "ja") {
         const pricing = messageLookup(messages.pricing);
         rows.push(

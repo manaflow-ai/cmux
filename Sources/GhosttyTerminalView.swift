@@ -2756,7 +2756,13 @@ class GhosttyApp {
                           let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else { return false }
                     let result = tabManager.cycleSplitFocus(tabId: tabId, forward: forward)
 #if DEBUG
-                    app.recordGotoSplitCycleMoveIfNeeded(tabId: tabId, forward: forward)
+                    if result {
+                        GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
+                            tabManager: tabManager,
+                            tabId: tabId,
+                            forward: forward
+                        )
+                    }
 #endif
                     return result
                 }
@@ -2768,7 +2774,8 @@ class GhosttyApp {
                 return false
             }
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                guard let app = AppDelegate.shared,
+                      let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else { return false }
                 return tabManager.moveSplitFocus(tabId: tabId, surfaceId: surfaceId, direction: direction)
             }
         case GHOSTTY_ACTION_RESIZE_SPLIT:
@@ -4635,9 +4642,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
-            _ = performBindingAction("navigate_search:next", repeatCount: count)
+            _ = TerminalSearchNavigation.next.perform { performBindingAction($0, repeatCount: count) }
         case .searchPrevious:
-            _ = performBindingAction("navigate_search:previous", repeatCount: count)
+            _ = TerminalSearchNavigation.previous.perform { performBindingAction($0, repeatCount: count) }
         case let .adjustSelection(direction):
             if keyboardCopyModeVisualLineActive {
                 adjustKeyboardCopyModeVisualLineSelection(direction, count: count, surface: surface)
@@ -9026,8 +9033,8 @@ final class GhosttySurfaceScrollView: NSView {
             canApplyFocusRequest: { [weak self] in
                 self?.canApplyMountedSearchFieldFocusRequest() ?? false
             },
-            onNavigateSearch: { [weak terminalSurface] action in
-                _ = terminalSurface?.performExplicitInputBindingAction(action)
+            onNavigateSearch: { [weak terminalSurface] direction in
+                _ = direction.perform { terminalSurface?.performExplicitInputBindingAction($0) ?? false }
             },
             onSearchTextChanged: { [weak terminalSurface] in terminalSurface?.didReceiveExplicitInput() },
             onFieldDidFocus: { [weak self, weak terminalSurface] in

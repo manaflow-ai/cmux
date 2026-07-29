@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxPanes
 import CmuxWorkspaces
 import Foundation
 
@@ -234,26 +235,29 @@ extension Workspace {
     }
 
     /// Cycles focus to the next or previous split pane in tree order, wrapping at the ends.
-    func cycleFocus(forward: Bool) {
-        let allPaneIds = bonsplitController.allPaneIds
-        guard allPaneIds.count > 1,
-              let currentId = bonsplitController.focusedPaneId,
-              let currentIndex = allPaneIds.firstIndex(of: currentId) else { return }
+    @discardableResult
+    func cycleFocus(forward: Bool) -> Bool {
+        guard layoutMode != .canvas else { return false }
+
+        guard let targetPaneId = PaneCycleNavigator().targetPane(
+            orderedPaneIds: spatiallyOrderedPaneIds,
+            livePaneIds: bonsplitController.allPaneIds,
+            focusedPaneId: bonsplitController.focusedPaneId,
+            forward: forward
+        ) else { return false }
 
         if let previousPanelId = focusedPanelId,
            let previousPanel = panels[previousPanelId] {
             previousPanel.unfocus()
         }
 
-        let targetIndex = forward
-            ? (currentIndex + 1) % allPaneIds.count
-            : (currentIndex - 1 + allPaneIds.count) % allPaneIds.count
-        bonsplitController.focusPane(allPaneIds[targetIndex])
+        bonsplitController.focusPane(targetPaneId)
 
         if let paneId = bonsplitController.focusedPaneId,
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
+        return true
     }
 
     /// Moves the selected surface within its focused split or Canvas pane
