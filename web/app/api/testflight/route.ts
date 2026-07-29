@@ -1,11 +1,19 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 import { localizedVaultPath, vaultSignInHref } from "../../lib/vault-auth";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { locales, routing } from "../../../i18n/routing";
-import { enrollTester, removeTester } from "../../../services/asc/testflight";
+import {
+  enrollTester,
+  recordProTestflightEnrollmentEmail,
+  removeProTesterAccess,
+  removeTester,
+} from "../../../services/asc/testflight";
 import { isAscConfigured } from "../../../services/asc/client";
-import { isTestflightEligible } from "../../../services/billing/pro";
+import {
+  isTestflightEligible,
+  type ProMetadataJson,
+} from "../../../services/billing/pro";
 import { captureAscError } from "../../../services/errors";
 import { browserMutationOriginAllowed } from "../../../services/vms/routeHelpers";
 
@@ -31,7 +39,8 @@ export async function POST(request: NextRequest) {
       return testflightRedirect(request, "unavailable");
     }
 
-    const user = await getStackServerApp().getUser({ or: "return-null" });
+    const stackApp = getStackServerApp();
+    const user = await stackApp.getUser({ or: "return-null" });
     if (!user || user.isAnonymous) {
       return NextResponse.redirect(
         new URL(vaultSignInHref(localizedVaultPath(requestLocale(request), "/dashboard/testflight")), request.url),
@@ -51,12 +60,36 @@ export async function POST(request: NextRequest) {
       if (!(await isTestflightEligible(user))) {
         return testflightRedirect(request, "ineligible");
       }
-      const name = splitDisplayName(user.displayName);
-      await enrollTester(email, name.firstName, name.lastName);
+      // Eligibility checks and other billing paths can update Stack metadata.
+      // Stack user objects are immutable snapshots, so reload before the
+      // read-modify-write that records exact TestFlight ownership.
+      const freshUser = await stackApp.getUser(user.id);
+      if (!freshUser || freshUser.id !== user.id) {
+        return testflightRedirect(request, "error");
+      }
+      const freshEmail = normalizedEmail(freshUser.primaryEmail);
+      if (!freshEmail) return testflightRedirect(request, "needs_email");
+      // Persist the exact address before the ASC mutation. If ASC fails, a
+      // retry is harmless; if it succeeds, future email changes cannot orphan
+      // this Pro-group enrollment during leave, lapse, or account deletion.
+      await recordProTestflightEnrollmentEmail(freshUser, freshEmail);
+      const name = splitDisplayName(freshUser.displayName);
+      await enrollTester(freshEmail, name.firstName, name.lastName);
       return testflightRedirect(request, "joined");
     }
 
-    await removeTester(email);
+    const freshUser = await stackApp.getUser(user.id);
+    if (!freshUser) return testflightRedirect(request, "error");
+    await removeProTesterAccess(
+      normalizedEmail(freshUser.primaryEmail),
+      freshUser.clientReadOnlyMetadata,
+      removeTester,
+      {
+        updateMetadata: (clientReadOnlyMetadata) => freshUser.update({
+          clientReadOnlyMetadata: clientReadOnlyMetadata as ProMetadataJson,
+        }),
+      },
+    );
     return testflightRedirect(request, "left");
   } catch (error) {
     captureAscError(error, {

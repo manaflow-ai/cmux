@@ -10,6 +10,7 @@ import CmuxTerminal
 import CmuxTerminalCore
 import SwiftUI
 import AppKit
+import WebKit
 import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
@@ -24,6 +25,18 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+
+private func externalBrowserFallbackURL(
+    url: URL?,
+    initialRequest: URLRequest?
+) -> URL? {
+    if let url { return url }
+    guard let initialRequest,
+          (initialRequest.httpMethod ?? "GET").uppercased() == "GET" else {
+        return nil
+    }
+    return initialRequest.url
+}
 
 #if DEBUG
 func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -3742,6 +3755,159 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
             _ = self.closePanel(browserPanel.id, force: true)
         }
+        browserPanel.openAppLinkInBrowserSplit = { [weak self, weak browserPanel] url in
+            guard let self, let browserPanel else { return false }
+            return self.openAppLinkInBrowserSplit(url, from: browserPanel)
+        }
+    }
+
+    private func openAppLinkInBrowserSplit(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(),
+              let mountedSource = panels[sourcePanel.id] as? BrowserPanel,
+              mountedSource === sourcePanel else {
+            return false
+        }
+
+        Task { @MainActor [weak self, weak sourcePanel] in
+            guard let self, let sourcePanel,
+                  let mountedSource = self.panels[sourcePanel.id] as? BrowserPanel,
+                  mountedSource === sourcePanel else {
+                return
+            }
+            guard let auth = AppDelegate.shared?.auth else {
+                _ = self.recoverAppLinkNavigation(
+                    destinationURL,
+                    from: sourcePanel
+                )
+                return
+            }
+            var outcome = await auth.browserAppSession.request(
+                destinationURL: destinationURL
+            )
+            if outcome.shouldRetry {
+                guard let retrySource = self.panels[sourcePanel.id] as? BrowserPanel,
+                      retrySource === sourcePanel else {
+                    return
+                }
+                outcome = await auth.browserAppSession.request(
+                    destinationURL: destinationURL
+                )
+            }
+            if outcome.recoveryAction == .beginSignIn {
+                auth.browserSignIn.beginSignIn()
+                return
+            }
+            if outcome.recoveryAction == .isolatedBrowser {
+                _ = self.recoverAppLinkNavigation(
+                    destinationURL,
+                    from: sourcePanel
+                )
+                return
+            }
+            guard case let .navigation(navigation) = outcome else { return }
+
+            guard let currentSource = self.panels[sourcePanel.id] as? BrowserPanel,
+                  currentSource === sourcePanel else {
+                return
+            }
+            guard auth.browserAppSession.isCurrent(
+                generation: navigation.generation
+            ) else {
+                _ = self.recoverAppLinkNavigation(
+                    destinationURL,
+                    from: sourcePanel
+                )
+                return
+            }
+            if let targetPane = self.preferredRightSideTargetPane(
+                fromPanelId: sourcePanel.id
+            ), self.newBrowserSurface(
+                inPane: targetPane,
+                initialRequest: navigation.request,
+                focus: true,
+                preferredProfileID: sourcePanel.profileID,
+                websiteDataStore: navigation.websiteDataStore
+            ) != nil {
+                return
+            }
+            if self.newBrowserSplit(
+                from: sourcePanel.id,
+                orientation: .horizontal,
+                initialRequest: navigation.request,
+                preferredProfileID: sourcePanel.profileID,
+                focus: true,
+                websiteDataStore: navigation.websiteDataStore
+            ) != nil {
+                return
+            }
+            // If layout cannot create the requested split, keep the authenticated
+            // request in its dedicated store by opening a tab beside the source.
+            // Navigating the source would reuse its shared profile and lose the
+            // native-to-web session established above.
+            if let sourcePane = self.paneId(forPanelId: currentSource.id) {
+                if self.newBrowserSurface(
+                    inPane: sourcePane,
+                    initialRequest: navigation.request,
+                    focus: true,
+                    insertAtEnd: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: navigation.websiteDataStore
+                ) != nil {
+                    return
+                }
+            }
+            _ = self.recoverAppLinkNavigation(
+                destinationURL,
+                from: sourcePanel
+            )
+        }
+        return true
+    }
+
+    /// Preserves a cancelled app-link click without placing credentials in a
+    /// shared browser profile. The system browser is the last-resort path when
+    /// the workspace can no longer create a browser surface.
+    private func recoverAppLinkNavigation(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        openAppLinkInIsolatedBrowser(destinationURL, from: sourcePanel)
+            || NSWorkspace.shared.open(destinationURL)
+    }
+
+    /// Opens a handoff recovery page in a fresh cookie store so a failed
+    /// exchange cannot fall through to an unrelated signed-in browser profile.
+    private func openAppLinkInIsolatedBrowser(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard let mountedSource = panels[sourcePanel.id] as? BrowserPanel,
+              mountedSource === sourcePanel else {
+            return false
+        }
+        let isolatedStore = WKWebsiteDataStore.nonPersistent()
+        if let targetPane = preferredRightSideTargetPane(
+            fromPanelId: sourcePanel.id
+        ), newBrowserSurface(
+            inPane: targetPane,
+            url: destinationURL,
+            focus: true,
+            preferredProfileID: sourcePanel.profileID,
+            websiteDataStore: isolatedStore
+        ) != nil {
+            return true
+        }
+        return newBrowserSplit(
+            from: sourcePanel.id,
+            orientation: .horizontal,
+            url: destinationURL,
+            preferredProfileID: sourcePanel.profileID,
+            focus: true,
+            websiteDataStore: isolatedStore
+        ) != nil
     }
 
     private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
@@ -7700,21 +7866,26 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         url: URL? = nil,
+        initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         // No local browser surfaces in a remote tmux mirror workspace (it is a
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let url {
-                _ = NSWorkspace.shared.open(url)
+            if let externalURL = externalBrowserFallbackURL(
+                url: url,
+                initialRequest: initialRequest
+            ) {
+                _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
         }
@@ -7740,6 +7911,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: panelId
             ),
             initialURL: url,
+            initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             omnibarVisible: omnibarVisible,
@@ -7747,7 +7919,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -7820,7 +7993,8 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
-        bypassRemoteProxy: Bool = false
+        bypassRemoteProxy: Bool = false,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
@@ -7829,7 +8003,10 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = url ?? initialRequest?.url {
+            if let externalURL = externalBrowserFallbackURL(
+                url: url,
+                initialRequest: initialRequest
+            ) {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
@@ -7856,7 +8033,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -8714,6 +8892,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard let panelId = panelIdFromSurfaceId(tab.id),
               let browserPanel = browserPanel(for: panelId),
+              browserPanel.shouldPersistSessionSnapshot(),
               let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
             pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
             return

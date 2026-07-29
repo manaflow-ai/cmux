@@ -3538,6 +3538,32 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertNil(closedSnapshot)
     }
 
+    func testEphemeralBrowserTabCloseIsNotRecordedForRestore() throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let workspace = Workspace()
+        let expectedURL = try XCTUnwrap(URL(string: "https://example.com/authenticated-handoff"))
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: paneId,
+            url: expectedURL,
+            focus: false,
+            websiteDataStore: .nonPersistent()
+        ))
+        let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserPanel.id))
+        let tab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
+        var legacySnapshot: ClosedBrowserPanelRestoreSnapshot?
+        workspace.onClosedBrowserPanel = { legacySnapshot = $0 }
+        workspace.markCloseHistoryEligible(panelId: browserPanel.id)
+
+        XCTAssertTrue(workspace.splitTabBar(workspace.bonsplitController, shouldCloseTab: tab, inPane: paneId))
+        workspace.splitTabBar(workspace.bonsplitController, didCloseTab: tabId, fromPane: paneId)
+
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+        XCTAssertNil(legacySnapshot)
+    }
+
     func testBrowserWebViewDidCloseClosesPanelAndCmdShiftTRestoresIt() {
         let manager = TabManager()
         let expectedURL = URL(string: "https://example.com/self-close")

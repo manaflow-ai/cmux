@@ -1,0 +1,197 @@
+import { Resend } from "resend";
+import type Stripe from "stripe";
+
+import { env } from "../../app/env";
+import { preferredLocaleFromAcceptLanguage } from "../../i18n/accept-language";
+import { loadMessages } from "../../i18n/messages";
+import type { Locale } from "../../i18n/routing";
+
+export const DEFAULT_PRO_FROM_EMAIL = "pro@cmux.com";
+export const PRO_REPLY_TO_EMAIL = "pro@cmux.com";
+export const PRO_TESTFLIGHT_SIGNUP_URL = "https://cmux.com/dashboard/testflight";
+
+type ProWelcomeCopy = {
+  subject: string;
+  fallbackName: string;
+  greeting: string;
+  thanks: string;
+  cloudStatus: string;
+  currentBenefit: string;
+  testflightLink: string;
+  testflightLinkLabel: string;
+  signoff: string;
+};
+
+type ProFulfillmentDependencies = {
+  sendEmail: (
+    payload: ProWelcomeEmail,
+    options: { idempotencyKey: string },
+  ) => Promise<{ error: unknown | null }>;
+  fromEmail: () => string;
+};
+
+const defaultDependencies: ProFulfillmentDependencies = {
+  sendEmail: async (payload, options) => {
+    const resend = new Resend(env.RESEND_API_KEY);
+    return resend.emails.send(payload, options);
+  },
+  fromEmail: () => env.CMUX_PRO_FROM_EMAIL ?? DEFAULT_PRO_FROM_EMAIL,
+};
+
+export type ProWelcomeEmail = {
+  from: string;
+  to: string[];
+  replyTo: string;
+  subject: string;
+  text: string;
+  html: string;
+  headers: Record<string, string>;
+};
+
+export async function sendProSignupWelcome(
+  input: {
+    session: Stripe.Checkout.Session;
+  },
+  dependencies: ProFulfillmentDependencies = defaultDependencies,
+): Promise<void> {
+  const email = checkoutEmail(input.session);
+  if (!email) {
+    // Stripe cannot repair a permanently absent address by redelivering the
+    // webhook. Acknowledge the checkout and leave an operational breadcrumb
+    // instead of retrying the already-granted entitlement forever.
+    console.warn("cmux Pro welcome skipped: checkout is missing a customer email", {
+      checkoutSessionId: input.session.id,
+    });
+    return;
+  }
+
+  const customerName = checkoutCustomerName(input.session);
+  const sessionRef = input.session.id;
+  const payload = await buildProWelcomeEmail({
+    from: formatFromAddress(dependencies.fromEmail()),
+    to: email,
+    customerName,
+    locale: checkoutLocale(input.session),
+    sessionRef,
+  });
+  const { error } = await dependencies.sendEmail(payload, {
+    idempotencyKey: `pro-welcome/${sessionRef}`,
+  });
+  if (error) {
+    throw new Error(`cmux Pro welcome email failed: ${errorMessage(error)}`);
+  }
+}
+
+export async function buildProWelcomeEmail(input: {
+  from: string;
+  to: string;
+  customerName?: string | null;
+  locale: Locale;
+  sessionRef: string;
+}): Promise<ProWelcomeEmail> {
+  const catalog = await loadMessages(input.locale) as {
+    emails: { proWelcome: ProWelcomeCopy };
+  };
+  const copy = catalog.emails.proWelcome;
+  const name = firstName(input.customerName) ?? copy.fallbackName;
+  const greeting = copy.greeting.replace("{name}", name);
+  const testflightLink = copy.testflightLink.replace(
+    "{url}",
+    PRO_TESTFLIGHT_SIGNUP_URL,
+  );
+  return {
+    from: input.from,
+    to: [input.to],
+    replyTo: PRO_REPLY_TO_EMAIL,
+    subject: copy.subject,
+    text: [
+      greeting,
+      "",
+      copy.thanks,
+      "",
+      copy.cloudStatus,
+      "",
+      copy.currentBenefit,
+      "",
+      testflightLink,
+      "",
+      copy.signoff,
+    ].join("\n"),
+    html: [
+      `<p>${escapeHtml(greeting)}</p>`,
+      `<p>${escapeHtml(copy.thanks)}</p>`,
+      `<p>${escapeHtml(copy.cloudStatus)}</p>`,
+      `<p>${escapeHtml(copy.currentBenefit)}</p>`,
+      `<p><a href="${PRO_TESTFLIGHT_SIGNUP_URL}">${escapeHtml(copy.testflightLinkLabel)}</a></p>`,
+      `<p>${escapeHtml(copy.signoff).replaceAll("\n", "<br>")}</p>`,
+    ].join(""),
+    headers: { "X-Entity-Ref-ID": `pro-welcome/${input.sessionRef}` },
+  };
+}
+
+function checkoutEmail(session: Stripe.Checkout.Session): string | null {
+  const email = session.customer_details?.email ?? expandedCustomer(session)?.email;
+  const normalized = email?.trim().toLowerCase();
+  return normalized || null;
+}
+
+function checkoutCustomerName(session: Stripe.Checkout.Session): string | null {
+  const name = session.customer_details?.name ?? expandedCustomer(session)?.name;
+  const normalized = name?.trim();
+  return normalized || null;
+}
+
+function checkoutLocale(session: Stripe.Checkout.Session): Locale {
+  const sessionLocale = session.locale === "auto" ? null : session.locale;
+  const preferredLocale = expandedCustomer(session)?.preferred_locales?.[0];
+  const locale = (sessionLocale ?? preferredLocale ?? "").trim().toLowerCase();
+  const alias = checkoutLocaleAliases[locale];
+  return alias ?? preferredLocaleFromAcceptLanguage(locale);
+}
+
+const checkoutLocaleAliases: Readonly<Record<string, Locale>> = {
+  "en-gb": "en",
+  "es-419": "es",
+  "fr-ca": "fr",
+  nb: "no",
+  pt: "pt-BR",
+  zh: "zh-CN",
+  "zh-hk": "zh-TW",
+};
+
+function expandedCustomer(session: Stripe.Checkout.Session): Stripe.Customer | null {
+  const customer = session.customer;
+  if (typeof customer !== "object" || customer === null) return null;
+  if ("deleted" in customer && customer.deleted) return null;
+  return customer as Stripe.Customer;
+}
+
+function firstName(name: string | null | undefined): string | null {
+  return name?.trim().split(/\s+/)[0] || null;
+}
+
+function formatFromAddress(email: string): string {
+  return `cmux Pro <${email}>`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return String(error);
+}

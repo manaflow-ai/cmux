@@ -3,6 +3,7 @@ import Darwin
 import CmuxCore
 import XCTest
 import CmuxTerminal
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -34,6 +35,22 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         TerminalController.shared.stop()
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: path + ".lock")
+    }
+
+    func testSessionSnapshotExcludesBrowserWithNonPersistentWebsiteDataStore() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let browser = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: pane,
+            url: URL(string: "https://example.com/authenticated-handoff"),
+            focus: false,
+            websiteDataStore: .nonPersistent()
+        ))
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertFalse(snapshot.panels.contains { $0.id == browser.id })
     }
 
     func testSessionSnapshotSerializesWorkspacesAndRestoreRebuildsSelection() {

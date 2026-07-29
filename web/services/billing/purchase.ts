@@ -23,7 +23,11 @@ import {
 } from "./pro";
 import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
-import { removeTester } from "../asc/testflight";
+import {
+  removeProTesterAccess,
+  removeTester,
+  type RemoveTesterOptions,
+} from "../asc/testflight";
 import { captureAscError } from "../errors";
 
 export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
@@ -89,7 +93,10 @@ type BillingPurchaseDependencies = {
   stripeClient?: () => StripeBillingClient;
   testflight?: {
     isAscConfigured?: () => boolean;
-    removeTester?: (email: string) => Promise<void>;
+    removeTester?: (
+      email: string,
+      options?: RemoveTesterOptions,
+    ) => Promise<void>;
     captureAscError?: (
       error: unknown,
       context?: Record<string, string | number | boolean | null | undefined>,
@@ -422,7 +429,7 @@ export async function applySubscriptionUpdate(
   );
   if ("skipped" in lockedResult) return { skipped: true };
 
-  await syncStackUserMetadataWithAccountDeletionGuard({
+  const metadataSynced = await syncStackUserMetadataWithAccountDeletionGuard({
     db,
     stackUserId: lockedResult.stackUserId,
     stackApp: dependencies.stackApp ?? stackServerApp,
@@ -430,8 +437,18 @@ export async function applySubscriptionUpdate(
       await syncProPlanMetadata(freshUser, isActive);
     },
   });
-  if (!isActive) {
-    await removeUserFromTestflightOnLapse(lockedResult.user, lockedResult.stackUserId, dependencies);
+  if (!isActive && metadataSynced) {
+    const freshUser = await loadOptionalStackUser(
+      lockedResult.stackUserId,
+      dependencies.stackApp,
+    );
+    if (freshUser) {
+      await removeUserFromTestflightOnLapse(
+        freshUser,
+        lockedResult.stackUserId,
+        dependencies,
+      );
+    }
   }
   return { scope: "user", stackUserId: lockedResult.stackUserId, isActive };
 }
@@ -556,15 +573,6 @@ export function isCmuxCheckoutSession(
   return Boolean(session.client_reference_id && session.metadata?.plan === "pro");
 }
 
-async function loadStackUser(
-  stackUserId: string,
-  stackApp: StackBillingApp | null | undefined,
-): Promise<StackBillingUser> {
-  const user = await loadOptionalStackUser(stackUserId, stackApp);
-  if (!user) throw new Error(`Stack user not found for Stripe purchase: ${stackUserId}`);
-  return user;
-}
-
 async function loadOptionalStackUser(
   stackUserId: string,
   stackApp: StackBillingApp | null | undefined,
@@ -598,10 +606,18 @@ async function removeUserFromTestflightOnLapse(
 ): Promise<void> {
   const configured = dependencies.testflight?.isAscConfigured ?? isAscConfigured;
   if (!configured()) return;
-  if (!user.primaryEmail) return;
 
   try {
-    await (dependencies.testflight?.removeTester ?? removeTester)(user.primaryEmail);
+    await removeProTesterAccess(
+      user.primaryEmail,
+      user.clientReadOnlyMetadata,
+      dependencies.testflight?.removeTester ?? removeTester,
+      {
+        updateMetadata: (clientReadOnlyMetadata) => user.update({
+          clientReadOnlyMetadata,
+        }),
+      },
+    );
   } catch (error) {
     (dependencies.testflight?.captureAscError ?? captureAscError)(error, {
       route: "/api/stripe/webhook",

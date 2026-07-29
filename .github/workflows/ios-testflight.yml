@@ -238,11 +238,13 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
+      CMUX_TESTFLIGHT_PRO_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_PRO_GROUP_ID }}
       CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: ${{ github.event.inputs.marketing_version_override != '' && '1' || '0' }}
       # Internal builds use separate bundle ID and display name (set here so
       # provisioning profile step can use it). The manual demo variant ships the
       # same main head as a separate app so demos are isolated from the internal
-      # firehose (and its per-app upload limit).
+      # firehose (and its per-app upload limit). Manual external overrides select
+      # the beta profile explicitly without changing this automatic-lane identity.
       IOS_BETA_BUNDLE_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
       IOS_BETA_DISPLAY_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
     steps:
@@ -347,10 +349,17 @@ jobs:
         env:
           IOS_BETA_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_BASE64 }}
           IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64 }}
+          INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
         run: |
           set -euo pipefail
-          # Determine which profile to use based on bundle ID
-          if [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}" = "dev.cmux.app.demo" ]; then
+          # External overrides ship the beta app even though the job-level app
+          # identity remains internal for automatic-lane guards and later steps.
+          if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
+            PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_BASE64}"
+            EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.beta"
+            PROFILE_TYPE="beta"
+            SKIP_APS_ENVIRONMENT_CHECK=false
+          elif [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.internal}" = "dev.cmux.app.demo" ]; then
             # The demo profile is fetched from the ASC API by name instead of a
             # repository secret, so regenerating it in the developer portal
             # needs no secret rotation. Same credentials the upload uses.
@@ -358,16 +367,14 @@ jobs:
             EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.demo"
             PROFILE_TYPE="demo"
             SKIP_APS_ENVIRONMENT_CHECK=false
-          elif [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}" = "dev.cmux.app.internal" ]; then
+          elif [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.internal}" = "dev.cmux.app.internal" ]; then
             PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64}"
             EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.internal"
             PROFILE_TYPE="internal"
             SKIP_APS_ENVIRONMENT_CHECK=false
           else
-            PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_BASE64}"
-            EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.beta"
-            PROFILE_TYPE="beta"
-            SKIP_APS_ENVIRONMENT_CHECK=false
+            echo "Unsupported TestFlight bundle ID: ${IOS_BETA_BUNDLE_ID:-unset}" >&2
+            exit 1
           fi
 
           if [ -z "${PROFILE_BASE64:-}" ]; then
@@ -510,6 +517,7 @@ jobs:
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
             if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
               echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
+              echo "- external groups: Founder's Edition and cmux Pro"
             else
               echo "- marketing version: checked-in beta marketing version"
             fi
@@ -546,10 +554,9 @@ jobs:
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
 
-  # NOTE: this lane uploads to dev.cmux.app.internal only, so there is no
-  # external-group assignment job here. The old assign-external-group job
-  # polled dev.cmux.app.beta for a build that now never arrives there and hung
-  # for its full 40-minute timeout on every run.
+  # Normal and demo runs assign their internal group after upload. A manual
+  # external marketing-version override assigns Founder's Edition and Pro
+  # inline in cloud-testflight.sh, so it must skip this internal-app lookup.
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]

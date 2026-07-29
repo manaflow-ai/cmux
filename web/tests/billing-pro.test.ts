@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   FREE_PLAN_ID,
+  isTestflightEligible,
   PRO_PLAN_ID,
   reconcileProPlanMetadata,
   resolveProPlanStatus,
@@ -196,6 +197,23 @@ describe("resolveProPlanStatus", () => {
       hasManualVmPlanOverride: true,
       metadataChanged: false,
     });
+    expect(user.updates).toEqual([]);
+  });
+});
+
+describe("isTestflightEligible", () => {
+  test("requires personal Pro without mutating Stack metadata or granting Team access", async () => {
+    const user = metadataUser({ cmuxPlan: PRO_PLAN_ID }, "team-member") as MetadataUser & {
+      selectedTeam: { id: string; clientReadOnlyMetadata: unknown };
+    };
+    user.selectedTeam = {
+      id: "team-paid",
+      clientReadOnlyMetadata: { cmuxPlan: "team" },
+    };
+
+    await expect(isTestflightEligible(user, {
+      hasActiveStripeSubscription: async () => false,
+    })).resolves.toBe(false);
     expect(user.updates).toEqual([]);
   });
 });

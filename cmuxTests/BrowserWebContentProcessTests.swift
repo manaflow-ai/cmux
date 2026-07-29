@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxBrowser
 import Foundation
 import Testing
@@ -37,6 +38,246 @@ struct BrowserWebContentProcessTests {
         )
 
         #expect(configuration.websiteDataStore === websiteDataStore)
+    }
+
+    @Test
+    func browserPanelUsesExplicitWebsiteDataStoreForAuthenticatedHandoffs() {
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            websiteDataStore: websiteDataStore
+        )
+        defer { panel.close() }
+
+        #expect(panel.websiteDataStore === websiteDataStore)
+        #expect(panel.webView.configuration.websiteDataStore === websiteDataStore)
+    }
+
+    @Test
+    func browserAppSessionOutcomesSeparateMissingAuthFromTransientFailure() {
+        let notAuthenticated = BrowserAppSessionRequestOutcome.notAuthenticated
+        let transientFailure = BrowserAppSessionRequestOutcome.transientFailure
+        let failed = BrowserAppSessionRequestOutcome.failed
+
+        #expect(notAuthenticated.shouldBeginSignIn)
+        #expect(!notAuthenticated.shouldRetry)
+        #expect(!failed.shouldBeginSignIn)
+        #expect(!failed.shouldRetry)
+        #expect(transientFailure.shouldRetry)
+        #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 401).shouldBeginSignIn)
+        #expect(!BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 429).shouldRetry)
+        #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 503).shouldRetry)
+    }
+
+    @Test
+    func browserAppSessionClassifiesDefinitiveUnauthorizedTokenReads() {
+        let unauthorized = BrowserAppSessionRequestOutcome.tokenFailure(
+            AuthError.unauthorized
+        )
+        let transient = BrowserAppSessionRequestOutcome.tokenFailure(
+            AuthError.networkError
+        )
+
+        #expect(unauthorized.shouldBeginSignIn)
+        #expect(!unauthorized.shouldRetry)
+        #expect(!transient.shouldBeginSignIn)
+        #expect(transient.shouldRetry)
+    }
+
+    @Test
+    func failedBrowserAppSessionHandoffUsesIsolatedRecovery() {
+        #expect(
+            BrowserAppSessionRequestOutcome.failed.recoveryAction == .isolatedBrowser
+        )
+        #expect(
+            BrowserAppSessionRequestOutcome.transientFailure.recoveryAction == .isolatedBrowser
+        )
+        #expect(
+            BrowserAppSessionRequestOutcome.notAuthenticated.recoveryAction == .beginSignIn
+        )
+        #expect(
+            BrowserAppSessionRequestOutcome.cancelled.recoveryAction == .isolatedBrowser
+        )
+    }
+
+    @Test
+    func browserAppSessionStoreOwnershipDoesNotClaimPersistentProfiles() throws {
+        let suiteName = "BrowserAppSessionStoreOwnershipTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaultsKey = "owned-stores"
+        let persistentStoreID = UUID()
+        let environment = BrowserAppSessionEnvironment(
+            webOrigin: URL(string: "https://cmux.test")!,
+            projectID: "project-a"
+        )
+
+        let firstLaunch = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: defaultsKey,
+            environment: environment
+        )
+        firstLaunch.register(
+            WKWebsiteDataStore(forIdentifier: persistentStoreID)
+        )
+
+        let relaunched = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: defaultsKey,
+            environment: environment
+        )
+        #expect(relaunched.storesForCleanup().isEmpty)
+    }
+
+    @Test
+    func browserAppSessionDoesNotReopenASharedPersistentProfileForCleanup() throws {
+        let suiteName = "BrowserAppSessionSharedProfileTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let environment = BrowserAppSessionEnvironment(
+            webOrigin: URL(string: "https://cmux.test")!,
+            projectID: "project-a"
+        )
+
+        let firstLaunch = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "owned-stores",
+            environment: environment
+        )
+        firstLaunch.register(WKWebsiteDataStore(forIdentifier: UUID()))
+
+        let relaunched = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "owned-stores",
+            environment: environment
+        )
+        #expect(relaunched.storesForCleanup().isEmpty)
+    }
+
+    @Test
+    func browserAppSessionStoreRegistryRetiresPersistedOwnershipMarkers() throws {
+        let suiteName = "BrowserAppSessionStoreEnvironmentTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaultsKey = "owned-stores"
+        let persistentStoreID = UUID()
+        let oldEnvironment = BrowserAppSessionEnvironment(
+            webOrigin: URL(string: "https://old.cmux.test")!,
+            projectID: "project-a"
+        )
+        let newEnvironment = BrowserAppSessionEnvironment(
+            webOrigin: URL(string: "https://new.cmux.test")!,
+            projectID: "project-b"
+        )
+
+        let encodedOwnership = try JSONSerialization.data(withJSONObject: [[
+            "identity": "persistent:\(persistentStoreID.uuidString.lowercased())",
+            "webOrigin": oldEnvironment.webOrigin.absoluteString,
+            "projectID": oldEnvironment.projectID,
+        ]])
+        defaults.set(encodedOwnership, forKey: defaultsKey)
+
+        let switched = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: defaultsKey,
+            environment: newEnvironment
+        )
+        #expect(defaults.object(forKey: defaultsKey) == nil)
+        #expect(switched.storesForCleanup().isEmpty)
+    }
+
+    @Test
+    func browserAppSessionStoreOwnershipMigratesProjectScopedRecords() throws {
+        let suiteName = "BrowserAppSessionStoreMigrationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacyPrefix = "cmux.auth.browserAppSessionStores."
+        let legacyKey = "\(legacyPrefix)project-a"
+        let persistentStoreID = UUID()
+        defaults.set(
+            ["persistent:\(persistentStoreID.uuidString.lowercased())"],
+            forKey: legacyKey
+        )
+
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "owned-stores-v2",
+            environment: BrowserAppSessionEnvironment(
+                webOrigin: URL(string: "https://cmux.test")!,
+                projectID: "project-b"
+            ),
+            legacyDefaultsKeyPrefix: legacyPrefix
+        )
+
+        #expect(defaults.object(forKey: "owned-stores-v2") == nil)
+        #expect(defaults.object(forKey: legacyKey) == nil)
+        #expect(registry.storesForCleanup().isEmpty)
+    }
+
+    @Test
+    func browserAppSessionWeakStoreReferencesDoNotRetainOwners() throws {
+        var reference: BrowserAppSessionWeakReference<StoreLifetimeProbe>?
+        weak var retainedOwner: StoreLifetimeProbe?
+
+        autoreleasepool {
+            let owner = StoreLifetimeProbe()
+            retainedOwner = owner
+            reference = BrowserAppSessionWeakReference(owner)
+        }
+
+        #expect(retainedOwner == nil)
+        #expect(reference?.value == nil)
+    }
+
+    @Test
+    func browserAppSessionSignInRelayReopensAdmissionAfterAnySuccessfulSignIn() {
+        let relay = BrowserAppSessionSignInRelay()
+        var resumeCount = 0
+
+        relay.signedIn()
+        #expect(resumeCount == 0)
+
+        relay.bind {
+            resumeCount += 1
+        }
+        relay.signedIn()
+
+        #expect(resumeCount == 1)
+    }
+
+    @Test
+    func browserAppSessionHTTPClientRejectsRedirects() async throws {
+        let delegate = BrowserAppSessionRedirectRejectingDelegate()
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let sourceURL = try #require(URL(string: "https://cmux.test/handoff"))
+        let targetURL = try #require(URL(string: "https://evil.test/steal"))
+        let task = session.dataTask(with: sourceURL)
+        defer { task.cancel() }
+        let response = try #require(HTTPURLResponse(
+            url: sourceURL,
+            statusCode: 307,
+            httpVersion: nil,
+            headerFields: ["Location": targetURL.absoluteString]
+        ))
+
+        let redirectedRequest = await withCheckedContinuation { continuation in
+            delegate.urlSession(
+                session,
+                task: task,
+                willPerformHTTPRedirection: response,
+                newRequest: URLRequest(url: targetURL)
+            ) { request in
+                continuation.resume(returning: request)
+            }
+        }
+
+        #expect(redirectedRequest == nil)
     }
 
     @Test
@@ -423,6 +664,8 @@ struct BrowserWebContentProcessTests {
         #expect(!popupWindow.isVisible)
     }
 }
+
+private final class StoreLifetimeProbe {}
 
 private final class BrowserWebContentProcessLoadDelegate: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Error>?

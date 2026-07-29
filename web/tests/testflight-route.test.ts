@@ -19,7 +19,12 @@ let user: typeof currentUser | null = currentUser;
 let useStubDb = false;
 
 const getUser = mock(async () => user);
-const ascFetch = mock(async (path: unknown) => {
+const ascFetch = mock(async (path: unknown, init?: unknown) => {
+  if (path === "/v1/betaTesters" && (init as { method?: string })?.method === "POST") {
+    return {
+      data: { type: "betaTesters", id: "tester_new" },
+    };
+  }
   if (String(path).startsWith("/v1/betaTesters?")) {
     return {
       data: [
@@ -79,6 +84,7 @@ mock.module("../db/client", () => ({
       : realCloudDb()) as typeof realCloudDb,
 }));
 
+const { PRO_TESTFLIGHT_GROUP_ID } = await import("../services/asc/testflight");
 const { POST } = await import("../app/api/testflight/route");
 
 beforeAll(() => {
@@ -96,9 +102,19 @@ describe("TestFlight route", () => {
     currentUser = createTestflightUser();
     user = currentUser;
     getUser.mockClear();
+    mockImplementation(getUser, async () => user);
+    isTestflightEligible.mockClear();
+    mockImplementation(isTestflightEligible, async (candidate: unknown) =>
+      testflightUserEligibility(candidate) ?? false,
+    );
     ascFetch.mockClear();
     captureAscError.mockClear();
-    mockImplementation(ascFetch, async (path: unknown) => {
+    mockImplementation(ascFetch, async (path: unknown, init?: unknown) => {
+      if (path === "/v1/betaTesters" && (init as { method?: string })?.method === "POST") {
+        return {
+          data: { type: "betaTesters", id: "tester_new" },
+        };
+      }
       if (String(path).startsWith("/v1/betaTesters?")) {
         return {
           data: [
@@ -115,6 +131,10 @@ describe("TestFlight route", () => {
   });
 
   test("joins an eligible user and redirects with joined", async () => {
+    const update = mock(async () => undefined);
+    currentUser.update = update;
+    user = currentUser;
+
     const response = await postAction("join");
 
     expect(response.status).toBe(303);
@@ -131,6 +151,67 @@ describe("TestFlight route", () => {
       firstName: "Pro",
       lastName: "User",
     });
+    expect(update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: {
+        cmuxProTestflightEnrollmentEmails: ["pro@example.com"],
+        cmuxProTestflightGrants: [
+          { email: "pro@example.com", source: "user" },
+        ],
+      },
+    });
+    expect(
+      (ascFetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+        ([path]) => path === "/v1/betaTesterInvitations",
+      ),
+    ).toBe(false);
+  });
+
+  test("re-fetches reconciled Stack metadata before recording enrollment ownership", async () => {
+    const staleUpdates: unknown[] = [];
+    const freshUpdates: unknown[] = [];
+    const staleUser = createTestflightUser();
+    staleUser.update = mock(async (options: unknown) => {
+      staleUpdates.push(options);
+    });
+    const freshUser = createTestflightUser();
+    freshUser.clientReadOnlyMetadata = {
+      cmuxPlan: "pro",
+      retained: true,
+    };
+    freshUser.update = mock(async (options: unknown) => {
+      freshUpdates.push(options);
+    });
+    let reads = 0;
+    mockImplementation(getUser, async () => {
+      reads += 1;
+      return reads === 1 ? staleUser : freshUser;
+    });
+    mockImplementation(isTestflightEligible, async (candidate: unknown) => {
+      await (candidate as typeof staleUser).update({
+        clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      });
+      return true;
+    });
+
+    const response = await postAction("join");
+
+    expect(response.status).toBe(303);
+    expect(getUser).toHaveBeenCalledTimes(2);
+    expect(staleUpdates).toEqual([
+      { clientReadOnlyMetadata: { cmuxPlan: "pro" } },
+    ]);
+    expect(freshUpdates).toEqual([
+      {
+        clientReadOnlyMetadata: {
+          cmuxPlan: "pro",
+          retained: true,
+          cmuxProTestflightEnrollmentEmails: ["pro@example.com"],
+          cmuxProTestflightGrants: [
+            { email: "pro@example.com", source: "user" },
+          ],
+        },
+      },
+    ]);
   });
 
   test("does not enroll ineligible users", async () => {
@@ -154,7 +235,7 @@ describe("TestFlight route", () => {
       "https://cmux.test/dashboard/testflight?testflight=left",
     );
     expect(ascFetch).toHaveBeenCalledWith(
-      "/v1/betaGroups/3ee84bfa-10ad-4f23-a45c-f9a3b037373e/relationships/betaTesters",
+      `/v1/betaGroups/${PRO_TESTFLIGHT_GROUP_ID}/relationships/betaTesters`,
       expect.objectContaining({ method: "DELETE" }),
     );
   });
