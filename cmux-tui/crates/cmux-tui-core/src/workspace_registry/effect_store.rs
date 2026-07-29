@@ -81,7 +81,10 @@ pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> an
            )
          );
          CREATE INDEX IF NOT EXISTS resource_creation_receipts_idempotency
-           ON resource_creation_receipts(idempotency_key);",
+           ON resource_creation_receipts(idempotency_key);
+         CREATE INDEX IF NOT EXISTS resource_effect_receipts_by_operation_revision
+           ON resource_effect_receipts(operation, committed_revision DESC)
+           WHERE state = 'committed';",
     )?;
     Ok(())
 }

@@ -130,7 +130,9 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            origin TEXT NOT NULL,
            idempotency_key TEXT NOT NULL,
            deltas_json TEXT NOT NULL
-         );",
+         );
+         CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
+           ON resource_mutations(operation, committed_revision DESC);",
     )?;
     Ok(())
 }

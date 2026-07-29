@@ -23,6 +23,7 @@ use crate::resource::{
 };
 
 mod effect_store;
+mod public_projection_store;
 mod resource_store;
 mod terminal_exit_store;
 
@@ -32,6 +33,9 @@ pub use effect_store::{
 };
 use effect_store::{
     create_resource_effect_schema, prune_resource_events, recover_resource_effects,
+};
+pub use public_projection_store::{
+    RegistryAgentProjection, RegistryNotificationProjection, RegistryPublicProjections,
 };
 pub(crate) use resource_store::validate_registry_screen_projection;
 #[allow(unused_imports)]
