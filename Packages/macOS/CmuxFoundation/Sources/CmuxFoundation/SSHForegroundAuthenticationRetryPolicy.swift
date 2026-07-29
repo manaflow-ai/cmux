@@ -26,6 +26,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "no route to host",
             "operation timed out",
             "connection timed out",
+            "connection refused",
+            "connection reset by peer",
             "temporary failure in name resolution",
             "connection closed by unknown port 65535",
             "connection to unknown port 65535: broken pipe",
@@ -43,6 +45,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "no matching key exchange method found",
             "name or service not known",
             "nodename nor servname provided",
+            "command not found",
+            "no such file or directory",
+            "bad interpreter",
+            "exec format error",
         ].joined(separator: "|")
     }
 
@@ -50,11 +56,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// unclassified (``unclassifiedFailureExitStatus``), or permanent (255).
     /// Every other exit status is preserved.
     ///
-    /// Stderr is copied live through private FIFOs while an incremental
-    /// classifier retains only a bounded result marker. This keeps password,
+    /// Stderr is copied live through private FIFOs while `sysread` emits 4 KiB
+    /// records to an incremental classifier with a 128-byte cross-record carry.
+    /// The classifier retains only a bounded result marker. This keeps password,
     /// host-key, and proxy prompts visible without allowing a noisy remote
-    /// command to grow a diagnostic file. Temporary state is removed on normal
-    /// completion and signals.
+    /// command to grow memory or a diagnostic file. Temporary state is removed
+    /// on normal completion and signals.
     ///
     /// - Parameter command: Shell command to execute under zsh.
     /// - Returns: A zsh command suitable for embedding in a startup script.
@@ -62,7 +69,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         let nestedCommand = "/bin/zsh -fc \(shellQuote(command))"
         let classifierProgram = """
         {
-          cmux_ssh_auth_line = tolower($0)
+          cmux_ssh_auth_line = tolower(cmux_ssh_auth_overlap $0)
           if (cmux_ssh_auth_line ~ cmux_ssh_auth_permanent_pattern) {
             print "permanent" > cmux_ssh_auth_classification
             close(cmux_ssh_auth_classification)
@@ -70,6 +77,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           } else if (!cmux_ssh_auth_saw_permanent && cmux_ssh_auth_line ~ cmux_ssh_auth_transient_pattern) {
             print "transient" > cmux_ssh_auth_classification
             close(cmux_ssh_auth_classification)
+          }
+          if (length(cmux_ssh_auth_line) > 128) {
+            cmux_ssh_auth_overlap = substr(cmux_ssh_auth_line, length(cmux_ssh_auth_line) - 127)
+          } else {
+            cmux_ssh_auth_overlap = cmux_ssh_auth_line
           }
         }
         """
@@ -100,7 +112,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "trap 'cmux_ssh_auth_capture_signal_exit 130' INT",
             "trap 'cmux_ssh_auth_capture_signal_exit 143' TERM",
             "if ! /usr/bin/mkfifo \"$cmux_ssh_auth_capture_fifo\" \"$cmux_ssh_auth_classifier_fifo\"; then exit 255; fi",
-            "LC_ALL=C /usr/bin/awk -v cmux_ssh_auth_classification=\"$cmux_ssh_auth_capture_state\" -v cmux_ssh_auth_transient_pattern=\(shellQuote(transientFailurePattern)) -v cmux_ssh_auth_permanent_pattern=\(shellQuote(permanentFailurePattern)) \(shellQuote(classifierProgram)) < \"$cmux_ssh_auth_classifier_fifo\" &",
+            "( zmodload zsh/system || exit 255; exec {cmux_ssh_auth_classifier_fd}< \"$cmux_ssh_auth_classifier_fifo\" || exit 255; while sysread -i \"$cmux_ssh_auth_classifier_fd\" -s 4096 cmux_ssh_auth_classifier_chunk; do print -r -- \"$cmux_ssh_auth_classifier_chunk\"; done; exec {cmux_ssh_auth_classifier_fd}<&- ) | LC_ALL=C /usr/bin/awk -v cmux_ssh_auth_classification=\"$cmux_ssh_auth_capture_state\" -v cmux_ssh_auth_transient_pattern=\(shellQuote(transientFailurePattern)) -v cmux_ssh_auth_permanent_pattern=\(shellQuote(permanentFailurePattern)) \(shellQuote(classifierProgram)) &",
             "cmux_ssh_auth_classifier_pid=$!",
             "/usr/bin/tee \"$cmux_ssh_auth_classifier_fifo\" < \"$cmux_ssh_auth_capture_fifo\" >&2 &",
             "cmux_ssh_auth_capture_tee_pid=$!",

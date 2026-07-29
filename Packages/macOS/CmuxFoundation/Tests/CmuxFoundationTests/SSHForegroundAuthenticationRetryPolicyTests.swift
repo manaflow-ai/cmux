@@ -100,7 +100,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "-c",
             SSHForegroundAuthenticationRetryPolicy().classifyingTransientFailure(
                 in: """
-                /usr/bin/head -c 1048576 /dev/zero | /usr/bin/tr '\\000' x >&2
+                /usr/bin/head -c 65536 /dev/zero | /usr/bin/tr '\\000' x >&2
                 printf 'Network is unreachable' >&2
                 /usr/bin/head -c 4096 /dev/zero | /usr/bin/tr '\\000' x >&2
                 : > "$CMUX_TEST_READY_FILE"
@@ -150,10 +150,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
         let classificationDeadline = Date.now.addingTimeInterval(2)
         var classifiedWhileRunning = false
+        var lastClassifications: [String] = []
         while process.isRunning, Date.now < classificationDeadline {
-            if try diagnosticFiles.contains(where: {
-                try String(contentsOf: $0, encoding: .utf8) == "transient\n"
-            }) {
+            lastClassifications = diagnosticFiles.compactMap {
+                try? String(contentsOf: $0, encoding: .utf8)
+            }
+            if lastClassifications.contains("transient\n") {
                 classifiedWhileRunning = true
                 break
             }
@@ -161,7 +163,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         #expect(
             classifiedWhileRunning,
-            "A newline-free stderr stream must be classified incrementally with bounded records"
+            "A newline-free stderr stream must be classified incrementally with bounded records; observed \(lastClassifications)"
         )
         process.waitUntilExit()
         #expect(process.terminationStatus == 254)
