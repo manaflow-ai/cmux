@@ -4,17 +4,18 @@
 //! live in the outer runtime, so the public router crosses this injected
 //! boundary instead of importing provider implementation details into core.
 
+#[cfg(test)]
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Weak;
 
 use anyhow::Context;
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 
 use crate::resource::{
-    AgentPublicId, ContentPublicId, FrontendProjectionPublicId, MachinePublicId, PanePublicId,
-    ResourceError, ResourceOperation, Selector, SessionPublicId,
+    ContentPublicId, FrontendProjectionPublicId, MachinePublicId, PanePublicId, ResourceError,
+    ResourceOperation, Selector, SessionPublicId,
 };
 use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
@@ -23,6 +24,28 @@ use crate::workspace_registry::{
     ResourceEffectOutcome, ResourceEffectPreparation, TerminalLifecycle,
 };
 use crate::{Mux, ResourceSelectors};
+
+#[cfg(test)]
+thread_local! {
+    static SNAPSHOT_BEFORE_PROJECTION_HOOK: RefCell<Option<Box<dyn FnOnce()>>> =
+        RefCell::new(None);
+}
+
+#[cfg(test)]
+fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static) {
+    SNAPSHOT_BEFORE_PROJECTION_HOOK.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(hook));
+    });
+}
+
+#[cfg(test)]
+fn run_snapshot_before_projection_hook() {
+    SNAPSHOT_BEFORE_PROJECTION_HOOK.with(|slot| {
+        if let Some(hook) = slot.borrow_mut().take() {
+            hook();
+        }
+    });
+}
 
 #[derive(Debug, Clone)]
 pub struct ResourceMachineRequest {
@@ -342,9 +365,6 @@ fn resource_operation_name(operation: ResourceOperation) -> String {
 }
 
 pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError> {
-    let context = mux.local_resource_context().map_err(operation_failed)?;
-    let notifications = mux.resource_notifications(256);
-    let agent_records = mux.list_agents(None, None);
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
     // up a surface in State, so doing this inside the projection would invert
@@ -352,27 +372,36 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
     let (sidebar_status, sidebar_last_size, sidebar_configured) =
         mux.sidebar_plugin_resource_status();
     let sidebar_surface = sidebar_status.surface.and_then(|surface| mux.surface(surface));
-    let sidebar_id = sidebar_view_id(&context.session_id)?;
-    let sidebar_views = if sidebar_configured || sidebar_last_size.is_some() {
-        vec![sidebar_snapshot(
-            &sidebar_id,
-            &context.session_id,
-            sidebar_last_size.unwrap_or((1, 1)),
-            sidebar_surface.as_ref(),
-        )]
-    } else {
-        Vec::new()
-    };
+    #[cfg(test)]
+    run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
         let registry_snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let terminal_registry = registry.terminal_snapshot()?;
-        let frontend_projection_records = registry.public_frontend_projections()?;
+        let public_projections = registry.public_projections()?;
         anyhow::ensure!(
             registry_snapshot.generation == topology.generation
                 && registry_snapshot.resource_revision == topology.revision,
             "resource projection changed while snapshotting"
         );
+        let context = LocalResourceContext {
+            machine_id: registry.machine_id().clone(),
+            session_id: registry.session_id().clone(),
+            session_name: mux.session.clone(),
+            generation: topology.generation.clone(),
+            revision: topology.revision,
+        };
+        let sidebar_id = sidebar_view_id(&context.session_id)?;
+        let sidebar_views = if sidebar_configured || sidebar_last_size.is_some() {
+            vec![sidebar_snapshot(
+                &sidebar_id,
+                &context.session_id,
+                sidebar_last_size.unwrap_or((1, 1)),
+                sidebar_surface.as_ref(),
+            )]
+        } else {
+            Vec::new()
+        };
 
         let tabs_by_pane = tabs_by_pane(&topology.tabs);
         let panes_by_id =
@@ -545,52 +574,55 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
             })
             .collect::<Vec<_>>();
 
-        let notifications = notifications
-            .iter()
+        let notifications = public_projections
+            .notifications
+            .into_iter()
+            .rev()
             .map(|notification| {
                 let mut snapshot = json!({
                     "id": notification.id,
                     "session_id": topology.session_id,
                     "title": notification.title,
                     "body": notification.body,
-                    "level": notification.level.as_str(),
+                    "level": notification.level,
                     "created_at_ms": notification.created_at_ms.to_string(),
                     "unread": notification
-                        .surface
-                        .and_then(|surface| mux.surface_notification(surface))
+                        .terminal_id
+                        .as_ref()
+                        .and_then(|terminal_id| {
+                            state.resource_indexes.content.get(&ContentPublicId::Terminal(
+                                terminal_id.clone(),
+                            ))
+                        })
+                        .and_then(|surface| mux.surface_notification(*surface))
                         .is_some_and(|notification| notification.unread),
                 });
-                if let Some(terminal_id) = &notification.terminal_id {
+                if let Some(terminal_id) = notification.terminal_id {
                     snapshot["terminal_id"] = json!(terminal_id);
                 }
                 snapshot
             })
             .collect::<Vec<_>>();
-        let mut agents = agent_records
-            .iter()
-            .filter_map(|record| {
-                let ContentPublicId::Terminal(terminal_id) =
-                    state.resource_indexes.content_ids.get(&record.surface)?
-                else {
-                    return None;
-                };
-                Some((|| {
-                    Ok(json!({
-                        "id": public_agent_id(terminal_id)?,
-                        "session_id": topology.session_id,
-                        "terminal_id": terminal_id,
-                        "state": record.state.as_str(),
-                        "source": record.source.as_str(),
-                        "updated_at_ms": record.updated_at_ms.to_string(),
-                        "source_session": record.session,
-                    }))
-                })())
+        let mut agents = public_projections
+            .agents
+            .into_iter()
+            .map(|agent| {
+                json!({
+                    "id": agent.id,
+                    "session_id": topology.session_id,
+                    "terminal_id": agent.terminal_id,
+                    "state": agent.state,
+                    "source": agent.source,
+                    "updated_at_ms": agent.updated_at_ms.to_string(),
+                    "source_session": agent.source_session,
+                })
             })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+            .collect::<Vec<_>>();
         agents.sort_by(|left, right| {
             left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
         });
-        let frontend_projections = frontend_projection_records
+        let frontend_projections = public_projections
+            .frontend_projections
             .into_iter()
             .map(|projection| {
                 let id = FrontendProjectionPublicId::parse(projection.subject_key)?;
@@ -601,6 +633,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                 }))
             })
             .collect::<Result<Vec<_>, ResourceError>>()?;
+        let _terminal_defaults = public_projections.terminal_defaults;
 
         Ok(json!({
             "machine": machine_snapshot(&context),
@@ -623,14 +656,6 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
         }))
     })
     .map_err(operation_failed)
-}
-
-fn public_agent_id(
-    terminal_id: &crate::resource::TerminalPublicId,
-) -> Result<AgentPublicId, ResourceError> {
-    let digest = Sha256::digest(format!("cmux.protocol/1/agent/{terminal_id}").as_bytes());
-    let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    AgentPublicId::parse(format!("agent_{payload}"))
 }
 
 fn checked_index(index: usize) -> anyhow::Result<u32> {
@@ -794,6 +819,26 @@ mod tests {
     use crate::resource::{ScreenPublicId, SplitPublicId, TabPublicId, WorkspacePublicId};
     use crate::workspace_registry::RegistryViewportColumn;
 
+    fn resource_request(
+        mux: &Arc<Mux>,
+        id: &str,
+        operation: &str,
+        params: Value,
+        idempotency_key: Option<&str>,
+    ) -> Value {
+        let mut request = json!({
+            "protocol":"cmux.protocol/1",
+            "type":"request",
+            "id":id,
+            "operation":operation,
+            "params":params,
+        });
+        if let Some(idempotency_key) = idempotency_key {
+            request["idempotency_key"] = Value::String(idempotency_key.to_string());
+        }
+        crate::resource_router::handle_resource_message(mux, &request.to_string()).unwrap()
+    }
+
     #[test]
     fn local_machine_service_exposes_only_public_opaque_ids() {
         let mux = Mux::new_for_test("dev", SurfaceOptions::default());
@@ -847,6 +892,122 @@ mod tests {
         assert_eq!(snapshot["cursor"]["revision"], "0");
         assert!(snapshot.get("surface").is_none());
         assert!(snapshot.get("workspace_key").is_none());
+    }
+
+    #[test]
+    fn snapshot_cursor_and_auxiliary_values_share_one_durable_cut() {
+        let mux = Mux::new_for_test("snapshot-cut", SurfaceOptions::default());
+        let created = resource_request(
+            &mux,
+            "create",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "name":"snapshot cut",
+                "initial_content":"terminal",
+            }),
+            Some("snapshot-cut-create"),
+        );
+        let terminal_id = created["result"]["value"]["terminal_id"].as_str().unwrap().to_string();
+        resource_request(
+            &mux,
+            "agent-old",
+            "agent.report",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal_id":terminal_id,
+                "state":"working",
+                "source":"hook",
+                "source_session":"before",
+            }),
+            Some("snapshot-cut-agent-old"),
+        );
+
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+        let snapshot_mux = mux.clone();
+        let snapshot_thread = std::thread::spawn(move || {
+            set_snapshot_before_projection_hook(move || {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+            public_session_snapshot(&snapshot_mux)
+        });
+        entered_rx.recv().unwrap();
+
+        let agent = resource_request(
+            &mux,
+            "agent-new",
+            "agent.report",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal_id":terminal_id,
+                "state":"done",
+                "source":"hook",
+                "source_session":"after",
+            }),
+            Some("snapshot-cut-agent-new"),
+        );
+        let notification = resource_request(
+            &mux,
+            "notification",
+            "notification.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "title":"new durable notification",
+                "body":"after snapshot entered",
+                "level":"info",
+                "terminal_id":terminal_id,
+            }),
+            Some("snapshot-cut-notification"),
+        );
+        resource_request(
+            &mux,
+            "defaults",
+            "session.terminal_defaults.update",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "foreground":"#123456",
+                "complete":true,
+            }),
+            Some("snapshot-cut-defaults"),
+        );
+        let projection = resource_request(
+            &mux,
+            "projection",
+            "frontend_projection.put",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "frontend_projection":"projection_00000000000000000000000000000001",
+                "projection":{"cut":"after"},
+            }),
+            Some("snapshot-cut-projection"),
+        );
+        let expected_revision = projection["result"]["revision"].clone();
+
+        release_tx.send(()).unwrap();
+        let snapshot = snapshot_thread.join().unwrap().unwrap();
+        assert_eq!(snapshot["cursor"]["revision"], expected_revision);
+        assert_eq!(snapshot["session"]["revision"], expected_revision);
+        assert!(snapshot["agents"].as_array().unwrap().contains(&agent["result"]["value"]));
+        assert!(
+            snapshot["notifications"]
+                .as_array()
+                .unwrap()
+                .contains(&notification["result"]["value"])
+        );
+        assert!(
+            snapshot["frontend_projections"]
+                .as_array()
+                .unwrap()
+                .contains(&projection["result"]["value"])
+        );
     }
 
     #[test]
