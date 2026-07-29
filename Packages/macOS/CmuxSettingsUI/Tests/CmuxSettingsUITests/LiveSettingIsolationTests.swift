@@ -11,7 +11,7 @@ import Testing
         // The lock exclusively owns the non-Sendable property after construction;
         // every detached access occurs synchronously under that same lock.
         let box = OSAllocatedUnfairLock(
-            uncheckedState: LiveSetting(\.betaFeatures.extensions)
+            uncheckedState: (LiveSetting(\.betaFeatures.extensions) as any DynamicProperty)
         )
         let didUpdate = await Task.detached {
             box.withLock { $0.update() }
