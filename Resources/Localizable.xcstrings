@@ -5904,6 +5904,148 @@
         }
       }
     },
+    "agentSession.codex.error.receiveTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out waiting for Codex app-server response."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex app-server の応答を待機中にタイムアウトしました。"
+          }
+        }
+      }
+    },
+    "agentSession.codex.error.repeatedLoadedThreadCursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex app-server が読み込み済みスレッドのカーソルを繰り返しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex app-server repeated a loaded-thread cursor."
+          }
+        }
+      }
+    },
     "agentSession.codex.error.rpcFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -6150,6 +6292,23 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Request from Codex app-server is not supported: %@"
+          }
+        }
+      }
+    },
+    "agentSession.codex.warning.persistThreadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not persist thread %1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーはスレッド %1$@ を保存できませんでした: %2$@"
           }
         }
       }
@@ -47156,6 +47315,295 @@
         }
       }
     },
+    "cli.agents.error.invalidTopology": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: target socket returned empty or malformed topology"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents: 対象ソケットから空または不正なトポロジが返されました"
+          }
+        }
+      }
+    },
+    "cli.agents.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown agents subcommand: %@. Usage: cmux agents <list|tree> [options]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な agents サブコマンドです: %@。使用方法: cmux agents <list|tree> [options]"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.error.agentRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: --agent requires a value"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: --agent には値が必要です"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.error.invalidDepth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: --depth must be an integer from 1 through 4096"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: --depth には 1 から 4096 までの整数を指定してください"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.error.invalidMaximumNodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: --max-nodes must be an integer from 1 through 20000"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: --max-nodes には 1 から 20000 までの整数を指定してください"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.error.nodeLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: more than %lld nodes matched; narrow the filters or raise --max-nodes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: %lld ノードを超えて一致しました。フィルターを絞るか --max-nodes を増やしてください"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.error.nodeLimitSingular": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: more than %lld node matched; narrow the filters or raise --max-nodes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: %lld ノードを超えて一致しました。フィルターを絞るか --max-nodes を増やしてください"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: unexpected argument '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: 予期しない引数 '%@'"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.error.unknownAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: unknown agent '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: 不明なエージェント '%@'"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: unknown flag '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents tree: 不明なフラグ '%@'"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.relationship.forked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "forked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーク"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.relationship.resumed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "resumed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.relationship.root": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "root"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルート"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.relationship.spawned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spawned"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生成"
+          }
+        }
+      }
+    },
+    "cli.agents.tree.output.noMatches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent sessions matched this cmux instance."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux インスタンスに一致するエージェントセッションはありません。"
+          }
+        }
+      }
+    },
+    "cli.agents.output.noMatches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent sessions matched this cmux instance."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux インスタンスに一致するエージェントセッションはありません。"
+          }
+        }
+      }
+    },
+    "cli.agents.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agents list [options]\n       cmux agents tree [options]\n       cmux agents [options]\n\nInspect coding-agent sessions owned by the targeted cmux instance.\nThe target comes from --socket, CMUX_SOCKET_PATH, or the default cmux socket.\n`agents list` prints session diagnostics; pass --json for schema version 2 JSON.\n`agents tree` projects saved run and parent metadata into nodes and edges.\n\nShared options:\n  --agent <name>        Filter to one agent, for example codex or claude\n  --session <id>        Filter to one agent session id\n  --workspace <id>      Filter to one saved workspace id\n  --surface <id>        Filter to one saved surface id\n  --state-dir <path>    Override hook state directory\n  --all                 Include inactive saved records\n  --json                Print structured JSON\n\nList options:\n  --cwd <text>          Filter by saved cwd or launch working directory\n  --codex-home <path>   Override the Codex home used for transcript checks\n  --limit <n>           Limit rows (default: 100)\n\nTree options:\n  --depth <n>           Limit text rendering depth (default: 64)\n  --max-nodes <n>       Bound graph materialization (default: 10000)\n\nCompatibility aliases:\n  cmux sessions [list] [options]\n  cmux session-debug [options]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux agents list [options]\n       cmux agents tree [options]\n       cmux agents [options]\n\n対象の cmux インスタンスが所有するコーディングエージェントセッションを調査します。\n対象は --socket、CMUX_SOCKET_PATH、または既定の cmux ソケットから決まります。\n`agents list` はセッション診断を出力します。スキーマバージョン 2 の JSON には --json を指定します。\n`agents tree` は保存済みの実行と親メタデータをノードとエッジに投影します。\n\n共通オプション:\n  --agent <name>        1 つのエージェントに絞り込みます。例: codex または claude\n  --session <id>        1 つのエージェントセッション ID に絞り込みます\n  --workspace <id>      保存済みワークスペース ID に絞り込みます\n  --surface <id>        保存済みサーフェス ID に絞り込みます\n  --state-dir <path>    フック状態ディレクトリを上書きします\n  --all                 非アクティブな保存済み記録も含めます\n  --json                構造化 JSON を出力します\n\n一覧オプション:\n  --cwd <text>          保存済み cwd または起動時の作業ディレクトリで絞り込みます\n  --codex-home <path>   トランスクリプト確認に使う Codex ホームを上書きします\n  --limit <n>           行数を制限します（既定: 100）\n\nツリーオプション:\n  --depth <n>           テキスト表示の深さを制限します（既定: 64）\n  --max-nodes <n>       グラフのノード数を制限します（既定: 10000）\n\n互換エイリアス:\n  cmux sessions [list] [options]\n  cmux session-debug [options]"
+          }
+        }
+      }
+    },
     "cli.sessions.error.agentRequiresValue": {
       "extractionState": "manual",
       "localizations": {
@@ -51865,6 +52313,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK グループを解除しました（%lld 個のワークスペースを保持しました）"
+          }
+        }
+      }
+    },
+    "cli.usage.agentSessionCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents <list|tree> [options]\n          sessions [list] [options]                           (compatibility alias)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agents <list|tree> [options]\n          sessions [list] [options]                           (互換エイリアス)"
           }
         }
       }

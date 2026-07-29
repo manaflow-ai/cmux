@@ -62,7 +62,7 @@ enum CMUXAgentTurnDiffBaselineFile {
     }
 }
 
-enum CMUXDiffViewerLocalization {
+enum CMUXCLILocalization {
     static func string(
         _ key: String,
         defaultValue: String,
@@ -128,6 +128,8 @@ enum CMUXDiffViewerLocalization {
         return languageBundle.localizedString(forKey: key, value: defaultValue, table: nil)
     }
 }
+
+typealias CMUXDiffViewerLocalization = CMUXCLILocalization
 
 extension CMUXCLI {
     private enum DiffViewerLimits {

@@ -1483,11 +1483,42 @@ import Testing
             return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
         }
 
+        let outputLock = NSLock()
+        var outputData = Data()
+        let outputGroup = DispatchGroup()
+        let outputFD = outputPipe.fileHandleForReading.fileDescriptor
+        outputGroup.enter()
+        let outputThread = Thread {
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+            while true {
+                let bytesRead = buffer.withUnsafeMutableBytes { bytes in
+                    Darwin.read(outputFD, bytes.baseAddress, bytes.count)
+                }
+                if bytesRead > 0 {
+                    data.append(contentsOf: buffer.prefix(bytesRead))
+                    continue
+                }
+                if bytesRead < 0 && errno == EINTR {
+                    continue
+                }
+                break
+            }
+            outputLock.lock()
+            outputData = data
+            outputLock.unlock()
+            outputGroup.leave()
+        }
+        outputThread.qualityOfService = .userInitiated
+        outputThread.start()
+
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        let exitThread = Thread {
             process.waitUntilExit()
             exitSignal.signal()
         }
+        exitThread.qualityOfService = .userInitiated
+        exitThread.start()
 
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
@@ -1499,9 +1530,14 @@ import Testing
             }
         }
 
+        _ = outputGroup.wait(timeout: .now() + 2)
+        outputLock.lock()
+        let finalOutputData = outputData
+        outputLock.unlock()
+
         return ProcessRunResult(
             status: process.terminationStatus,
-            stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stdout: String(data: finalOutputData, encoding: .utf8) ?? "",
             timedOut: timedOut
         )
     }
@@ -1542,7 +1578,7 @@ import Testing
 
 final class UnixSocketResponder {
     let path: String
-    private let response: String
+    private let responseProvider: @Sendable (String) -> String
     private let responseDelay: TimeInterval
     private let queue = DispatchQueue(label: "com.cmux.tests.unix-socket-responder")
     private let lock = NSLock()
@@ -1550,9 +1586,17 @@ final class UnixSocketResponder {
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
 
-    init(path: String, response: String, responseDelay: TimeInterval = 0) throws {
+    convenience init(path: String, response: String, responseDelay: TimeInterval = 0) throws {
+        try self.init(path: path, responseDelay: responseDelay) { _ in response }
+    }
+
+    init(
+        path: String,
+        responseDelay: TimeInterval = 0,
+        responseProvider: @escaping @Sendable (String) -> String
+    ) throws {
         self.path = path
-        self.response = response
+        self.responseProvider = responseProvider
         self.responseDelay = responseDelay
 
         unlink(path)
@@ -1650,33 +1694,36 @@ final class UnixSocketResponder {
 
     private func handle(clientFD: Int32) {
         defer { close(clientFD) }
-        var request = Data()
         while true {
-            var byte: UInt8 = 0
-            let count = read(clientFD, &byte, 1)
-            if count <= 0 {
+            var request = Data()
+            while true {
+                var byte: UInt8 = 0
+                let count = read(clientFD, &byte, 1)
+                if count <= 0 {
+                    return
+                }
+                request.append(byte)
+                if byte == 0x0A {
+                    break
+                }
+            }
+            guard !request.isEmpty else {
                 return
             }
-            request.append(byte)
-            if byte == 0x0A {
-                break
+            guard let line = String(data: request, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) else {
+                continue
             }
-        }
-        guard !request.isEmpty else {
-            return
-        }
-        if let line = String(data: request, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) {
             lock.lock()
             requests.append(line)
             lock.unlock()
-        }
-        if responseDelay > 0 {
-            Thread.sleep(forTimeInterval: responseDelay)
-        }
-        let payload = response + "\n"
-        payload.withCString { pointer in
-            _ = write(clientFD, pointer, strlen(pointer))
+            if responseDelay > 0 {
+                Thread.sleep(forTimeInterval: responseDelay)
+            }
+            let payload = responseProvider(line) + "\n"
+            payload.withCString { pointer in
+                _ = write(clientFD, pointer, strlen(pointer))
+            }
         }
     }
 

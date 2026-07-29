@@ -3338,6 +3338,580 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTeamsWatcherPaginatesLoadedThreadInventory() throws {
+        let context = try makeClaudeHookContext(name: "codex-teams-pagination")
+        defer { context.cleanup() }
+
+        let rootThreadId = "019fa1f5-1e77-7000-8000-000000000011"
+        let childThreadId = "019fa1f5-4c8c-7000-8000-000000000012"
+        let fillerThreadIds = (0..<199).map {
+            String(format: "019fa1f5-1e77-7000-8000-%012d", $0 + 100)
+        }
+        let firstPageThreadIds = [rootThreadId] + fillerThreadIds
+        let firstPageThreads: [[String: Any]] = firstPageThreadIds.map {
+            [
+                "id": $0,
+                "cwd": context.root.path,
+                "status": ["type": "idle"],
+            ]
+        }
+        let childThread: [String: Any] = [
+            "id": childThreadId,
+            "cwd": context.root.path,
+            "status": ["type": "notLoaded"],
+            "source": [
+                "subagent": [
+                    "thread_spawn": [
+                        "parent_thread_id": rootThreadId,
+                        "depth": 1,
+                    ],
+                ],
+            ],
+        ]
+        let appServer = try CodexTeamsTestAppServer(
+            threads: firstPageThreads + [childThread],
+            loadedThreadPages: [
+                .init(requestCursor: nil, data: firstPageThreadIds, nextCursor: "page-2"),
+                .init(requestCursor: "page-2", data: [childThreadId], nextCursor: nil),
+            ]
+        )
+        let appServerURL = try appServer.start()
+        defer { appServer.stop() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let processes = try startCodexTeamsWatcher(
+            context: context,
+            appServerURL: appServerURL,
+            ownerLifetime: 60
+        )
+        defer { stopCodexTeamsWatcher(processes) }
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let persisted = waitForCondition(timeout: 20) {
+            guard let sessions = try? self.readClaudeHookSessions(at: stateURL) else {
+                return false
+            }
+            return sessions.count == 201
+                && sessions[rootThreadId] != nil
+                && sessions[childThreadId]?["parentRunId"] as? String == rootThreadId
+        }
+        XCTAssertTrue(persisted, "Watcher must consume a full first page plus the next page")
+        XCTAssertEqual(firstPageThreadIds.count, 200)
+        XCTAssertEqual(
+            Array(appServer.loadedThreadListRequestCursors().prefix(2)),
+            [nil, "page-2"],
+            "Watcher must continue with the app-server's opaque cursor"
+        )
+    }
+
+    func testCodexTeamsWatcherPacesPaginatedReconciliationAcrossIntervals() throws {
+        let context = try makeClaudeHookContext(name: "codex-teams-pagination-pacing")
+        defer { context.cleanup() }
+
+        let appServer = try CodexTeamsTestAppServer(
+            threads: [],
+            loadedThreadPages: [
+                .init(requestCursor: nil, data: [], nextCursor: "page-2"),
+                .init(requestCursor: "page-2", data: [], nextCursor: "page-3"),
+                .init(requestCursor: "page-3", data: [], nextCursor: nil),
+            ]
+        )
+        let appServerURL = try appServer.start()
+        defer { appServer.stop() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 8)
+        let processes = try startCodexTeamsWatcher(context: context, appServerURL: appServerURL)
+        defer { stopCodexTeamsWatcher(processes) }
+
+        let sawFiveRequests = waitForCondition(timeout: 6) {
+            appServer.loadedThreadListRequestCount() >= 5
+        }
+        XCTAssertTrue(sawFiveRequests, "Watcher should continue reconciling a healthy connection")
+        guard sawFiveRequests else { return }
+
+        let cursors = appServer.loadedThreadListRequestCursors()
+        let requestTimes = appServer.loadedThreadListRequestTimes()
+        XCTAssertEqual(
+            Array(cursors.prefix(5)),
+            [nil, "page-2", "page-3", nil, "page-2"],
+            "Initial discovery should exhaust the inventory before incremental reconciliation"
+        )
+        XCTAssertGreaterThanOrEqual(
+            requestTimes[4] - requestTimes[3],
+            0.75,
+            "Steady-state reconciliation must request at most one loaded-thread page per interval"
+        )
+    }
+
+    func testCodexTeamsWatcherLocalizesPersistenceFailureWarning() throws {
+        let context = try makeClaudeHookContext(name: "codex-teams-persistence-locale")
+        defer { context.cleanup() }
+
+        let threadId = "019fa1f5-1e77-7000-8000-000000000021"
+        let appServer = try CodexTeamsTestAppServer(
+            threads: [[
+                "id": threadId,
+                "cwd": context.root.path,
+                "status": ["type": "idle"],
+            ]],
+            loadedThreadIdBatches: [[threadId]]
+        )
+        let appServerURL = try appServer.start()
+        defer { appServer.stop() }
+
+        let blockedStateDirectory = context.root.appendingPathComponent("state-path-is-a-file")
+        try Data("not a directory".utf8).write(to: blockedStateDirectory)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 8)
+
+        let stderrPipe = Pipe()
+        let stderrData = LockedBox<Data>()
+        stderrData.set(Data())
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            var accumulated = stderrData.get() ?? Data()
+            accumulated.append(chunk)
+            stderrData.set(accumulated)
+        }
+        let processes = try startCodexTeamsWatcher(
+            context: context,
+            appServerURL: appServerURL,
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": blockedStateDirectory.path,
+                "AppleLanguages": "(ja)",
+                "LANG": "ja_JP.UTF-8",
+            ],
+            standardError: stderrPipe
+        )
+        defer {
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            stopCodexTeamsWatcher(processes)
+        }
+
+        let diagnosticObserved = waitForCondition(timeout: 5) {
+            let stderr = String(decoding: stderrData.get() ?? Data(), as: UTF8.self)
+            return stderr.contains("could not persist thread")
+                || stderr.contains("スレッド \(threadId) を保存できませんでした")
+        }
+        XCTAssertTrue(diagnosticObserved)
+        let stderr = String(decoding: stderrData.get() ?? Data(), as: UTF8.self)
+        XCTAssertTrue(stderr.contains("スレッド \(threadId) を保存できませんでした"), stderr)
+        XCTAssertFalse(stderr.contains("could not persist thread"), stderr)
+    }
+
+    func testCodexTeamsWatcherLocalizesReceiveTimeoutError() throws {
+        let context = try makeClaudeHookContext(name: "codex-teams-timeout-locale")
+        defer { context.cleanup() }
+
+        let appServer = try CodexTeamsTestAppServer(
+            threads: [],
+            loadedThreadIdBatches: [[]],
+            ignoredMethods: ["thread/loaded/list"]
+        )
+        let appServerURL = try appServer.start()
+        defer { appServer.stop() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 8)
+        let stderrPipe = Pipe()
+        let stderrData = LockedBox<Data>()
+        stderrData.set(Data())
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            var accumulated = stderrData.get() ?? Data()
+            accumulated.append(chunk)
+            stderrData.set(accumulated)
+        }
+        let processes = try startCodexTeamsWatcher(
+            context: context,
+            appServerURL: appServerURL,
+            ownerLifetime: 30,
+            environmentOverrides: [
+                "AppleLanguages": "(ja)",
+                "LANG": "ja_JP.UTF-8",
+            ],
+            standardError: stderrPipe
+        )
+        defer {
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            stopCodexTeamsWatcher(processes)
+        }
+
+        let diagnosticObserved = waitForCondition(timeout: 15) {
+            let stderr = String(decoding: stderrData.get() ?? Data(), as: UTF8.self)
+            return stderr.contains("Timed out waiting for Codex app-server response")
+                || stderr.contains("Codex app-server の応答を待機中にタイムアウトしました")
+        }
+        XCTAssertTrue(diagnosticObserved)
+        let stderr = String(decoding: stderrData.get() ?? Data(), as: UTF8.self)
+        XCTAssertTrue(
+            stderr.contains("Codex app-server の応答を待機中にタイムアウトしました"),
+            stderr
+        )
+        XCTAssertFalse(stderr.contains("Timed out waiting for Codex app-server response"), stderr)
+    }
+
+    func testCodexTeamsWatcherLocalizesRepeatedPaginationCursorError() throws {
+        let context = try makeClaudeHookContext(name: "codex-teams-pagination-locale")
+        defer { context.cleanup() }
+
+        let appServer = try CodexTeamsTestAppServer(
+            threads: [],
+            loadedThreadPages: [
+                .init(requestCursor: nil, data: [], nextCursor: "loop"),
+                .init(requestCursor: "loop", data: [], nextCursor: "loop"),
+            ]
+        )
+        let appServerURL = try appServer.start()
+        defer { appServer.stop() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let owner = Process()
+        owner.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        owner.arguments = ["20"]
+        try owner.run()
+
+        let stderrPipe = Pipe()
+        let stderrData = LockedBox<Data>()
+        stderrData.set(Data())
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            var accumulated = stderrData.get() ?? Data()
+            accumulated.append(chunk)
+            stderrData.set(accumulated)
+        }
+        let watcher = Process()
+        watcher.executableURL = URL(fileURLWithPath: context.cliPath)
+        watcher.arguments = [
+            "--socket",
+            context.socketPath,
+            "__codex-teams-watch",
+            "--workspace-id",
+            context.workspaceId,
+            "--surface-id",
+            context.surfaceId,
+            "--app-server-url",
+            appServerURL.absoluteString,
+            "--codex-path",
+            "/usr/bin/true",
+            "--max-auto-depth",
+            "0",
+            "--owner-pid",
+            String(owner.processIdentifier),
+        ]
+        var watcherEnvironment = ProcessInfo.processInfo.environment
+        watcherEnvironment["HOME"] = context.root.path
+        watcherEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        watcherEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        watcherEnvironment["AppleLanguages"] = "(ja)"
+        watcherEnvironment["LANG"] = "ja_JP.UTF-8"
+        watcher.environment = watcherEnvironment
+        watcher.standardInput = FileHandle.nullDevice
+        watcher.standardOutput = FileHandle.nullDevice
+        watcher.standardError = stderrPipe
+        try watcher.run()
+        defer {
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if watcher.isRunning {
+                watcher.terminate()
+                watcher.waitUntilExit()
+            }
+            if owner.isRunning {
+                owner.terminate()
+                owner.waitUntilExit()
+            }
+        }
+
+        let repeatedCursorObserved = waitForCondition(timeout: 5) {
+            appServer.loadedThreadListRequestCount() >= 2
+        }
+        XCTAssertTrue(repeatedCursorObserved, "Watcher must detect a repeated pagination cursor")
+
+        let localizedErrorObserved = waitForCondition(timeout: 5) {
+            String(decoding: stderrData.get() ?? Data(), as: UTF8.self)
+                .contains("Codex app-server が読み込み済みスレッドのカーソルを繰り返しました。")
+        }
+        XCTAssertTrue(localizedErrorObserved)
+
+        if watcher.isRunning {
+            watcher.terminate()
+            watcher.waitUntilExit()
+        }
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        let stderr = String(decoding: stderrData.get() ?? Data(), as: UTF8.self)
+        XCTAssertTrue(
+            stderr.contains("Codex app-server が読み込み済みスレッドのカーソルを繰り返しました。"),
+            stderr
+        )
+        XCTAssertFalse(stderr.contains("Codex app-server repeated a loaded-thread cursor"), stderr)
+    }
+
+    func testCodexTeamsWatcherPersistsAuthoritativeLifecycleGraphAndManagedHookDeduplicates() throws {
+        let context = try makeClaudeHookContext(name: "codex-teams-lifecycle")
+        defer { context.cleanup() }
+
+        let rootThreadId = "019fa1f5-1e77-7000-8000-000000000001"
+        let firstChildThreadId = "019fa1f5-4c8c-7000-8000-000000000002"
+        let secondChildThreadId = "019fa1f5-55f3-7000-8000-000000000003"
+        let grandchildThreadId = "019fa1f5-70ef-7000-8000-000000000004"
+        func thread(
+            id: String,
+            status: String,
+            parentThreadId: String? = nil,
+            depth: Int? = nil
+        ) -> [String: Any] {
+            var value: [String: Any] = [
+                "id": id,
+                "cwd": context.root.path,
+                "status": ["type": status],
+            ]
+            if let parentThreadId {
+                var spawn: [String: Any] = ["parent_thread_id": parentThreadId]
+                if let depth {
+                    spawn["depth"] = depth
+                }
+                value["source"] = [
+                    "subagent": [
+                        "thread_spawn": spawn,
+                    ],
+                ]
+            }
+            return value
+        }
+
+        let appServer = try CodexTeamsTestAppServer(
+            threads: [
+                thread(id: rootThreadId, status: "idle"),
+                thread(id: firstChildThreadId, status: "idle", parentThreadId: rootThreadId, depth: 1),
+                thread(id: secondChildThreadId, status: "notLoaded", parentThreadId: rootThreadId, depth: 1),
+                thread(id: grandchildThreadId, status: "notLoaded", parentThreadId: firstChildThreadId, depth: 2),
+            ],
+            loadedThreadIdBatches: [
+                [rootThreadId],
+                [
+                    rootThreadId,
+                    firstChildThreadId,
+                    secondChildThreadId,
+                    grandchildThreadId,
+                ],
+            ]
+        )
+        let appServerURL = try appServer.start()
+        defer { appServer.stop() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let owner = Process()
+        owner.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        owner.arguments = ["20"]
+        try owner.run()
+
+        let watcher = Process()
+        watcher.executableURL = URL(fileURLWithPath: context.cliPath)
+        watcher.arguments = [
+            "--socket",
+            context.socketPath,
+            "__codex-teams-watch",
+            "--workspace-id",
+            context.workspaceId,
+            "--surface-id",
+            context.surfaceId,
+            "--app-server-url",
+            appServerURL.absoluteString,
+            "--codex-path",
+            "/usr/bin/true",
+            "--max-auto-depth",
+            "4",
+            "--owner-pid",
+            String(owner.processIdentifier),
+        ]
+        var watcherEnvironment = ProcessInfo.processInfo.environment
+        watcherEnvironment["HOME"] = context.root.path
+        watcherEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        watcherEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        watcher.environment = watcherEnvironment
+        watcher.standardInput = FileHandle.nullDevice
+        watcher.standardOutput = FileHandle.nullDevice
+        watcher.standardError = FileHandle.nullDevice
+        try watcher.run()
+        defer {
+            if watcher.isRunning {
+                watcher.terminate()
+                watcher.waitUntilExit()
+            }
+            if owner.isRunning {
+                owner.terminate()
+                owner.waitUntilExit()
+            }
+        }
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let firstChildSurfaceId = firstChildThreadId
+        let persisted = waitForCondition(timeout: 8) {
+            guard let sessions = try? self.readClaudeHookSessions(at: stateURL),
+                  sessions.count == 4,
+                  let child = sessions[firstChildThreadId] else {
+                return false
+            }
+            return child["surfaceId"] as? String == firstChildSurfaceId
+        }
+        XCTAssertTrue(
+            persisted,
+            "Watcher should reconcile newly loaded Codex threads while the app-server connection stays healthy"
+        )
+        guard persisted else { return }
+        XCTAssertGreaterThanOrEqual(
+            appServer.loadedThreadListRequestCount(),
+            2,
+            "Watcher should request the loaded-thread inventory again after the initial root-only response"
+        )
+
+        var sessions = try readClaudeHookSessions(at: stateURL)
+        XCTAssertEqual(sessions.count, 4, "Duplicate app-server observations must stay one record per thread")
+
+        let root = try XCTUnwrap(sessions[rootThreadId])
+        XCTAssertEqual(root["workspaceId"] as? String, context.workspaceId)
+        XCTAssertEqual(root["surfaceId"] as? String, context.surfaceId)
+        XCTAssertEqual(root["runId"] as? String, rootThreadId)
+        XCTAssertNil(root["parentRunId"])
+        XCTAssertNil(root["parentSessionId"])
+        XCTAssertNil(root["relationship"])
+
+        for (childId, parentId) in [
+            (firstChildThreadId, rootThreadId),
+            (secondChildThreadId, rootThreadId),
+            (grandchildThreadId, firstChildThreadId),
+        ] {
+            let child = try XCTUnwrap(sessions[childId])
+            XCTAssertEqual(child["workspaceId"] as? String, context.workspaceId)
+            XCTAssertEqual(child["runId"] as? String, childId)
+            XCTAssertEqual(child["parentRunId"] as? String, parentId)
+            XCTAssertEqual(child["parentSessionId"] as? String, parentId)
+            XCTAssertEqual(child["relationship"] as? String, "spawned")
+        }
+        XCTAssertEqual(sessions[firstChildThreadId]?["surfaceId"] as? String, firstChildSurfaceId)
+        XCTAssertEqual(sessions[secondChildThreadId]?["surfaceId"] as? String, "")
+        XCTAssertEqual(sessions[grandchildThreadId]?["surfaceId"] as? String, "")
+        XCTAssertEqual(context.state.blankSurfaceAtSplit(threadId: firstChildThreadId), true)
+
+        let splitRequest = try XCTUnwrap(
+            context.state.snapshot().compactMap(jsonObject).first {
+                guard $0["method"] as? String == "surface.split",
+                      let params = $0["params"] as? [String: Any],
+                      let startupEnvironment = params["startup_environment"] as? [String: String] else {
+                    return false
+                }
+                return startupEnvironment["CMUX_CODEX_TEAMS_THREAD_ID"] == firstChildThreadId
+            }
+        )
+        let splitParams = try XCTUnwrap(splitRequest["params"] as? [String: Any])
+        let startupEnvironment = try XCTUnwrap(splitParams["startup_environment"] as? [String: String])
+        XCTAssertEqual(startupEnvironment["CMUX_AGENT_HOOK_STATE_DIR"], context.root.path)
+        XCTAssertTrue(
+            (splitParams["tmux_start_command"] as? String)?.contains("CMUX_AGENT_HOOK_STATE_DIR") == true
+        )
+
+        let childHookContext = ClaudeHookContext(
+            cliPath: context.cliPath,
+            socketPath: context.socketPath,
+            listenerFD: context.listenerFD,
+            state: context.state,
+            root: context.root,
+            workspaceId: context.workspaceId,
+            surfaceId: firstChildSurfaceId
+        )
+        let childStart = runCodexHook(
+            context: childHookContext,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(firstChildThreadId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(
+                context: childHookContext,
+                sessionId: firstChildThreadId
+            ).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": firstChildThreadId,
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": rootThreadId,
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+
+        sessions = try readClaudeHookSessions(at: stateURL)
+        XCTAssertEqual(sessions.count, 4, "Managed child SessionStart must deduplicate the watcher record")
+        let childAfterHook = try XCTUnwrap(sessions[firstChildThreadId])
+        XCTAssertEqual(childAfterHook["runId"] as? String, firstChildThreadId)
+        XCTAssertEqual(childAfterHook["parentRunId"] as? String, rootThreadId)
+        XCTAssertEqual(childAfterHook["parentSessionId"] as? String, rootThreadId)
+        XCTAssertEqual(childAfterHook["relationship"] as? String, "spawned")
+        XCTAssertEqual(childAfterHook["surfaceId"] as? String, firstChildSurfaceId)
+    }
+
+    func testManagedNonCodexSessionStartDoesNotPersistCodexTeamsLineage() throws {
+        let context = try makeClaudeHookContext(name: "non-codex-managed-lineage")
+        defer { context.cleanup() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let sessionId = "claude-managed-child"
+        let result = runAgentHook(
+            context: context,
+            agent: "claude",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: [
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "codex-child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "codex-root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["runId"])
+        XCTAssertNil(record["parentRunId"])
+        XCTAssertNil(record["parentSessionId"])
+        XCTAssertNil(record["relationship"])
+    }
+
+    func testManagedCodexSessionStartRejectsMismatchedTeamsThreadIdentity() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-lineage-mismatch")
+        defer { context.cleanup() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let nativeSessionId = "native-codex-session"
+        let inheritedThreadId = "different-teams-thread"
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(nativeSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(
+                context: context,
+                sessionId: nativeSessionId
+            ).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": inheritedThreadId,
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "teams-parent-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let sessions = try readClaudeHookSessions(at: stateURL)
+        let nativeRecord = try XCTUnwrap(sessions[nativeSessionId])
+        XCTAssertNil(nativeRecord["runId"])
+        XCTAssertNil(nativeRecord["parentRunId"])
+        XCTAssertNil(nativeRecord["parentSessionId"])
+        XCTAssertNil(nativeRecord["relationship"])
+        XCTAssertNil(sessions[inheritedThreadId], "Inherited Teams env must not relabel a distinct native Codex session")
+    }
+
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-relay")
         defer { context.cleanup() }
@@ -8763,6 +9337,68 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    private func startCodexTeamsWatcher(
+        context: ClaudeHookContext,
+        appServerURL: URL,
+        maxAutoDepth: Int = 0,
+        ownerLifetime: Int = 30,
+        environmentOverrides: [String: String] = [:],
+        standardError: Any = FileHandle.nullDevice
+    ) throws -> (watcher: Process, owner: Process) {
+        let owner = Process()
+        owner.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        owner.arguments = [String(ownerLifetime)]
+        try owner.run()
+
+        let watcher = Process()
+        watcher.executableURL = URL(fileURLWithPath: context.cliPath)
+        watcher.arguments = [
+            "--socket",
+            context.socketPath,
+            "__codex-teams-watch",
+            "--workspace-id",
+            context.workspaceId,
+            "--surface-id",
+            context.surfaceId,
+            "--app-server-url",
+            appServerURL.absoluteString,
+            "--codex-path",
+            "/usr/bin/true",
+            "--max-auto-depth",
+            String(maxAutoDepth),
+            "--owner-pid",
+            String(owner.processIdentifier),
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = context.root.path
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment.merge(environmentOverrides, uniquingKeysWith: { _, new in new })
+        watcher.environment = environment
+        watcher.standardInput = FileHandle.nullDevice
+        watcher.standardOutput = FileHandle.nullDevice
+        watcher.standardError = standardError
+        do {
+            try watcher.run()
+        } catch {
+            owner.terminate()
+            owner.waitUntilExit()
+            throw error
+        }
+        return (watcher, owner)
+    }
+
+    private func stopCodexTeamsWatcher(_ processes: (watcher: Process, owner: Process)) {
+        if processes.watcher.isRunning {
+            processes.watcher.terminate()
+            processes.watcher.waitUntilExit()
+        }
+        if processes.owner.isRunning {
+            processes.owner.terminate()
+            processes.owner.waitUntilExit()
+        }
+    }
+
     private func startAgentHookMockServerAccepting(
         context: ClaudeHookContext,
         connectionLimit: Int
@@ -8820,7 +9456,48 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         switch method {
         case "surface.list":
-            return surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            var surfaceIds = [context.surfaceId]
+            for command in context.state.snapshot() {
+                guard let payload = jsonObject(command),
+                      payload["method"] as? String == "surface.split",
+                      let params = payload["params"] as? [String: Any],
+                      let environment = params["startup_environment"] as? [String: String],
+                      let threadId = environment["CMUX_CODEX_TEAMS_THREAD_ID"] else {
+                    continue
+                }
+                surfaceIds.append(threadId)
+            }
+            let surfaces = Array(Set(surfaceIds)).enumerated().map { index, surfaceId in
+                [
+                    "id": surfaceId,
+                    "ref": "surface:\(index + 1)",
+                    "index": index,
+                    "focused": surfaceId == context.surfaceId,
+                ] as [String: Any]
+            }
+            return v2Response(id: id, ok: true, result: ["surfaces": surfaces])
+        case "surface.split":
+            let params = payload["params"] as? [String: Any] ?? [:]
+            let environment = params["startup_environment"] as? [String: String] ?? [:]
+            let threadId = environment["CMUX_CODEX_TEAMS_THREAD_ID"] ?? "unknown"
+            let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+            let wasBlank: Bool
+            if let sessions = try? readClaudeHookSessions(at: stateURL),
+               let record = sessions[threadId] {
+                wasBlank = record["surfaceId"] as? String == ""
+            } else {
+                wasBlank = false
+            }
+            context.state.recordBlankSurfaceAtSplit(wasBlank, threadId: threadId)
+            return v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": threadId]
+            )
+        case "tab.action":
+            return v2Response(id: id, ok: true, result: ["renamed": true])
+        case "workspace.equalize_splits":
+            return v2Response(id: id, ok: true, result: ["equalized": true])
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
         case "surface.resume.set":
@@ -8900,9 +9577,31 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     private func readClaudeHookSession(_ sessionId: String, context: ClaudeHookContext) throws -> [String: Any] {
         let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
-        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
-        return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        let sessions = try readClaudeHookSessions(at: stateURL)
+        return try XCTUnwrap(sessions[sessionId])
+    }
+
+    private func readClaudeHookSessions(at stateURL: URL) throws -> [String: [String: Any]] {
+        guard let state = try JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any],
+              let rawSessions = state["sessions"] as? [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return rawSessions.compactMapValues { $0 as? [String: Any] }
+    }
+
+    private func waitForCondition(
+        timeout: TimeInterval,
+        pollInterval: TimeInterval = 0.02,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        } while Date() < deadline
+        return condition()
     }
 
     private func feedPushEvents(in context: ClaudeHookContext) -> [[String: Any]] {
