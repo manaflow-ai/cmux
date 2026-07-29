@@ -339,7 +339,9 @@ extension DockSplitStore {
         let confirmedRuntimeIdentities: Set<AgentPIDProcessIdentity> = {
             guard let expectedKind, expectedKind != .claude,
                   let expectedSessionId,
-                  let runtime = transfer?.agentRuntime else { return [] }
+                  let runtime = agentRuntimeByPanelId[terminal.id] ?? transfer?.agentRuntime else {
+                return []
+            }
             let key = "\(expectedKind.rawValue).\(expectedSessionId)"
             guard let recordedIdentity = runtime.agentPIDProcessIdentities[key],
                   currentAgentProcessIdentity(Int(recordedIdentity.pid)) == recordedIdentity else {

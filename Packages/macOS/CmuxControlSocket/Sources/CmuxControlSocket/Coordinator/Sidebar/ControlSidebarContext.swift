@@ -63,7 +63,11 @@ public protocol ControlSidebarContext: AnyObject {
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.
-    nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String)
+    nonisolated func controlSidebarScheduleStatusClear(
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?
+    )
 
     /// Enqueues the `set_agent_pid` record mutation.
     nonisolated func controlSidebarScheduleAgentPIDRecord(
@@ -113,7 +117,8 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
-        clearStatus: Bool
+        clearStatus: Bool,
+        requireOwnedKey: Bool
     )
 
     /// Enqueues the `report_meta_block` upsert mutation.

@@ -123,10 +123,15 @@ extension TerminalController {
     nonisolated func controlSidebarSchedulePanelOwnedMutation(
         target: ControlSidebarTabTarget,
         panelID: UUID?,
-        mutation: @escaping @MainActor (TerminalController, Workspace) -> Void
+        mutation: @escaping @MainActor (TerminalController, ControlSidebarPanelOwner) -> Void
     ) {
         TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
             guard let self else { return }
+            if let panelID,
+               let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(panelID) }) {
+                mutation(self, .dock(dock))
+                return
+            }
             var tab = self.controlSidebarResolveMutationTab(target)
             if let panelID, case .workspace = target,
                tab?.panels.keys.contains(panelID) != true,
@@ -135,7 +140,7 @@ extension TerminalController {
             }
             guard let tab else { return }
             if let panelID, !tab.panels.keys.contains(panelID) { return }
-            mutation(self, tab)
+            mutation(self, .workspace(tab))
         }
     }
 

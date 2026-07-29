@@ -87,7 +87,8 @@ enum ClaudeHookLiveDeliveryHarness {
         ttyRows: [(tty: String, workspaceId: String, surfaceId: String)] = [],
         resolverMethodAvailable: Bool = true,
         acknowledgesPIDResolution: Bool = true,
-        resumeClearSucceeds: Bool = true
+        resumeClearSucceeds: Bool = true,
+        resumeClearOwnsCheckpoint: Bool? = true
     ) -> DispatchSemaphore {
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
@@ -144,7 +145,14 @@ enum ClaudeHookLiveDeliveryHarness {
                 return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
             case "surface.resume.clear":
                 if resumeClearSucceeds {
-                    return v2Response(id: id, ok: true, result: [:])
+                    guard let resumeClearOwnsCheckpoint else {
+                        return v2Response(id: id, ok: true, result: [:])
+                    }
+                    return v2Response(
+                        id: id,
+                        ok: true,
+                        result: ["cleared": resumeClearOwnsCheckpoint]
+                    )
                 }
                 return v2Response(
                     id: id,

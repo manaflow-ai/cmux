@@ -28002,23 +28002,13 @@ struct CMUXCLI {
         sessionId: String?,
         sessionDidEnd: Bool = false
     ) -> Bool {
-        let normalizedSessionId = normalizedHookValue(sessionId)
-        var params: [String: Any] = [
-            "surface_id": surfaceId,
-            "source": "agent-hook"
-        ]
-        if let normalizedSessionId {
-            params["checkpoint_id"] = normalizedSessionId
-        }
-        if sessionDidEnd, normalizedSessionId != nil {
-            params["agent_session_ended"] = true
-        }
-        do {
-            _ = try client.sendV2(method: "surface.resume.clear", params: params)
-            return true
-        } catch {
-            return false
-        }
+        clearAgentSurfaceResumeBindingOutcome(
+            client: client,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            sessionId: sessionId,
+            sessionDidEnd: sessionDidEnd
+        ) != .failed
     }
 
     private func agentSurfaceResumeCommand(

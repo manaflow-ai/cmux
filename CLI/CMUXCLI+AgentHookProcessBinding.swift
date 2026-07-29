@@ -112,26 +112,27 @@ extension CMUXCLI {
         }
         var clearedRecords: [ClaudeHookSessionRecord] = []
         for record in records {
-            guard clearAgentSurfaceResumeBinding(
+            let resumeClearOutcome = clearAgentSurfaceResumeBindingOutcome(
                 client: client,
                 workspaceId: record.workspaceId,
                 surfaceId: record.surfaceId,
                 sessionId: record.sessionId
-            ) else {
+            )
+            guard resumeClearOutcome != .failed else {
                 continue
             }
             if record.surfaceId == owner.surfaceId {
                 // Registering the replacement structured PID on this panel has
-                // already evicted the superseded key. Sending clear_agent_pid
-                // for that now-missing key would still clear the panel's base
-                // OMP lifecycle, erasing the replacement session.
+                // already evicted the superseded key. Avoid a redundant
+                // key-miss clear while the replacement may not have published
+                // its own PID yet.
                 clearedRecords.append(record)
                 continue
             }
             let pidKey = "\(statusKey).\(record.sessionId)"
             do {
                 _ = try sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status",
+                    "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status --require-owned-key",
                     client: client
                 )
                 clearedRecords.append(record)
