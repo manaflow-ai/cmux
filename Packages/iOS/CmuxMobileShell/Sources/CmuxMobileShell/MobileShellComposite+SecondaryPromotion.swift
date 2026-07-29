@@ -211,7 +211,8 @@ extension MobileShellComposite {
                 // flight. Re-read membership immediately before demotion.
                 previousForegroundCanStayWarm =
                     await canRetainFocusedConnectionInControlPool(
-                        previousForegroundConnection
+                        previousForegroundConnection,
+                        vacatingControlMacDeviceID: macID
                     )
             }
             if !previousForegroundCanStayWarm,

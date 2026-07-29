@@ -7008,7 +7008,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// online, visible pairing in the current account/team scope. The store
     /// read crosses the team-change boundary, so scope is revalidated afterward.
     func canRetainFocusedConnectionInControlPool(
-        _ connection: MacConnection
+        _ connection: MacConnection,
+        vacatingControlMacDeviceID: String? = nil
     ) async -> Bool {
         guard multiMacAggregationEnabled,
               let pairedMacStore,
@@ -7032,8 +7033,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               ) else {
             return false
         }
-        guard secondaryMacSubscriptions.count
-                < Self.maximumWarmControlConnectionCount else {
+        guard hasWarmControlCapacity(
+            vacatingControlMacDeviceID: vacatingControlMacDeviceID
+        ) else {
             return false
         }
         // Some injected/legacy compositions have no live-presence service.
@@ -7049,6 +7051,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             presenceMap.deviceSummary(deviceId: stored.macDeviceID)
         }
         return summary?.online == true
+    }
+
+    static func warmControlPoolHasCapacity(
+        currentControlCount: Int,
+        vacatesControlSlot: Bool
+    ) -> Bool {
+        currentControlCount - (vacatesControlSlot ? 1 : 0)
+            < maximumWarmControlConnectionCount
+    }
+
+    private func hasWarmControlCapacity(
+        vacatingControlMacDeviceID: String?
+    ) -> Bool {
+        let vacatesControlSlot = vacatingControlMacDeviceID.map { targetID in
+            let canonicalTargetID = cmxCanonicalDeviceID(targetID)
+            return secondaryMacSubscriptions.keys.contains {
+                cmxCanonicalDeviceID($0) == canonicalTargetID
+            }
+        } ?? false
+        return Self.warmControlPoolHasCapacity(
+            currentControlCount: secondaryMacSubscriptions.count,
+            vacatesControlSlot: vacatesControlSlot
+        )
     }
 
     @discardableResult
@@ -8348,11 +8373,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
             guard let self else { return }
+            let readinessSucceeded =
+                await subscriptionReadiness?.hasSucceeded() == true
+            let recoversEndedStream =
+                recoversConnectionOnSubscriptionFailure
+                    || readinessSucceeded
             self.handleTerminalEventStreamEnded(
                 listenerID: listenerID,
                 client: client,
-                recoversConnectionOnFailure:
-                    recoversConnectionOnSubscriptionFailure
+                recoversConnectionOnFailure: recoversEndedStream
             )
         }
     }
@@ -8408,6 +8437,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 return
             }
+            // Promotion suppresses recovery only for its initial handoff
+            // handshake. Publish success before the event loop can end so every
+            // later stream closure resumes ordinary focused recovery.
+            await subscriptionReadiness?.resolve(true)
             self.recordSuccessfulTerminalSubscription()
             self.markMacConnectionHealthy()
             didSubscribe = true

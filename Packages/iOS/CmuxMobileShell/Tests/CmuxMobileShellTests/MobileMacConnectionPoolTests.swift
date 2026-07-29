@@ -88,6 +88,24 @@ import Testing
         #expect(!candidates.contains { $0.macDeviceID == "mac-0" })
     }
 
+    @Test func promotedControlSlotMakesRoomForPreviousFocus() {
+        let capacity =
+            MobileShellComposite.maximumWarmControlConnectionCount
+
+        #expect(!MobileShellComposite.warmControlPoolHasCapacity(
+            currentControlCount: capacity,
+            vacatesControlSlot: false
+        ))
+        #expect(MobileShellComposite.warmControlPoolHasCapacity(
+            currentControlCount: capacity,
+            vacatesControlSlot: true
+        ))
+        #expect(!MobileShellComposite.warmControlPoolHasCapacity(
+            currentControlCount: capacity + 1,
+            vacatesControlSlot: true
+        ))
+    }
+
     @Test func onlineTaggedInstanceWinsBeforePhysicalMacCoalescing() throws {
         let store = MobileShellComposite(
             isSignedIn: false,

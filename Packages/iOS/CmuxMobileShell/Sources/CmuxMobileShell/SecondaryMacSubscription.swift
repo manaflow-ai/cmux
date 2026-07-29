@@ -28,6 +28,10 @@ actor MobileTerminalEventSubscriptionReadiness {
             waiter.resume(returning: value)
         }
     }
+
+    func hasSucceeded() -> Bool {
+        result == true
+    }
 }
 
 /// One non-focused Mac's persistent control connection plus its event consumer.
