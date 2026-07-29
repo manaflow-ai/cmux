@@ -96,7 +96,10 @@ struct RemoteSessionReverseRelayTransportTests {
                 return RemoteCommandResult(
                     status: 255,
                     stdout: "",
-                    stderr: "Error: remote port forwarding failed for listen port 64044"
+                    stderr: """
+                    mux_client_forward: forwarding request failed: remote port forwarding failed for listen port 64044
+                    muxclient: master forward request failed
+                    """
                 )
             }
             return RemoteCommandResult(status: 0, stdout: "", stderr: "")

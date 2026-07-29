@@ -34,6 +34,15 @@ extension RemoteSessionCoordinator {
         do {
             let result = try sshExec(arguments: arguments, timeout: 6)
             guard result.status == 0 else {
+                let bindingConflict = [
+                    result.stderr,
+                    result.stdout,
+                ].compactMap {
+                    Self.reverseRelayPortBindingFailureLine(
+                        in: $0,
+                        relayPort: relayPort
+                    )
+                }.first
                 let detail = Self.bestErrorLine(
                     stderr: result.stderr,
                     stdout: result.stdout
@@ -42,11 +51,8 @@ extension RemoteSessionCoordinator {
                     "remote.relay.controlmaster.forwardFailed \(detail) " +
                     debugConfigSummary()
                 )
-                if Self.isReverseRelayPortBindingFailure(
-                    detail,
-                    relayPort: relayPort
-                ) {
-                    return .bindingConflict(detail)
+                if let bindingConflict {
+                    return .bindingConflict(bindingConflict)
                 }
                 return .unavailable
             }
@@ -74,5 +80,22 @@ extension RemoteSessionCoordinator {
             return
         }
         _ = try? sshExec(arguments: arguments, timeout: 4)
+    }
+
+    /// Invalidates a relay installed on a shared master that another owner
+    /// exited during conflict recovery.
+    func sharedControlMasterDidResetLocked() {
+        guard reverseRelayControlMasterForwardSpec != nil else { return }
+        reverseRelayControlMasterForwardSpec = nil
+        debugLog(
+            "remote.relay.controlmaster.resetObserved \(debugConfigSummary())"
+        )
+        guard !isStopping,
+              daemonReady,
+              let remotePath = daemonRemotePath,
+              !remotePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
     }
 }

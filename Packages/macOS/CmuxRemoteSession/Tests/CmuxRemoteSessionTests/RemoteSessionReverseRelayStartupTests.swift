@@ -18,6 +18,13 @@ struct RemoteSessionReverseRelayStartupTests {
             "Error: remote port forwarding failed for listen port 64044",
             relayPort: 64_044
         ))
+        #expect(RemoteSessionCoordinator.isReverseRelayPortBindingFailure(
+            """
+            mux_client_forward: forwarding request failed: remote port forwarding failed for listen port 64044
+            muxclient: master forward request failed
+            """,
+            relayPort: 64_044
+        ))
         #expect(!RemoteSessionCoordinator.isReverseRelayPortBindingFailure(
             "remote port forwarding failed for listen port 64045",
             relayPort: 64_044

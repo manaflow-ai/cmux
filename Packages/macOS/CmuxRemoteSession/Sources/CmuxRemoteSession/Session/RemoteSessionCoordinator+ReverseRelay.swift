@@ -397,10 +397,26 @@ extension RemoteSessionCoordinator {
     }
 
     /// Returns whether OpenSSH reported that this relay's remote listener is
-    /// already bound. The optional `Error:` prefix varies across OpenSSH builds.
+    /// already bound.
     static func isReverseRelayPortBindingFailure(_ detail: String, relayPort: Int) -> Bool {
+        reverseRelayPortBindingFailureLine(in: detail, relayPort: relayPort) != nil
+    }
+
+    /// Extracts the exact bind diagnostic from standalone or multiplexed
+    /// OpenSSH stderr. Multiplexing adds a prefix and may append a later
+    /// summary line, so classification must inspect every line.
+    static func reverseRelayPortBindingFailureLine(
+        in detail: String,
+        relayPort: Int
+    ) -> String? {
         let expected = "remote port forwarding failed for listen port \(relayPort)"
-        let normalized = detail.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized == expected || normalized == "Error: \(expected)"
+        return detail
+            .split(whereSeparator: \.isNewline)
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .first(where: {
+                $0 == expected || $0.hasSuffix(": \(expected)")
+            })
     }
 }

@@ -1,10 +1,12 @@
 internal import CmuxCore
 internal import CmuxFoundation
+internal import CmuxRemoteWorkspace
 internal import Foundation
 
 /// Outcome of one broker-authorized conflicted-master migration.
 enum NativeSSHControlMasterResetOutcome: Sendable, Equatable {
     case reset
+    case deferred(String)
     case ignored(String)
 }
 
@@ -22,6 +24,8 @@ final class NativeSSHControlMasterResetCoordinator {
 
     private let sharingOptions: SSHConnectionSharingOptions
     private let processRunner: any RemoteSessionProcessRunning
+    private let clock: any RemoteProxyRetryClock
+    private let eventHub: NativeSSHControlMasterResetEventHub
     private var leases: [
         UUID: [NativeSSHControlMasterResetKey: WorkspaceRemoteConfiguration]
     ] = [:]
@@ -31,10 +35,14 @@ final class NativeSSHControlMasterResetCoordinator {
 
     nonisolated init(
         sharingOptions: SSHConnectionSharingOptions,
-        processRunner: any RemoteSessionProcessRunning
+        processRunner: any RemoteSessionProcessRunning,
+        clock: any RemoteProxyRetryClock,
+        eventHub: NativeSSHControlMasterResetEventHub
     ) {
         self.sharingOptions = sharingOptions
         self.processRunner = processRunner
+        self.clock = clock
+        self.eventHub = eventHub
     }
 
     func retainWorkspace(
@@ -61,6 +69,10 @@ final class NativeSSHControlMasterResetCoordinator {
             leases.removeValue(forKey: ownerWorkspaceID)
         } else {
             leases[ownerWorkspaceID] = ownerLeases
+        }
+        let remainsOwned = leases.values.contains { $0[key] != nil }
+        if !remainsOwned {
+            inFlightResets[key]?.task.cancel()
         }
     }
 
@@ -99,8 +111,19 @@ final class NativeSSHControlMasterResetCoordinator {
         )
         let resetID = UUID()
         let processRunner = self.processRunner
+        let clock = self.clock
+        let eventHub = self.eventHub
+        let impactScope = key.impactScope
         let task = Task {
-            await Self.runReset(request: request, processRunner: processRunner)
+            let outcome = await Self.runReset(
+                request: request,
+                processRunner: processRunner,
+                clock: clock
+            )
+            if case .reset = outcome {
+                eventHub.emit(scope: impactScope)
+            }
+            return outcome
         }
         inFlightResets[key] = InFlightReset(id: resetID, task: task)
         let outcome = await task.value
@@ -112,31 +135,79 @@ final class NativeSSHControlMasterResetCoordinator {
 
     private nonisolated static func runReset(
         request: NativeSSHControlMasterCleanupRequest,
-        processRunner: any RemoteSessionProcessRunning
+        processRunner: any RemoteSessionProcessRunning,
+        clock: any RemoteProxyRetryClock
     ) async -> NativeSSHControlMasterResetOutcome {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                let invocation = request.processInvocation
-                let processRequest = RemoteProcessRequest(
-                    executable: invocation.executableURL.path,
-                    arguments: invocation.arguments,
-                    environment: request.environment,
-                    timeout: 5
-                )
+        let maximumAttempts = 3
+        for attemptIndex in 0..<maximumAttempts {
+            guard !Task.isCancelled else {
+                return .deferred("control-master reset cancelled")
+            }
+            let attempt = await runResetAttempt(
+                request: request,
+                processRunner: processRunner
+            )
+            guard !Task.isCancelled else {
+                return .deferred("control-master reset cancelled")
+            }
+            switch attempt {
+            case .reset:
+                return .reset
+            case .ignored(let detail):
+                return .ignored(detail)
+            case .retry(let detail):
+                guard attemptIndex + 1 < maximumAttempts else {
+                    return .deferred(detail)
+                }
                 do {
-                    let result = try processRunner.run(processRequest, operation: nil)
-                    if result.status == 0 {
-                        continuation.resume(returning: .reset)
-                    } else {
-                        continuation.resume(returning: .ignored(
-                            bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                                ?? "ssh exited \(result.status)"
-                        ))
-                    }
+                    try await clock.sleep(forMilliseconds: 2_000)
                 } catch {
-                    continuation.resume(returning: .ignored(error.localizedDescription))
+                    return .deferred(error.localizedDescription)
                 }
             }
+        }
+        return .deferred("control-master reset deferred")
+    }
+
+    private nonisolated static func runResetAttempt(
+        request: NativeSSHControlMasterCleanupRequest,
+        processRunner: any RemoteSessionProcessRunning
+    ) async -> ResetAttemptOutcome {
+        let cancellation = RemoteProcessCancellationOperation()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    let invocation = request.processInvocation
+                    let processRequest = RemoteProcessRequest(
+                        executable: invocation.executableURL.path,
+                        arguments: invocation.arguments,
+                        environment: request.environment,
+                        timeout: 5
+                    )
+                    do {
+                        let result = try processRunner.run(
+                            processRequest,
+                            operation: cancellation
+                        )
+                        let detail = bestErrorLine(
+                            stderr: result.stderr,
+                            stdout: result.stdout
+                        ) ?? "ssh exited \(result.status)"
+                        if result.status == 0 {
+                            continuation.resume(returning: .reset)
+                        } else if result.status ==
+                            NativeSSHControlMasterCleanupRequest.retryExitStatus {
+                            continuation.resume(returning: .retry(detail))
+                        } else {
+                            continuation.resume(returning: .ignored(detail))
+                        }
+                    } catch {
+                        continuation.resume(returning: .ignored(error.localizedDescription))
+                    }
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
         }
     }
 
@@ -156,4 +227,10 @@ final class NativeSSHControlMasterResetCoordinator {
         }
         return nil
     }
+}
+
+private enum ResetAttemptOutcome: Sendable {
+    case reset
+    case retry(String)
+    case ignored(String)
 }

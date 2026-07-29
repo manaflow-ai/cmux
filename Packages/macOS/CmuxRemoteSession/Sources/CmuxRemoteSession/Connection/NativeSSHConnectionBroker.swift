@@ -19,10 +19,11 @@ private enum NativeSSHCleanupPolicy {
 /// remain independent.
 @MainActor
 public final class NativeSSHConnectionBroker {
-    private let sharingOptions: SSHConnectionSharingOptions
+    private nonisolated let sharingOptions: SSHConnectionSharingOptions
     private let clock: any RemoteProxyRetryClock
     private let jitterMilliseconds: @MainActor @Sendable () -> Int
     private let cleanupLauncherOverride: (@MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void)?
+    private nonisolated let conflictedMasterResetEventHub: NativeSSHControlMasterResetEventHub
     private let conflictedMasterResetCoordinator: NativeSSHControlMasterResetCoordinator
 
     private var ownerLeases: [UUID: [NativeSSHControlMasterKey: WorkspaceRemoteConfiguration]] = [:]
@@ -46,9 +47,13 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
         self.cleanupLauncherOverride = nil
+        let eventHub = NativeSSHControlMasterResetEventHub()
+        self.conflictedMasterResetEventHub = eventHub
         self.conflictedMasterResetCoordinator = NativeSSHControlMasterResetCoordinator(
             sharingOptions: sharingOptions,
-            processRunner: RemoteSessionProcessRunner()
+            processRunner: RemoteSessionProcessRunner(),
+            clock: clock,
+            eventHub: eventHub
         )
     }
 
@@ -68,9 +73,13 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
         self.cleanupLauncherOverride = cleanupLauncher
+        let eventHub = NativeSSHControlMasterResetEventHub()
+        self.conflictedMasterResetEventHub = eventHub
         self.conflictedMasterResetCoordinator = NativeSSHControlMasterResetCoordinator(
             sharingOptions: sharingOptions,
-            processRunner: RemoteSessionProcessRunner()
+            processRunner: RemoteSessionProcessRunner(),
+            clock: clock,
+            eventHub: eventHub
         )
     }
 
@@ -85,9 +94,13 @@ public final class NativeSSHConnectionBroker {
         self.clock = clock
         self.jitterMilliseconds = jitterMilliseconds
         self.cleanupLauncherOverride = cleanupLauncher
+        let eventHub = NativeSSHControlMasterResetEventHub()
+        self.conflictedMasterResetEventHub = eventHub
         self.conflictedMasterResetCoordinator = NativeSSHControlMasterResetCoordinator(
             sharingOptions: sharingOptions,
-            processRunner: conflictedMasterResetRunner
+            processRunner: conflictedMasterResetRunner,
+            clock: clock,
+            eventHub: eventHub
         )
     }
 
@@ -166,6 +179,23 @@ public final class NativeSSHConnectionBroker {
         for configuration: WorkspaceRemoteConfiguration
     ) async -> NativeSSHControlMasterResetOutcome {
         await conflictedMasterResetCoordinator.reset(for: configuration)
+    }
+
+    /// Observes resets that can invalidate this configuration's relay forward.
+    nonisolated func observeControlMasterResets(
+        for configuration: WorkspaceRemoteConfiguration,
+        handler: @escaping @Sendable () -> Void
+    ) -> NativeSSHControlMasterResetObservation? {
+        guard let scope = NativeSSHControlMasterResetKey(
+            configuration: configuration,
+            sharingOptions: sharingOptions
+        )?.impactScope else {
+            return nil
+        }
+        return conflictedMasterResetEventHub.observe(
+            scope: scope,
+            handler: handler
+        )
     }
 
     /// Runs one connection attempt after acquiring the endpoint's FIFO permit.

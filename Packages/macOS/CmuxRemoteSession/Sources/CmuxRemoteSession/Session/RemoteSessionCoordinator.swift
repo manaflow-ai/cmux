@@ -83,6 +83,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var reverseRelayStartupPhase = ReverseRelayStartupPhase.recoveryAvailable
     var reverseRelayProcess: (any RemoteReverseRelayProcess)?
     var reverseRelayControlMasterForwardSpec: String?
+    var conflictedControlMasterResetObservation: NativeSSHControlMasterResetObservation?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
     /// Stable publication state for best-effort remote TTY attribution scans.
@@ -180,6 +181,14 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.strings = strings
         self.clock = clock
         queue.setSpecific(key: queueKey, value: ())
+        conflictedControlMasterResetObservation =
+            connectionBroker.observeControlMasterResets(
+                for: configuration
+            ) { [weak self] in
+                self?.queue.async { [weak self] in
+                    self?.sharedControlMasterDidResetLocked()
+                }
+            }
     }
 
     /// The capabilities advertised by the cmuxd-remote baked into the Freestyle snapshot

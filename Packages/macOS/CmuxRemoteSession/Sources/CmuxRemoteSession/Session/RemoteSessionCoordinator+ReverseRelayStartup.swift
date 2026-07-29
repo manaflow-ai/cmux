@@ -70,32 +70,45 @@ extension RemoteSessionCoordinator {
         relayPort: Int
     ) {
         guard reverseRelayStartupPhase.token == token else { return }
-        reverseRelayStartupPhase = .recoveryAttempted
-
         switch outcome {
         case .reset:
+            reverseRelayStartupPhase = .recoveryAttempted
             debugLog(
                 "remote.relay.conflictedMaster.exited " +
                 "relayPort=\(relayPort) \(debugConfigSummary())"
             )
+        case .deferred(let detail):
+            reverseRelayStartupPhase = .recoveryAvailable
+            debugLog(
+                "remote.relay.conflictedMaster.exitDeferred " +
+                "relayPort=\(relayPort) \(detail) \(debugConfigSummary())"
+            )
+            publishReverseRelayPortUnavailableLocked()
+            scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+            return
         case .ignored(let detail):
+            reverseRelayStartupPhase = .recoveryAttempted
             debugLog(
                 "remote.relay.conflictedMaster.exitIgnored " +
                 "relayPort=\(relayPort) \(detail) \(debugConfigSummary())"
             )
-            publishDaemonStatus(
-                .error,
-                detail: String(
-                    localized: "remoteSession.reverseRelay.portUnavailableRetrying",
-                    defaultValue: "Remote SSH relay port unavailable; retrying in 2 seconds"
-                )
-            )
+            publishReverseRelayPortUnavailableLocked()
             scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
             return
         }
 
         guard !isStopping else { return }
         scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+    }
+
+    private func publishReverseRelayPortUnavailableLocked() {
+        publishDaemonStatus(
+            .error,
+            detail: String(
+                localized: "remoteSession.reverseRelay.portUnavailableRetrying",
+                defaultValue: "Remote SSH relay port unavailable; retrying in 2 seconds"
+            )
+        )
     }
 
     /// Cancels the in-flight OpenSSH recovery and invalidates its continuation.
