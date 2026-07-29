@@ -186,6 +186,9 @@ struct ClaudeHookActiveSessionRecord: Codable {
 }
 
 struct ClaudeHookClearBackgroundWorkTransfer: Codable {
+    /// Session retired by `SessionEnd(clear)`; its late hooks stay stale until
+    /// the replacement clear session consumes this one-shot boundary.
+    let sourceSessionId: String?
     let workspaceId: String?
     let pid: Int?
     let pidStartSeconds: Int64?
@@ -735,7 +738,14 @@ final class ClaudeHookSessionStore {
             switch pendingBackgroundWorkBoundary {
             case .unchanged:
                 inheritedPendingBackgroundWork = false
-                if markActive, let normalizedSurfaceId {
+                if markActive,
+                   let normalizedSurfaceId,
+                   let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId],
+                   !clearBackgroundWorkTransferMatchesSource(
+                       transfer,
+                       sessionId: normalized,
+                       incomingPID: pid
+                   ) {
                     state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
                 }
             case .discardTransfer:
@@ -1388,6 +1398,8 @@ final class ClaudeHookSessionStore {
     /// It fails open when the event cannot identify a session/workspace, when no
     /// active session is registered yet, or when either side lacks a turnId so
     /// multi-turn continuations can proceed after Stop clears the active turn.
+    /// A pending clear transfer is the exception: it is a short-lived tombstone
+    /// that rejects hooks from the retired source session during the ownership gap.
     func isCurrent(
         sessionId: String?,
         workspaceId: String,
@@ -1399,6 +1411,14 @@ final class ClaudeHookSessionStore {
             return true
         }
         return try withLockedState { state in
+            if clearBackgroundWorkTransferBlocksSourceEvent(
+                in: state,
+                sessionId: normalizedSessionId,
+                workspaceId: normalizedWorkspace,
+                surfaceId: normalizeOptional(surfaceId)
+            ) {
+                return false
+            }
             // The pane's own active boundary decides first: a hook is stale when a
             // DIFFERENT session was promoted in the SAME surface (post-/clear or
             // replaced-session races in one pane). This stays true even after a
@@ -1493,6 +1513,39 @@ final class ClaudeHookSessionStore {
         return record
     }
 
+    private func clearBackgroundWorkTransferBlocksSourceEvent(
+        in state: ClaudeHookSessionStoreFile,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String?
+    ) -> Bool {
+        state.clearBackgroundWorkTransfersBySurface.contains { transferSurfaceId, transfer in
+            guard normalizeOptional(transfer.sourceSessionId) == sessionId else {
+                return false
+            }
+            if let surfaceId {
+                return transferSurfaceId == surfaceId
+            }
+            return normalizeOptional(transfer.workspaceId) == workspaceId
+        }
+    }
+
+    private func clearBackgroundWorkTransferMatchesSource(
+        _ transfer: ClaudeHookClearBackgroundWorkTransfer,
+        sessionId: String,
+        incomingPID: Int?
+    ) -> Bool {
+        guard normalizeOptional(transfer.sourceSessionId) == sessionId else {
+            return false
+        }
+        return processGenerationMatches(
+            recordedPID: transfer.pid,
+            recordedStartSeconds: transfer.pidStartSeconds,
+            recordedStartMicroseconds: transfer.pidStartMicroseconds,
+            incomingPID: incomingPID
+        )
+    }
+
     private func consumeClearBackgroundWorkTransfer(
         from state: inout ClaudeHookSessionStoreFile,
         workspaceId: String,
@@ -1584,6 +1637,7 @@ final class ClaudeHookSessionStore {
             if preservesPendingBackgroundWork, let transferSurfaceId {
                 state.clearBackgroundWorkTransfersBySurface[transferSurfaceId] =
                     ClaudeHookClearBackgroundWorkTransfer(
+                        sourceSessionId: record.sessionId,
                         workspaceId: transferWorkspaceId,
                         pid: record.pid,
                         pidStartSeconds: record.pidStartSeconds,
