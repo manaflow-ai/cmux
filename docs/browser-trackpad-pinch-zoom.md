@@ -37,15 +37,15 @@ The zoom-behavior tests were committed failing before the implementation. After 
 
 ## CI evidence
 
-At validation checkpoint `af4e20fd8b`, the focused `BrowserPanelTrackpadMagnificationTests` suite passed all cases on GitHub-hosted macOS 15 in run `30398095443`. The selected-test step was green. The workflow's overall conclusion was failure only because the subsequent result-publishing step could not create its external record from a fork context.
+At validation checkpoint `2f59a17e5dba3341a2fb5360127ddb90c742be14`, the focused `BrowserPanelTrackpadMagnificationTests` suite passed all 5 cases with 0 failures on GitHub-hosted macOS 15 in run `30408134600`. The selected-test step was green. The workflow's overall conclusion was failure only because the subsequent result-publishing step could not create its external record from a fork context.
 
 This was a focused contract run, not a claim that the repository-wide suite passed.
 
 ## Tagged application smoke
 
-Run `30398107908` built the same validation checkpoint as the tagged macOS application `cmux DEV pinch-zoom-final-af4e20f`.
+Run `30403009110` built exact validation checkpoint `2f59a17e5dba3341a2fb5360127ddb90c742be14` as `cmux DEV pinch-zoom-final-2f59a17` on macOS 15; its build metadata records that full source ref.
 
-The exact artifact was launched on an Apple Silicon laptop running macOS 15.7.5 against a deterministic local HTML fixture. The smoke used the same `WKWebView.pageZoom` mutation pipeline exposed to the gesture bridge:
+The installed artifact was launched on an Apple Silicon laptop running macOS 15.7.5 against a deterministic fixture served over loopback HTTP. The smoke used the same `WKWebView.pageZoom` mutation pipeline exposed to the gesture bridge:
 
 | Observation | Reset | Three zoom-in steps | Reset after zoom |
 |---|---:|---:|---:|
