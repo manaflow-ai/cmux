@@ -692,6 +692,24 @@ test("local iOS reload never hides a requested setup failure with a plain launch
   );
 });
 
+test("release gate builds and installs on its exact isolated simulator", () => {
+  const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+  const gate = fs.readFileSync(
+    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
+    "utf8",
+  );
+
+  assert.match(iosReload, /--simulator-id\)/);
+  assert.match(
+    iosReload,
+    /DESTINATION="platform=iOS Simulator,id=\$SIMULATOR_ID"/,
+  );
+  assert.match(
+    gate,
+    /\.\/ios\/scripts\/reload\.sh[\s\S]{0,320}--simulator-id "\$SIMULATOR_ID"/,
+  );
+});
+
 test("physical-device attach reports a missing tagged Mac before blaming Iroh", () => {
   const tag = `missing-mac-${process.pid}`;
   const result = run(
