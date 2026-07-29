@@ -1,7 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -29,8 +29,8 @@ use crate::model::{
 };
 use crate::pairing::PairingBroker;
 use crate::resource::{
-    ContentPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId, SplitPublicId,
-    TabResourceIdentity, WorkspacePublicId,
+    ContentPublicId, NotificationPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId,
+    SplitPublicId, TabResourceIdentity, TerminalPublicId, WorkspacePublicId,
 };
 use crate::resource_mutation::{ResourceMutationMetrics, ResourceMutationPlan};
 use crate::resource_selector::{
@@ -364,6 +364,16 @@ pub struct NotificationEvent {
     pub body: String,
     pub level: NotificationLevel,
     pub surface: Option<SurfaceId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourceNotification {
+    pub id: NotificationPublicId,
+    pub title: String,
+    pub body: String,
+    pub level: NotificationLevel,
+    pub terminal_id: Option<TerminalPublicId>,
+    pub created_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -944,6 +954,7 @@ pub struct Mux {
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
+    notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Fences the interval between accepting a browser daemon-handoff request
     /// and queueing its acknowledgement. ClientRegistry consults this under
@@ -1211,6 +1222,7 @@ impl Mux {
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
+            notification_ledger: Mutex::new(VecDeque::new()),
             terminal_adoptions: Mutex::new(HashSet::new()),
             daemon_handoff_pending: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
@@ -4415,8 +4427,32 @@ impl Mux {
         body: String,
         level: NotificationLevel,
         surface: Option<SurfaceId>,
-    ) -> u64 {
+    ) -> anyhow::Result<u64> {
         let id = self.next_notification_id();
+        let public_id = NotificationPublicId::random()?;
+        let terminal_id = surface.and_then(|surface| {
+            self.state.lock().unwrap().resource_indexes.content_ids.get(&surface).and_then(
+                |content| match content {
+                    ContentPublicId::Terminal(id) => Some(id.clone()),
+                    ContentPublicId::Browser(_) => None,
+                },
+            )
+        });
+        {
+            const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
+            let mut ledger = self.notification_ledger.lock().unwrap();
+            ledger.push_back(ResourceNotification {
+                id: public_id,
+                title: title.clone(),
+                body: body.clone(),
+                level,
+                terminal_id,
+                created_at_ms: now_ms(),
+            });
+            while ledger.len() > NOTIFICATION_LEDGER_CAPACITY {
+                ledger.pop_front();
+            }
+        }
         let mut unread_changed = false;
         if let Some(surface) = surface
             && self.active_surface() != Some(surface)
@@ -4437,7 +4473,18 @@ impl Mux {
         if unread_changed {
             self.emit(MuxEvent::TreeChanged);
         }
-        id
+        Ok(id)
+    }
+
+    pub fn resource_notifications(&self, limit: usize) -> Vec<ResourceNotification> {
+        self.notification_ledger
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .take(limit.min(256))
+            .cloned()
+            .collect()
     }
 
     pub fn report_agent(
@@ -11742,7 +11789,8 @@ mod tests {
             "ok".to_string(),
             NotificationLevel::Warning,
             Some(first.id),
-        );
+        )
+        .unwrap();
         assert_eq!(mux.list_agents(Some(first.id), None).len(), 1);
         assert!(mux.surface_notification(first.id).is_some());
 
@@ -11786,12 +11834,14 @@ mod tests {
         let first = mux.new_workspace(None, None).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         let second = mux.new_tab(Some(pane), None, None).unwrap();
-        let notification = mux.post_notification(
-            "Build".to_string(),
-            "ok".to_string(),
-            NotificationLevel::Warning,
-            Some(first.id),
-        );
+        let notification = mux
+            .post_notification(
+                "Build".to_string(),
+                "ok".to_string(),
+                NotificationLevel::Warning,
+                Some(first.id),
+            )
+            .unwrap();
 
         let state = mux.surface_notification(first.id).unwrap();
         assert_eq!(state.notification, notification);
@@ -11812,12 +11862,14 @@ mod tests {
         let surface = mux.new_workspace(None, None).unwrap();
         assert_eq!(mux.active_surface(), Some(surface.id));
 
-        let notification = mux.post_notification(
-            "Build".to_string(),
-            "ok".to_string(),
-            NotificationLevel::Info,
-            Some(surface.id),
-        );
+        let notification = mux
+            .post_notification(
+                "Build".to_string(),
+                "ok".to_string(),
+                NotificationLevel::Info,
+                Some(surface.id),
+            )
+            .unwrap();
 
         assert!(mux.surface_notification(surface.id).is_none());
         assert!(events.try_iter().any(|event| {
@@ -11827,6 +11879,49 @@ mod tests {
                     if note.notification == notification && note.surface == Some(surface.id)
             )
         }));
+    }
+
+    #[test]
+    fn notification_ledger_is_bounded_newest_first_and_uses_public_ids() {
+        let mux = test_mux();
+        let terminal = mux.new_workspace(None, None).unwrap();
+        let terminal_id = TerminalPublicId::random().unwrap();
+        {
+            let mut state = mux.state.lock().unwrap();
+            state
+                .resource_indexes
+                .content_ids
+                .insert(terminal.id, ContentPublicId::Terminal(terminal_id.clone()));
+        }
+        mux.post_notification(
+            "attached".into(),
+            "terminal".into(),
+            NotificationLevel::Info,
+            Some(terminal.id),
+        )
+        .unwrap();
+        assert_eq!(mux.resource_notifications(1)[0].terminal_id, Some(terminal_id));
+
+        for index in 0..300 {
+            mux.post_notification(
+                format!("notice-{index}"),
+                String::new(),
+                NotificationLevel::Info,
+                None,
+            )
+            .unwrap();
+        }
+        let notifications = mux.resource_notifications(1_000);
+        assert_eq!(notifications.len(), 256);
+        assert_eq!(notifications.first().unwrap().title, "notice-299");
+        assert_eq!(notifications.last().unwrap().title, "notice-44");
+        assert_eq!(
+            notifications.iter().map(|notification| &notification.id).collect::<HashSet<_>>().len(),
+            256
+        );
+        assert!(
+            notifications.windows(2).all(|pair| pair[0].created_at_ms >= pair[1].created_at_ms)
+        );
     }
 
     fn seed_split_ratio_tree(mux: &Mux) -> (PaneId, PaneId, PaneId) {

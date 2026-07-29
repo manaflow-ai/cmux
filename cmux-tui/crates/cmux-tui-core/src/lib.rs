@@ -43,9 +43,10 @@ pub use mux::{
     CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
     LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent, NotificationLevel,
     ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
-    ProviderWorkspaceAuthorityUpdateError, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
-    SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError,
-    WorkspaceMutationResult, WorkspacePlacement, ZoomMode, ZoomState,
+    ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RunPlacement,
+    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
+    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult, WorkspacePlacement,
+    ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};

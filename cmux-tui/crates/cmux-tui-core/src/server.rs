@@ -4525,7 +4525,7 @@ fn handle_command_with_cancellation(
             if let Some(surface) = surface {
                 get_surface(mux, surface)?;
             }
-            let notification = mux.post_notification(title, body, level, surface);
+            let notification = mux.post_notification(title, body, level, surface)?;
             Ok(json!({ "notification": notification }))
         }
         Command::ListAgents { surface, state } => {
