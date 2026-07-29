@@ -279,13 +279,6 @@ extension DockSplitStore {
            let resumeSessionWorkingDirectory {
             restoredResumeSessionWorkingDirectoriesByPanelId[terminal.id] = resumeSessionWorkingDirectory
         }
-        recordSessionResumeIntent(
-            panelId: terminal.id,
-            restorableAgent: restorableAgent,
-            resumeBinding: resumeBinding,
-            workingDirectory: resumeSessionWorkingDirectory,
-            agentSessionAlreadyActive: agentSessionAlreadyActive
-        )
         return terminal.id
     }
 
@@ -396,35 +389,4 @@ extension DockSplitStore {
         )
     }
 
-    private func recordSessionResumeIntent(
-        panelId: UUID,
-        restorableAgent: SessionRestorableAgentSnapshot?,
-        resumeBinding: SurfaceResumeBindingSnapshot?,
-        workingDirectory: String?,
-        agentSessionAlreadyActive: Bool
-    ) {
-        guard !agentSessionAlreadyActive else { return }
-        let session: (id: String, source: String)? = if let restorableAgent {
-            (restorableAgent.sessionId, restorableAgent.kind.rawValue)
-        } else if resumeBinding?.isAgentHookBinding == true,
-                  let id = resumeBinding?.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !id.isEmpty,
-                  let source = resumeBinding?.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !source.isEmpty {
-            (id, source)
-        } else {
-            nil
-        }
-        guard let session else { return }
-        AgentChatTranscriptService.recordResumeIntent(
-            sessionID: session.id,
-            source: session.source,
-            surfaceID: panelId.uuidString,
-            workspaceID: workspaceId.uuidString,
-            workingDirectory: workingDirectory
-        )
-#if DEBUG
-        cmuxDebugLog("session.restore.dock.resumeBinding workspace=\(workspaceId.uuidString.prefix(8)) surface=\(panelId.uuidString.prefix(8)) source=\(session.source) session=\(session.id.prefix(8))")
-#endif
-    }
 }

@@ -48,10 +48,6 @@ extension TerminalController {
                     }
                     return .accepted(events: authoritativeEvents, itemIds: itemIds)
                 }
-                if let committed,
-                   case .accepted(let authoritativeEvents, _) = committed {
-                    self.v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
-                }
                 return committed
             }
 
@@ -99,35 +95,6 @@ extension TerminalController {
         return .ok(payload)
     }
 
-    @MainActor
-    private func v2NoteCoalescedFeedTranscriptEvents(_ events: [WorkstreamEvent]) {
-        guard let agentChatTranscriptService else { return }
-
-        var pendingPiPostToolEvent: WorkstreamEvent?
-        for event in events {
-            if event.source == "pi", event.hookEventName == .postToolUse {
-                if pendingPiPostToolEvent?.sessionId == event.sessionId {
-                    pendingPiPostToolEvent = event
-                    continue
-                }
-                if let pendingPiPostToolEvent {
-                    agentChatTranscriptService.noteHookEvent(pendingPiPostToolEvent)
-                }
-                pendingPiPostToolEvent = event
-                continue
-            }
-
-            if let pending = pendingPiPostToolEvent {
-                agentChatTranscriptService.noteHookEvent(pending)
-                pendingPiPostToolEvent = nil
-            }
-            agentChatTranscriptService.noteHookEvent(event)
-        }
-        if let pendingPiPostToolEvent {
-            agentChatTranscriptService.noteHookEvent(pendingPiPostToolEvent)
-        }
-    }
-
     /// Publishes and inserts one Feed event from one authoritative live-target snapshot.
     nonisolated func v2IngestFeedEvent(
         _ event: WorkstreamEvent,
@@ -141,9 +108,6 @@ extension TerminalController {
                 self.v2ApplyIMessageModeSideEffects(for: authoritativeEvent)
             },
             onAccepted: { authoritativeEvent in
-                self.v2MainSync {
-                    self.agentChatTranscriptService?.noteHookEvent(authoritativeEvent)
-                }
                 CmuxEventBus.shared.publishWorkstreamEvent(authoritativeEvent, phase: "received")
                 if !waitsForDecision {
                     let acknowledgment = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: nil)
