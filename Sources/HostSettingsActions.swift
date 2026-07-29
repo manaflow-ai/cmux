@@ -373,8 +373,9 @@ final class HostSettingsActions: SettingsHostActions {
         MobilePrivateNetworkAddressResolver.shared.addresses()
     }
 
-    func mobileDirectPort() -> Int {
-        MobileHostService.configuredPort()
+    func mobileDirectPorts() -> (ipv4: Int?, ipv6: Int?) {
+        let ports = MobileHostPublicStatusCache.irohDirectPorts()
+        return (ports?.ipv4.map(Int.init), ports?.ipv6.map(Int.init))
     }
 
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's

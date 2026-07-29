@@ -3090,23 +3090,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // the Mac even when the probe could not.
             self.applyTerminalTheme(payload.theme)
             self.refreshMacUpdateHintFromRecoveredStatus(payload)
-            await self.applyHostReportedIdentity(
+            // Suggestions record only after the reported identity survives the
+            // ticket/instance-tag validation, under the accepted id: a rejected
+            // status must not leave addresses filed under the id it claimed.
+            if let acceptedDeviceID = await self.applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag
-            )
+            ) {
+                self.recordPrivateNetworkSuggestions(
+                    from: payload,
+                    acceptedDeviceID: acceptedDeviceID
+                )
+            }
         }
     }
 
-    /// Records address suggestions only when authenticated status names its Mac.
+    /// Records address suggestions only under an identity-validated Mac.
+    ///
+    /// `acceptedDeviceID` must come from the caller's own identity check
+    /// (ticket match, secondary-status match, or the id returned by
+    /// ``applyHostReportedIdentity(client:deviceID:displayName:instanceTag:)``),
+    /// never straight from the payload's claimed `mac_device_id`: a rejected
+    /// status must not leave its addresses associated with the id it claimed.
     func recordPrivateNetworkSuggestions(
-        from status: MobileHostStatusResponse
+        from status: MobileHostStatusResponse,
+        acceptedDeviceID: String
     ) {
-        guard let macDeviceID = status.macDeviceID else { return }
         privateNetworkSuggestionStore.record(
             status.privateNetworkAddresses,
-            forMacDeviceID: macDeviceID
+            forMacDeviceID: acceptedDeviceID
         )
     }
 
@@ -3121,16 +3135,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// so a stale reply (the user re-paired while the request was in flight)
     /// can never adopt the OLD Mac's identity onto the NEW connection's
     /// empty-id ticket or persist a mixed paired-Mac record.
+    ///
+    /// - Returns: The accepted canonical Mac device id when the reported
+    ///   identity was adopted or matched the active ticket, or `nil` when the
+    ///   report was rejected or not applicable. Callers use this to gate work
+    ///   that must only happen for a validated identity (for example
+    ///   recording private-address suggestions).
+    @discardableResult
     private func applyHostReportedIdentity(
         client: MobileCoreRPCClient,
         deviceID: String?,
         displayName: String?,
         instanceTag: String?
-    ) async {
+    ) async -> String? {
         guard remoteClient === client,
               let rawReportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawReportedID.isEmpty,
-              let ticket = activeTicket else { return }
+              let ticket = activeTicket else { return nil }
         let reportedID = cmxCanonicalDeviceID(rawReportedID)
         let resolvedTicket: CmxAttachTicket
         if ticket.macDeviceID.isEmpty,
@@ -3164,11 +3185,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 expectedDeviceID: ticket.macDeviceID
             ) else {
                 rejectForegroundHostIdentity(client: client, reason: "device_id_mismatch")
-                return
+                return nil
             }
             resolvedTicket = ticket
         }
-        guard remoteClient === client else { return }
+        guard remoteClient === client else { return nil }
         let resolvedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let resolvedName, !resolvedName.isEmpty {
             connectedHostName = resolvedName
@@ -3176,14 +3197,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let resolvedTag = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard macBuildIsCompatible(instanceTag: resolvedTag) else {
             rejectForegroundHostIdentity(client: client, reason: "build_incompatible")
-            return
+            return nil
         }
         if let activeMacInstanceTag,
            let resolvedTag,
            !resolvedTag.isEmpty,
            activeMacInstanceTag != resolvedTag {
             rejectForegroundHostIdentity(client: client, reason: "instance_tag_mismatch")
-            return
+            return nil
         }
         if activeMacInstanceTag == nil, let resolvedTag, !resolvedTag.isEmpty {
             activeMacInstanceTag = resolvedTag
@@ -3204,7 +3225,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         if !accepted {
             rejectForegroundHostIdentity(client: client, reason: "stored_instance_authority")
+            return nil
         }
+        return resolvedTicket.macDeviceID
     }
 
     private func rejectForegroundHostIdentity(
@@ -3609,7 +3632,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
             return nil
         }
-        recordPrivateNetworkSuggestions(from: status)
+        recordPrivateNetworkSuggestions(from: status, acceptedDeviceID: mac.macDeviceID)
         let capabilities = Set(status.capabilities)
         return SecondaryClientHandle(
             client: client,
@@ -5627,7 +5650,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
                         continue routeLoop
                     }
-                    recordPrivateNetworkSuggestions(from: status)
+                    // An identity-free status (loopback/dev tolerance paths)
+                    // names no Mac, so there is nothing safe to file under.
+                    if let reportedDeviceID {
+                        recordPrivateNetworkSuggestions(
+                            from: status,
+                            acceptedDeviceID: reportedDeviceID
+                        )
+                    }
                     let resolvedTicket = Self.ticket(
                         ticket,
                         adoptingReportedDeviceID: reportedDeviceID
@@ -7046,7 +7076,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ) else {
                 return .rawBytes
             }
-            recordPrivateNetworkSuggestions(from: payload)
             supportedHostCapabilities = Set(payload.capabilities)
             prepareTerminalThemeRevisionAuthority(
                 macInstanceTag: payload.macInstanceTag, producerEpoch: payload.terminalThemeRevisionEpoch,
@@ -7060,12 +7089,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyTerminalTheme(payload.theme)
             updateForegroundWorkspaceActionCapabilities()
             refreshMacUpdateHint(capabilities: Set(payload.capabilities), statusMacAppVersion: payload.macAppVersion, macDeviceID: payload.macDeviceID ?? activeTicket?.macDeviceID)
-            await applyHostReportedIdentity(
+            // Suggestions record only for a validated identity, under the
+            // accepted id rather than the payload's claimed one.
+            if let acceptedDeviceID = await applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag
-            )
+            ) {
+                recordPrivateNetworkSuggestions(
+                    from: payload,
+                    acceptedDeviceID: acceptedDeviceID
+                )
+            }
             guard isCurrentRemoteConnection(
                 client: client,
                 generation: generation

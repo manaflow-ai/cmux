@@ -29,6 +29,56 @@ struct CmxIrohPrivatePathProbeTests {
     }
 
     @Test
+    func boundedPhaseReturnsOperationValueBeforeDeadline() async {
+        let outcome = await CmxIrohPrivatePathProbe.bounded(
+            timeout: .seconds(1),
+            sleep: { _ in try await Task.sleep(for: .seconds(60)) },
+            operation: { "resolved" }
+        )
+
+        guard case let .success(value) = outcome else {
+            Issue.record("expected success, got \(outcome)")
+            return
+        }
+        #expect(value == "resolved")
+    }
+
+    @Test
+    func boundedPhaseExpiryReportsUnavailableNotTimedOut() async {
+        let outcome = await CmxIrohPrivatePathProbe.bounded(
+            timeout: .seconds(1),
+            sleep: { _ in },
+            operation: { () async throws -> String in
+                try await Task.sleep(for: .seconds(60))
+                return "never"
+            }
+        )
+
+        guard case let .failure(failure) = outcome else {
+            Issue.record("expected failure, got \(outcome)")
+            return
+        }
+        #expect(failure == .unavailable)
+    }
+
+    @Test
+    func boundedPhaseClassifiesOperationErrors() async {
+        let outcome = await CmxIrohPrivatePathProbe.bounded(
+            timeout: .seconds(1),
+            sleep: { _ in try await Task.sleep(for: .seconds(60)) },
+            operation: { () async throws -> String in
+                throw CmxIrohPrivatePathProbeDialError.wrongPeer
+            }
+        )
+
+        guard case let .failure(failure) = outcome else {
+            Issue.record("expected failure, got \(outcome)")
+            return
+        }
+        #expect(failure == .wrongPeer)
+    }
+
+    @Test
     func wrongPeerFromFakeDialIsNeverReachable() async {
         let result = await CmxIrohPrivatePathProbe(
             dial: {

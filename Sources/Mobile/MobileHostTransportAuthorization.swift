@@ -240,6 +240,7 @@ enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+    private nonisolated(unsafe) static var irohDirectPortsValue: CmxIrohDirectPorts?
 
     static func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
@@ -250,6 +251,7 @@ enum MobileHostPublicStatusCache {
 
     static func update(irohBinding binding: CmxIrohBrokerBinding?) {
         lock.lock()
+        irohDirectPortsValue = binding?.directPorts
         if let binding {
             irohRoute = try? CmxAttachRoute(
                 id: CmxAttachTransportKind.iroh.rawValue,
@@ -271,6 +273,7 @@ enum MobileHostPublicStatusCache {
         lock.lock()
         legacyRoutes = []
         irohRoute = nil
+        irohDirectPortsValue = nil
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
@@ -279,6 +282,16 @@ enum MobileHostPublicStatusCache {
         lock.lock()
         defer { lock.unlock() }
         return mergedRoutesLocked()
+    }
+
+    /// The endpoint-observed Iroh UDP ports from the current broker binding,
+    /// or `nil` when the endpoint is inactive. These are the live bound ports
+    /// (including an ephemeral fallback when the preferred port was taken),
+    /// so Settings shows the number a firewall must actually allow.
+    static func irohDirectPorts() -> CmxIrohDirectPorts? {
+        lock.lock()
+        defer { lock.unlock() }
+        return irohDirectPortsValue
     }
 
     static func hasIrohRoute() -> Bool {

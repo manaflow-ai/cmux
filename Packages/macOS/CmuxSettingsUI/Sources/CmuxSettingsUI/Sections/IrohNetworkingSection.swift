@@ -16,8 +16,8 @@ public struct IrohNetworkingSection: View {
             privateNetworkAddressProvider: {
                 hostActions.localPrivateNetworkAddresses()
             },
-            mobileDirectPortProvider: {
-                hostActions.mobileDirectPort()
+            mobileDirectPortsProvider: {
+                hostActions.mobileDirectPorts()
             }
         ))
     }
@@ -261,8 +261,11 @@ public struct IrohNetworkingSection: View {
                     defaultValue: "Your iPhone learns the live port automatically. Allow this UDP port through VPN and firewall ACLs."
                 )
             ) {
-                // A port is an identifier, not a quantity: no locale grouping.
-                Text(verbatim: String(model.mobileDirectPort))
+                // The endpoint-observed bound ports (including an ephemeral
+                // fallback bind), never the configured preference: this row
+                // exists so firewall rules allow the RIGHT number. Ports are
+                // identifiers, not quantities: no locale grouping.
+                Text(verbatim: directPortText(model.mobileDirectPorts))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
@@ -432,6 +435,31 @@ public struct IrohNetworkingSection: View {
 
     private var policySymbol: String {
         model.snapshot.policySource == .unavailable ? "exclamationmark.triangle.fill" : "checkmark.shield.fill"
+    }
+
+    private func directPortText(_ ports: (ipv4: Int?, ipv6: Int?)) -> String {
+        switch (ports.ipv4, ports.ipv6) {
+        case (nil, nil):
+            return String(
+                localized: "settings.networking.private.directPort.unavailable",
+                defaultValue: "Unavailable"
+            )
+        case let (v4?, nil):
+            return String(v4)
+        case let (nil, v6?):
+            return String(v6)
+        case let (v4?, v6?) where v4 == v6:
+            return String(v4)
+        case let (v4?, v6?):
+            return String(
+                format: String(
+                    localized: "settings.networking.private.directPort.pair",
+                    defaultValue: "%1$@ (IPv4) · %2$@ (IPv6)"
+                ),
+                String(v4),
+                String(v6)
+            )
+        }
     }
 
     private func privateNetworkAddressSubtitle(

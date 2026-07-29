@@ -257488,6 +257488,40 @@
         }
       }
     },
+    "settings.networking.private.directPort.pair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (IPv4) · %2$@ (IPv6)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (IPv4) · %2$@ (IPv6)"
+          }
+        }
+      }
+    },
+    "settings.networking.private.directPort.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取得できません"
+          }
+        }
+      }
+    },
     "settings.networking.private.directPort": {
       "extractionState": "manual",
       "localizations": {

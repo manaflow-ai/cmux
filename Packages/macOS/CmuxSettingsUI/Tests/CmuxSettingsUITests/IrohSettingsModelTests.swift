@@ -23,17 +23,17 @@ struct IrohSettingsModelTests {
         let model = IrohSettingsModel(
             controller: nil,
             privateNetworkAddressProvider: { hostSnapshot.addresses },
-            mobileDirectPortProvider: { hostSnapshot.port }
+            mobileDirectPortsProvider: { (hostSnapshot.port, nil) }
         )
         #expect(model.localPrivateNetworkAddresses == [initialAddress])
-        #expect(model.mobileDirectPort == 49_152)
+        #expect(model.mobileDirectPorts.ipv4 == 49_152)
 
         hostSnapshot.addresses = [refreshedAddress]
         hostSnapshot.port = 49_153
         model.refresh()
 
         #expect(model.localPrivateNetworkAddresses == [refreshedAddress])
-        #expect(model.mobileDirectPort == 49_153)
+        #expect(model.mobileDirectPorts.ipv4 == 49_153)
     }
 
     @Test func successfulCustomRelaySaveForwardsMetadataAndDeviceSecret() async {

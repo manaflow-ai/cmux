@@ -7,11 +7,11 @@ import Observation
 final class IrohSettingsModel {
     private let controller: (any CmxIrohSettingsControlling)?
     private let privateNetworkAddressProvider: @MainActor () -> [CmxPrivateNetworkAddress]
-    private let mobileDirectPortProvider: @MainActor () -> Int
+    private let mobileDirectPortsProvider: @MainActor () -> (ipv4: Int?, ipv6: Int?)
 
     private(set) var snapshot = CmxIrohSettingsSnapshot.unavailable
     private(set) var localPrivateNetworkAddresses: [CmxPrivateNetworkAddress]
-    private(set) var mobileDirectPort: Int
+    private(set) var mobileDirectPorts: (ipv4: Int?, ipv6: Int?)
     private(set) var isMutating = false
     private(set) var showsSaveError = false
     private(set) var testResults: [String: CmxIrohRelayTestResult] = [:]
@@ -22,13 +22,13 @@ final class IrohSettingsModel {
     init(
         controller: (any CmxIrohSettingsControlling)?,
         privateNetworkAddressProvider: @escaping @MainActor () -> [CmxPrivateNetworkAddress] = { [] },
-        mobileDirectPortProvider: @escaping @MainActor () -> Int = { 0 }
+        mobileDirectPortsProvider: @escaping @MainActor () -> (ipv4: Int?, ipv6: Int?) = { (nil, nil) }
     ) {
         self.controller = controller
         self.privateNetworkAddressProvider = privateNetworkAddressProvider
-        self.mobileDirectPortProvider = mobileDirectPortProvider
+        self.mobileDirectPortsProvider = mobileDirectPortsProvider
         localPrivateNetworkAddresses = privateNetworkAddressProvider()
-        mobileDirectPort = mobileDirectPortProvider()
+        mobileDirectPorts = mobileDirectPortsProvider()
     }
 
     func observe() async {
@@ -137,6 +137,6 @@ final class IrohSettingsModel {
         localPrivateNetworkAddresses = CmxPrivateNetworkAddress.sorted(
             privateNetworkAddressProvider()
         )
-        mobileDirectPort = mobileDirectPortProvider()
+        mobileDirectPorts = mobileDirectPortsProvider()
     }
 }

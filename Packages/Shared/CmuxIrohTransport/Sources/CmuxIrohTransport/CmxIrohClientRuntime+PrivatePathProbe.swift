@@ -13,12 +13,15 @@ public extension CmxIrohClientRuntime {
     /// - Parameters:
     ///   - request: An Iroh probe request naming the expected Mac device and EndpointID.
     ///   - path: The single device-local address bootstrap to test.
-    ///   - timeout: The complete broker-resolution and handshake deadline, capped at five seconds.
+    ///   - timeout: The dial-and-verify deadline, capped at five seconds.
+    ///   - resolutionTimeout: The broker-resolution deadline, capped at ten
+    ///     seconds, so the whole probe stays visibly bounded.
     /// - Returns: Authenticated reachability with latency, or a redacted failure reason.
     func probeCustomPrivatePath(
         for request: CmxByteTransportRequest,
         path: CmxIrohCustomPrivatePathBootstrap,
-        timeout: Duration = .seconds(5)
+        timeout: Duration = .seconds(5),
+        resolutionTimeout: Duration = .seconds(10)
     ) async -> CmxIrohPrivatePathProbeResult {
         guard !privatePathProbeActive else {
             return .unreachable(.busy)
@@ -27,18 +30,28 @@ public extension CmxIrohClientRuntime {
         defer { privatePathProbeActive = false }
 
         // Broker discovery, grant, and current-port resolution measure account
-        // state, not the probed address, so they run before the dial deadline
-        // starts. A slow first discovery keeps the button in its testing state
-        // instead of reporting a spurious timeout against the address.
+        // state, not the probed address, so they run under their own deadline:
+        // an expired lookup reports `.unavailable` instead of a spurious
+        // timeout against the address, the reported latency stays scoped to
+        // the dial itself, and the Test control never spins unbounded.
         let targetIdentity: CmxIrohPeerIdentity
         let context: CmxIrohClientContext
-        do {
-            (targetIdentity, context) = try await resolveCustomPrivatePathProbe(
-                for: request,
-                path: path
-            )
-        } catch {
-            return .unreachable(CmxIrohPrivatePathProbe.classify(error))
+        switch await CmxIrohPrivatePathProbe.bounded(
+            timeout: resolutionTimeout,
+            operation: { [weak self] in
+                guard let self else {
+                    throw CmxIrohClientRuntimeError.inactive
+                }
+                return try await self.resolveCustomPrivatePathProbe(
+                    for: request,
+                    path: path
+                )
+            }
+        ) {
+        case let .success(resolved):
+            (targetIdentity, context) = resolved
+        case let .failure(failure):
+            return .unreachable(failure)
         }
 
         return await CmxIrohPrivatePathProbe(

@@ -71,6 +71,51 @@ struct CmxIrohPrivatePathProbe: Sendable {
         }
     }
 
+    /// One bounded probe phase's outcome: the value or a classified failure.
+    enum PhaseOutcome<T: Sendable>: Sendable {
+        case success(T)
+        case failure(CmxIrohPrivatePathProbeFailure)
+    }
+
+    /// Runs one probe phase under a hard deadline, mapping errors through the
+    /// probe failure taxonomy.
+    ///
+    /// Used for the broker-resolution phase, whose expiry reports
+    /// ``CmxIrohPrivatePathProbeFailure/unavailable`` rather than
+    /// ``CmxIrohPrivatePathProbeFailure/timedOut``: an expired account lookup
+    /// says nothing about the probed address, while a dial timeout does.
+    ///
+    /// - Parameters:
+    ///   - timeout: The phase deadline, clamped to 1ms...10s.
+    ///   - sleep: The deadline clock, injectable for deterministic tests.
+    ///   - operation: The bounded phase work.
+    /// - Returns: The operation's value, or a classified failure.
+    static func bounded<T: Sendable>(
+        timeout: Duration,
+        sleep: @escaping Sleep = { duration in
+            try await ContinuousClock().sleep(for: duration)
+        },
+        operation: @escaping @Sendable () async throws -> T
+    ) async -> PhaseOutcome<T> {
+        let boundedTimeout = min(max(timeout, .milliseconds(1)), .seconds(10))
+        return await withTaskGroup(of: PhaseOutcome<T>.self) { group in
+            group.addTask {
+                do {
+                    return .success(try await operation())
+                } catch {
+                    return .failure(Self.classify(error))
+                }
+            }
+            group.addTask {
+                try? await sleep(boundedTimeout)
+                return .failure(.unavailable)
+            }
+            let first = await group.next() ?? .failure(.unavailable)
+            group.cancelAll()
+            return first
+        }
+    }
+
     static func classify(_ error: any Error) -> CmxIrohPrivatePathProbeFailure {
         if let probeError = error as? CmxIrohPrivatePathProbeDialError {
             switch probeError {

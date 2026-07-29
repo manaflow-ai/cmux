@@ -156,8 +156,10 @@ public protocol SettingsHostActions: AnyObject {
     /// Safe local VPN and LAN address suggestions discovered on this Mac.
     func localPrivateNetworkAddresses() -> [CmxPrivateNetworkAddress]
 
-    /// The configured Iroh direct-connection UDP port.
-    func mobileDirectPort() -> Int
+    /// The live endpoint-observed Iroh direct-connection UDP ports per
+    /// address family, or `nil` per family when the endpoint is not bound.
+    /// These reflect ephemeral fallback binds, not the configured preference.
+    func mobileDirectPorts() -> (ipv4: Int?, ipv6: Int?)
 
     /// The Mac's system name (e.g. `Host.current().localizedName`) used as the
     /// iOS pairing display name when the user sets no override. The Mobile
@@ -277,8 +279,8 @@ public extension SettingsHostActions {
     /// Default: no discovered addresses for previews and package-only hosts.
     func localPrivateNetworkAddresses() -> [CmxPrivateNetworkAddress] { [] }
 
-    /// Default: no configured host port for previews and package-only hosts.
-    func mobileDirectPort() -> Int { 0 }
+    /// Default: no live ports for previews and package-only hosts.
+    func mobileDirectPorts() -> (ipv4: Int?, ipv6: Int?) { (nil, nil) }
 
     /// Default: empty, for hosts that cannot resolve the Mac's system name.
     func mobilePairingDefaultDisplayName() -> String { "" }
