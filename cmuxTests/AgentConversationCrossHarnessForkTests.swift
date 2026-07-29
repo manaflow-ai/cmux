@@ -126,6 +126,65 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func genericNestedToolBlocksDoNotReachTransferDialogue() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("generic-tools.jsonl")
+        try [
+            #"{"role":"user","content":[{"type":"text","text":"Inspect the parser"},{"type":"tool_result","content":"GENERIC-SECRET-TOOL-OUTPUT"}]}"#,
+            #"{"role":"assistant","content":[{"type":"output_text","text":"The parser is fixed"},{"type":"function_call_output","output":"GENERIC-SECRET-FUNCTION-OUTPUT"}]}"#,
+        ].joined(separator: "\n").write(to: transcript, atomically: true, encoding: .utf8)
+
+        let sources: [(agent: SessionAgent, usesGrokTranscriptLayout: Bool)] = [
+            (.registered(RegisteredSessionAgent(id: "generic")), false),
+            (.grok, true),
+        ]
+        for source in sources {
+            let turns = try await SessionTranscriptLoader.load(source: .init(
+                agent: source.agent,
+                sessionId: "generic-tool-session",
+                fileURL: transcript,
+                usesGrokTranscriptLayout: source.usesGrokTranscriptLayout,
+                retention: .transferOpeningUserAndLatest(
+                    turnLimit: 1_000,
+                    textByteLimit: 32 * 1_024
+                )
+            ))
+            let transferredText = turns.map(\.text).joined(separator: "\n")
+
+            #expect(transferredText.contains("Inspect the parser"))
+            #expect(transferredText.contains("The parser is fixed"))
+            #expect(!transferredText.contains("GENERIC-SECRET-TOOL-OUTPUT"))
+            #expect(!transferredText.contains("GENERIC-SECRET-FUNCTION-OUTPUT"))
+        }
+    }
+
+    @Test
+    func transferFailsClosedWhenTailSkipsOversizedRecord() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("oversized-transfer-record.jsonl")
+        let oversizedToolOutput = String(repeating: "x", count: 2 * 1_024 * 1_024 + 1)
+        try [
+            #"{"role":"user","content":"Opening request"}"#,
+            #"{"role":"assistant","content":"Latest verified dialogue"}"#,
+            #"{"role":"tool","content":"\#(oversizedToolOutput)"}"#,
+        ].joined(separator: "\n").write(to: transcript, atomically: true, encoding: .utf8)
+
+        await #expect(throws: (any Error).self) {
+            try await SessionTranscriptLoader.load(source: .init(
+                agent: .registered(RegisteredSessionAgent(id: "generic")),
+                sessionId: "oversized-transfer-session",
+                fileURL: transcript,
+                retention: .transferOpeningUserAndLatest(
+                    turnLimit: 1_000,
+                    textByteLimit: 32 * 1_024
+                )
+            ))
+        }
+    }
+
+    @Test
     func transferRetentionSkipsToolOutputBeforeBudgetingLatestDialogue() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
