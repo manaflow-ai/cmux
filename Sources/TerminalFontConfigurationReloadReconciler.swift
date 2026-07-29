@@ -15,7 +15,9 @@ final class TerminalFontConfigurationReloadReconciler {
 
     private let maximumSurfaceVisitsPerDrain: Int
     private let maximumAttemptsPerWork: Int
-    private let schedule: Scheduler
+    // SAFETY: initialized once before publication and read only by main-actor
+    // reconciliation methods.
+    nonisolated(unsafe) private let schedule: Scheduler
     private var phase = Phase.idle
     private var captureNextWork: CaptureNextWork?
     private var applyConfiguration: Work?

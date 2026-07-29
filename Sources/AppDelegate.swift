@@ -12772,7 +12772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             GhosttyConfig.invalidateLoadCache()
             MainActor.assumeIsolated {
-                self?.reloadConfiguration(
+                _ = self?.reloadConfiguration(
                     source: "globalFontMagnificationDidChange",
                     reloadSettingsFromFile: false
                 )
