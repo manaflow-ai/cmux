@@ -765,13 +765,23 @@ impl RemoteDaemon {
             )));
         }
         let now = Instant::now();
-        let existing = {
+        let (existing, expired) = {
             let mut state = self.state.lock().await;
-            state
+            let expired_keys = state
                 .pending
-                .retain(|_, pending| now.duration_since(pending.created_at) < PENDING_LINK_TTL);
-            state.clients.get(&key).cloned()
+                .iter()
+                .filter(|(_, pending)| now.duration_since(pending.created_at) >= PENDING_LINK_TTL)
+                .map(|(key, _)| key.clone())
+                .collect::<Vec<_>>();
+            let expired = expired_keys
+                .into_iter()
+                .filter_map(|key| state.pending.remove(&key))
+                .collect::<Vec<_>>();
+            (state.clients.get(&key).cloned(), expired)
         };
+        for pending in expired {
+            close_pending_links(Some(pending)).await;
+        }
         let (base_generation, daemon_resume) = match &existing {
             Some(connection) => {
                 if connection.closed.load(Ordering::Acquire) {
@@ -842,12 +852,16 @@ impl RemoteDaemon {
                 ));
             }
         }
-        let pending = state.pending.entry(pending_key.clone()).or_insert_with(|| PendingLinks {
-            created_at: now,
-            routes: Vec::new(),
-            assigned: BTreeSet::new(),
-            client_resume: accepted.resume.clone(),
-            grant_generation: accepted.grant.revocation_generation,
+        let mut inserted = false;
+        let pending = state.pending.entry(pending_key.clone()).or_insert_with(|| {
+            inserted = true;
+            PendingLinks {
+                created_at: now,
+                routes: Vec::new(),
+                assigned: BTreeSet::new(),
+                client_resume: accepted.resume.clone(),
+                grant_generation: accepted.grant.revocation_generation,
+            }
         });
         for lane in &accepted.lanes {
             let inserted = pending.assigned.insert(*lane);
@@ -855,6 +869,10 @@ impl RemoteDaemon {
         }
         pending.routes.push(LinkRoute { lanes: accepted.lanes, link: Arc::new(accepted.link) });
         if pending.assigned.len() != Lane::ALL.len() {
+            drop(state);
+            if inserted {
+                self.schedule_pending_link_expiry(pending_key, now);
+            }
             return Ok(());
         }
         if pending.assigned.iter().copied().ne(Lane::ALL) {
@@ -1014,6 +1032,27 @@ impl RemoteDaemon {
         });
     }
 
+    fn schedule_pending_link_expiry(
+        self: &Arc<Self>,
+        key: (ClientKey, u64, ConnectionAttemptId),
+        created_at: Instant,
+    ) {
+        let daemon = Arc::downgrade(self);
+        tokio::spawn(async move {
+            tokio::time::sleep_until((created_at + PENDING_LINK_TTL).into()).await;
+            let Some(daemon) = daemon.upgrade() else {
+                return;
+            };
+            let expired = {
+                let mut state = daemon.state.lock().await;
+                let matches =
+                    state.pending.get(&key).is_some_and(|pending| pending.created_at == created_at);
+                matches.then(|| state.pending.remove(&key)).flatten()
+            };
+            close_pending_links(expired).await;
+        });
+    }
+
     async fn remove_connection_if(
         &self,
         key: &ClientKey,
@@ -1082,7 +1121,7 @@ impl RemoteDaemon {
 async fn close_pending_links(pending: Option<PendingLinks>) {
     if let Some(pending) = pending {
         for route in pending.routes {
-            let _ = route.link.close().await;
+            let _ = tokio::time::timeout(TERMINAL_CLOSE_TIMEOUT, route.link.close()).await;
         }
     }
 }
@@ -2106,6 +2145,37 @@ mod tests {
             daemon.state.lock().await.pending.is_empty(),
             "an idle partial link group outlived its admission deadline"
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pending_link_expiry_closes_its_registered_routes() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "partial-close", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let key = (
+            ClientKey { device_id: "partial-close-client".into(), session: SessionId([36; 16]) },
+            0,
+            ConnectionAttemptId([36; 16]),
+        );
+        let created_at = Instant::now();
+        let (link, _peer, closed, _peer_closed) = tracking_pair();
+        daemon.state.lock().await.pending.insert(
+            key.clone(),
+            PendingLinks {
+                created_at,
+                routes: vec![LinkRoute { lanes: vec![Lane::Interactive], link: Arc::new(link) }],
+                assigned: BTreeSet::from([Lane::Interactive]),
+                client_resume: BTreeMap::new(),
+                grant_generation: 0,
+            },
+        );
+        daemon.schedule_pending_link_expiry(key, created_at);
+
+        tokio::time::advance(PENDING_LINK_TTL + Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+
+        assert!(daemon.state.lock().await.pending.is_empty());
+        assert!(closed.load(Ordering::Acquire), "the expired route was removed without closing");
     }
 
     async fn connected_fault_pair(

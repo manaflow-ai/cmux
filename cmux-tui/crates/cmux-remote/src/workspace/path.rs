@@ -260,6 +260,42 @@ impl UnixWorkspaceRoot {
         })
     }
 
+    pub(crate) fn target_for_canonical_path(
+        &self,
+        canonical: &Path,
+    ) -> Result<UnixWorkspaceTarget, RpcError> {
+        let relative = canonical.strip_prefix(&self.display).map_err(|_| {
+            RpcError::new("path-outside-workspace", "resolved path escapes the workspace root")
+        })?;
+        if relative.as_os_str().is_empty() {
+            return Err(invalid_path("workspace root does not name a file"));
+        }
+        let components = relative
+            .components()
+            .map(|component| match component {
+                Component::Normal(name) => Ok(name.to_owned()),
+                _ => Err(invalid_path("canonical workspace path has an invalid component")),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if components.len() > MAX_PROTOCOL_PATH_COMPONENTS {
+            return Err(invalid_path("resolved path has too many components"));
+        }
+        let name = components
+            .last()
+            .ok_or_else(|| invalid_path("path does not name a file"))
+            .and_then(|name| component_cstring(name))?;
+        let parent_components = &components[..components.len() - 1];
+        let parent = self.open_canonical_directory(parent_components)?;
+        let parent_relative = parent_components.iter().collect();
+        Ok(UnixWorkspaceTarget {
+            root: self.clone(),
+            parent,
+            parent_relative,
+            name,
+            display: canonical.to_owned(),
+        })
+    }
+
     fn resolve_directory(&self, relative: &Path, create_missing: bool) -> Result<File, RpcError> {
         let mut pending = relative
             .components()

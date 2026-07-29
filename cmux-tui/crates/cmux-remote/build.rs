@@ -1,3 +1,4 @@
+use std::collections::{BTreeSet, HashSet};
 use std::env;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -73,6 +74,22 @@ fn source_revision(manifest_dir: &Path) -> String {
     )
     .unwrap_or_else(|| panic!("could not enumerate cmux-tui source files"));
     track_source_files(&git_root, &source_files);
+    let ignored_entries = git_bytes(
+        &git_root,
+        &[
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "--full-name",
+            "-z",
+            "--",
+            pathspecs[0],
+        ],
+    )
+    .unwrap_or_else(|| panic!("could not enumerate ignored cmux-tui paths"));
+    track_source_directories(&git_root, &source_root, &source_files, &ignored_entries);
 
     let tracked_diff = git_bytes(
         &git_root,
@@ -147,6 +164,65 @@ fn track_source_files(git_root: &Path, source_files: &[u8]) {
         let path =
             std::str::from_utf8(path).unwrap_or_else(|_| panic!("cmux-tui has a non-UTF-8 path"));
         emit_cargo_path_directive("rerun-if-changed", &git_root.join(path));
+    }
+}
+
+fn track_source_directories(
+    git_root: &Path,
+    source_root: &Path,
+    source_files: &[u8],
+    ignored_entries: &[u8],
+) {
+    let mut unsafe_directories = HashSet::new();
+    for path in nul_separated(ignored_entries) {
+        let path = std::str::from_utf8(path)
+            .unwrap_or_else(|_| panic!("cmux-tui has a non-UTF-8 ignored path"));
+        let absolute = git_root.join(path.trim_end_matches('/'));
+        let mut directory = if path.ends_with('/') {
+            absolute.as_path()
+        } else {
+            absolute.parent().unwrap_or(&absolute)
+        };
+        while directory.starts_with(source_root) {
+            unsafe_directories.insert(directory.to_owned());
+            if directory == source_root {
+                break;
+            }
+            let Some(parent) = directory.parent() else {
+                break;
+            };
+            directory = parent;
+        }
+    }
+
+    let mut watched = BTreeSet::new();
+    for path in nul_separated(source_files) {
+        let path =
+            std::str::from_utf8(path).unwrap_or_else(|_| panic!("cmux-tui has a non-UTF-8 path"));
+        let absolute = git_root.join(path);
+        let Some(mut directory) = absolute.parent() else {
+            continue;
+        };
+        let mut candidate = None;
+        while directory.starts_with(source_root) {
+            if unsafe_directories.contains(directory) {
+                break;
+            }
+            candidate = Some(directory.to_owned());
+            if directory == source_root {
+                break;
+            }
+            let Some(parent) = directory.parent() else {
+                break;
+            };
+            directory = parent;
+        }
+        if let Some(candidate) = candidate {
+            watched.insert(candidate);
+        }
+    }
+    for directory in watched {
+        emit_cargo_path_directive("rerun-if-changed", &directory);
     }
 }
 

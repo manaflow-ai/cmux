@@ -506,6 +506,20 @@ pub(crate) async fn read_file(
     let resolved = root.resolve_existing(path).await?;
     #[cfg(test)]
     pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterReadResolve).await;
+    #[cfg(unix)]
+    let (mut file, target) = {
+        let unix_root = root.unix_root();
+        let resolved = resolved.clone();
+        let (file, target) = tokio::task::spawn_blocking(move || {
+            let target = unix_root.target_for_canonical_path(&resolved)?;
+            let file = open_regular_entry(&target, "read")?;
+            Ok::<_, RpcError>((file, target))
+        })
+        .await
+        .map_err(blocking_task_error)??;
+        (tokio::fs::File::from_std(file), target)
+    };
+    #[cfg(not(unix))]
     let mut file = tokio::fs::File::open(&resolved)
         .await
         .map_err(|error| io_error("read", &resolved, error))?;
@@ -553,6 +567,10 @@ pub(crate) async fn read_file(
     if !hash_key.matches(&resolved, &metadata_after) {
         return Err(RpcError::new("file-changed", "file changed while it was being read"));
     }
+    #[cfg(unix)]
+    tokio::task::spawn_blocking(move || target.verify_parent_identity())
+        .await
+        .map_err(blocking_task_error)??;
 
     Ok(WorkspaceResponse::File { data: ByteString::from_bytes(&data), offset, eof, content_hash })
 }
@@ -3106,6 +3124,22 @@ mod tests {
         barrier.resume();
 
         reader.await.unwrap().unwrap_err();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn read_file_follows_a_stable_symlink_within_the_workspace() {
+        use std::os::unix::fs::symlink;
+
+        let (_directory, root) = root().await;
+        tokio::fs::write(root.canonical_root().join("target.txt"), b"inside").await.unwrap();
+        symlink("target.txt", root.canonical_root().join("alias.txt")).unwrap();
+        let (queries, owner) = query_context();
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+
+        let response = read_file(&context, "alias.txt", 0, MAX_READ_BYTES).await.unwrap();
+        let WorkspaceResponse::File { data, .. } = response else { panic!() };
+        assert_eq!(data.decode().unwrap(), b"inside");
     }
 
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
