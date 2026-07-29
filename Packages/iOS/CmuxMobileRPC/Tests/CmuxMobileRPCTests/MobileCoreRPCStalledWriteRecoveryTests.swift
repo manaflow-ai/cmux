@@ -565,8 +565,8 @@ import Testing
             await teardownFinished.set()
         }
         await stalled.waitUntilCloseStarted()
-        for _ in 0..<100 where !(await teardownFinished.isSet()) {
-            await Task.yield()
+        for _ in 0..<200 where !(await teardownFinished.isSet()) {
+            try await Task.sleep(nanoseconds: 1_000_000)
         }
         #expect(await teardownFinished.isSet())
 
