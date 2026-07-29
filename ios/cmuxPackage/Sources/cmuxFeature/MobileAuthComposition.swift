@@ -38,6 +38,9 @@ public struct MobileAuthComposition {
     /// Exact Keychain group claimed by this signed bundle.
     public let keychainAccessGroup: String?
 
+    /// iOS OAuth must not inherit Safari cookies from another cmux build.
+    nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
+
     /// UIKit protected-data availability bridge used by auth session restore.
     private let protectedDataAvailability: ProtectedDataAvailability
 
@@ -94,7 +97,8 @@ public struct MobileAuthComposition {
             tokenStore: Self.tokenStore(
                 appNamespace: appNamespace,
                 accessGroup: keychainAccessGroup
-            )
+            ),
+            oauthBrowserSessionPrivacy: Self.oauthBrowserSessionPrivacy
         )
         let availability = ProtectedDataAvailability()
         let sessionCache = CMUXAuthSessionCache(

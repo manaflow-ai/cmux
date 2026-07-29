@@ -27,9 +27,16 @@ public enum GetUserOr: Sendable {
     case anonymous
 }
 
+/// Whether OAuth browser sessions may reuse Safari cookies.
+public enum OAuthBrowserSessionPrivacy: Equatable, Sendable {
+    case shared
+    case ephemeral
+}
+
 /// The main Stack Auth client
 public actor StackClientApp {
     public let projectId: String
+    public let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy
     
     let client: APIClient
     private let baseUrl: String
@@ -41,10 +48,12 @@ public actor StackClientApp {
         publishableClientKey: String,
         baseUrl: String = "https://api.stack-auth.com",
         tokenStore: TokenStoreInit = .keychain,
-        noAutomaticPrefetch: Bool = false
+        noAutomaticPrefetch: Bool = false,
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared
     ) {
         self.projectId = projectId
         self.baseUrl = baseUrl
+        self.oauthBrowserSessionPrivacy = oauthBrowserSessionPrivacy
         
         let store: any TokenStoreProtocol
         var hasDefault = true
@@ -85,10 +94,12 @@ public actor StackClientApp {
         publishableClientKey: String,
         baseUrl: String = "https://api.stack-auth.com",
         tokenStore: TokenStoreInit = .memory,
-        noAutomaticPrefetch: Bool = false
+        noAutomaticPrefetch: Bool = false,
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared
     ) {
         self.projectId = projectId
         self.baseUrl = baseUrl
+        self.oauthBrowserSessionPrivacy = oauthBrowserSessionPrivacy
         
         let store: any TokenStoreProtocol
         var hasDefault = true
@@ -328,7 +339,8 @@ public actor StackClientApp {
                     gate.resume(returning: callbackUrl)
                 }
 
-                session.prefersEphemeralWebBrowserSession = false
+                session.prefersEphemeralWebBrowserSession =
+                    oauthBrowserSessionPrivacy == .ephemeral
 
                 #if os(iOS) || os(macOS)
                 if let provider = presentationContextProvider {
