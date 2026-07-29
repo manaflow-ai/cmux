@@ -482,7 +482,10 @@ struct FilePreviewSaveShortcutTests {
             keyEvent(key: "s", keyCode: UInt16(kVK_ANSI_S))
         )
 
-        let originalSaveShortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
+        let saveAction = KeyboardShortcutSettings.Action.saveFilePreview
+        let hadPersistedSaveShortcut =
+            UserDefaults.standard.object(forKey: saveAction.defaultsKey) != nil
+        let originalSaveShortcut = KeyboardShortcutSettings.shortcut(for: saveAction)
         KeyboardShortcutSettings.setShortcut(
             StoredShortcut(
                 first: ShortcutStroke(
@@ -502,7 +505,7 @@ struct FilePreviewSaveShortcutTests {
                     keyCode: UInt16(kVK_ANSI_S)
                 )
             ),
-            for: .saveFilePreview
+            for: saveAction
         )
         let handledPrefix = textView.performKeyEquivalent(with: prefixEvent)
         #expect(handledPrefix)
@@ -510,7 +513,11 @@ struct FilePreviewSaveShortcutTests {
         #expect((try? String(contentsOf: url, encoding: .utf8)) == "original")
 
         let handledSuffix = textView.performKeyEquivalent(with: suffixEvent)
-        KeyboardShortcutSettings.setShortcut(originalSaveShortcut, for: .saveFilePreview)
+        if hadPersistedSaveShortcut {
+            KeyboardShortcutSettings.setShortcut(originalSaveShortcut, for: saveAction)
+        } else {
+            KeyboardShortcutSettings.resetShortcut(for: saveAction)
+        }
         #expect(handledSuffix)
         let savedContent = await waitForSavedContent(in: saveRecorder)
         #expect(savedContent == "saved by chord")
