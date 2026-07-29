@@ -58,16 +58,11 @@ public struct BrowserAppSessionHandoff: Sendable {
             return nil
         }
 
-        let headerFields = response.allHeaderFields.reduce(into: [String: String]()) {
-            result, entry in
-            guard let name = entry.key as? String,
-                  let value = entry.value as? String else {
-                return
-            }
-            result[name] = value
+        guard let setCookie = response.value(forHTTPHeaderField: "Set-Cookie") else {
+            return nil
         }
         let cookies = HTTPCookie.cookies(
-            withResponseHeaderFields: headerFields,
+            withResponseHeaderFields: ["Set-Cookie": setCookie],
             for: responseURL
         ).filter {
             shouldDeleteCookie(
