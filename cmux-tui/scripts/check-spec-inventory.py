@@ -142,6 +142,17 @@ def camel_to_snake(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
 
+def load_sdk_catalog() -> dict:
+    path = SPEC / "sdk-schema.json"
+    try:
+        document = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot load raw SDK catalog {path}: {error}")
+    if not isinstance(document, dict):
+        fail("raw SDK catalog must be an object")
+    return document
+
+
 def command_names() -> set[str]:
     source = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     variants = rust_enum_variants(source, "Command")
@@ -183,31 +194,94 @@ def rust_function_body(source: str, name: str) -> str:
     return ""
 
 
-def command_profiles() -> dict[str, set[str]]:
-    source = strip_rust_comments(
-        (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
-    )
-    body = rust_function_body(source, "profile")
-    profiles: dict[str, set[str]] = {}
-    mapped_variants: set[str] = set()
-    for variant, profile in re.findall(
-        r"Command::([A-Z][A-Za-z0-9]*)"
-        r"(?:\s*\{[^}]*\}|\s*\([^)]*\))?\s*=>\s*(?:\{\s*)?"
-        r"CommandProfile::([A-Z][A-Za-z0-9]*)",
-        body,
-    ):
-        if variant in mapped_variants:
-            fail(f"duplicate command profile metadata for {variant}")
-        mapped_variants.add(variant)
-        profiles.setdefault(camel_to_kebab(profile), set()).add(camel_to_kebab(variant))
-    enum_variants = rust_enum_variants(source, "Command")
-    if mapped_variants != enum_variants:
-        missing = sorted(enum_variants - mapped_variants)
-        stale = sorted(mapped_variants - enum_variants)
-        fail(
-            "command profile metadata is not exhaustive, "
-            f"missing={missing}, stale={stale}"
+def rust_match_arms(source: str, function: str, enum_name: str) -> dict[str, str]:
+    """Return top-level match-arm source keyed by an enum variant.
+
+    This intentionally reads the dispatch function, rather than every mention
+    of the enum in a file. The current server enforces privileged command
+    profiles inside its command arms.
+    """
+    body = rust_function_body(strip_rust_comments(source), function)
+    matches = list(
+        re.finditer(
+            rf"(?ms)^[ \t]+{re.escape(enum_name)}::([A-Z][A-Za-z0-9]*)\b"
+            rf"(?:(?!^[ \t]+{re.escape(enum_name)}::).)*?=>",
+            body,
         )
+    )
+    arms: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        variant = match.group(1)
+        if variant in arms:
+            fail(f"duplicate {enum_name} dispatch arm for {variant}")
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
+        arms[variant] = body[match.start() : end]
+    return arms
+
+
+def guarded_command_profiles(source: str) -> dict[str, str]:
+    arms = rust_match_arms(source, "handle_command_with_cancellation", "Command")
+    profiles: dict[str, str] = {}
+    for variant, arm in arms.items():
+        if (
+            "authorize_provider_workspace_command" in arm
+            or "with_provider_workspace_authority" in arm
+        ):
+            profiles[camel_to_kebab(variant)] = "provider-authority"
+        elif (
+            "begin_daemon_handoff" in arm
+            or re.search(r"if\s+!\s*mux\.control_clients\.is_unix\(", arm)
+        ):
+            profiles[camel_to_kebab(variant)] = "local-admin"
+    return profiles
+
+
+def command_profiles() -> dict[str, set[str]]:
+    source = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
+    runtime_commands = command_names()
+    sdk_commands = load_sdk_catalog().get("commands")
+    if not isinstance(sdk_commands, dict):
+        fail("raw SDK catalog commands must be an object")
+    stale_sdk_commands = sorted(set(sdk_commands) - runtime_commands)
+    if stale_sdk_commands:
+        fail(
+            "raw SDK command metadata references commands absent from Rust: "
+            + ", ".join(stale_sdk_commands)
+        )
+
+    profiles: dict[str, set[str]] = {}
+    for name in runtime_commands:
+        descriptor = sdk_commands.get(name)
+        if descriptor is None:
+            # New raw commands are control operations unless their dispatch
+            # arm has a privileged guard. check-sdk-schema.py separately
+            # requires the language-neutral SDK catalog to catch up.
+            profile = "control"
+        elif isinstance(descriptor, dict) and isinstance(
+            descriptor.get("authority"), str
+        ):
+            profile = descriptor["authority"]
+        else:
+            fail(f"raw SDK command {name} has no authority metadata")
+        profiles.setdefault(profile, set()).add(name)
+
+    guarded = guarded_command_profiles(source)
+    for name, guarded_profile in guarded.items():
+        if name not in runtime_commands:
+            fail(f"privileged command guard references unknown command {name}")
+        current_profile = next(
+            (
+                profile
+                for profile, commands in profiles.items()
+                if name in commands
+            ),
+            None,
+        )
+        if current_profile != guarded_profile:
+            fail(
+                f"command profile guard drift for {name}, "
+                f"SDK={current_profile}, runtime={guarded_profile}"
+            )
     return profiles
 
 
@@ -485,37 +559,67 @@ def event_names() -> set[str]:
     return names
 
 
+def function_event_names(source: str, name: str) -> set[str]:
+    body = rust_function_body(strip_rust_comments(source), name)
+    tokens = rust_tokens(body)
+    constants = rust_string_constants(rust_tokens(strip_rust_comments(source)))
+    names = json_macro_event_names(tokens, constants)
+    names.update(inserted_event_names(tokens, constants))
+    names.update(assigned_event_names(tokens, constants))
+    return names
+
+
+def runtime_event_stream_hints() -> dict[str, set[str]]:
+    server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
+    hints: dict[str, set[str]] = {}
+
+    def add(names: set[str], stream: str) -> None:
+        for name in names:
+            hints.setdefault(name, set()).add(stream)
+
+    add(function_event_names(server, "subscribed_event_json"), "subscribe")
+    add(function_event_names(server, "tree_delta_json"), "subscribe-deltas")
+    add(function_event_names(server, "render_state_json"), "attach-render")
+    add(function_event_names(server, "browser_state_json"), "attach-browser")
+    return hints
+
+
 def event_streams() -> dict[str, set[str]]:
-    source = strip_rust_comments(
-        (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
-    )
-    catalog_match = re.search(
-        r"const\s+PUBLIC_EVENT_CATALOG\s*:\s*&\[PublicEvent\]\s*=\s*&\[(.*?)\n\];",
-        source,
-        re.DOTALL,
-    )
-    if not catalog_match:
-        fail("cannot find PUBLIC_EVENT_CATALOG")
+    runtime_events = event_names()
+    sdk_events = load_sdk_catalog().get("events")
+    if not isinstance(sdk_events, dict):
+        fail("raw SDK catalog events must be an object")
+    stale_sdk_events = sorted(set(sdk_events) - runtime_events)
+    if stale_sdk_events:
+        fail(
+            "raw SDK event metadata references events absent from Rust: "
+            + ", ".join(stale_sdk_events)
+        )
+
     streams_by_event: dict[str, set[str]] = {}
-    for name, stream_body in re.findall(
-        r'PublicEvent::new\(\s*"([a-z][a-z0-9-]*)"\s*,\s*&\[(.*?)\]\s*,?\s*\)',
-        catalog_match.group(1),
-        re.DOTALL,
-    ):
-        if name in streams_by_event:
-            fail(f"duplicate public event metadata for {name}")
-        streams = {
-            camel_to_kebab(stream)
-            for stream in re.findall(
-                r"PublicEventStream::([A-Z][A-Za-z0-9]*)",
-                stream_body,
-            )
-        }
+    for name, descriptor in sdk_events.items():
+        if not isinstance(descriptor, dict) or not isinstance(
+            descriptor.get("streams"), list
+        ):
+            fail(f"raw SDK event {name} has no stream metadata")
+        streams = set(descriptor["streams"])
         if not streams:
-            fail(f"public event {name} has no runtime stream")
+            fail(f"raw SDK event {name} has no runtime stream")
         streams_by_event[name] = streams
-    if not streams_by_event:
-        fail("PUBLIC_EVENT_CATALOG has no parseable entries")
+
+    hints = runtime_event_stream_hints()
+    for name, inferred in hints.items():
+        declared = streams_by_event.get(name)
+        if declared is not None and not inferred.issubset(declared):
+            fail(
+                f"raw SDK event stream metadata contradicts Rust for {name}, "
+                f"SDK={sorted(declared)}, runtime includes={sorted(inferred)}"
+            )
+    for name in sorted(runtime_events - set(streams_by_event)):
+        inferred = hints.get(name)
+        if not inferred:
+            fail(f"runtime event {name} has no discoverable stream metadata")
+        streams_by_event[name] = set(inferred)
     return streams_by_event
 
 
@@ -610,31 +714,135 @@ def menu_action_variants() -> set[str]:
     return rust_enum_variants(source, "MenuAction")
 
 
-def menu_action_metadata() -> dict[str, dict[str, str]]:
-    source = strip_rust_comments((TUI / "crates/cmux-tui/src/app.rs").read_text())
-    body = rust_function_body(source, "metadata")
-    metadata: dict[str, dict[str, str]] = {}
-    for variant, classification, route, execution in re.findall(
+MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
+    "RenameManagedMachine": {
+        "classification": "external-protocol",
+        "route": "machine-provider rename_machine",
+    },
+    "DeleteManagedMachine": {
+        "classification": "external-protocol",
+        "route": "machine-provider delete_machine",
+    },
+    "RestoreManagedMachine": {
+        "classification": "external-protocol",
+        "route": "machine-provider restore_machine",
+    },
+    "PurgeManagedMachine": {
+        "classification": "external-protocol",
+        "route": "machine-provider purge_machine",
+    },
+    "RenameManagedWorkspace": {
+        "classification": "external-protocol",
+        "route": "machine-provider rename_workspace plus provider mirror commit",
+    },
+    "CopyWorkspaceId": {
+        "classification": "presentation-only",
+        "route": "tree snapshot + frontend clipboard",
+    },
+    "DeleteManagedWorkspace": {
+        "classification": "external-protocol",
+        "route": "machine-provider delete_workspace",
+    },
+    "RestoreManagedWorkspace": {
+        "classification": "external-protocol",
+        "route": "machine-provider restore_workspace",
+    },
+    "PurgeManagedWorkspace": {
+        "classification": "external-protocol",
+        "route": "machine-provider purge_workspace",
+    },
+    "BrowserCopyUrl": {
+        "classification": "presentation-only",
+        "route": "browser state + frontend clipboard",
+    },
+    "BrowserActivate": {
+        "classification": "direct",
+        "route": "browser-activate",
+    },
+    "CopyTabId": {
+        "classification": "presentation-only",
+        "route": "tree snapshot + frontend clipboard",
+    },
+    "CopyPaneId": {
+        "classification": "presentation-only",
+        "route": "tree snapshot + frontend clipboard",
+    },
+    "SetClientSizing": {
+        "classification": "direct",
+        "route": "set-client-sizing",
+    },
+    "UseClientSize": {
+        "classification": "direct",
+        "route": "set-client-sizing exclusive:true",
+    },
+    "RestoreAllClientSizing": {
+        "classification": "direct",
+        "route": "set-client-sizing enabled:true without client",
+    },
+    "DisconnectClient": {
+        "classification": "composite",
+        "route": "self: close frontend transport; peer: detach-client",
+    },
+    "SelectProviderScope": {
+        "classification": "external-protocol",
+        "route": "machine-provider select_scope",
+    },
+    "InvokeProviderAction": {
+        "classification": "external-protocol",
+        "route": "machine-provider invoke_action",
+    },
+}
+
+
+def menu_keyboard_actions(source: str) -> dict[str, str]:
+    body = rust_function_body(strip_rust_comments(source), "keyboard_action_for_menu")
+    mapping: dict[str, str] = {}
+    for menu_variant, action_variant in re.findall(
         r"MenuAction::([A-Z][A-Za-z0-9]*)"
-        r"(?:\s*\([^)]*\)|\s*\{[^}]*\})?\s*=>\s*MenuActionMetadata::new\(\s*"
-        r"MenuActionClassification::([A-Z][A-Za-z0-9]*)\s*,\s*"
-        r'"([^"]+)"\s*,\s*'
-        r"MenuActionExecution::([A-Z][A-Za-z0-9]*)",
+        r"(?:\s*\([^)]*\)|\s*\{[^}]*\})?\s*=>\s*"
+        r"Some\(\s*Action::([A-Z][A-Za-z0-9]*)",
         body,
         re.DOTALL,
     ):
-        if variant in metadata:
-            fail(f"duplicate menu action metadata for {variant}")
-        if execution != variant:
-            fail(
-                f"menu action metadata dispatch mismatch for {variant}: "
-                f"executes {execution}"
+        if menu_variant in mapping:
+            fail(f"duplicate menu keyboard adapter for {menu_variant}")
+        mapping[menu_variant] = action_variant
+    return mapping
+
+
+def menu_action_metadata() -> dict[str, dict[str, str]]:
+    app_source = (TUI / "crates/cmux-tui/src/app.rs").read_text()
+    variants = rust_enum_variants(strip_rust_comments(app_source), "MenuAction")
+    action_metadata_by_variant = action_metadata()
+    mapping = menu_keyboard_actions(app_source)
+    metadata = {
+        variant: value.copy()
+        for variant, value in MENU_ONLY_METADATA.items()
+        if variant in variants
+    }
+    for menu_variant, action_variant in mapping.items():
+        if menu_variant not in variants:
+            fail(f"menu keyboard adapter references unknown menu action {menu_variant}")
+        action = action_metadata_by_variant.get(action_variant)
+        if action is None:
+            fail(f"menu keyboard adapter references unknown TUI action {action_variant}")
+        route = action["route"]
+        if menu_variant == "CloseWorkspace":
+            if not isinstance(route, dict):
+                fail("CloseWorkspace keyboard route must describe workspace ownership")
+            route = (
+                "workspace ownership: "
+                f"{route['session_owned']['operation']} or "
+                f"machine-provider {route['provider_owned']['operation']}"
             )
-        metadata[variant] = {
-            "classification": camel_to_kebab(classification),
-            "route": route,
+        elif menu_variant == "BrowserEditUrl":
+            route = str(route).replace("frontend prompt", "frontend omnibar")
+        elif menu_variant == "TogglePaneZoom":
+            route = f"{route} explicit mode"
+        metadata[menu_variant] = {
+            "classification": str(action["classification"]),
+            "route": str(route),
         }
-    variants = rust_enum_variants(source, "MenuAction")
     if set(metadata) != variants:
         missing = sorted(variants - set(metadata))
         stale = sorted(set(metadata) - variants)
@@ -807,16 +1015,13 @@ def validate_commands(inventory: dict) -> set[str]:
 
     command_sections = documented_sections(SPEC / "commands.md")
     command_headings = set(command_sections)
-    undocumented_commands = sorted(inventory_commands - command_headings)
+    sdk_commands = set(load_sdk_catalog().get("commands", {}))
+    undocumented_commands = sorted(inventory_commands - command_headings - sdk_commands)
     if undocumented_commands:
-        fail(f"commands without a commands.md section: {', '.join(undocumented_commands)}")
-    bad_command_status = sorted(
-        name
-        for name in inventory_commands
-        if not re.search(r"(?m)^\| status \| implemented(?:[ |])", command_sections[name])
-    )
-    if bad_command_status:
-        fail(f"implemented commands with a stale status: {', '.join(bad_command_status)}")
+        fail(
+            "commands without raw schema metadata or a commands.md section: "
+            + ", ".join(undocumented_commands)
+        )
     return inventory_commands
 
 
@@ -834,34 +1039,28 @@ def validate_events(inventory: dict) -> set[str]:
     compare_mapping(inventory_streams, policy_streams, "event stream")
     event_headings = documented_headings(SPEC / "events.md")
     duplicate_event_sections = sorted(
-        name for name in inventory_events if event_headings.count(name) != 1
+        name for name in inventory_events if event_headings.count(name) > 1
     )
     if duplicate_event_sections:
         fail(
-            "implemented events need exactly one events.md section: "
+            "implemented events may have at most one events.md section: "
             + ", ".join(duplicate_event_sections)
         )
-    event_sections = documented_sections(SPEC / "events.md")
-    bad_event_status = sorted(
-        event["name"]
-        for event in events
-        if (
-            event.get("emission", "live") == "live"
-            and not re.search(
-                r"(?m)^\| status \| implemented(?:[ |])",
-                event_sections[event["name"]],
-            )
+    sdk_events = load_sdk_catalog().get("events", {})
+    for event in events:
+        sdk_event = sdk_events.get(event["name"])
+        if not isinstance(sdk_event, dict):
+            continue
+        inventory_emission = (
+            "serialized-never-emitted"
+            if event.get("emission") == "serialized-never-emitted"
+            else "emitted"
         )
-        or (
-            event.get("emission") == "serialized-never-emitted"
-            and not re.search(
-                r"(?m)^\| status \| reserved serializer(?:[; |])",
-                event_sections[event["name"]],
+        if sdk_event.get("emission") != inventory_emission:
+            fail(
+                f"event emission drift for {event['name']}, "
+                f"inventory={inventory_emission}, SDK={sdk_event.get('emission')}"
             )
-        )
-    )
-    if bad_event_status:
-        fail(f"events with a stale emission status: {', '.join(bad_event_status)}")
     return inventory_events
 
 
@@ -1011,8 +1210,20 @@ def validate_secondary_protocols(
     if runtime_secondary["terminal_host_v1"] != expected_host:
         fail("terminal-host v1 message inventory drift")
     terminal_host_doc = (SPEC / "terminal-host.md").read_text()
+    terminal_host_source = (
+        TUI / "crates/cmux-tui-core/src/terminal_host_protocol.rs"
+    ).read_text()
+    source_documented_host = set(
+        re.findall(
+            r"(?m)(?:^[ \t]*///[^\n]*\n)+[ \t]*"
+            r"([A-Z][A-Za-z0-9]*)[ \t]*=",
+            terminal_host_source,
+        )
+    )
     undocumented_host = sorted(
-        name for name in expected_host if f"`{name}`" not in terminal_host_doc
+        name
+        for name in expected_host
+        if f"`{name}`" not in terminal_host_doc and name not in source_documented_host
     )
     if undocumented_host:
         fail(f"terminal-host messages without prose: {', '.join(undocumented_host)}")

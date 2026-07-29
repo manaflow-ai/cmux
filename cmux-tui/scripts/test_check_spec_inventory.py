@@ -153,11 +153,13 @@ enum Request {
 
 
 class RuntimeMetadataTests(unittest.TestCase):
-    def test_command_profiles_come_from_rust_dispatch_metadata(self) -> None:
+    def test_command_profiles_combine_sdk_metadata_and_rust_guards(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
+            spec = tui / "spec"
             server = tui / "crates/cmux-tui-core/src/server.rs"
             server.parent.mkdir(parents=True)
+            spec.mkdir()
             server.write_text(
                 """\
 enum Command {
@@ -165,18 +167,31 @@ enum Command {
     ShutdownDaemon { pid: u32 },
 }
 
-impl Command {
-    fn profile(&self) -> CommandProfile {
-        match self {
-            Command::Ping => CommandProfile::Control,
-            Command::ShutdownDaemon { .. } => CommandProfile::LocalAdmin,
+fn handle_command_with_cancellation(cmd: Command) {
+    match cmd {
+        Command::Ping => {}
+        Command::ShutdownDaemon { .. } => {
+            mux.begin_daemon_handoff(client)?;
         }
     }
 }
 """
             )
+            (spec / "sdk-schema.json").write_text(
+                json.dumps(
+                    {
+                        "commands": {
+                            "ping": {"authority": "control"},
+                            "shutdown-daemon": {"authority": "local-admin"},
+                        }
+                    }
+                )
+            )
 
-            with patch.object(CHECKER, "TUI", tui):
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "SPEC", spec),
+            ):
                 self.assertEqual(
                     CHECKER.command_profiles(),
                     {
@@ -185,58 +200,97 @@ impl Command {
                     },
                 )
 
-    def test_duplicate_command_profile_metadata_is_rejected(self) -> None:
+    def test_command_profile_guard_drift_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
+            spec = tui / "spec"
             server = tui / "crates/cmux-tui-core/src/server.rs"
             server.parent.mkdir(parents=True)
+            spec.mkdir()
             server.write_text(
                 """\
 enum Command {
-    Ping,
+    ShutdownDaemon { pid: u32 },
 }
 
-impl Command {
-    fn profile(&self) -> CommandProfile {
-        match self {
-            Command::Ping => CommandProfile::Control,
-            Command::Ping => CommandProfile::Frontend,
+fn handle_command_with_cancellation(cmd: Command) {
+    match cmd {
+        Command::ShutdownDaemon { .. } => {
+            mux.begin_daemon_handoff(client)?;
         }
     }
 }
 """
             )
+            (spec / "sdk-schema.json").write_text(
+                json.dumps(
+                    {
+                        "commands": {
+                            "shutdown-daemon": {"authority": "control"},
+                        }
+                    }
+                )
+            )
 
             errors = io.StringIO()
             with (
                 patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "SPEC", spec),
                 redirect_stderr(errors),
                 self.assertRaises(SystemExit),
             ):
                 CHECKER.command_profiles()
-            self.assertIn("duplicate command profile metadata", errors.getvalue())
+            self.assertIn("command profile guard drift", errors.getvalue())
 
-    def test_event_streams_come_from_rust_writer_catalog(self) -> None:
+    def test_event_streams_combine_sdk_metadata_and_rust_serializers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
+            spec = tui / "spec"
             server = tui / "crates/cmux-tui-core/src/server.rs"
+            mux = tui / "crates/cmux-tui-core/src/mux.rs"
             server.parent.mkdir(parents=True)
+            spec.mkdir()
             server.write_text(
                 """\
-const PUBLIC_EVENT_CATALOG: &[PublicEvent] = &[
-    PublicEvent::new("bell", &[PublicEventStream::Subscribe]),
-    PublicEvent::new(
-        "notification",
-        &[
-            PublicEventStream::Subscribe,
-            PublicEventStream::AttachByte,
-        ],
-    ),
-];
+fn subscribed_event_json() {
+    let _ = json!({"event": "bell"});
+}
+
+fn attached_event_json() {
+    let _ = json!({"event": "notification"});
+}
+
+fn tree_delta_json() {}
+fn render_state_json() {}
+fn browser_state_json() {}
 """
             )
+            mux.write_text(
+                """\
+impl TreeDeltaKind {
+    fn wire_name(&self) -> &str {
+        "noop"
+    }
+}
+"""
+            )
+            (spec / "sdk-schema.json").write_text(
+                json.dumps(
+                    {
+                        "events": {
+                            "bell": {"streams": ["subscribe"]},
+                            "notification": {
+                                "streams": ["subscribe", "attach-byte"]
+                            },
+                        }
+                    }
+                )
+            )
 
-            with patch.object(CHECKER, "TUI", tui):
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "SPEC", spec),
+            ):
                 self.assertEqual(
                     CHECKER.event_streams(),
                     {
@@ -245,27 +299,47 @@ const PUBLIC_EVENT_CATALOG: &[PublicEvent] = &[
                     },
                 )
 
-    def test_public_event_without_runtime_stream_is_rejected(self) -> None:
+    def test_sdk_event_stream_that_contradicts_rust_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
+            spec = tui / "spec"
             server = tui / "crates/cmux-tui-core/src/server.rs"
+            mux = tui / "crates/cmux-tui-core/src/mux.rs"
             server.parent.mkdir(parents=True)
+            spec.mkdir()
             server.write_text(
                 """\
-const PUBLIC_EVENT_CATALOG: &[PublicEvent] = &[
-    PublicEvent::new("bell", &[]),
-];
+fn subscribed_event_json() {
+    let _ = json!({"event": "bell"});
+}
+
+fn tree_delta_json() {}
+fn render_state_json() {}
+fn browser_state_json() {}
 """
+            )
+            mux.write_text(
+                """\
+impl TreeDeltaKind {
+    fn wire_name(&self) -> &str {
+        "noop"
+    }
+}
+"""
+            )
+            (spec / "sdk-schema.json").write_text(
+                json.dumps({"events": {"bell": {"streams": ["attach-byte"]}}})
             )
 
             errors = io.StringIO()
             with (
                 patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "SPEC", spec),
                 redirect_stderr(errors),
                 self.assertRaises(SystemExit),
             ):
                 CHECKER.event_streams()
-            self.assertIn("public event bell has no runtime stream", errors.getvalue())
+            self.assertIn("contradicts Rust for bell", errors.getvalue())
 
     def test_action_contracts_come_from_rust_execution_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -417,10 +491,11 @@ impl Action {
                 self.assertEqual(actions[variant]["classification"], "composite")
                 self.assertEqual(actions[variant]["route"], route)
 
-    def test_menu_action_contracts_come_from_rust_execution_metadata(self) -> None:
+    def test_menu_action_contracts_follow_keyboard_action_adapter(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
             app = tui / "crates/cmux-tui/src/app.rs"
+            config = tui / "crates/cmux-tui/src/config.rs"
             app.parent.mkdir(parents=True)
             app.write_text(
                 """\
@@ -430,23 +505,36 @@ enum MenuAction {
     TogglePaneZoom { pane: u8, zoomed: bool },
 }
 
-impl MenuAction {
-    fn metadata(&self) -> MenuActionMetadata {
+fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
+    match action {
+        MenuAction::RenameTab(_) => Some(Action::RenameTab),
+        MenuAction::TogglePaneZoom { .. } => Some(Action::ZoomPane),
+        MenuAction::DisconnectClient(_) => None,
+    }
+}
+"""
+            )
+            config.write_text(
+                """\
+enum Action {
+    RenameTab,
+    ZoomPane,
+}
+
+impl Action {
+    fn metadata(&self) -> ActionMetadata {
         match self {
-            MenuAction::RenameTab(id) => MenuActionMetadata::new(
-                MenuActionClassification::Composite,
+            Action::RenameTab => ActionMetadata::new(
+                "rename-tab",
+                ActionClassification::Composite,
                 "frontend prompt + rename-surface",
-                MenuActionExecution::RenameTab(*id),
+                ActionExecution::RenameTab,
             ),
-            MenuAction::DisconnectClient(client) => MenuActionMetadata::new(
-                MenuActionClassification::Composite,
-                "self: close frontend transport; peer: detach-client",
-                MenuActionExecution::DisconnectClient(*client),
-            ),
-            MenuAction::TogglePaneZoom { pane, zoomed } => MenuActionMetadata::new(
-                MenuActionClassification::Direct,
-                "zoom-pane explicit mode",
-                MenuActionExecution::TogglePaneZoom { pane: *pane, zoomed: *zoomed },
+            Action::ZoomPane => ActionMetadata::new(
+                "zoom-pane",
+                ActionClassification::Direct,
+                "zoom-pane",
+                ActionExecution::ZoomPane,
             ),
         }
     }
