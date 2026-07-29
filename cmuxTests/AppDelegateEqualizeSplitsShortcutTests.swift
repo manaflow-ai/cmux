@@ -5123,6 +5123,71 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    func testConfigurationReloadQueuesRequestDuringAsyncReconciliation()
+        throws {
+#if DEBUG
+        let app = GhosttyApp.shared
+        let retainedPanels = (0..<16).map { _ in
+            TerminalPanel(
+                workspaceId: UUID(),
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        }
+        let startingGeneration =
+            app.terminalFontConfigurationGeneration
+        let firstReloadCompleted = expectation(
+            description: "first configuration reload completed"
+        )
+        let secondReloadCompleted = expectation(
+            description: "queued configuration reload completed"
+        )
+        var firstCompletionGeneration: UInt64?
+        var secondCompletionGeneration: UInt64?
+
+        app.reloadConfiguration(
+            source: "test.overlappingReload.first",
+            reloadSettingsFromFile: false
+        ) {
+            firstCompletionGeneration =
+                app.terminalFontConfigurationGeneration
+            firstReloadCompleted.fulfill()
+        }
+        app.reloadConfiguration(
+            source: "test.overlappingReload.second",
+            reloadSettingsFromFile: false
+        ) {
+            secondCompletionGeneration =
+                app.terminalFontConfigurationGeneration
+            secondReloadCompleted.fulfill()
+        }
+
+        XCTAssertNil(
+            secondCompletionGeneration,
+            "A request queued during reconciliation must not report success against the active transaction"
+        )
+        wait(
+            for: [
+                firstReloadCompleted,
+                secondReloadCompleted
+            ],
+            timeout: 5
+        )
+        XCTAssertEqual(
+            firstCompletionGeneration,
+            startingGeneration + 1
+        )
+        XCTAssertEqual(
+            secondCompletionGeneration,
+            startingGeneration + 2
+        )
+        withExtendedLifetime(retainedPanels) {}
+#else
+        throw XCTSkip(
+            "Configuration generation requires DEBUG"
+        )
+#endif
+    }
+
     func testReloadConfigSocketReplyWaitsForConfigurationCommit()
         throws {
 #if DEBUG
