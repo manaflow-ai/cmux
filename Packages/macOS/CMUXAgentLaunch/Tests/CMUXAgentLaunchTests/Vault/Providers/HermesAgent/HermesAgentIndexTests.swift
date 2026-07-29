@@ -220,21 +220,7 @@ struct HermesAgentIndexTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let sourceURL = root.appendingPathComponent("live.db", isDirectory: false)
         let snapshotURL = root.appendingPathComponent("snapshot.db", isDirectory: false)
-        try exec(sourceURL, """
-        PRAGMA journal_mode = WAL;
-        CREATE TABLE records (
-          id INTEGER PRIMARY KEY,
-          generation INTEGER NOT NULL,
-          payload TEXT NOT NULL
-        );
-        WITH RECURSIVE rows(id) AS (
-          SELECT 1
-          UNION ALL
-          SELECT id + 1 FROM rows WHERE id < 512
-        )
-        INSERT INTO records (id, generation, payload)
-        SELECT id, 1, hex(randomblob(2048)) FROM rows;
-        """)
+        try makeLargeWALDatabase(at: sourceURL)
 
         var committedNewGeneration = false
         let service = SQLiteDatabaseSnapshotService(
@@ -265,6 +251,38 @@ struct HermesAgentIndexTests {
                 "SELECT COUNT(*) FROM records WHERE generation <> 2"
             ) == 0
         )
+    }
+
+    @Test("Online backup has a total deadline despite intermittent progress")
+    func onlineBackupDeadlineSurvivesProgressAndSourceWrites() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceURL = root.appendingPathComponent("live.db", isDirectory: false)
+        let snapshotURL = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        try makeLargeWALDatabase(at: sourceURL)
+
+        let maximumDuration = Duration.seconds(10)
+        var instant = ContinuousClock().now
+        let service = SQLiteDatabaseSnapshotService(
+            pagesPerStep: 1,
+            maximumDuration: maximumDuration,
+            now: { instant },
+            stepObserver: {
+                try exec(sourceURL, "UPDATE records SET generation = generation + 1")
+                instant = instant.advanced(by: maximumDuration)
+            }
+        )
+
+        #expect(
+            throws: SQLiteDatabaseSnapshotError.timedOut(
+                maximumDuration: maximumDuration
+            )
+        ) {
+            try service.copyDatabase(
+                from: sourceURL.path,
+                to: snapshotURL.path
+            )
+        }
     }
 
     private func temporaryDirectory() throws -> URL {
@@ -322,6 +340,24 @@ struct HermesAgentIndexTests {
           codex_reasoning_items TEXT,
           codex_message_items TEXT
         );
+        """)
+    }
+
+    private func makeLargeWALDatabase(at url: URL) throws {
+        try exec(url, """
+        PRAGMA journal_mode = WAL;
+        CREATE TABLE records (
+          id INTEGER PRIMARY KEY,
+          generation INTEGER NOT NULL,
+          payload TEXT NOT NULL
+        );
+        WITH RECURSIVE rows(id) AS (
+          SELECT 1
+          UNION ALL
+          SELECT id + 1 FROM rows WHERE id < 512
+        )
+        INSERT INTO records (id, generation, payload)
+        SELECT id, 1, hex(randomblob(2048)) FROM rows;
         """)
     }
 
