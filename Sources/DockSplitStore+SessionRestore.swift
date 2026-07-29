@@ -215,7 +215,10 @@ extension DockSplitStore {
             workspaceId: workspaceId,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: TerminalFontSizeCreationPolicy.sessionRestore(
-                overrideBasePoints: terminalSnapshot.fontSize
+                overrideBasePoints: terminalSnapshot.fontSize,
+                representedChangeTokens: Set(
+                    terminalSnapshot.fontSizeChangeTokens ?? []
+                )
             ).applying(to: nil),
             workingDirectory: startupHandlesWorkingDirectory ? nil : workingDirectory,
             initialCommand: initialCommand,

@@ -50,6 +50,38 @@ import Testing
         #expect(applied.fontSizeChangeTokens.isEmpty)
     }
 
+    @Test func sessionRestorePreservesRepresentedChangeTokens() throws {
+        let representedChangeTokens = Set([UUID(), UUID()])
+        let explicit = try #require(
+            TerminalFontSizeCreationPolicy.sessionRestore(
+                overrideBasePoints: 15,
+                representedChangeTokens: representedChangeTokens
+            ).applying(to: nil)
+        )
+        let followsConfig = try #require(
+            TerminalFontSizeCreationPolicy.sessionRestore(
+                overrideBasePoints: nil,
+                representedChangeTokens: representedChangeTokens
+            ).applying(to: nil)
+        )
+
+        #expect(explicit.fontSizeLineage == TerminalFontSizeLineage(
+            basePoints: 15,
+            isExplicitOverride: true
+        ))
+        #expect(explicit.fontSizeChangeToken == nil)
+        #expect(
+            explicit.fontSizeChangeTokens
+                == representedChangeTokens
+        )
+        #expect(followsConfig.fontSizeLineage == nil)
+        #expect(followsConfig.fontSizeChangeToken == nil)
+        #expect(
+            followsConfig.fontSizeChangeTokens
+                == representedChangeTokens
+        )
+    }
+
     @Test(arguments: [
         nil,
         Float32.zero,

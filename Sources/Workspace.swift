@@ -543,20 +543,26 @@ extension Workspace {
                 allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
             )
             let sessionFontSize: Float32?
+            let sessionFontSizeChangeTokens: [UUID]?
             if let terminalFontSizeSnapshotProjection {
-                sessionFontSize =
+                let projection =
                     terminalFontSizeSnapshotProjection
-                        .sessionFontSizeOverrideBasePoints(
+                        .sessionProjection(
                             for: terminalPanel
                         )
+                sessionFontSize = projection.overrideBasePoints
+                sessionFontSizeChangeTokens =
+                    projection.persistedRepresentedRequestTokens
             } else {
                 sessionFontSize =
                     terminalPanel.surface
                         .sessionFontSizeOverrideBasePoints()
+                sessionFontSizeChangeTokens = nil
             }
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
                 fontSize: sessionFontSize,
+                fontSizeChangeTokens: sessionFontSizeChangeTokens,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
@@ -1555,7 +1561,10 @@ extension Workspace {
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 restoredSurfaceId: reusableSurfaceId,
                 terminalFontSizeCreationPolicy: .sessionRestore(
-                    overrideBasePoints: snapshot.terminal?.fontSize
+                    overrideBasePoints: snapshot.terminal?.fontSize,
+                    representedChangeTokens: Set(
+                        snapshot.terminal?.fontSizeChangeTokens ?? []
+                    )
                 )
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }

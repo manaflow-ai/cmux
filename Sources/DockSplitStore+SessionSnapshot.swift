@@ -191,20 +191,26 @@ extension DockSplitStore {
                 restoredTerminalScrollbackByPanelId[panelId] = scrollback
             }
             let sessionFontSize: Float32?
+            let sessionFontSizeChangeTokens: [UUID]?
             if let terminalFontSizeSnapshotProjection {
-                sessionFontSize =
+                let projection =
                     terminalFontSizeSnapshotProjection
-                        .sessionFontSizeOverrideBasePoints(
+                        .sessionProjection(
                             for: terminal
                         )
+                sessionFontSize = projection.overrideBasePoints
+                sessionFontSizeChangeTokens =
+                    projection.persistedRepresentedRequestTokens
             } else {
                 sessionFontSize =
                     terminal.surface
                         .sessionFontSizeOverrideBasePoints()
+                sessionFontSizeChangeTokens = nil
             }
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
                 fontSize: sessionFontSize,
+                fontSizeChangeTokens: sessionFontSizeChangeTokens,
                 scrollback: scrollback,
                 agent: restorableAgent,
                 tmuxStartCommand: tmuxStartCommand,

@@ -101,9 +101,8 @@ enum WorkspaceTerminalFontSizeChange: Equatable {
         switch self {
         case .relative:
             isExplicitOverride = true
-        case .resetThen:
-            isExplicitOverride =
-                finalRuntimePoints != configuredRuntimePoints
+        case .resetThen(let resetTransform):
+            isExplicitOverride = !resetTransform.isIdentity
         }
         return TerminalFontSizeLineage(
             basePoints: CmuxSurfaceConfigTemplate.baseFontSize(

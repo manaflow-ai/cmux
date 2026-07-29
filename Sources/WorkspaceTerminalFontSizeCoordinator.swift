@@ -17,6 +17,18 @@ struct WorkspaceTerminalFontSizeSnapshotProjection {
         let representedRequestTokens: Set<UUID>
     }
 
+    struct SessionProjection {
+        let overrideBasePoints: Float32?
+        let representedRequestTokens: Set<UUID>
+
+        var persistedRepresentedRequestTokens: [UUID]? {
+            guard !representedRequestTokens.isEmpty else { return nil }
+            return representedRequestTokens.sorted {
+                $0.uuidString < $1.uuidString
+            }
+        }
+    }
+
     struct Intent {
         let acceptedOrder: UInt64
         let requestSequence: UInt64
@@ -53,14 +65,18 @@ struct WorkspaceTerminalFontSizeSnapshotProjection {
         }
     }
 
-    func sessionFontSizeOverrideBasePoints(
+    func sessionProjection(
         for terminalPanel: TerminalPanel
-    ) -> Float32? {
+    ) -> SessionProjection {
         guard let projection = lineageProjection(
             for: terminalPanel
         ) else {
-            return terminalPanel.surface
-                .sessionFontSizeOverrideBasePoints()
+            return SessionProjection(
+                overrideBasePoints:
+                    terminalPanel.surface
+                        .sessionFontSizeOverrideBasePoints(),
+                representedRequestTokens: []
+            )
         }
         guard let lineage = projection.lineage,
               lineage.isExplicitOverride,
@@ -68,9 +84,17 @@ struct WorkspaceTerminalFontSizeSnapshotProjection {
                 .acceptsPersistedBasePoints(
                     lineage.basePoints
                 ) else {
-            return nil
+            return SessionProjection(
+                overrideBasePoints: nil,
+                representedRequestTokens:
+                    projection.representedRequestTokens
+            )
         }
-        return lineage.basePoints
+        return SessionProjection(
+            overrideBasePoints: lineage.basePoints,
+            representedRequestTokens:
+                projection.representedRequestTokens
+        )
     }
 
     func lineageProjection(
