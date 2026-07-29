@@ -44,6 +44,21 @@ test {
     _ = @import("raw/wire_presence_test.zig");
     _ = @import("raw/generated/presence_test.zig");
     std.testing.refAllDecls(protocol);
-    try std.testing.expectEqual(@as(usize, 83), protocol.command_count);
+    try std.testing.expectEqual(@as(usize, 87), protocol.command_count);
+    for ([_][]const u8{
+        "clear-history",
+        "new-pane-right",
+        "set-viewport-pane-width",
+        "undo-layout",
+    }) |expected| {
+        var found = false;
+        for (protocol.commands) |command| {
+            if (std.mem.eql(u8, command.name, expected)) {
+                found = true;
+                break;
+            }
+        }
+        try std.testing.expect(found);
+    }
     try std.testing.expectEqual(@as(usize, 44), protocol.event_count);
 }
