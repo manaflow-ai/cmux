@@ -1276,7 +1276,8 @@ enum SessionTranscriptLoader {
                 from: url,
                 limit: retention.limit,
                 latest: retention.keepsLatestTurns,
-                preservingOpeningUser: retention.keepsLatestTurns
+                preservingOpeningUser: retention.keepsLatestTurns,
+                dialogueOnly: retention.requiresCompleteLatestScan
             ) else {
                 throw SessionTranscriptLoadError.missingFile
             }
@@ -1448,7 +1449,7 @@ enum SessionTranscriptLoader {
         )
 
         var openingUser: SessionTranscriptTurn?
-        _ = reader.fromStart(
+        let openingMetrics = reader.fromStart(
             url: url,
             maxBytes: openingTranscriptByteLimit
         ) { object in
@@ -1467,6 +1468,12 @@ enum SessionTranscriptLoader {
             return false
         }
         try Task.checkCancellation()
+        try validateOpeningTransferScan(
+            openingMetrics,
+            openingUser: openingUser,
+            hasLatestTurns: !newestFirst.isEmpty,
+            retention: retention
+        )
 
         var turns = Array(newestFirst.reversed())
         if let openingUser,
@@ -1536,7 +1543,7 @@ enum SessionTranscriptLoader {
                 didSatisfyRetention: didSatisfyLatestRetention,
                 retention: retention
             )
-            _ = SessionIndexJSONLReader().fromStart(
+            let openingMetrics = SessionIndexJSONLReader().fromStart(
                 url: url,
                 maxBytes: openingTranscriptByteLimit
             ) { object in
@@ -1549,9 +1556,12 @@ enum SessionTranscriptLoader {
                 return true
             }
             try Task.checkCancellation()
-            guard openingUser != nil || turns.isEmpty else {
-                throw SessionTranscriptLoadError.incompleteSource
-            }
+            try validateOpeningTransferScan(
+                openingMetrics,
+                openingUser: openingUser,
+                hasLatestTurns: !turns.isEmpty,
+                retention: retention
+            )
         } else if didHitTurnLimit
                     || !metrics.didReachStart
                     || metrics.didSkipOversizedRecord {
@@ -1585,6 +1595,18 @@ enum SessionTranscriptLoader {
         guard retention.requiresCompleteLatestScan else { return }
         guard !metrics.didSkipOversizedRecord,
               metrics.didReachStart || didSatisfyRetention else {
+            throw SessionTranscriptLoadError.incompleteSource
+        }
+    }
+
+    private static func validateOpeningTransferScan(
+        _ metrics: SessionIndexJSONLReadMetrics,
+        openingUser: SessionTranscriptTurn?,
+        hasLatestTurns: Bool,
+        retention: SessionTranscriptRetention
+    ) throws {
+        guard retention.requiresCompleteLatestScan, hasLatestTurns else { return }
+        guard openingUser != nil, !metrics.didSkipOversizedRecord else {
             throw SessionTranscriptLoadError.incompleteSource
         }
     }

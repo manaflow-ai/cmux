@@ -18,7 +18,8 @@ enum RovoDevTranscriptPreview {
         from url: URL,
         limit: Int,
         latest: Bool = false,
-        preservingOpeningUser: Bool = false
+        preservingOpeningUser: Bool = false,
+        dialogueOnly: Bool = false
     ) throws -> [RovoDevTranscriptPreviewTurn]? {
         guard limit > 0 else { return [] }
         if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
@@ -34,7 +35,8 @@ enum RovoDevTranscriptPreview {
             object,
             limit: limit,
             latest: latest,
-            preservingOpeningUser: preservingOpeningUser
+            preservingOpeningUser: preservingOpeningUser,
+            dialogueOnly: dialogueOnly
         )
     }
 
@@ -42,14 +44,16 @@ enum RovoDevTranscriptPreview {
         _ object: [String: Any],
         limit: Int,
         latest: Bool,
-        preservingOpeningUser: Bool
+        preservingOpeningUser: Bool,
+        dialogueOnly: Bool
     ) -> [RovoDevTranscriptPreviewTurn]? {
         for key in ["message_history", "messages", "conversation", "turns", "entries"] {
             if let turns = parseMessages(
                 object[key],
                 limit: limit,
                 latest: latest,
-                preservingOpeningUser: preservingOpeningUser
+                preservingOpeningUser: preservingOpeningUser,
+                dialogueOnly: dialogueOnly
             ) {
                 return turns
             }
@@ -61,7 +65,8 @@ enum RovoDevTranscriptPreview {
         _ value: Any?,
         limit: Int,
         latest: Bool,
-        preservingOpeningUser: Bool
+        preservingOpeningUser: Bool,
+        dialogueOnly: Bool
     ) -> [RovoDevTranscriptPreviewTurn]? {
         guard let messages = value as? [Any] else { return nil }
 
@@ -85,6 +90,9 @@ enum RovoDevTranscriptPreview {
                 }
                 if openingUser == nil, turn.role == "user" {
                     openingUser = turn
+                }
+                guard !dialogueOnly || turn.role == "user" || turn.role == "assistant" else {
+                    continue
                 }
                 if turns.count < limit {
                     turns.append(turn)

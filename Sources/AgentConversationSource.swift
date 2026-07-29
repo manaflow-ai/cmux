@@ -72,7 +72,10 @@ nonisolated struct AgentConversationSource: Sendable {
     }
 
     var hermesStateDatabaseURL: URL? {
-        guard kind == .hermesAgent else { return nil }
+        guard kind == .hermesAgent,
+              hasCapturedEnvironmentValue(for: ["HERMES_HOME", "HOME"]) else {
+            return nil
+        }
         return URL(
             fileURLWithPath: HermesAgentSessionResolver.stateDBPath(env: launchEnvironment),
             isDirectory: false
@@ -94,6 +97,13 @@ nonisolated struct AgentConversationSource: Sendable {
             return true
         }
         return false
+    }
+
+    private func hasCapturedEnvironmentValue(for keys: [String]) -> Bool {
+        keys.contains { key in
+            guard let value = launchEnvironment[key] else { return false }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 }
 
@@ -167,11 +177,14 @@ nonisolated struct OpenCodeAgentConversationSourceAdapter: AgentConversationSour
     }
 
     func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
-        try await SessionTranscriptLoader.load(source: .init(
+        guard let resolvedDatabasePath = databasePath ?? source.openCodeDatabasePath else {
+            throw AgentConversationExportError.sourceUnavailable(source.kind.rawValue)
+        }
+        return try await SessionTranscriptLoader.load(source: .init(
             agent: .opencode,
             sessionId: source.sessionId,
             fileURL: nil,
-            openCodeDatabasePath: databasePath ?? source.openCodeDatabasePath,
+            openCodeDatabasePath: resolvedDatabasePath,
             retention: agentConversationTransferRetention
         ))
     }
@@ -183,11 +196,14 @@ nonisolated struct HermesAgentConversationSourceAdapter: AgentConversationSource
     }
 
     func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
-        try await SessionTranscriptLoader.load(source: .init(
+        guard let stateDatabaseURL = source.hermesStateDatabaseURL else {
+            throw AgentConversationExportError.sourceUnavailable(source.kind.rawValue)
+        }
+        return try await SessionTranscriptLoader.load(source: .init(
             agent: .hermesAgent,
             sessionId: source.sessionId,
             fileURL: nil,
-            hermesStateDatabaseURL: source.hermesStateDatabaseURL,
+            hermesStateDatabaseURL: stateDatabaseURL,
             retention: agentConversationTransferRetention
         ))
     }
