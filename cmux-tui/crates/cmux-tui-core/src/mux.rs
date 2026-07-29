@@ -3136,6 +3136,16 @@ impl Mux {
         self.workspace_registry.lock().unwrap().terminal_snapshot()
     }
 
+    #[cfg(test)]
+    pub(crate) fn reset_terminal_snapshot_count_for_test(&self) {
+        self.workspace_registry.lock().unwrap().reset_terminal_snapshot_count_for_test();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_snapshot_count_for_test(&self) -> usize {
+        self.workspace_registry.lock().unwrap().terminal_snapshot_count_for_test()
+    }
+
     pub fn terminal_registry_events_page(
         &self,
         revision: u64,

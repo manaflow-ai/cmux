@@ -7001,6 +7001,21 @@ mod tests {
     }
 
     #[test]
+    fn identify_reads_terminal_revision_without_materializing_the_registry() {
+        let mux = test_mux();
+        mux.reset_terminal_snapshot_count_for_test();
+
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+
+        assert_eq!(identity["terminal_revision"].as_u64(), Some(0));
+        assert_eq!(
+            mux.terminal_snapshot_count_for_test(),
+            0,
+            "identity preflight materialized every terminal record"
+        );
+    }
+
+    #[test]
     fn identify_exposes_shutdown_cleanup_health() {
         let mux = test_mux();
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
