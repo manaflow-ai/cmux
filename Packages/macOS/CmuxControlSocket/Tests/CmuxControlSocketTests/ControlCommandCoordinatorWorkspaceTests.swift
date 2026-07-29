@@ -4,6 +4,25 @@ import os
 import Testing
 @testable import CmuxControlSocket
 
+private final class FixedRemotePTYLifecycleCommitLease:
+    ControlRemotePTYLifecycleCommitLease,
+    Sendable
+{
+    let isCurrent: Bool
+
+    init(isCurrent: Bool) {
+        self.isCurrent = isCurrent
+    }
+
+    @MainActor
+    func commitIfCurrent(
+        _ operation: @MainActor () -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution? {
+        guard isCurrent else { return nil }
+        return operation()
+    }
+}
+
 @MainActor
 @Suite("ControlCommandCoordinator workspace domain")
 struct ControlCommandCoordinatorWorkspaceTests {
@@ -222,6 +241,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
         let (coordinator, context) = coordinator()
         let workspaceID = UUID()
         let surfaceID = UUID()
+        let terminalLifecycleID = UUID()
         context.terminalSessionConnectedResolution = .resolved(
             windowID: nil,
             workspaceID: workspaceID,
@@ -233,6 +253,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
             "workspace_id": .string(workspaceID.uuidString),
             "surface_id": .string(surfaceID.uuidString),
             "relay_port": .int(64007),
+            "terminal_lifecycle_id": .string(terminalLifecycleID.uuidString),
             ]),
             context: context
         ) else {
@@ -242,7 +263,10 @@ struct ControlCommandCoordinatorWorkspaceTests {
 
         #expect(context.terminalSessionConnectedCall?.workspaceID == workspaceID)
         #expect(context.terminalSessionConnectedCall?.surfaceID == surfaceID)
-        #expect(context.terminalSessionConnectedCall?.authority == .relayPort(64007))
+        #expect(
+            context.terminalSessionConnectedCall?.authority ==
+                .relayPort(64007, terminalLifecycleID: terminalLifecycleID)
+        )
     }
 
     @Test func persistentTerminalSessionConnectedForwardsLifecycleAuthority() throws {
@@ -253,7 +277,8 @@ struct ControlCommandCoordinatorWorkspaceTests {
         let context = FakeWorkspaceControlCommandContext(
             currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner(
                 transportKey: "persistent-transport",
-                attachmentID: surfaceID.uuidString
+                attachmentID: surfaceID.uuidString,
+                commitLease: FixedRemotePTYLifecycleCommitLease(isCurrent: true)
             )
         )
         let coordinator = ControlCommandCoordinator(context: context)
@@ -288,7 +313,8 @@ struct ControlCommandCoordinatorWorkspaceTests {
         let context = FakeWorkspaceControlCommandContext(
             currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner(
                 transportKey: "persistent-transport",
-                attachmentID: UUID().uuidString
+                attachmentID: UUID().uuidString,
+                commitLease: FixedRemotePTYLifecycleCommitLease(isCurrent: true)
             )
         )
         let coordinator = ControlCommandCoordinator(context: context)
@@ -317,15 +343,15 @@ struct ControlCommandCoordinatorWorkspaceTests {
         let lifecycleID = UUID().uuidString.lowercased()
         let owner = ControlRemotePTYLifecycleOwner(
             transportKey: "persistent-transport",
-            attachmentID: surfaceID.uuidString
+            attachmentID: surfaceID.uuidString,
+            commitLease: FixedRemotePTYLifecycleCommitLease(isCurrent: false)
         )
-        let owners = OSAllocatedUnfairLock(
-            initialState: [ControlRemotePTYLifecycleOwner?](arrayLiteral: owner, nil)
-        )
+        let ownerReadCount = OSAllocatedUnfairLock(initialState: 0)
         let context = FakeWorkspaceControlCommandContext(
             currentRemotePTYLifecycleOwnerProvider: {
-                owners.withLock { responses in
-                    responses.isEmpty ? nil : responses.removeFirst()
+                ownerReadCount.withLock { count in
+                    count += 1
+                    return owner
                 }
             }
         )
@@ -351,10 +377,13 @@ struct ControlCommandCoordinatorWorkspaceTests {
 
         #expect(code == "not_found")
         #expect(context.terminalSessionConnectedCall == nil)
+        #expect(ownerReadCount.withLock { $0 } == 1)
     }
 
     @Test(arguments: [
-        ["relay_port": JSONValue.int(64007), "session_id": .string("session"), "lifecycle_id": .string("lifecycle")],
+        ["relay_port": JSONValue.int(64007)],
+        ["relay_port": JSONValue.int(64007), "terminal_lifecycle_id": .string("invalid")],
+        ["relay_port": JSONValue.int(64007), "terminal_lifecycle_id": .string(UUID().uuidString), "session_id": .string("session"), "lifecycle_id": .string("lifecycle")],
         ["session_id": JSONValue.string("session")],
         ["lifecycle_id": JSONValue.string("lifecycle")],
         [:],

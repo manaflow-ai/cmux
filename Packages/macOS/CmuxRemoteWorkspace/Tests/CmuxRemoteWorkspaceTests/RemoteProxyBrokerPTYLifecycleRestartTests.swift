@@ -223,6 +223,73 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         #expect(newGenerationWasCurrent)
     }
 
+    @Test("wrapper end claim preserves its exact persistent Dock authority")
+    func wrapperEndClaimPreservesTransportAndAttachmentIdentity() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation",
+            attachmentID: "dock-surface",
+            command: nil,
+            requireExisting: true
+        )
+
+        let claim = broker.claimPTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "generation"
+        )
+
+        #expect(claim == RemotePTYLifecycleWrapperEndClaim(
+            transportKey: configuration.proxyBrokerTransportKey,
+            attachmentID: "dock-surface",
+            wasCurrent: true
+        ))
+    }
+
+    @Test("replacement invalidates the old readiness commit lease")
+    func replacementInvalidatesOldReadinessCommitLease() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "old-generation",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        let oldOwner = try #require(broker.currentPTYLifecycleOwner(
+            sessionID: "session",
+            lifecycleID: "old-generation"
+        ))
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "new-generation",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        let newOwner = try #require(broker.currentPTYLifecycleOwner(
+            sessionID: "session",
+            lifecycleID: "new-generation"
+        ))
+
+        #expect(oldOwner.commitLease.commitIfCurrent { true } == nil)
+        #expect(newOwner.commitLease.commitIfCurrent { true } == true)
+    }
+
     @Test("ended lifecycle removes its broker owner index")
     func endedLifecycleRemovesOwnerIndex() throws {
         let provider = FakeTunnelProvider()
