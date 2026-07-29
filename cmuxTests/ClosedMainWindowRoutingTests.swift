@@ -359,6 +359,8 @@ struct ClosedMainWindowRoutingTests {
         #expect(windowC.isVisible)
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.focusMainWindow(windowId: windowCId))
+        #expect(app.tabManager === managerC)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerC)
     }
 }
 

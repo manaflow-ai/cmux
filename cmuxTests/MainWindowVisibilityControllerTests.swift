@@ -193,7 +193,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             )
         )
 
-        controller.focusForInWindowCommand(window, reason: .findShortcut)
+        XCTAssertFalse(controller.focusForInWindowCommand(window, reason: .findShortcut))
 
         XCTAssertEqual(mutationCount, 0)
     }
