@@ -3,6 +3,12 @@
 //! Unix sockets and WebSockets both call this module. The operation catalog is
 //! embedded as the one validation source so transport handlers cannot drift.
 
+mod auxiliary;
+mod content;
+mod effects;
+mod session;
+mod topology;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,7 +22,7 @@ use crate::resource::{
 };
 use crate::resource_api::{ResourceMachineRequest, operation_failed, public_session_snapshot};
 use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
-use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget, WorkspaceMutation};
+use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 
 const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v1.json");
 
@@ -36,19 +42,17 @@ fn validate_catalog_params(
         .get(&operation_name)
         .and_then(Value::as_object)
         .ok_or_else(|| {
-            ResourceError::new(
-                "operation.failed",
+            ResourceError::operation_failed(
+                operation_name.clone(),
                 "operation is absent from the embedded catalog",
-                json!({"operation":operation_name}),
-                false,
+                json!({}),
             )
         })?;
     let params_descriptor = descriptor["params"].as_object().ok_or_else(|| {
-        ResourceError::new(
-            "operation.failed",
+        ResourceError::operation_failed(
+            operation_name.clone(),
             "operation catalog params are malformed",
-            json!({"operation":operation_name}),
-            false,
+            json!({}),
         )
     })?;
     let input = params.as_object().expect("request envelope validates params");
@@ -144,11 +148,10 @@ fn validate_catalog_value(
     parameters: &HashMap<String, Value>,
 ) -> Result<(), ResourceError> {
     let kind = descriptor["kind"].as_str().ok_or_else(|| {
-        ResourceError::new(
-            "operation.failed",
+        ResourceError::operation_failed(
+            "catalog.validate",
             "catalog type omitted its kind",
             json!({"path":path}),
-            false,
         )
     })?;
     match kind {
@@ -592,11 +595,10 @@ fn validate_terminal_mouse(fields: &Map<String, Value>) -> Result<(), ResourceEr
 }
 
 fn malformed_catalog(operation: &str, field: &str) -> ResourceError {
-    ResourceError::new(
-        "operation.failed",
+    ResourceError::operation_failed(
+        operation,
         "embedded operation catalog is malformed",
-        json!({"operation":operation,"field":field}),
-        false,
+        json!({"field":field}),
     )
 }
 
@@ -637,11 +639,10 @@ pub(crate) fn handle_parsed_resource_request(
         Err(error) => ResponseEnvelope::failure(id, error),
     })
     .map_err(|error| {
-        ResourceError::new(
-            "operation.failed",
+        ResourceError::operation_failed(
+            "response.encode",
             "could not encode protocol response",
             json!({"error":error.to_string()}),
-            false,
         )
     })
 }
@@ -678,95 +679,203 @@ fn dispatch_resource_request(
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
-    if is_machine_service_operation(operation) {
-        return mux.resource_machine_service().dispatch(&ResourceMachineRequest {
-            operation,
-            selectors: request.selectors,
-            fields: request.fields,
-            idempotency_key: request.envelope.idempotency_key,
-        });
-    }
-
-    match operation {
-        ResourceOperation::SessionSnapshot => {
-            ensure_session_route(mux, &request.selectors)?;
-            public_session_snapshot(mux)
+    match operation_owner(operation) {
+        OperationOwner::Session => session::dispatch(mux, request),
+        OperationOwner::Content => content::dispatch(mux, request),
+        OperationOwner::Topology => topology::dispatch(mux, request),
+        OperationOwner::Auxiliary => auxiliary::dispatch(mux, request),
+        OperationOwner::Machine => {
+            mux.resource_machine_service().dispatch(&ResourceMachineRequest {
+                operation,
+                selectors: request.selectors,
+                fields: request.fields,
+                idempotency_key: request.envelope.idempotency_key,
+            })
         }
-        ResourceOperation::SessionPing => {
-            ensure_session_route(mux, &request.selectors)?;
-            let snapshot = public_session_snapshot(mux)?;
-            Ok(json!({"alive":true,"cursor":snapshot["cursor"]}))
-        }
-        ResourceOperation::WorkspaceList => list_resources(mux, &request.selectors, "workspaces"),
-        ResourceOperation::ScreenList => list_resources(mux, &request.selectors, "screens"),
-        ResourceOperation::PaneList => list_resources(mux, &request.selectors, "panes"),
-        ResourceOperation::TabList => list_resources(mux, &request.selectors, "tabs"),
-        ResourceOperation::TerminalList => list_resources(mux, &request.selectors, "terminals"),
-        ResourceOperation::BrowserList => list_resources(mux, &request.selectors, "browsers"),
-        ResourceOperation::WorkspaceGet => {
-            get_resource(mux, &request.selectors, ResourceTarget::Workspace, "workspaces")
-        }
-        ResourceOperation::ScreenGet => {
-            get_resource(mux, &request.selectors, ResourceTarget::Screen, "screens")
-        }
-        ResourceOperation::PaneGet => {
-            get_resource(mux, &request.selectors, ResourceTarget::Pane, "panes")
-        }
-        ResourceOperation::TabGet => {
-            get_resource(mux, &request.selectors, ResourceTarget::Tab, "tabs")
-        }
-        ResourceOperation::TerminalGet => {
-            get_resource(mux, &request.selectors, ResourceTarget::Terminal, "terminals")
-        }
-        ResourceOperation::BrowserGet => {
-            get_resource(mux, &request.selectors, ResourceTarget::Browser, "browsers")
-        }
-        ResourceOperation::NotificationList => {
-            ensure_session_route(mux, &request.selectors)?;
-            let limit = request.fields.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
-            let snapshot = public_session_snapshot(mux)?;
-            Ok(Value::Array(
-                snapshot["notifications"]
-                    .as_array()
-                    .expect("public snapshot notifications are an array")
-                    .iter()
-                    .take(limit)
-                    .cloned()
-                    .collect(),
-            ))
-        }
-        ResourceOperation::NotificationCreate => create_notification(mux, request),
-        ResourceOperation::WorkspaceCreate => create_workspace(mux, request),
-        ResourceOperation::WorkspaceRename => rename_workspace(mux, request),
-        ResourceOperation::WorkspaceMove => move_workspace(mux, request),
-        operation => Err(ResourceError::new(
-            "operation.failed",
-            "the resource operation is not implemented by this runtime",
-            json!({"operation":operation_name(operation)}),
-            false,
+        OperationOwner::Snapshot => match operation {
+            ResourceOperation::SessionSnapshot => {
+                ensure_session_route(mux, &request.selectors)?;
+                public_session_snapshot(mux)
+            }
+            ResourceOperation::SessionPing => {
+                ensure_session_route(mux, &request.selectors)?;
+                let snapshot = public_session_snapshot(mux)?;
+                Ok(json!({"alive":true,"cursor":snapshot["cursor"]}))
+            }
+            ResourceOperation::TerminalList => list_resources(mux, &request.selectors, "terminals"),
+            ResourceOperation::BrowserList => list_resources(mux, &request.selectors, "browsers"),
+            ResourceOperation::TerminalGet => {
+                get_resource(mux, &request.selectors, ResourceTarget::Terminal, "terminals")
+            }
+            ResourceOperation::BrowserGet => {
+                get_resource(mux, &request.selectors, ResourceTarget::Browser, "browsers")
+            }
+            ResourceOperation::NotificationList => {
+                ensure_session_route(mux, &request.selectors)?;
+                let limit =
+                    request.fields.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
+                let snapshot = public_session_snapshot(mux)?;
+                Ok(Value::Array(
+                    snapshot["notifications"]
+                        .as_array()
+                        .expect("public snapshot notifications are an array")
+                        .iter()
+                        .take(limit)
+                        .cloned()
+                        .collect(),
+                ))
+            }
+            ResourceOperation::NotificationCreate => create_notification(mux, request),
+            _ => unreachable!("operation_owner classifies snapshot operations exhaustively"),
+        },
+        OperationOwner::Connection => Err(ResourceError::operation_failed(
+            operation_name(operation),
+            "the operation requires a live control-connection context",
+            json!({"required_context":"control_connection"}),
         )),
     }
 }
 
-fn is_machine_service_operation(operation: ResourceOperation) -> bool {
-    matches!(
-        operation,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OperationOwner {
+    Machine,
+    Session,
+    Snapshot,
+    Topology,
+    Content,
+    Auxiliary,
+    Connection,
+}
+
+const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
+    match operation {
         ResourceOperation::MachineList
-            | ResourceOperation::MachineGet
-            | ResourceOperation::MachineCreate
-            | ResourceOperation::MachineRename
-            | ResourceOperation::MachineDelete
-            | ResourceOperation::MachineRestore
-            | ResourceOperation::MachinePurge
-            | ResourceOperation::MachineConnectExternal
-            | ResourceOperation::SessionList
-            | ResourceOperation::SessionOpen
-            | ResourceOperation::SessionGet
-            | ResourceOperation::ProviderScopeList
-            | ResourceOperation::ProviderActionInvoke
-            | ResourceOperation::ProviderNoticeEvents
-            | ResourceOperation::ProviderNoticeAcknowledge
-    )
+        | ResourceOperation::MachineGet
+        | ResourceOperation::MachineCreate
+        | ResourceOperation::MachineRename
+        | ResourceOperation::MachineDelete
+        | ResourceOperation::MachineRestore
+        | ResourceOperation::MachinePurge
+        | ResourceOperation::MachineConnectExternal
+        | ResourceOperation::SessionList
+        | ResourceOperation::SessionOpen
+        | ResourceOperation::SessionGet
+        | ResourceOperation::ProviderScopeList
+        | ResourceOperation::ProviderActionInvoke
+        | ResourceOperation::ProviderNoticeAcknowledge
+        | ResourceOperation::ProviderWorkspaceMark
+        | ResourceOperation::ProviderWorkspaceRename
+        | ResourceOperation::ProviderWorkspaceClose => OperationOwner::Machine,
+        ResourceOperation::SessionShutdown
+        | ResourceOperation::SessionReloadConfig
+        | ResourceOperation::SessionTerminalDefaultsUpdate
+        | ResourceOperation::SessionWindowTitleSet
+        | ResourceOperation::SessionWindowTitleClear => OperationOwner::Session,
+        ResourceOperation::SessionSnapshot
+        | ResourceOperation::SessionPing
+        | ResourceOperation::TerminalList
+        | ResourceOperation::TerminalGet
+        | ResourceOperation::BrowserList
+        | ResourceOperation::BrowserGet
+        | ResourceOperation::NotificationList
+        | ResourceOperation::NotificationCreate => OperationOwner::Snapshot,
+        ResourceOperation::WorkspaceList
+        | ResourceOperation::WorkspaceGet
+        | ResourceOperation::WorkspaceCreate
+        | ResourceOperation::WorkspaceRename
+        | ResourceOperation::WorkspaceMove
+        | ResourceOperation::WorkspaceFocus
+        | ResourceOperation::WorkspaceClose
+        | ResourceOperation::WorkspaceRun
+        | ResourceOperation::WorkspaceLayoutApply
+        | ResourceOperation::ScreenList
+        | ResourceOperation::ScreenGet
+        | ResourceOperation::ScreenCreate
+        | ResourceOperation::ScreenRename
+        | ResourceOperation::ScreenFocus
+        | ResourceOperation::ScreenClose
+        | ResourceOperation::ScreenLayoutExport
+        | ResourceOperation::ScreenLayoutUndo
+        | ResourceOperation::PaneList
+        | ResourceOperation::PaneGet
+        | ResourceOperation::PaneCreate
+        | ResourceOperation::PaneSplit
+        | ResourceOperation::PaneRename
+        | ResourceOperation::PaneFocus
+        | ResourceOperation::PaneFocusDirection
+        | ResourceOperation::PaneNeighborGet
+        | ResourceOperation::PaneSwap
+        | ResourceOperation::PaneZoom
+        | ResourceOperation::PaneSplitRatioSet
+        | ResourceOperation::PaneViewportWidthSet
+        | ResourceOperation::PaneClose
+        | ResourceOperation::PaneRun
+        | ResourceOperation::TabList
+        | ResourceOperation::TabGet
+        | ResourceOperation::TabCreateTerminal
+        | ResourceOperation::TabCreateBrowser
+        | ResourceOperation::TabRename
+        | ResourceOperation::TabMove
+        | ResourceOperation::TabFocus
+        | ResourceOperation::TabClose => OperationOwner::Topology,
+        ResourceOperation::TerminalInputWrite
+        | ResourceOperation::TerminalInputKeys
+        | ResourceOperation::TerminalInputMouse
+        | ResourceOperation::TerminalInputFocus
+        | ResourceOperation::TerminalScreenRead
+        | ResourceOperation::TerminalStateRead
+        | ResourceOperation::TerminalHistoryRead
+        | ResourceOperation::TerminalHistoryClear
+        | ResourceOperation::TerminalWait
+        | ResourceOperation::TerminalCopy
+        | ResourceOperation::TerminalProcessGet
+        | ResourceOperation::TerminalViewportScroll
+        | ResourceOperation::TerminalMove
+        | ResourceOperation::TerminalClose
+        | ResourceOperation::BrowserNavigate
+        | ResourceOperation::BrowserBack
+        | ResourceOperation::BrowserForward
+        | ResourceOperation::BrowserReload
+        | ResourceOperation::BrowserActivate
+        | ResourceOperation::BrowserInputKey
+        | ResourceOperation::BrowserInputText
+        | ResourceOperation::BrowserInputMouse
+        | ResourceOperation::BrowserInputWheel
+        | ResourceOperation::BrowserClose => OperationOwner::Content,
+        ResourceOperation::AgentList
+        | ResourceOperation::AgentReport
+        | ResourceOperation::FrontendProjectionGet
+        | ResourceOperation::FrontendProjectionPut
+        | ResourceOperation::PairingRequestList
+        | ResourceOperation::PairingRequestResolve
+        | ResourceOperation::SidebarViewGet
+        | ResourceOperation::SidebarViewEnsure
+        | ResourceOperation::SidebarViewInput
+        | ResourceOperation::SidebarViewResize
+        | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
+        ResourceOperation::SessionEvents
+        | ResourceOperation::ClientList
+        | ResourceOperation::ClientGet
+        | ResourceOperation::ClientMetadataUpdate
+        | ResourceOperation::ClientSizingSet
+        | ResourceOperation::ClientSizingRelease
+        | ResourceOperation::ClientCellPixelsSet
+        | ResourceOperation::ClientDetach
+        | ResourceOperation::TerminalRendererGrantCreate
+        | ResourceOperation::TerminalViewerResize
+        | ResourceOperation::TerminalViewerRelease
+        | ResourceOperation::TerminalAttach
+        | ResourceOperation::BrowserViewerResize
+        | ResourceOperation::BrowserViewerRelease
+        | ResourceOperation::BrowserAttach
+        | ResourceOperation::SidebarViewAttach
+        | ResourceOperation::ProviderNoticeEvents
+        | ResourceOperation::StreamCancel => OperationOwner::Connection,
+    }
+}
+
+pub(crate) const fn requires_connection_context(operation: ResourceOperation) -> bool {
+    matches!(operation_owner(operation), OperationOwner::Connection)
 }
 
 fn ensure_session_route(
@@ -786,11 +895,10 @@ fn list_resources(
     let values = snapshot[collection]
         .as_array()
         .ok_or_else(|| {
-            ResourceError::new(
-                "operation.failed",
+            ResourceError::operation_failed(
+                "session.snapshot",
                 "public snapshot collection is malformed",
                 json!({"collection":collection}),
-                false,
             )
         })?
         .iter()
@@ -936,21 +1044,19 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
     let created_at_ms: u64 = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| {
-            ResourceError::new(
-                "operation.failed",
+            ResourceError::operation_failed(
+                "notification.create",
                 "system clock is before the Unix epoch",
                 json!({"error":error.to_string()}),
-                false,
             )
         })?
         .as_millis()
         .try_into()
         .map_err(|_| {
-            ResourceError::new(
-                "operation.failed",
+            ResourceError::operation_failed(
+                "notification.create",
                 "notification timestamp exceeds uint64",
                 json!({}),
-                false,
             )
         })?;
     let intent = json!({
@@ -1005,11 +1111,10 @@ fn execute_notification_effect(
 ) -> Result<Value, ResourceError> {
     let notification_id: NotificationPublicId =
         serde_json::from_value(intent["notification_id"].clone()).map_err(|error| {
-            ResourceError::new(
-                "operation.failed",
+            ResourceError::operation_failed(
+                "notification.create",
                 "stored notification intent has an invalid identity",
                 json!({"error":error.to_string()}),
-                false,
             )
         })?;
     let terminal_id = intent
@@ -1018,11 +1123,10 @@ fn execute_notification_effect(
         .map(|value| serde_json::from_value::<TerminalPublicId>(value.clone()))
         .transpose()
         .map_err(|error| {
-            ResourceError::new(
-                "operation.failed",
+            ResourceError::operation_failed(
+                "notification.create",
                 "stored notification intent has an invalid terminal identity",
                 json!({"error":error.to_string()}),
-                false,
             )
         })?;
     let surface =
@@ -1056,36 +1160,32 @@ fn execute_notification_effect(
         "warning" => crate::NotificationLevel::Warning,
         "error" => crate::NotificationLevel::Error,
         other => {
-            return Err(ResourceError::new(
-                "operation.failed",
+            return Err(ResourceError::operation_failed(
+                "notification.create",
                 "stored notification intent has an invalid level",
                 json!({"level":other}),
-                false,
             ));
         }
     };
     let title = intent.get("title").and_then(Value::as_str).ok_or_else(|| {
-        ResourceError::new(
-            "operation.failed",
+        ResourceError::operation_failed(
+            "notification.create",
             "stored notification intent has an invalid title",
             json!({}),
-            false,
         )
     })?;
     let body = intent.get("body").and_then(Value::as_str).ok_or_else(|| {
-        ResourceError::new(
-            "operation.failed",
+        ResourceError::operation_failed(
+            "notification.create",
             "stored notification intent has an invalid body",
             json!({}),
-            false,
         )
     })?;
     let created_at_ms = intent.get("created_at_ms").and_then(Value::as_u64).ok_or_else(|| {
-        ResourceError::new(
-            "operation.failed",
+        ResourceError::operation_failed(
+            "notification.create",
             "stored notification intent has an invalid timestamp",
             json!({}),
-            false,
         )
     })?;
     mux.post_resource_notification(
@@ -1143,93 +1243,7 @@ fn indeterminate_error(idempotency_key: &str, operation: &str) -> ResourceError 
     )
 }
 
-fn create_workspace(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
-    ensure_session_route(mux, &request.selectors)?;
-    let initial_content = required_string(&request.fields, "initial_content")?;
-    if initial_content != "empty" {
-        return Err(ResourceError::new(
-            "operation.failed",
-            "terminal-backed workspace creation is not implemented by the resource router",
-            json!({"initial_content":initial_content}),
-            false,
-        ));
-    }
-    let mutation = mutation(&request.envelope)?;
-    let commit = mux
-        .resource_create_empty_workspace(
-            optional_string(&request.fields, "name")?,
-            None,
-            expected_revision(&request.fields)?,
-            &mutation,
-        )
-        .map_err(resource_operation_error)?;
-    let workspace_id = commit.result["workspace"].as_str().ok_or_else(|| {
-        ResourceError::new(
-            "operation.failed",
-            "workspace commit omitted its public identity",
-            json!({}),
-            false,
-        )
-    })?;
-    mutation_result(
-        mux,
-        json!({"kind":"workspace","workspace_id":workspace_id}),
-        commit.revision,
-        commit.replayed,
-    )
-}
-
-fn rename_workspace(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
-    let name = required_string(&request.fields, "name")?.to_string();
-    let mutation = mutation(&request.envelope)?;
-    let commit = mux
-        .resource_rename_workspace_selected(
-            request.selectors,
-            name,
-            None,
-            expected_revision(&request.fields)?,
-            &mutation,
-        )
-        .map_err(resource_operation_error)?;
-    let workspace_id = commit.result["workspace"].as_str().ok_or_else(|| {
-        ResourceError::new(
-            "operation.failed",
-            "workspace commit omitted its public identity",
-            json!({}),
-            false,
-        )
-    })?;
-    let snapshot = public_session_snapshot(mux)?;
-    let value = find_snapshot(&snapshot, "workspaces", workspace_id)?;
-    mutation_result(mux, value, commit.revision, commit.replayed)
-}
-
-fn move_workspace(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
-    let index = required_u64(&request.fields, "index")? as usize;
-    let mutation = mutation(&request.envelope)?;
-    let commit = mux
-        .resource_move_workspace_selected(
-            request.selectors,
-            index,
-            None,
-            expected_revision(&request.fields)?,
-            &mutation,
-        )
-        .map_err(resource_operation_error)?;
-    let workspace_id = commit.result["workspace"].as_str().ok_or_else(|| {
-        ResourceError::new(
-            "operation.failed",
-            "workspace commit omitted its public identity",
-            json!({}),
-            false,
-        )
-    })?;
-    let snapshot = public_session_snapshot(mux)?;
-    let value = find_snapshot(&snapshot, "workspaces", workspace_id)?;
-    mutation_result(mux, value, commit.revision, commit.replayed)
-}
-
-fn mutation_result(
+pub(super) fn mutation_result(
     mux: &Mux,
     value: Value,
     revision: u64,
@@ -1244,7 +1258,11 @@ fn mutation_result(
     }))
 }
 
-fn find_snapshot(snapshot: &Value, collection: &str, id: &str) -> Result<Value, ResourceError> {
+pub(super) fn find_snapshot(
+    snapshot: &Value,
+    collection: &str,
+    id: &str,
+) -> Result<Value, ResourceError> {
     snapshot[collection]
         .as_array()
         .and_then(|values| values.iter().find(|value| value["id"] == id))
@@ -1252,15 +1270,7 @@ fn find_snapshot(snapshot: &Value, collection: &str, id: &str) -> Result<Value, 
         .ok_or_else(|| ResourceError::not_found(collection.trim_end_matches('s'), id))
 }
 
-fn mutation(envelope: &RequestEnvelope) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(
-        envelope.idempotency_key.clone().expect("validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(operation_failed)
-}
-
-fn expected_revision(fields: &Map<String, Value>) -> Result<Option<u64>, ResourceError> {
+pub(super) fn expected_revision(fields: &Map<String, Value>) -> Result<Option<u64>, ResourceError> {
     fields
         .get("expected_revision")
         .map(|value| {
@@ -1276,7 +1286,7 @@ fn expected_revision(fields: &Map<String, Value>) -> Result<Option<u64>, Resourc
         .transpose()
 }
 
-fn required_string<'a>(
+pub(super) fn required_string<'a>(
     fields: &'a Map<String, Value>,
     field: &str,
 ) -> Result<&'a str, ResourceError> {
@@ -1286,7 +1296,7 @@ fn required_string<'a>(
         .ok_or_else(|| validation_error("required string field is missing", json!({"field":field})))
 }
 
-fn optional_string(
+pub(super) fn optional_string(
     fields: &Map<String, Value>,
     field: &str,
 ) -> Result<Option<String>, ResourceError> {
@@ -1301,28 +1311,35 @@ fn optional_string(
         .transpose()
 }
 
-fn required_u64(fields: &Map<String, Value>, field: &str) -> Result<u64, ResourceError> {
+pub(super) fn required_u64(fields: &Map<String, Value>, field: &str) -> Result<u64, ResourceError> {
     fields.get(field).and_then(Value::as_u64).ok_or_else(|| {
         validation_error("required unsigned integer field is missing", json!({"field":field}))
     })
 }
 
-fn resource_operation_error(error: anyhow::Error) -> ResourceError {
+pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
     if let Some(resource) = error.downcast_ref::<ResourceError>() {
         return resource.clone();
     }
     let message = error.to_string();
-    let code = if message.starts_with("idempotency.conflict:") {
-        "idempotency.conflict"
-    } else if message.starts_with("resource revision conflict:") {
-        "revision.conflict"
-    } else {
-        "operation.failed"
-    };
-    ResourceError::new(code, message, json!({}), false)
+    if message.starts_with("idempotency.conflict:") {
+        let fields = message.split_whitespace().collect::<Vec<_>>();
+        if let (Some(key), Some(operation)) = (fields.get(2), fields.get(4)) {
+            return ResourceError::idempotency_conflict(key, operation);
+        }
+    }
+    if let Some(conflict) = message.strip_prefix("resource revision conflict: expected ") {
+        let mut values = conflict.split(", current ");
+        if let (Some(expected), Some(actual)) = (values.next(), values.next())
+            && let (Ok(expected), Ok(actual)) = (expected.parse(), actual.parse())
+        {
+            return ResourceError::revision_conflict(expected, actual);
+        }
+    }
+    ResourceError::operation_failed("resource.runtime", message, json!({}))
 }
 
-fn operation_name(operation: ResourceOperation) -> String {
+pub(super) fn operation_name(operation: ResourceOperation) -> String {
     serde_json::to_value(operation)
         .expect("resource operations serialize")
         .as_str()
@@ -1330,8 +1347,13 @@ fn operation_name(operation: ResourceOperation) -> String {
         .to_string()
 }
 
-fn validation_error(message: &str, details: Value) -> ResourceError {
-    ResourceError::new("validation.invalid", message, details, false)
+pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
+    let field = details
+        .get("field")
+        .or_else(|| details.get("path"))
+        .or_else(|| details.get("parameter"))
+        .and_then(Value::as_str);
+    ResourceError::validation_invalid(field, message)
 }
 
 #[cfg(test)]
@@ -1341,6 +1363,25 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("resource-router", SurfaceOptions::default())
+    }
+
+    #[test]
+    fn every_catalog_operation_has_one_concrete_owner() {
+        let operations = operation_catalog()["operations"].as_object().unwrap();
+        assert_eq!(operations.len(), 122);
+        for name in operations.keys() {
+            let operation: ResourceOperation =
+                serde_json::from_value(Value::String(name.clone())).unwrap();
+            assert_eq!(operation_name(operation), *name);
+            match operation_owner(operation) {
+                OperationOwner::Session => assert!(session::handles(operation)),
+                OperationOwner::Content => assert!(content::handles(operation)),
+                OperationOwner::Topology => assert!(topology::handles(operation)),
+                OperationOwner::Auxiliary => assert!(auxiliary::handles(operation)),
+                OperationOwner::Machine | OperationOwner::Snapshot | OperationOwner::Connection => {
+                }
+            }
+        }
     }
 
     fn request(id: &str, operation: &str, params: Value, idempotency_key: Option<&str>) -> String {

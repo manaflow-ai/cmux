@@ -510,7 +510,13 @@ fn invalid_selector(
     message: impl Into<String>,
     details: serde_json::Value,
 ) -> ResourceError {
-    ResourceError::new("selector.invalid", message, json!({"kind":kind,"context":details}), false)
+    let selector = details
+        .get("selector")
+        .or_else(|| details.get("unexpected"))
+        .or_else(|| details.get("missing"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<invalid>");
+    ResourceError::selector_invalid(kind, selector, message)
 }
 
 fn incomplete_chain(kind: &str, parent: &str) -> ResourceError {
@@ -860,15 +866,34 @@ fn wrong_parent(
     expected: String,
     actual: Option<String>,
 ) -> ResourceError {
+    let child_scope = if child_kind == "target" {
+        if child_id.starts_with("ws_") {
+            "workspace"
+        } else if child_id.starts_with("screen_") {
+            "screen"
+        } else if child_id.starts_with("pane_") {
+            "pane"
+        } else if child_id.starts_with("tab_") {
+            "tab"
+        } else if child_id.starts_with("term_") {
+            "terminal"
+        } else if child_id.starts_with("browser_") {
+            "browser"
+        } else {
+            "pane"
+        }
+    } else {
+        child_kind
+    };
     ResourceError::new(
         "selector.wrong_parent",
         format!("{child_kind} {child_id} is outside the selected {parent_kind}"),
         json!({
-            "kind":child_kind,
-            "id":child_id,
-            "parent_kind":parent_kind,
-            "selected_parent":expected,
-            "actual_parent":actual,
+            "scope":child_scope,
+            "selector":child_id,
+            "parent_scope":parent_kind,
+            "expected_parent":expected,
+            "actual_parent":actual.unwrap_or_else(|| "<none>".to_string()),
         }),
         false,
     )

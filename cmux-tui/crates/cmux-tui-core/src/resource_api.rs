@@ -15,9 +15,11 @@ use crate::resource::{
     ContentPublicId, MachinePublicId, PanePublicId, ResourceCursor, ResourceError,
     ResourceOperation, Selector, SessionPublicId,
 };
+use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
+    ResourceEffectOutcome, ResourceEffectPreparation,
 };
 use crate::{Mux, ResourceSelectors};
 
@@ -74,14 +76,7 @@ impl LocalResourceMachineService {
     fn context(&self) -> Result<LocalResourceContext, ResourceError> {
         self.mux
             .upgrade()
-            .ok_or_else(|| {
-                ResourceError::new(
-                    "transport.closed",
-                    "the local session has closed",
-                    json!({}),
-                    true,
-                )
-            })?
+            .ok_or_else(|| ResourceError::transport_closed("the local session has closed"))?
             .local_resource_context()
             .map_err(operation_failed)
     }
@@ -116,11 +111,34 @@ impl ResourceMachineService for LocalResourceMachineService {
                 resolve_local_machine(&request.selectors, &context)?;
                 Ok(json!([]))
             }
-            _ => Err(ResourceError::new(
-                "operation.unsupported",
-                "the local machine service does not implement this provider operation",
-                json!({"operation":request.operation}),
-                false,
+            ResourceOperation::SessionOpen => self.open_local_session(request, &context),
+            ResourceOperation::MachineCreate | ResourceOperation::MachineConnectExternal => {
+                Err(missing_provider_resource(request, "provider_scope"))
+            }
+            ResourceOperation::ProviderActionInvoke
+            | ResourceOperation::ProviderNoticeEvents
+            | ResourceOperation::ProviderNoticeAcknowledge
+            | ResourceOperation::ProviderWorkspaceMark
+            | ResourceOperation::ProviderWorkspaceRename
+            | ResourceOperation::ProviderWorkspaceClose => {
+                resolve_local_machine(&request.selectors, &context)?;
+                Err(missing_provider_resource(request, "provider_scope"))
+            }
+            ResourceOperation::MachineRename
+            | ResourceOperation::MachineDelete
+            | ResourceOperation::MachineRestore
+            | ResourceOperation::MachinePurge => {
+                resolve_local_machine(&request.selectors, &context)?;
+                Err(ResourceError::operation_failed(
+                    resource_operation_name(request.operation),
+                    "the built-in local machine is immutable",
+                    json!({}),
+                ))
+            }
+            operation => Err(ResourceError::operation_failed(
+                resource_operation_name(operation),
+                "operation was routed to the wrong machine service",
+                json!({}),
             )),
         }
     }
@@ -129,13 +147,145 @@ impl ResourceMachineService for LocalResourceMachineService {
         &self,
         request: &ResourceMachineRequest,
     ) -> Result<Box<dyn ResourceProviderNoticeStream>, ResourceError> {
-        Err(ResourceError::new(
-            "operation.unsupported",
-            "the local machine has no provider notice stream",
-            json!({"operation":request.operation}),
-            false,
-        ))
+        let context = self.context()?;
+        resolve_local_machine(&request.selectors, &context)?;
+        Err(missing_provider_resource(request, "provider_scope"))
     }
+}
+
+impl LocalResourceMachineService {
+    fn open_local_session(
+        &self,
+        request: &ResourceMachineRequest,
+        context: &LocalResourceContext,
+    ) -> Result<Value, ResourceError> {
+        let mux = self
+            .mux
+            .upgrade()
+            .ok_or_else(|| ResourceError::transport_closed("the local session has closed"))?;
+        let key = request.idempotency_key.as_deref().ok_or_else(|| {
+            ResourceError::validation_invalid(
+                Some("idempotency_key"),
+                "session.open requires an idempotency key",
+            )
+        })?;
+        let fingerprint = json!({
+            "operation":"session.open",
+            "selectors":request.selectors,
+            "fields":request.fields,
+        });
+        if let Some(preparation) = mux
+            .lookup_resource_effect(key, "session.open", &fingerprint)
+            .map_err(operation_failed)?
+        {
+            return resolve_local_open_preparation(&mux, key, &fingerprint, preparation);
+        }
+
+        resolve_local_session(&request.selectors, context)?;
+        let expected_revision = request
+            .fields
+            .get("expected_revision")
+            .and_then(Value::as_str)
+            .map(|revision| revision.parse::<u64>())
+            .transpose()
+            .map_err(|error| {
+                ResourceError::validation_invalid(
+                    Some("expected_revision"),
+                    "session.open expected_revision is invalid",
+                )
+            })?;
+        let intent = json!({"session_id":context.session_id});
+        let preparation = mux
+            .prepare_resource_effect(
+                key,
+                "session.open",
+                &fingerprint,
+                &intent,
+                None,
+                expected_revision,
+            )
+            .map_err(operation_failed)?;
+        resolve_local_open_preparation(&mux, key, &fingerprint, preparation)
+    }
+}
+
+fn resolve_local_open_preparation(
+    mux: &Arc<Mux>,
+    key: &str,
+    fingerprint: &Value,
+    preparation: ResourceEffectPreparation,
+) -> Result<Value, ResourceError> {
+    match preparation {
+        ResourceEffectPreparation::Committed { outcome, revision } => match outcome {
+            ResourceEffectOutcome::Success(value) => {
+                local_mutation_result(mux, value, revision, true)
+            }
+            ResourceEffectOutcome::Failure(error) => Err(error),
+        },
+        ResourceEffectPreparation::Indeterminate => {
+            Err(local_indeterminate_error(key, "session.open"))
+        }
+        ResourceEffectPreparation::Execute { .. } => {
+            mux.mark_resource_effect_executing(key, "session.open", fingerprint)
+                .map_err(operation_failed)?;
+            let mut context = mux.local_resource_context().map_err(operation_failed)?;
+            context.revision = context.revision.saturating_add(1);
+            let value = session_snapshot(&context);
+            let outcome = ResourceEffectOutcome::Success(value.clone());
+            let revision = mux
+                .commit_resource_effect(
+                    key,
+                    "session.open",
+                    fingerprint,
+                    &outcome,
+                    Some(&json!([])),
+                )
+                .map_err(|_| {
+                    let _ = mux.mark_resource_effect_indeterminate(key);
+                    local_indeterminate_error(key, "session.open")
+                })?;
+            local_mutation_result(mux, value, revision, false)
+        }
+    }
+}
+
+fn local_mutation_result(
+    mux: &Mux,
+    value: Value,
+    revision: u64,
+    replayed: bool,
+) -> Result<Value, ResourceError> {
+    let context = mux.local_resource_context().map_err(operation_failed)?;
+    Ok(json!({
+        "value":value,
+        "generation":context.generation,
+        "revision":revision.to_string(),
+        "replayed":replayed,
+    }))
+}
+
+fn local_indeterminate_error(key: &str, operation: &str) -> ResourceError {
+    ResourceError::new(
+        "mutation.indeterminate",
+        "the external effect may have run before its outcome was recorded",
+        json!({
+            "idempotency_key":key,
+            "operation":operation,
+            "recovery":"inspect_state_then_retry_with_new_key",
+        }),
+        false,
+    )
+}
+
+fn missing_provider_resource(request: &ResourceMachineRequest, kind: &str) -> ResourceError {
+    let selector = match kind {
+        "provider_scope" => request.selectors.provider_scope.as_deref(),
+        "provider_action" => request.selectors.provider_action.as_deref(),
+        "provider_notice" => request.selectors.provider_notice.as_deref(),
+        _ => None,
+    }
+    .unwrap_or("<missing>");
+    ResourceError::not_found(kind, selector)
 }
 
 fn machine_snapshot(context: &LocalResourceContext) -> Value {
@@ -193,11 +343,10 @@ fn resolve_singleton(
     expected_name: Option<&str>,
 ) -> Result<(), ResourceError> {
     let raw = raw.ok_or_else(|| {
-        ResourceError::new(
-            "selector.invalid",
+        ResourceError::selector_invalid(
+            kind,
+            "<missing>",
             format!("missing required {kind} selector"),
-            json!({"missing":kind}),
-            false,
         )
     })?;
     match Selector::parse(raw)? {
@@ -210,21 +359,19 @@ fn resolve_singleton(
 
 fn require_no_selectors(selectors: &ResourceSelectors) -> Result<(), ResourceError> {
     let value = serde_json::to_value(selectors).map_err(|error| {
-        ResourceError::new(
-            "operation.failed",
+        ResourceError::operation_failed(
+            "machine.list",
             "could not validate selectors",
             json!({"error":error.to_string()}),
-            false,
         )
     })?;
     if value.as_object().is_none_or(Map::is_empty) {
         Ok(())
     } else {
-        Err(ResourceError::new(
-            "selector.invalid",
+        Err(ResourceError::selector_invalid(
+            "machine",
+            "<selectors>",
             "machine.list does not accept selectors",
-            json!({"selectors":value}),
-            false,
         ))
     }
 }
@@ -237,7 +384,11 @@ fn require_absent(
     if selector.is_none() {
         Ok(())
     } else {
-        Err(ResourceError::new("selector.invalid", message, json!({"unexpected":kind}), false))
+        Err(ResourceError::selector_invalid(
+            kind,
+            selector.as_deref().expect("checked selector presence"),
+            message,
+        ))
     }
 }
 
@@ -245,12 +396,38 @@ pub(crate) fn operation_failed(error: anyhow::Error) -> ResourceError {
     if let Some(resource) = error.downcast_ref::<ResourceError>() {
         return resource.clone();
     }
-    ResourceError::new("operation.failed", error.to_string(), json!({}), false)
+    ResourceError::operation_failed("resource.runtime", error.to_string(), json!({}))
+}
+
+fn resource_operation_name(operation: ResourceOperation) -> String {
+    serde_json::to_value(operation)
+        .expect("resource operation serializes")
+        .as_str()
+        .expect("resource operation serializes as a string")
+        .to_string()
 }
 
 pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError> {
     let context = mux.local_resource_context().map_err(operation_failed)?;
     let notifications = mux.resource_notifications(256);
+    // Collect the auxiliary runtime before taking the registry + state
+    // projection lock. Sidebar status locks its own lifecycle and then looks
+    // up a surface in State, so doing this inside the projection would invert
+    // that lock order.
+    let (sidebar_status, sidebar_last_size, sidebar_configured) =
+        mux.sidebar_plugin_resource_status();
+    let sidebar_surface = sidebar_status.surface.and_then(|surface| mux.surface(surface));
+    let sidebar_id = sidebar_view_id(&context.session_id)?;
+    let sidebar_views = if sidebar_configured || sidebar_last_size.is_some() {
+        vec![sidebar_snapshot(
+            &sidebar_id,
+            &context.session_id,
+            sidebar_last_size.unwrap_or((1, 1)),
+            sidebar_surface.as_ref(),
+        )]
+    } else {
+        Vec::new()
+    };
     mux.with_resource_projection(|registry, state| {
         let registry_snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
@@ -432,7 +609,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
             "notifications": notifications,
             "agents": [],
             "frontend_projections": [],
-            "sidebar_views": [],
+            "sidebar_views": sidebar_views,
             "cursor": {
                 "generation": topology.generation,
                 "revision": topology.revision.to_string(),
@@ -622,6 +799,34 @@ mod tests {
     }
 
     #[test]
+    fn local_machine_service_routes_provider_workspace_mutations_to_provider_scope_lookup() {
+        let mux = Mux::new_for_test("dev", SurfaceOptions::default());
+        let service = LocalResourceMachineService::new(Arc::downgrade(&mux));
+        let provider_scope = "provider_scope_00000000000000000000000000000001";
+        for operation in [
+            ResourceOperation::ProviderWorkspaceMark,
+            ResourceOperation::ProviderWorkspaceRename,
+            ResourceOperation::ProviderWorkspaceClose,
+        ] {
+            let error = service
+                .dispatch(&ResourceMachineRequest {
+                    operation,
+                    selectors: ResourceSelectors {
+                        machine: Some("current".to_string()),
+                        provider_scope: Some(provider_scope.to_string()),
+                        ..ResourceSelectors::default()
+                    },
+                    fields: Map::new(),
+                    idempotency_key: Some("provider-workspace-local".to_string()),
+                })
+                .unwrap_err();
+            assert_eq!(error.code, "selector.not_found");
+            assert_eq!(error.details["scope"], "provider_scope");
+            assert_eq!(error.details["selector"], provider_scope);
+        }
+    }
+
+    #[test]
     fn injected_machine_service_is_the_router_boundary() {
         struct Fake;
 
@@ -634,7 +839,7 @@ mod tests {
                 &self,
                 _request: &ResourceMachineRequest,
             ) -> Result<Box<dyn ResourceProviderNoticeStream>, ResourceError> {
-                Err(ResourceError::new("operation.failed", "unused", json!({}), false))
+                Err(ResourceError::operation_failed("provider_notice.events", "unused", json!({})))
             }
         }
 

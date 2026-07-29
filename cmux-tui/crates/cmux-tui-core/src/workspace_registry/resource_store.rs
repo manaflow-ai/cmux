@@ -515,6 +515,127 @@ impl WorkspaceRegistry {
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit_resource_projection(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        frontend: &str,
+        scope: &str,
+        subject_key: &str,
+        schema_version: u32,
+        projection: &Value,
+        result: &Value,
+        deltas: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        validate_identifier("resource operation", operation)?;
+        validate_identifier("frontend", frontend)?;
+        validate_identifier("projection scope", scope)?;
+        validate_identifier("projection subject", subject_key)?;
+        let fingerprint = canonical_json(fingerprint)?;
+        let projection_json = canonical_json(projection)?;
+        if projection_json.len() > MAX_PROJECTION_BYTES {
+            anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
+        }
+        let result_json = canonical_json(result)?;
+        let deltas_json = canonical_json(deltas)?;
+        let tx = self.connection.transaction()?;
+        if let Some(replay) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
+            return Ok(replay);
+        }
+        if let Some(expected) = expected_generation
+            && expected != self.generation
+        {
+            anyhow::bail!(
+                "resource generation conflict: expected {expected}, current {}",
+                self.generation
+            );
+        }
+        let previous_revision = transaction_resource_revision(&tx)?;
+        if let Some(expected) = expected_revision
+            && expected != previous_revision
+        {
+            anyhow::bail!(
+                "resource revision conflict: expected {expected}, current {previous_revision}"
+            );
+        }
+        let projection_revision = tx
+            .query_row(
+                "SELECT projection_revision FROM frontend_projections
+                 WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
+                params![frontend, scope, subject_key],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .map(u64::try_from)
+            .transpose()
+            .context("projection revision is negative")?
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
+        tx.execute(
+            "INSERT INTO frontend_projections(
+               frontend, scope, subject_key, schema_version, projection_revision, payload
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(frontend, scope, subject_key) DO UPDATE SET
+               schema_version=excluded.schema_version,
+               projection_revision=excluded.projection_revision,
+               payload=excluded.payload",
+            params![
+                frontend,
+                scope,
+                subject_key,
+                i64::from(schema_version),
+                i64::try_from(projection_revision)
+                    .context("projection revision exceeds SQLite range")?,
+                projection_json,
+            ],
+        )?;
+        let revision = previous_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                mutation.origin,
+                mutation.id,
+                operation,
+                fingerprint,
+                result_json,
+                sqlite_revision,
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO resource_events(
+               revision, previous_revision, origin, idempotency_key, deltas_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![
+                sqlite_revision,
+                i64::try_from(previous_revision)
+                    .context("resource revision exceeds SQLite range")?,
+                mutation.origin,
+                mutation.id,
+                deltas_json,
+            ],
+        )?;
+        prune_resource_events(&tx)?;
+        tx.commit()?;
+        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+    }
+
     #[cfg(test)]
     pub(crate) fn set_resource_patch_failure(&self, enabled: bool) -> anyhow::Result<()> {
         if enabled {
@@ -867,8 +988,9 @@ pub(super) fn resource_patch_replay(
     };
     if stored_operation != operation || stored_fingerprint != fingerprint {
         anyhow::bail!(
-            "idempotency.conflict: key {} from {} was reused with different input",
+            "idempotency.conflict: key {} committed_operation {} from {} was reused with different input",
             mutation.id,
+            stored_operation,
             mutation.origin
         );
     }
@@ -880,9 +1002,6 @@ pub(super) fn resource_patch_replay(
 }
 
 pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<()> {
-    if patch.changes.is_empty() {
-        anyhow::bail!("resource patch cannot be empty");
-    }
     let mut targets = HashSet::new();
     let mut singleton_changes = HashSet::new();
     for change in &patch.changes {

@@ -1,6 +1,11 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod resource_content;
+mod resource_topology;
+
+pub(crate) use resource_content::ResourceEffectProjection;
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::Path;
@@ -29,8 +34,10 @@ use crate::model::{
 };
 use crate::pairing::PairingBroker;
 use crate::resource::{
-    ContentPublicId, NotificationPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId,
-    SplitPublicId, TabResourceIdentity, TerminalPublicId, WorkspacePublicId,
+    AgentPublicId, ContentPublicId, FrontendProjectionPublicId, NotificationPublicId,
+    PairingRequestPublicId, PanePublicId, PublicSlotIndexes, ResourceError, ScreenPublicId,
+    Selector, SidebarViewPublicId, SplitPublicId, TabResourceIdentity, TerminalPublicId,
+    WorkspacePublicId,
 };
 use crate::resource_mutation::{ResourceMutationMetrics, ResourceMutationPlan};
 use crate::resource_selector::{
@@ -717,6 +724,7 @@ pub struct SidebarPluginStatus {
 struct SidebarPluginRuntime {
     options: Option<SidebarPluginOptions>,
     surface: Option<SurfaceId>,
+    last_size: Option<(u16, u16)>,
     last_error: Option<String>,
     failures: u32,
     retry_at: Option<Instant>,
@@ -962,6 +970,10 @@ pub struct Mux {
     terminal_create_after_materialization_lock: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    terminal_create_after_terminal_reservation: Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
+    #[cfg(test)]
+    reserved_test_terminal_hosts: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     #[cfg(test)]
     viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -1233,6 +1245,10 @@ impl Mux {
             terminal_create_after_materialization_lock: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_workspace_reservation: Mutex::new(None),
+            #[cfg(test)]
+            terminal_create_after_terminal_reservation: Mutex::new(None),
+            #[cfg(test)]
+            reserved_test_terminal_hosts: Mutex::new(HashMap::new()),
             #[cfg(test)]
             viewport_split_after_spawn: Mutex::new(None),
             #[cfg(test)]
@@ -3001,6 +3017,28 @@ impl Mux {
         Ok(revision)
     }
 
+    pub(crate) fn commit_resource_effect_patch(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+        patch: &ResourcePatch,
+        result: &Value,
+        deltas: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let commit = self.workspace_registry.lock().unwrap().commit_resource_effect_patch(
+            idempotency_key,
+            operation,
+            fingerprint,
+            patch,
+            result,
+            deltas,
+        )?;
+        self.state.lock().unwrap().resource_revision = commit.revision;
+        self.publish_resource_event();
+        Ok(commit)
+    }
+
     pub(crate) fn mark_resource_effect_indeterminate(
         &self,
         idempotency_key: &str,
@@ -3123,6 +3161,81 @@ impl Mux {
                 scope: scope.to_string(),
                 subject_key: subject_key.to_string(),
                 projection_revision: commit.projection.projection_revision,
+                origin: mutation.origin.clone(),
+                mutation_id: mutation.id.clone(),
+            });
+        }
+        Ok(commit)
+    }
+
+    pub(crate) fn resource_put_frontend_projection_selected(
+        &self,
+        selectors: crate::ResourceSelectors,
+        projection_id: &FrontendProjectionPublicId,
+        projection: &Value,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let fingerprint = serde_json::json!({
+            "operation":"frontend_projection.put",
+            "selectors":selectors,
+            "projection":projection,
+        });
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(replay) =
+            registry.replay_resource_patch(mutation, "frontend_projection.put", &fingerprint)?
+        {
+            return Ok(replay);
+        }
+        let mut session_selectors = selectors.clone();
+        session_selectors.frontend_projection = None;
+        let mut state = self.state.lock().unwrap();
+        let resolved = self
+            .resolve_resource_path_in_state(
+                &state,
+                &registry,
+                crate::ResourceTarget::Session,
+                &session_selectors,
+            )
+            .map_err(anyhow::Error::new)?;
+        let session_id =
+            resolved.path.session.context("projection route omitted its session identity")?;
+        let value = serde_json::json!({
+            "id":projection_id,
+            "session_id":session_id,
+            "projection":projection,
+        });
+        let deltas = serde_json::json!([{
+            "kind":"upsert",
+            "sequence":0,
+            "resource":"frontend_projection",
+            "id":projection_id,
+            "value":value,
+        }]);
+        let commit = registry.commit_resource_projection(
+            mutation,
+            "frontend_projection.put",
+            &fingerprint,
+            None,
+            expected_revision,
+            "resource-api",
+            "session",
+            projection_id.as_str(),
+            1,
+            projection,
+            &value,
+            &deltas,
+        )?;
+        state.resource_revision = commit.revision;
+        drop(state);
+        drop(registry);
+        if !commit.replayed {
+            self.publish_resource_event();
+            self.emit(MuxEvent::FrontendProjectionChanged {
+                frontend: "resource-api".to_string(),
+                scope: "session".to_string(),
+                subject_key: projection_id.to_string(),
+                projection_revision: commit.revision,
                 origin: mutation.origin.clone(),
                 mutation_id: mutation.id.clone(),
             });
@@ -3391,6 +3504,105 @@ impl Mux {
         responded
     }
 
+    pub(crate) fn resource_resolve_pairing_selected(
+        &self,
+        selectors: crate::ResourceSelectors,
+        pairing_id: &PairingRequestPublicId,
+        decision: &str,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let fingerprint = serde_json::json!({
+            "operation":"pairing_request.resolve",
+            "selectors":selectors,
+            "pairing_request_id":pairing_id,
+            "decision":decision,
+        });
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(replay) =
+            registry.replay_resource_patch(mutation, "pairing_request.resolve", &fingerprint)?
+        {
+            return Ok(replay);
+        }
+
+        let approve = match decision {
+            "accept" => true,
+            "reject" => false,
+            _ => {
+                return Err(anyhow::Error::new(ResourceError::validation_invalid(
+                    Some("decision"),
+                    "pairing decision must be accept or reject",
+                )));
+            }
+        };
+        let payload =
+            pairing_id.as_str().strip_prefix("pairing_").expect("typed pairing id prefix");
+        let numeric = u128::from_str_radix(payload, 16)
+            .ok()
+            .and_then(|value| u64::try_from(value).ok())
+            .ok_or_else(|| {
+                anyhow::Error::new(ResourceError::not_found("pairing_request", pairing_id.as_str()))
+            })?;
+
+        let mut session_selectors = selectors.clone();
+        session_selectors.pairing_request = None;
+        let mut state = self.state.lock().unwrap();
+        let resolved = self
+            .resolve_resource_path_in_state(
+                &state,
+                &registry,
+                crate::ResourceTarget::Session,
+                &session_selectors,
+            )
+            .map_err(anyhow::Error::new)?;
+        let session_id =
+            resolved.path.session.context("pairing route omitted its session identity")?;
+
+        let commit = self
+            .pairing
+            .respond_after(numeric, approve, |challenge| {
+                let status = if approve { "accepted" } else { "rejected" };
+                let value = serde_json::json!({
+                    "pairing_request":{
+                        "id":pairing_id,
+                        "session_id":session_id,
+                        "peer":challenge.peer,
+                        "code":challenge.code,
+                        "expires_in_seconds":challenge.expires_in.to_string(),
+                        "status":status,
+                    },
+                });
+                let deltas = serde_json::json!([{
+                    "kind":"delete",
+                    "sequence":0,
+                    "resource":"pairing_request",
+                    "id":pairing_id,
+                }]);
+                registry.commit_resource_patch(
+                    mutation,
+                    "pairing_request.resolve",
+                    &fingerprint,
+                    None,
+                    expected_revision,
+                    &ResourcePatch { changes: Vec::new() },
+                    &value,
+                    &deltas,
+                )
+            })?
+            .ok_or_else(|| {
+                anyhow::Error::new(ResourceError::not_found("pairing_request", pairing_id.as_str()))
+            })?;
+
+        state.resource_revision = commit.revision;
+        drop(state);
+        drop(registry);
+        if !commit.replayed {
+            self.publish_resource_event();
+            self.emit(MuxEvent::PairingResolved { request: numeric });
+        }
+        Ok(commit)
+    }
+
     pub fn cancel_pairing(&self, id: u64) {
         if self.pairing.cancel(id) {
             self.emit(MuxEvent::PairingResolved { request: id });
@@ -3581,6 +3793,103 @@ impl Mux {
             }
             // Deprecated recovery mirror only; SQLite is placement authority.
             let _ = surface.persist_host_workspace(workspace_key);
+            return Ok(surface);
+        }
+        #[cfg(test)]
+        if self.test_surface_runtime
+            && let (Some(workspace_key), Some(reservation)) = (workspace_key, reservation.as_ref())
+        {
+            let terminal_hex = reservation.terminal_id.to_hex();
+            let launch_spec = terminal_launch_spec(&opts);
+            let terminal = RegistryTerminal {
+                terminal_id: terminal_hex.clone(),
+                workspace_key: workspace_key.to_string(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec,
+                exit: None,
+            };
+            {
+                let mut registry = self.workspace_registry.lock().unwrap();
+                let commit = registry.commit_terminal(
+                    &reservation.mutation,
+                    &reservation.fingerprint,
+                    reservation.expected_generation.as_deref(),
+                    reservation.expected_revision,
+                    "terminal-reserved",
+                    &terminal,
+                    &serde_json::json!({
+                        "terminal_id":terminal_hex,
+                        "workspace_key":workspace_key,
+                        "state":"launching",
+                    }),
+                )?;
+                if commit.replayed {
+                    anyhow::bail!("terminal_create_replayed");
+                }
+                self.emit_terminal_registry_changed(&registry, commit.revision);
+            }
+            if let Some(hook) =
+                self.terminal_create_after_terminal_reservation.lock().unwrap().clone()
+            {
+                hook(&terminal_hex);
+            }
+            let surface = match Surface::spawn_for_test(id, opts, Arc::downgrade(self)) {
+                Ok(surface) => surface,
+                Err(error) => {
+                    let _ = self.transition_terminal_lifecycle(
+                        "terminal-exited",
+                        "terminal-launch-failed",
+                        &terminal_hex,
+                        TerminalLifecycle::Exited,
+                        None,
+                        Some(serde_json::json!({
+                            "reason":"launch-failed",
+                            "error":error.to_string(),
+                        })),
+                    );
+                    return Err(error);
+                }
+            };
+            let incarnation = TerminalId::random()?.to_hex();
+            let identity = TerminalHostIdentity {
+                terminal_id: terminal_hex.clone(),
+                incarnation: incarnation.clone(),
+            };
+            {
+                let mut registry = self.workspace_registry.lock().unwrap();
+                let (_, revision) = match commit_terminal_lifecycle(
+                    &mut registry,
+                    "terminal-ready",
+                    "terminal-ready",
+                    &terminal_hex,
+                    TerminalLifecycle::Running,
+                    Some(&incarnation),
+                    None,
+                ) {
+                    Ok(ready) => ready,
+                    Err(error) => {
+                        surface.kill();
+                        return Err(error);
+                    }
+                };
+                self.emit_terminal_registry_changed(&registry, revision);
+            }
+            if let Err(error) =
+                insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())
+            {
+                let _ = self.transition_terminal_lifecycle(
+                    "terminal-exited",
+                    "terminal-surface-insert-failed",
+                    &terminal_hex,
+                    TerminalLifecycle::Exited,
+                    Some(&incarnation),
+                    Some(serde_json::json!({"reason":"surface-insert-failed"})),
+                );
+                surface.kill();
+                return Err(error);
+            }
+            self.reserved_test_terminal_hosts.lock().unwrap().insert(surface.id, identity);
             return Ok(surface);
         }
         if reservation.is_some() {
@@ -4492,7 +4801,7 @@ impl Mux {
         let surface = unique_terminal_match(
             terminal_id,
             state.surfaces.values().filter_map(|surface| {
-                surface.terminal_host_identity().map(|identity| (surface.id, identity))
+                self.resource_terminal_host_identity(surface).map(|identity| (surface.id, identity))
             }),
         )?
         .map(|(surface, _)| surface);
@@ -4550,7 +4859,8 @@ impl Mux {
             let matched = unique_terminal_match(
                 terminal_id,
                 state.surfaces.values().filter_map(|surface| {
-                    surface.terminal_host_identity().map(|identity| (surface.id, identity))
+                    self.resource_terminal_host_identity(surface)
+                        .map(|identity| (surface.id, identity))
                 }),
             )?;
             if let Some((_, identity)) = matched.as_ref()
@@ -4606,7 +4916,7 @@ impl Mux {
     }
 
     fn tombstone_hosted_surface(&self, surface: &Arc<Surface>) -> anyhow::Result<()> {
-        let Some(identity) = surface.terminal_host_identity() else {
+        let Some(identity) = self.resource_terminal_host_identity(surface) else {
             return Ok(());
         };
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -4632,7 +4942,7 @@ impl Mux {
         operation: &str,
         reason: &str,
     ) -> anyhow::Result<()> {
-        let Some(identity) = surface.terminal_host_identity() else {
+        let Some(identity) = self.resource_terminal_host_identity(surface) else {
             let removed = self.state.lock().unwrap().surfaces.remove(&surface.id);
             if removed.is_some() {
                 surface.kill();
@@ -4877,6 +5187,104 @@ impl Mux {
         record
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn resource_report_agent_selected(
+        &self,
+        selectors: crate::ResourceSelectors,
+        terminal_id: &TerminalPublicId,
+        agent_state: AgentState,
+        source: AgentSource,
+        source_session: Option<String>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let fingerprint = serde_json::json!({
+            "operation":"agent.report",
+            "selectors":selectors,
+            "terminal_id":terminal_id,
+            "state":agent_state.as_str(),
+            "source":source.as_str(),
+            "source_session":source_session,
+        });
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(replay) =
+            registry.replay_resource_patch(mutation, "agent.report", &fingerprint)?
+        {
+            return Ok(replay);
+        }
+        let mut state = self.state.lock().unwrap();
+        self.resolve_resource_path_in_state(
+            &state,
+            &registry,
+            crate::ResourceTarget::Session,
+            &selectors,
+        )
+        .map_err(anyhow::Error::new)?;
+        let surface = state
+            .resource_indexes
+            .content
+            .get(&ContentPublicId::Terminal(terminal_id.clone()))
+            .copied()
+            .with_context(|| format!("unknown terminal {terminal_id}"))?;
+        let now = now_ms();
+        let record = {
+            let records = self.agent_records.lock().unwrap();
+            match records.get(&surface) {
+                Some(existing)
+                    if existing.source == AgentSource::Hook && source == AgentSource::Socket =>
+                {
+                    existing.clone()
+                }
+                _ => AgentRecord {
+                    surface,
+                    state: agent_state,
+                    source,
+                    session: source_session,
+                    updated_at_ms: now,
+                },
+            }
+        };
+        let digest = Sha256::digest(format!("cmux.protocol/1/agent/{terminal_id}").as_bytes());
+        let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let agent_id =
+            AgentPublicId::parse(format!("agent_{payload}")).map_err(anyhow::Error::new)?;
+        let session_id = registry.session_id().clone();
+        let value = serde_json::json!({
+            "id":agent_id,
+            "session_id":session_id,
+            "terminal_id":terminal_id,
+            "state":record.state.as_str(),
+            "source":record.source.as_str(),
+            "updated_at_ms":record.updated_at_ms.to_string(),
+            "source_session":record.session,
+        });
+        let deltas = serde_json::json!([{
+            "kind":"upsert",
+            "sequence":0,
+            "resource":"agent",
+            "id":agent_id,
+            "value":value,
+        }]);
+        let commit = registry.commit_resource_patch(
+            mutation,
+            "agent.report",
+            &fingerprint,
+            None,
+            expected_revision,
+            &ResourcePatch { changes: Vec::new() },
+            &value,
+            &deltas,
+        )?;
+        state.resource_revision = commit.revision;
+        drop(state);
+        drop(registry);
+        if !commit.replayed {
+            self.agent_records.lock().unwrap().insert(surface, record);
+            self.publish_resource_event();
+        }
+        Ok(commit)
+    }
+
     /// Drop per-surface metadata for a surface that has left the tree.
     /// `SurfaceId` is monotonic, so without this every closed tab would
     /// leak an entry forever and `list-agents` would keep reporting dead
@@ -4884,6 +5292,8 @@ impl Mux {
     fn purge_surface_side_tables(&self, surface: SurfaceId) {
         self.agent_records.lock().unwrap().remove(&surface);
         self.surface_notifications.lock().unwrap().remove(&surface);
+        #[cfg(test)]
+        self.reserved_test_terminal_hosts.lock().unwrap().remove(&surface);
         let _lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
         sizing.surfaces.remove(&surface);
@@ -4978,6 +5388,7 @@ impl Mux {
             let Some(options) = runtime.options.clone() else {
                 return SidebarPluginStatus { surface: None, error: None, retry_after: None };
             };
+            runtime.last_size = Some(size);
             if let Some(surface_id) = runtime.surface {
                 if let Some(surface) = self.surface(surface_id).filter(|surface| !surface.is_dead())
                 {
@@ -5032,12 +5443,201 @@ impl Mux {
         }
     }
 
+    pub(crate) fn sidebar_plugin_status(&self) -> SidebarPluginStatus {
+        let runtime = self.sidebar_plugin.lock().unwrap();
+        let now = Instant::now();
+        let surface = runtime
+            .surface
+            .filter(|surface| self.surface(*surface).is_some_and(|surface| !surface.is_dead()));
+        SidebarPluginStatus {
+            surface,
+            error: runtime.last_error.clone(),
+            retry_after: runtime
+                .retry_at
+                .and_then(|retry_at| (retry_at > now).then(|| retry_at.duration_since(now))),
+        }
+    }
+
+    pub(crate) fn sidebar_plugin_surface(&self) -> Option<Arc<Surface>> {
+        let surface = self.sidebar_plugin.lock().unwrap().surface?;
+        self.surface(surface)
+    }
+
+    pub(crate) fn sidebar_plugin_resource_status(
+        &self,
+    ) -> (SidebarPluginStatus, Option<(u16, u16)>, bool) {
+        let runtime = self.sidebar_plugin.lock().unwrap();
+        let now = Instant::now();
+        let surface = runtime
+            .surface
+            .filter(|surface| self.surface(*surface).is_some_and(|surface| !surface.is_dead()));
+        (
+            SidebarPluginStatus {
+                surface,
+                error: runtime.last_error.clone(),
+                retry_after: runtime
+                    .retry_at
+                    .and_then(|retry_at| (retry_at > now).then(|| retry_at.duration_since(now))),
+            },
+            runtime.last_size,
+            runtime.options.is_some(),
+        )
+    }
+
+    pub(crate) fn reload_sidebar_plugin(
+        self: &Arc<Self>,
+        cols: u16,
+        rows: u16,
+    ) -> SidebarPluginStatus {
+        let old_surface = {
+            let mut runtime = self.sidebar_plugin.lock().unwrap();
+            runtime.last_size = Some((cols.max(1), rows.max(1)));
+            runtime.last_error = None;
+            runtime.failures = 0;
+            runtime.retry_at = None;
+            runtime.surface.take()
+        };
+        if let Some(surface) =
+            old_surface.and_then(|id| self.state.lock().unwrap().surfaces.remove(&id))
+        {
+            self.purge_surface_side_tables(surface.id);
+            surface.kill();
+            self.emit(MuxEvent::SurfaceExited(surface.id));
+        }
+        self.ensure_sidebar_plugin(cols, rows, true)
+    }
+
+    pub(crate) fn resource_resize_sidebar_selected(
+        &self,
+        selectors: crate::ResourceSelectors,
+        sidebar_id: &SidebarViewPublicId,
+        cols: u16,
+        rows: u16,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let cols = cols.max(1);
+        let rows = rows.max(1);
+        let fingerprint = serde_json::json!({
+            "operation":"sidebar_view.resize",
+            "selectors":selectors,
+            "sidebar_view":sidebar_id,
+            "cols":cols,
+            "rows":rows,
+        });
+        if let Some(replay) = self.workspace_registry.lock().unwrap().replay_resource_patch(
+            mutation,
+            "sidebar_view.resize",
+            &fingerprint,
+        )? {
+            return Ok(replay);
+        }
+        let raw = selectors.sidebar_view.as_deref().ok_or_else(|| {
+            anyhow::Error::new(ResourceError::selector_invalid(
+                "sidebar_view",
+                "<missing>",
+                "missing required sidebar_view selector",
+            ))
+        })?;
+        match Selector::parse(raw).map_err(anyhow::Error::new)? {
+            Selector::Current => {}
+            Selector::Id(id) if id == sidebar_id.as_str() => {}
+            Selector::Name(name) if matches!(name.as_str(), "sidebar" | "default") => {}
+            Selector::Id(_) | Selector::Name(_) => {
+                return Err(anyhow::Error::new(crate::resource::ResourceError::not_found(
+                    "sidebar_view",
+                    raw,
+                )));
+            }
+        }
+        let mut runtime = self.sidebar_plugin.lock().unwrap();
+        anyhow::ensure!(runtime.options.is_some(), "sidebar view is not configured");
+        let surface_id = runtime.surface.context("sidebar view is not running")?;
+        let surface = self
+            .state
+            .lock()
+            .unwrap()
+            .surfaces
+            .get(&surface_id)
+            .cloned()
+            .context("sidebar view surface disappeared")?;
+        anyhow::ensure!(!surface.is_dead(), "sidebar view is not running");
+        let mut session_selectors = selectors.clone();
+        session_selectors.sidebar_view = None;
+        let sidebar_id = sidebar_id.clone();
+        let commit = self.commit_resource_mutation_plan(
+            mutation,
+            "sidebar_view.resize",
+            &fingerprint,
+            None,
+            expected_revision,
+            move |state, registry| {
+                self.resolve_resource_path_in_state(
+                    state,
+                    registry,
+                    crate::ResourceTarget::Session,
+                    &session_selectors,
+                )
+                .map_err(anyhow::Error::new)?;
+                let value = serde_json::json!({
+                    "id":sidebar_id,
+                    "session_id":registry.session_id(),
+                    "cols":cols,
+                    "rows":rows,
+                    "running":true,
+                });
+                let deltas = serde_json::json!([{
+                    "kind":"upsert",
+                    "sequence":0,
+                    "resource":"sidebar_view",
+                    "id":sidebar_id,
+                    "value":value,
+                }]);
+                Ok(ResourceMutationPlan::new(
+                    ResourcePatch { changes: Vec::new() },
+                    value,
+                    deltas,
+                    move |_state| {
+                        let _ = surface.resize(cols, rows);
+                    },
+                )
+                .with_metrics(ResourceMutationMetrics {
+                    touched_resources: 1,
+                    order_entries: 0,
+                    terminal_queries: 0,
+                    changed_rows: 0,
+                }))
+            },
+        )?;
+        if !commit.replayed {
+            runtime.last_size = Some((cols, rows));
+        }
+        Ok(commit)
+    }
+
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> CellPixelUpdate {
         self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
     }
 
     pub fn cell_pixel_size(&self) -> (u16, u16) {
         *self.cell_pixels.lock().unwrap()
+    }
+
+    pub(crate) fn resource_terminal_host_identity(
+        &self,
+        surface: &Surface,
+    ) -> Option<TerminalHostIdentity> {
+        let identity = surface.terminal_host_identity();
+        #[cfg(test)]
+        {
+            identity.or_else(|| {
+                self.reserved_test_terminal_hosts.lock().unwrap().get(&surface.id).cloned()
+            })
+        }
+        #[cfg(not(test))]
+        {
+            identity
+        }
     }
 
     pub fn set_cell_pixel_size_reporting(
@@ -5077,18 +5677,79 @@ impl Mux {
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
-        {
+        let state = self.state.lock().unwrap();
+        let surfaces = {
             let mut current = self.default_colors.lock().unwrap();
             if *current == colors {
                 return;
             }
             *current = colors;
-        }
-        let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+            state.surfaces.values().cloned().collect::<Vec<_>>()
+        };
         for surface in surfaces {
             surface.set_default_colors(colors);
             self.emit(MuxEvent::SurfaceOutput(surface.id));
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn resource_update_terminal_defaults_selected(
+        &self,
+        selectors: crate::ResourceSelectors,
+        fields: &Value,
+        colors: DefaultColors,
+        value: &Value,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let mut intent_fields = fields.clone();
+        if let Some(fields) = intent_fields.as_object_mut() {
+            fields.remove("expected_revision");
+        }
+        let fingerprint = serde_json::json!({
+            "operation":"session.terminal_defaults.update",
+            "selectors":selectors,
+            "fields":intent_fields,
+        });
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(replay) = registry.replay_resource_patch(
+            mutation,
+            "session.terminal_defaults.update",
+            &fingerprint,
+        )? {
+            return Ok(replay);
+        }
+        let mut state = self.state.lock().unwrap();
+        self.resolve_resource_path_in_state(
+            &state,
+            &registry,
+            crate::ResourceTarget::Session,
+            &selectors,
+        )
+        .map_err(anyhow::Error::new)?;
+        let surfaces = state.surfaces.values().cloned().collect::<Vec<_>>();
+        let commit = registry.commit_resource_patch(
+            mutation,
+            "session.terminal_defaults.update",
+            &fingerprint,
+            None,
+            expected_revision,
+            &ResourcePatch { changes: Vec::new() },
+            value,
+            &Value::Array(Vec::new()),
+        )?;
+        state.resource_revision = commit.revision;
+        *self.default_colors.lock().unwrap() = colors;
+        for surface in surfaces {
+            surface.set_default_colors(colors);
+            self.emit(MuxEvent::SurfaceOutput(surface.id));
+        }
+        drop(state);
+        drop(registry);
+        if !commit.replayed {
+            self.publish_resource_event();
+        }
+        Ok(commit)
     }
 
     /// Resize a surface and broadcast the final clamped size when it actually
@@ -5719,8 +6380,8 @@ impl Mux {
             size,
             Some(reservation),
         )?;
-        let identity = surface
-            .terminal_host_identity()
+        let identity = self
+            .resource_terminal_host_identity(&surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
         let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
         Ok(TerminalPlacementResult {
@@ -6811,7 +7472,7 @@ impl Mux {
                 let hosted = tabs
                     .iter()
                     .filter_map(|id| state.surfaces.get(id))
-                    .filter_map(|surface| surface.terminal_host_identity())
+                    .filter_map(|surface| self.resource_terminal_host_identity(surface))
                     .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
                     .collect::<Vec<_>>();
                 let batch = registry.close_terminals_atomically(&mutation, &hosted)?;
@@ -8301,7 +8962,7 @@ impl Mux {
             let hosted = tabs
                 .iter()
                 .filter_map(|id| state.surfaces.get(id))
-                .filter_map(|surface| surface.terminal_host_identity())
+                .filter_map(|surface| self.resource_terminal_host_identity(surface))
                 .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
                 .collect::<Vec<_>>();
             let batch = registry.close_terminals_atomically(&mutation, &hosted)?;
@@ -8549,7 +9210,7 @@ impl Mux {
         }
         let hosted = spawned
             .iter()
-            .filter_map(|surface| surface.terminal_host_identity())
+            .filter_map(|surface| self.resource_terminal_host_identity(surface))
             .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
             .collect::<Vec<_>>();
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -8736,7 +9397,7 @@ impl Mux {
         let identity = unique_terminal_match(
             terminal_id,
             state.surfaces.values().filter_map(|surface| {
-                surface.terminal_host_identity().map(|identity| (surface.id, identity))
+                self.resource_terminal_host_identity(surface).map(|identity| (surface.id, identity))
             }),
         )?;
         let Some((surface, _)) = identity else {
@@ -8823,8 +9484,9 @@ impl Mux {
     /// out of its split tree.
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> bool {
         let move_tab = || {
-            let hosted_identity =
-                self.surface(surface).and_then(|surface| surface.terminal_host_identity());
+            let hosted_identity = self
+                .surface(surface)
+                .and_then(|surface| self.resource_terminal_host_identity(&surface));
             let mut registry =
                 hosted_identity.as_ref().map(|_| self.workspace_registry.lock().unwrap());
             let mut state = self.state.lock().unwrap();

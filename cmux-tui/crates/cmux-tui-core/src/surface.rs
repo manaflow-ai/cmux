@@ -2596,6 +2596,10 @@ impl Surface {
         self.as_pty().map(|pty| pty.command.join(" "))
     }
 
+    pub fn spawn_argv(&self) -> Option<Vec<String>> {
+        self.as_pty().map(|pty| pty.command.clone())
+    }
+
     pub fn spawn_cwd(&self) -> Option<String> {
         self.as_pty().and_then(|pty| pty.cwd.clone())
     }
@@ -2883,6 +2887,104 @@ impl Surface {
             anyhow::bail!("PTY surface is not a browser surface");
         };
         browser.activate()
+    }
+
+    pub(crate) fn browser_insert_text_confirmed(&self, text: &str) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.insert_text_confirmed(text)
+    }
+
+    pub(crate) fn browser_key_event_confirmed(
+        &self,
+        event_type: &str,
+        key: &str,
+        code: &str,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.key_event_confirmed(
+            event_type,
+            key,
+            code,
+            windows_virtual_key_code,
+            modifiers,
+            text,
+        )
+    }
+
+    pub(crate) fn browser_mouse_event_confirmed(
+        &self,
+        event_type: &str,
+        x: f64,
+        y: f64,
+        button: Option<&str>,
+        click_count: Option<u32>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.mouse_event_confirmed(event_type, x, y, button, click_count)
+    }
+
+    pub(crate) fn browser_wheel_confirmed(
+        &self,
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.wheel_confirmed(x, y, delta_x, delta_y)
+    }
+
+    pub(crate) fn browser_navigate_confirmed(&self, url: &str) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.navigate_confirmed(url)
+    }
+
+    pub(crate) fn browser_back_confirmed(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.back_confirmed()
+    }
+
+    pub(crate) fn browser_forward_confirmed(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.forward_confirmed()
+    }
+
+    pub(crate) fn browser_reload_confirmed(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.reload_confirmed()
+    }
+
+    pub(crate) fn browser_activate_confirmed(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.activate_confirmed()
+    }
+
+    pub(crate) fn browser_close_confirmed(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.close_confirmed()
     }
 }
 

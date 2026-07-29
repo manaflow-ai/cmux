@@ -48,6 +48,7 @@ pub struct BrowserFrameStream {
 
 pub(crate) type BrowserResizeOutcome = Result<(), Arc<str>>;
 pub(crate) type BrowserResizeWaiter = SyncSender<BrowserResizeOutcome>;
+type BrowserCommandOutcome = Result<(), Arc<str>>;
 
 pub(crate) struct PendingBrowserResize {
     pub reservation: u64,
@@ -182,6 +183,11 @@ enum BrowserCommand {
     Forward,
     Reload,
     Activate,
+    Close,
+    Confirmed {
+        command: Box<BrowserCommand>,
+        completion: SyncSender<BrowserCommandOutcome>,
+    },
     Reconfigure {
         queued: QueuedBrowserGeometry,
         report: Option<Box<dyn FnOnce(Option<u64>) + Send>>,
@@ -1004,11 +1010,15 @@ fn coalesce_worker_mouse_moves(batch: &mut Vec<BrowserCommand>) {
 
 fn run_browser_worker_command(
     surface: &Surface,
-    mut command: BrowserCommand,
+    command: BrowserCommand,
     mux: &Weak<Mux>,
     id: SurfaceId,
     failures: &mut BrowserWorkerErrorState,
 ) {
+    let (mut command, confirmed) = match command {
+        BrowserCommand::Confirmed { command, completion } => (*command, Some(completion)),
+        command => (command, None),
+    };
     let completion =
         if let BrowserCommand::Reconfigure { queued, report, completion } = &mut command {
             if let Some(report) = report.take() {
@@ -1057,6 +1067,10 @@ fn run_browser_worker_command(
             BrowserCommand::Forward => browser.forward_blocking(),
             BrowserCommand::Reload => browser.reload_blocking(),
             BrowserCommand::Activate => browser.activate_blocking(),
+            BrowserCommand::Close => browser.close_blocking(),
+            BrowserCommand::Confirmed { .. } => {
+                unreachable!("confirmed wrappers are removed before execution")
+            }
             BrowserCommand::Reconfigure { queued, .. } => {
                 browser.reconfigure_reserved_blocking(queued)
             }
@@ -1067,6 +1081,10 @@ fn run_browser_worker_command(
             }
         }
     };
+    if let Some(completion) = confirmed {
+        let outcome = result.as_ref().map(|_| ()).map_err(|error| Arc::from(error.to_string()));
+        let _ = completion.send(outcome);
+    }
     if is_reconfigure
         && result.is_ok()
         && let Some(mux) = mux.upgrade()
@@ -1739,6 +1757,15 @@ impl BrowserSurface {
         }
     }
 
+    fn execute_confirmed(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        let (completion, outcome) = sync_channel(1);
+        self.enqueue_control(BrowserCommand::Confirmed { command: Box::new(command), completion })?;
+        outcome
+            .recv()
+            .map_err(|_| anyhow::anyhow!("browser command worker closed before completion"))?
+            .map_err(anyhow::Error::msg)
+    }
+
     fn enqueue_reconfigure(&self, command: BrowserCommand) -> anyhow::Result<()> {
         if self.is_dead() {
             if let Some(queued) = reject_reconfigure(command) {
@@ -1886,6 +1913,23 @@ impl BrowserSurface {
         )
     }
 
+    pub(crate) fn mouse_event_confirmed(
+        &self,
+        event_type: &str,
+        x: f64,
+        y: f64,
+        button: Option<&str>,
+        click_count: Option<u32>,
+    ) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Mouse {
+            event_type: event_type.to_string(),
+            x,
+            y,
+            button: button.map(ToOwned::to_owned),
+            click_count,
+        })
+    }
+
     pub fn wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
         self.wheel_2d(x, y, 0.0, delta_y)
     }
@@ -1901,6 +1945,16 @@ impl BrowserSurface {
         let delta_x = self.scale_delta(delta_x);
         let delta_y = self.scale_delta(delta_y);
         session.runtime.client.dispatch_wheel(&session.session_id, x, y, delta_x, delta_y)
+    }
+
+    pub(crate) fn wheel_confirmed(
+        &self,
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+    ) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Wheel { x, y, delta_x, delta_y })
     }
 
     pub fn key_event(
@@ -1939,6 +1993,25 @@ impl BrowserSurface {
         )
     }
 
+    pub(crate) fn key_event_confirmed(
+        &self,
+        event_type: &str,
+        key: &str,
+        code: &str,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<&str>,
+    ) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Key {
+            event_type: event_type.to_string(),
+            key: key.to_string(),
+            code: code.to_string(),
+            windows_virtual_key_code,
+            modifiers,
+            text: text.map(ToOwned::to_owned),
+        })
+    }
+
     pub fn insert_text(&self, text: &str) -> anyhow::Result<()> {
         self.enqueue_bounded(BrowserCommand::InsertText(text.to_string()))
     }
@@ -1947,6 +2020,10 @@ impl BrowserSurface {
         let session = self.require_live_session()?;
         self.maybe_nudge_stalled_external(&session);
         session.runtime.client.insert_text(&session.session_id, text)
+    }
+
+    pub(crate) fn insert_text_confirmed(&self, text: &str) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::InsertText(text.to_string()))
     }
 
     pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
@@ -1965,6 +2042,10 @@ impl BrowserSurface {
         Ok(())
     }
 
+    pub(crate) fn navigate_confirmed(&self, url: &str) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Navigate(url.to_string()))
+    }
+
     pub fn back(&self) -> anyhow::Result<()> {
         self.enqueue_control(BrowserCommand::Back)
     }
@@ -1981,6 +2062,14 @@ impl BrowserSurface {
         self.navigate_history_blocking(1)
     }
 
+    pub(crate) fn back_confirmed(&self) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Back)
+    }
+
+    pub(crate) fn forward_confirmed(&self) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Forward)
+    }
+
     fn navigate_history_blocking(&self, delta: isize) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         let history = session.runtime.client.navigation_history(&session.session_id)?;
@@ -1993,7 +2082,8 @@ impl BrowserSurface {
         }
         let entry = &history.entries[next as usize];
         session.runtime.client.navigate_to_history_entry(&session.session_id, entry.id)?;
-        self.clear_error();
+        self.set_url_title(entry.url.clone(), entry.title.clone());
+        self.dirty.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -2008,6 +2098,10 @@ impl BrowserSurface {
         Ok(())
     }
 
+    pub(crate) fn reload_confirmed(&self) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Reload)
+    }
+
     pub fn activate(&self) -> anyhow::Result<()> {
         self.enqueue_control(BrowserCommand::Activate)
     }
@@ -2015,6 +2109,27 @@ impl BrowserSurface {
     fn activate_blocking(&self) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         session.runtime.client.activate_target(&session.target_id, &session.session_id)
+    }
+
+    pub(crate) fn activate_confirmed(&self) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Activate)
+    }
+
+    fn close_blocking(&self) -> anyhow::Result<()> {
+        let session = self.require_live_session()?;
+        session.runtime.client.close_target(&session.target_id)?;
+        if !self.dead.swap(true, Ordering::AcqRel) {
+            self.close_taps();
+            if let Some(session) = self.session.lock().unwrap().take() {
+                session.runtime.unregister(&session.target_id, &session.session_id);
+            }
+            self.close_command_sender();
+        }
+        Ok(())
+    }
+
+    pub(crate) fn close_confirmed(&self) -> anyhow::Result<()> {
+        self.execute_confirmed(BrowserCommand::Close)
     }
 
     fn handle_javascript_dialog(&self, accept: bool) -> anyhow::Result<()> {

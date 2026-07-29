@@ -1,3 +1,4 @@
+use super::resource_store::{apply_resource_patch, validate_resource_patch};
 use super::*;
 use crate::resource::ResourceError;
 
@@ -216,6 +217,80 @@ impl WorkspaceRegistry {
         Ok(revision)
     }
 
+    /// Atomically persists the durable topology produced by an external
+    /// effect, its typed event delta, and the effect receipt outcome.
+    ///
+    /// Callers must transition the receipt to `executing` before performing
+    /// the effect. A transaction failure leaves that receipt executing, so a
+    /// restart converts it to `indeterminate` and never repeats the effect
+    /// under the same key.
+    pub fn commit_resource_effect_patch(
+        &mut self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+        patch: &ResourcePatch,
+        result: &Value,
+        deltas: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        validate_identifier("idempotency key", idempotency_key)?;
+        validate_identifier("resource operation", operation)?;
+        validate_resource_patch(patch)?;
+        let fingerprint = canonical_json(fingerprint)?;
+        let outcome = ResourceEffectOutcome::Success(result.clone());
+        let outcome_json = canonical_json(&serde_json::to_value(&outcome)?)?;
+        let deltas_json = canonical_json(deltas)?;
+        let tx = self.connection.transaction()?;
+        let (stored_operation, stored_fingerprint, state, _) =
+            read_effect_record(&tx, idempotency_key)?.ok_or_else(|| {
+                anyhow::anyhow!("resource effect intent {idempotency_key:?} is missing")
+            })?;
+        require_effect_identity(
+            idempotency_key,
+            operation,
+            &fingerprint,
+            &stored_operation,
+            &stored_fingerprint,
+        )?;
+        anyhow::ensure!(
+            state == "executing",
+            "resource effect {idempotency_key:?} cannot commit from state {state:?}"
+        );
+
+        let previous_revision = transaction_resource_revision(&tx)?;
+        let revision = previous_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+        apply_resource_patch(&tx, patch, sqlite_revision)?;
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO resource_events(
+               revision, previous_revision, origin, idempotency_key, deltas_json
+             ) VALUES(?1, ?2, 'resource-api', ?3, ?4)",
+            params![
+                sqlite_revision,
+                i64::try_from(previous_revision)
+                    .context("resource revision exceeds SQLite range")?,
+                idempotency_key,
+                deltas_json,
+            ],
+        )?;
+        prune_resource_events(&tx)?;
+        tx.execute(
+            "UPDATE resource_effect_receipts
+             SET state = 'committed', outcome_json = ?2, committed_revision = ?3
+             WHERE idempotency_key = ?1 AND state = 'executing'",
+            params![idempotency_key, outcome_json, sqlite_revision],
+        )?;
+        tx.commit()?;
+        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+    }
+
     pub fn mark_resource_effect_indeterminate(
         &mut self,
         idempotency_key: &str,
@@ -321,7 +396,7 @@ fn require_effect_identity(
 ) -> anyhow::Result<()> {
     if operation != stored_operation || fingerprint != stored_fingerprint {
         anyhow::bail!(
-            "idempotency.conflict: key {idempotency_key} was reused with different input"
+            "idempotency.conflict: key {idempotency_key} committed_operation {stored_operation} was reused with different input"
         );
     }
     Ok(())
@@ -463,6 +538,72 @@ mod tests {
         );
         drop(reopened);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn effect_patch_commits_topology_event_and_receipt_together() {
+        let mut registry = WorkspaceRegistry::in_memory("effect-patch").unwrap();
+        let fingerprint = serde_json::json!({"name":"one"});
+        let intent = serde_json::json!({"reserved":"workspace"});
+        registry
+            .prepare_resource_effect(
+                "effect-patch-key",
+                "workspace.create",
+                &fingerprint,
+                &intent,
+                None,
+                Some(0),
+            )
+            .unwrap();
+        registry
+            .mark_resource_effect_executing("effect-patch-key", "workspace.create", &fingerprint)
+            .unwrap();
+        let workspace = RegistryWorkspace {
+            id: 1,
+            public_id: WorkspacePublicId::parse(format!("ws_{}", "1".repeat(32))).unwrap(),
+            key: "one".into(),
+            name: "One".into(),
+            group_key: "effect-patch".into(),
+        };
+        let patch = ResourcePatch {
+            changes: vec![
+                ResourceChange::UpsertWorkspace {
+                    workspace: workspace.clone(),
+                    position: 0,
+                    active_screen: None,
+                },
+                ResourceChange::SetWorkspaceOrder {
+                    workspace_ids: vec![workspace.public_id.clone()],
+                },
+                ResourceChange::SetActiveWorkspace {
+                    workspace_id: Some(workspace.public_id.clone()),
+                },
+            ],
+        };
+        let result = serde_json::json!({"workspace_id":workspace.public_id});
+        let deltas = serde_json::json!([{"kind":"upsert","resource":"workspace"}]);
+        let commit = registry
+            .commit_resource_effect_patch(
+                "effect-patch-key",
+                "workspace.create",
+                &fingerprint,
+                &patch,
+                &result,
+                &deltas,
+            )
+            .unwrap();
+        assert_eq!(commit.revision, 1);
+        assert_eq!(registry.resource_topology_snapshot().unwrap().revision, 1);
+        assert_eq!(registry.resource_events_after(0).unwrap().batches[0].changes, deltas);
+        assert_eq!(
+            registry
+                .lookup_resource_effect("effect-patch-key", "workspace.create", &fingerprint,)
+                .unwrap(),
+            Some(ResourceEffectPreparation::Committed {
+                outcome: ResourceEffectOutcome::Success(result),
+                revision: 1,
+            })
+        );
     }
 
     #[test]

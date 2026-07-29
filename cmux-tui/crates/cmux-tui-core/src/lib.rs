@@ -20,6 +20,7 @@ mod resource_mutation;
 mod resource_router;
 mod resource_selector;
 mod short_id;
+mod sidebar_resource;
 mod surface;
 mod workspace_registry;
 
