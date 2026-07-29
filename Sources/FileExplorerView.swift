@@ -408,6 +408,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
+        @MainActor
         private func applyNodeChanges(
             _ changes: [(node: FileExplorerNode, reloadChildren: Bool, expansion: Bool?)]
         ) -> Bool {
@@ -460,6 +461,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             return true
         }
 
+        @MainActor
         private func refreshVisibleCell(
             for node: FileExplorerNode,
             at row: Int,
