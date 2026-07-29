@@ -54,21 +54,25 @@ extension Workspace {
     }
 
     func hasAuthoritativelyConnectedRemoteTerminal(
-        in externalDocks: [DockSplitStore]
+        in externalDocks: [DockSplitStore],
+        excludingSurfaceId: UUID? = nil
     ) -> Bool {
         guard let configuration = remoteConfiguration else { return false }
         let hasConnectedWorkspaceSurface = activeRemoteTerminalSurfaceIds.contains {
+            guard $0 != excludingSurfaceId else { return false }
             guard let state = remoteTerminalSessionStatesBySurfaceId[$0] else { return false }
             return state.phase == .connected && state.authority.matches(configuration)
         }
         let workspaceDockIsConnected = _dockSplit?.hasAuthoritativelyConnectedRemoteTerminal(
             presentationWorkspaceID: id,
-            configuration: configuration
+            configuration: configuration,
+            excludingPanelId: excludingSurfaceId
         ) == true
         let externalDockIsConnected = externalDocks.contains {
             $0.hasAuthoritativelyConnectedRemoteTerminal(
                 presentationWorkspaceID: id,
-                configuration: configuration
+                configuration: configuration,
+                excludingPanelId: excludingSurfaceId
             )
         }
         return hasConnectedWorkspaceSurface || workspaceDockIsConnected || externalDockIsConnected
@@ -254,7 +258,9 @@ extension Workspace {
                 allowUntracked: true,
                 terminalLifecycleID: terminalLifecycleID,
                 terminalLifecycleAlreadyValidated: true,
-                deferPresentationReconciliationUntilDockCommit: true
+                deferPresentationReconciliationUntilDockCommit: true,
+                recordLifecycleTombstone: false,
+                livenessExcludingSurfaceId: surfaceId
             )
         }
         if didEnd {

@@ -158,10 +158,12 @@ extension DockSplitStore {
 
     func hasAuthoritativelyConnectedRemoteTerminal(
         presentationWorkspaceID: UUID,
-        configuration: WorkspaceRemoteConfiguration
+        configuration: WorkspaceRemoteConfiguration,
+        excludingPanelId: UUID? = nil
     ) -> Bool {
         detachedSurfaceTransfersByPanelId.values.contains { transfer in
-            guard ownsRemoteTerminalTransfer(
+            guard transfer.panelId != excludingPanelId,
+                  ownsRemoteTerminalTransfer(
                       panelId: transfer.panelId,
                       presentationWorkspaceID: presentationWorkspaceID
                   ),

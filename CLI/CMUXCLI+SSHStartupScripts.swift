@@ -367,13 +367,15 @@ extension CMUXCLI {
             "cmux_ssh_register_attempt() { \(lifecycleLaunching); }",
             "cmux_ssh_begin_attempt() { CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; cmux_ssh_attempt_registration_retry=0; while ! cmux_ssh_register_attempt; do cmux_ssh_attempt_registration_retry=$((cmux_ssh_attempt_registration_retry + 1)); if [ \"$cmux_ssh_attempt_registration_retry\" -ge 3 ]; then return 1; fi; /bin/sleep 0.1; done; }",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleCleanup); }",
-            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleRetirement); trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
+            "cmux_ssh_retire_and_exit() { cmux_ssh_retirement_status=\"$1\"; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleRetirement); trap - EXIT HUP INT TERM; exit \"$cmux_ssh_retirement_status\"; }",
+            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; cmux_ssh_retire_and_exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129' HUP",
             "trap 'cmux_ssh_signal_exit 130' INT",
             "trap 'cmux_ssh_signal_exit 143' TERM",
             "cmux_ssh_begin_attempt || exit 1",
             "while :; do",
+            "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_and_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
         ]
         if hasOneTimeCommand {
             scriptLines.append("  if [ \"$cmux_ssh_reauth_required\" -eq 1 ]; then")

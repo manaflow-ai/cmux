@@ -6275,7 +6275,9 @@ final class Workspace: Identifiable, ObservableObject {
         allowUntracked: Bool = false,
         terminalLifecycleID: UUID? = nil,
         terminalLifecycleAlreadyValidated: Bool = false,
-        deferPresentationReconciliationUntilDockCommit: Bool = false
+        deferPresentationReconciliationUntilDockCommit: Bool = false,
+        recordLifecycleTombstone: Bool = true,
+        livenessExcludingSurfaceId: UUID? = nil
     ) -> Bool {
         if let terminalLifecycleID, !terminalLifecycleAlreadyValidated {
             guard let terminalPanel = panels[surfaceId] as? TerminalPanel,
@@ -6293,10 +6295,16 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let recordedLifecycleTombstone: Bool
         if let terminalLifecycleID {
-            endedRemoteTerminalLifecycleIDsBySurfaceId[surfaceId] =
-                terminalLifecycleID
+            if recordLifecycleTombstone {
+                endedRemoteTerminalLifecycleIDsBySurfaceId[surfaceId] =
+                    terminalLifecycleID
+            } else {
+                endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(
+                    forKey: surfaceId
+                )
+            }
             remoteTerminalAttemptIDsBySurfaceId.removeValue(forKey: surfaceId)
-            recordedLifecycleTombstone = true
+            recordedLifecycleTombstone = recordLifecycleTombstone
         } else {
             recordedLifecycleTombstone = false
         }
@@ -6341,6 +6349,12 @@ final class Workspace: Identifiable, ObservableObject {
         notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
         if activeRemoteTerminalSurfaceIds.isEmpty {
             guard !preservesRemotePTYSession else { return true }
+            if hasAuthoritativelyConnectedRemoteTerminal(
+                in: DockSplitStore.liveStores,
+                excludingSurfaceId: livenessExcludingSurfaceId
+            ) {
+                return true
+            }
             let shouldCleanupControlMaster =
                 configuration.relayPort != nil &&
                 configuration.transport == .ssh &&
