@@ -288,15 +288,15 @@ struct WorkspaceDetailView: View {
                 ) { reconnectToWorkspaceMac() }
             }
         }
-        .onChange(of: connectionStatus, initial: true) { _, status in
-            presentConnectionStatusToast(for: status)
+        .onChange(of: connectionStatus, initial: true) { previous, status in
+            presentConnectionStatusToast(from: previous, to: status)
         }
         .onChange(of: toasts.isEnabled) { _, isEnabled in
             // Flipping the flag doesn't re-fire the status onChange, so a
             // workspace that is already disconnected when Toasts turns on
             // would otherwise show only the pill.
             if isEnabled {
-                presentConnectionStatusToast(for: connectionStatus)
+                presentConnectionStatusToast(from: connectionStatus, to: connectionStatus)
             }
         }
         #if os(iOS) && DEBUG
@@ -360,7 +360,10 @@ struct WorkspaceDetailView: View {
         }
     }
 
-    private func presentConnectionStatusToast(for status: MobileMacConnectionStatus) {
+    private func presentConnectionStatusToast(
+        from previous: MobileMacConnectionStatus,
+        to status: MobileMacConnectionStatus
+    ) {
         guard toasts.isEnabled else { return }
         // While reauth is required, the recovery overlay owns the
         // never-dismissing account-mismatch toast on the same coalescing key.
@@ -375,11 +378,15 @@ struct WorkspaceDetailView: View {
         case .reconnecting:
             toasts.present(.connectionReconnecting())
         case .connected:
-            // The always-mounted shell owns connected-transition cleanup
-            // (dismiss + "Reconnected" success). Dismissing here too would
-            // race it: the success toast shares the coalescing key, so a
-            // dismiss landing after the shell's present kills the toast.
-            break
+            // A workspace-scoped recovery (markMacConnectionHealthy on an
+            // existing client) reaches .connected with no connectionState
+            // transition, so the shell's observer never fires for it. Present
+            // the success toast here for a genuine recovery; on the initial
+            // fire previous == status, so mounting stays silent. Presenting
+            // (never bare-dismissing) can't kill the shell's success toast:
+            // same coalescing key means the later present replaces in place.
+            guard previous != .connected else { break }
+            toasts.present(.connectionReconnected())
         }
     }
 
