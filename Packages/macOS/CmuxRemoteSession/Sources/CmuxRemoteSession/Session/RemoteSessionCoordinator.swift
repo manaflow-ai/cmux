@@ -79,6 +79,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var daemonReady = false
     var daemonBootstrapVersion: String?
     var daemonRemotePath: String?
+    var reverseRelayStartupPhase = ReverseRelayStartupPhase.idle
     var reverseRelayProcess: Process?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]

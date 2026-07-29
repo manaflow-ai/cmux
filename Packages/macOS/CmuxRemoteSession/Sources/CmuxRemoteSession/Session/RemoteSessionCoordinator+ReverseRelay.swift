@@ -25,8 +25,27 @@ extension RemoteSessionCoordinator {
             return
         }
         guard reverseRelayProcess == nil else { return }
+        guard reverseRelayStartupPhase.isIdle else { return }
 
         cancelReverseRelayRestartLocked()
+        beginInheritedReverseRelayCancellationLocked(
+            remotePath: remotePath,
+            relayPort: relayPort,
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath
+        )
+    }
+
+    func launchReverseRelayLocked(
+        remotePath: String,
+        relayPort: Int,
+        relayID: String,
+        relayToken: String,
+        localSocketPath: String
+    ) {
+        guard !isStopping, daemonReady, reverseRelayProcess == nil else { return }
+
         var relayServer: RemoteCLIRelayServer?
         do {
             let server = try ensureCLIRelayServerLocked(
@@ -41,7 +60,6 @@ extension RemoteSessionCoordinator {
                 relayPort: relayPort,
                 persistentDaemonSlot: configuration.persistentDaemonSlot
             )
-            cancelInheritedReverseRelayForwardLocked(relayPort: relayPort)
 
             let process = Process()
             let stderrPipe = Pipe()
@@ -201,6 +219,7 @@ extension RemoteSessionCoordinator {
 
     @discardableResult
     func stopReverseRelayLocked(cleanupScope: RemoteRelayCleanupScope = .transport) -> Bool {
+        cancelReverseRelayStartupLocked()
         reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
         if let reverseRelayProcess, reverseRelayProcess.isRunning {
             reverseRelayProcess.terminate()
@@ -225,40 +244,6 @@ extension RemoteSessionCoordinator {
             configuration.destination,
         ]
         return args
-    }
-
-    /// Removes a reverse forward left on a ControlPersist master by a
-    /// pre-dedicated-relay app instance. Do not require an explicit
-    /// `ControlPath`: `ssh -O` can resolve one from the user's host config,
-    /// and exits without creating a connection when no master is available.
-    private func cancelInheritedReverseRelayForwardLocked(relayPort: Int) {
-        let forwardSpec = "127.0.0.1:\(relayPort)"
-        let arguments = sshCommonArguments(batchMode: true) + [
-            "-O", "cancel",
-            "-R", forwardSpec,
-            configuration.destination,
-        ]
-        do {
-            let result = try sshExec(arguments: arguments, timeout: 4)
-            guard result.status == 0 else {
-                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                    ?? "ssh exited \(result.status)"
-                debugLog(
-                    "remote.relay.inheritedForward.cancelIgnored " +
-                    "relayPort=\(relayPort) \(detail) \(debugConfigSummary())"
-                )
-                return
-            }
-            debugLog(
-                "remote.relay.inheritedForward.cancelled " +
-                "relayPort=\(relayPort) \(debugConfigSummary())"
-            )
-        } catch {
-            debugLog(
-                "remote.relay.inheritedForward.cancelIgnored " +
-                "relayPort=\(relayPort) \(error.localizedDescription) \(debugConfigSummary())"
-            )
-        }
     }
 
     private func ensureCLIRelayServerLocked(localSocketPath: String, relayID: String, relayToken: String) throws -> RemoteCLIRelayServer {
