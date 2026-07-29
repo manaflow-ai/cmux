@@ -39,6 +39,10 @@ public struct SSHHostConfiguredRemoteCommand: Sendable {
 
     /// Parses the effective `RemoteCommand` from `ssh -G` output.
     ///
+    /// OpenSSH expands supported percent tokens before its `config_test`
+    /// (`-G`) dump, so the returned value is already the command that SSH
+    /// would send and must not be expanded a second time.
+    ///
     /// - Parameter output: Standard output from `ssh -G <destination>`.
     /// - Returns: The configured command, or `nil` when OpenSSH reports `none`.
     public func configuredCommand(fromSSHConfigOutput output: String) -> String? {
