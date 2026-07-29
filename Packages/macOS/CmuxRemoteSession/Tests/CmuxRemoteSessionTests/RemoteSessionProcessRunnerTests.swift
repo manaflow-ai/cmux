@@ -165,27 +165,30 @@ struct RemoteSessionProcessRunnerTests {
     }
 
     @Test("A descendant retaining unread stdin cannot outlive the process timeout")
-    func inheritedUnreadStdinCannotOutliveProcessTimeout() {
+    func inheritedUnreadStdinCannotOutliveProcessTimeout() throws {
         let runner = RemoteSessionProcessRunner()
-        let startedAt = ProcessInfo.processInfo.systemUptime
+        let outcome = try #require(runProcess(
+            runner,
+            request: RemoteProcessRequest(
+                executable: "/bin/sh",
+                arguments: ["-c", "sleep 5 <&0 &"],
+                stdin: Data(repeating: 0x41, count: 1_048_576),
+                timeout: 1
+            ),
+            completingWithin: 4
+        ))
 
-        #expect {
-            try runner.run(
-                RemoteProcessRequest(
-                    executable: "/bin/sh",
-                    arguments: ["-c", "sleep 5 <&0 >/dev/null 2>&1 &"],
-                    stdin: Data(repeating: 0x41, count: 1_048_576),
-                    timeout: 1
-                ),
-                operation: nil
-            )
-        } throws: { error in
+        switch outcome {
+        case .success:
+            Issue.record("Expected the inherited stdin request to time out")
+        case .failure(let error):
             let nsError = error as NSError
-            return nsError.domain == "cmux.remote.process"
+            #expect(
+                nsError.domain == "cmux.remote.process"
                 && nsError.code == 2
                 && nsError.localizedDescription == "sh timed out after 1s"
+            )
         }
-        #expect(ProcessInfo.processInfo.systemUptime - startedAt < 4)
     }
 
     @Test("Streams a local file through stdin")
@@ -280,4 +283,42 @@ private func waitForProcessExit(_ processIdentifier: pid_t, timeout: TimeInterva
         Thread.sleep(forTimeInterval: 0.01)
     } while DispatchTime.now() < deadline
     return false
+}
+
+private final class RemoteProcessRunRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedResult: Result<RemoteCommandResult, any Error>?
+
+    var result: Result<RemoteCommandResult, any Error>? {
+        lock.withLock { storedResult }
+    }
+
+    func record(_ result: Result<RemoteCommandResult, any Error>) {
+        lock.withLock {
+            storedResult = result
+        }
+    }
+}
+
+private func runProcess(
+    _ runner: RemoteSessionProcessRunner,
+    request: RemoteProcessRequest,
+    completingWithin timeout: TimeInterval
+) -> Result<RemoteCommandResult, any Error>? {
+    let recorder = RemoteProcessRunRecorder()
+    let completed = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .userInitiated).async {
+        recorder.record(Result {
+            try runner.run(request, operation: nil)
+        })
+        completed.signal()
+    }
+
+    guard completed.wait(timeout: .now() + timeout) == .success else {
+        // The fixture exits after five seconds, so reap the test-owned work
+        // before returning a failure and starting another subprocess test.
+        completed.wait()
+        return nil
+    }
+    return recorder.result
 }
