@@ -41,6 +41,35 @@ import Testing
         #expect(!session.hasMarkedText)
     }
 
+    @Test func transformedInsertionsDoNotAccumulateOutsideMarkedText() {
+        var session = TerminalTextInputEditSession()
+        var committedCount = 0
+        var retainedMarkedText = false
+
+        for index in 0..<4_096 {
+            let transformedText = "\(index % 10)"
+            session.beginEvent(
+                translatedText: "native-\(index)",
+                rawText: "native-\(index)"
+            )
+            #expect(session.insertText(
+                transformedText,
+                replacementRange: NSRange(
+                    location: NSNotFound,
+                    length: 0
+                )
+            ).isEmpty)
+            committedCount += session.finishEvent(
+                consumedByTextInput: true
+            ).count
+            retainedMarkedText = retainedMarkedText ||
+                session.hasMarkedText
+        }
+
+        #expect(committedCount == 4_096)
+        #expect(!retainedMarkedText)
+    }
+
     @Test(arguments: ["\u{001B}", "\u{0008}", "\u{007F}"])
     func controlCallbacksNeverBecomeProvisionalText(_ controlText: String) {
         var session = TerminalTextInputEditSession()
