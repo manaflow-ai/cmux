@@ -221,10 +221,16 @@ type wsPTYSessionStart struct {
 	done    chan struct{}
 	err     error
 	session *wsPTYSession
-	// waiters counts joiners only until the owner publishes or discards the
-	// completed start; the count is never consulted after done closes.
-	waiters        int
+	// waiters retains the contexts of joiners until the owner publishes or
+	// discards the completed start. Publication marks only contexts that are
+	// still live as initial claimants, linearizing disconnect against publish.
+	waiters        map[*wsPTYSessionStartWaiter]struct{}
 	closeRequested bool
+}
+
+type wsPTYSessionStartWaiter struct {
+	ctx     context.Context
+	claimed bool
 }
 
 type wsPTYHub struct {
@@ -1000,7 +1006,8 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 				h.mu.Unlock()
 				return nil, nil, nil, errWSPTYStartWaitersSaturated
 			}
-			start.waiters++
+			waiter := &wsPTYSessionStartWaiter{ctx: operationCtx}
+			start.waiters[waiter] = struct{}{}
 			if reservationReady != nil {
 				reservationReady()
 			}
@@ -1012,25 +1019,28 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 				if start.err != nil {
 					return nil, nil, nil, start.err
 				}
+				if !waiter.claimed {
+					return nil, nil, nil, operationCtx.Err()
+				}
 				claimedSession = start.session
 				ownsInitialClaim = claimedSession != nil
 			case <-closedCh:
 				<-h.sessionStartWaiterSlots
 				h.mu.Lock()
-				if start.session != nil {
+				if start.session != nil && waiter.claimed {
 					h.releaseInitialClaimLocked(start.session)
 				} else {
-					start.waiters--
+					delete(start.waiters, waiter)
 				}
 				h.mu.Unlock()
 				return nil, nil, nil, errWSPTYHubClosed
 			case <-operationCtx.Done():
 				<-h.sessionStartWaiterSlots
 				h.mu.Lock()
-				if start.session != nil {
+				if start.session != nil && waiter.claimed {
 					h.releaseInitialClaimLocked(start.session)
 				} else {
-					start.waiters--
+					delete(start.waiters, waiter)
 				}
 				h.mu.Unlock()
 				return nil, nil, nil, operationCtx.Err()
@@ -1048,7 +1058,10 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 			h.mu.Unlock()
 			return nil, nil, nil, errWSPTYStartOwnersSaturated
 		}
-		start := &wsPTYSessionStart{done: make(chan struct{})}
+		start := &wsPTYSessionStart{
+			done:    make(chan struct{}),
+			waiters: map[*wsPTYSessionStartWaiter]struct{}{},
+		}
 		h.startingSessions[sessionKey] = start
 		if reservationReady != nil {
 			reservationReady()
@@ -1064,6 +1077,13 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 		delete(h.startingSessions, sessionKey)
 		if startErr == nil {
 			ownerContextErr := operationCtx.Err()
+			liveWaiters := 0
+			for waiter := range start.waiters {
+				if waiter.ctx.Err() == nil {
+					waiter.claimed = true
+					liveWaiters++
+				}
+			}
 			switch existingSession := h.sessions[sessionKey]; {
 			case h.closed:
 				startErr = errWSPTYHubClosed
@@ -1071,17 +1091,17 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 			case start.closeRequested:
 				startErr = fmt.Errorf("persistent PTY session %q was closed while starting", sessionID)
 				discardStartedSession = true
-			case ownerContextErr != nil && start.waiters == 0:
+			case ownerContextErr != nil && liveWaiters == 0:
 				startErr = ownerContextErr
 				discardStartedSession = true
 			case existingSession != nil && !existingSession.closed:
 				discardStartedSession = true
 			default:
 				// A completed persistent generation deliberately survives a
-				// transport gap when a counted joiner is canceled concurrently.
-				// Its initial claim is released by that joiner and the ordinary
-				// idle reaper bounds retention until the wrapper reconnects.
-				startedSession.initialClaims = start.waiters
+				// transport gap when a joiner counted live at publication
+				// cancels immediately afterward. Its initial claim is released
+				// by that joiner and the idle reaper bounds retention.
+				startedSession.initialClaims = liveWaiters
 				if ownerContextErr == nil {
 					startedSession.initialClaims++
 					claimedSession = startedSession
