@@ -64,6 +64,20 @@ nonisolated struct AgentConversationSource: Sendable {
 
     var hasDeterministicTranscriptSource: Bool {
         switch kind {
+        case .opencode:
+            openCodeDatabasePath != nil
+        case .hermesAgent:
+            hermesStateDatabaseURL != nil
+        default:
+            transcriptURL != nil
+        }
+    }
+
+    /// Provider databases and captured transcript paths are authoritative. A
+    /// provider without captured storage identity must still fail closed rather
+    /// than falling back to indexed discovery or the current process's home.
+    var requiresAuthoritativeTranscriptRead: Bool {
+        switch kind {
         case .opencode, .hermesAgent:
             true
         default:
@@ -138,7 +152,7 @@ nonisolated struct AgentConversationReaderRegistry: Sendable {
                 if let turns, !turns.isEmpty {
                     return turns
                 }
-                if source.hasDeterministicTranscriptSource {
+                if source.requiresAuthoritativeTranscriptRead {
                     guard case .some = turns else {
                         throw AgentConversationExportError.sourceUnavailable(source.kind.rawValue)
                     }
@@ -147,7 +161,7 @@ nonisolated struct AgentConversationReaderRegistry: Sendable {
             } catch let error as CancellationError {
                 throw error
             } catch {
-                if source.hasDeterministicTranscriptSource {
+                if source.requiresAuthoritativeTranscriptRead {
                     agentConversationExportLogger.error(
                         "Authoritative conversation reader failed kind=\(source.kind.rawValue, privacy: .public): \(error.localizedDescription, privacy: .private)"
                     )

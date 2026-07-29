@@ -16,13 +16,21 @@ extension AgentLaunchCommandSnapshot {
            !path.isEmpty {
             selectedEnvironment["PATH"] = path
         }
-        if launcher == "opencode" {
-            // Storage identity is captured for transcript lookup; resume policy intentionally does not replay it.
-            for key in ["HOME", "XDG_DATA_HOME"] {
-                if let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !value.isEmpty {
-                    selectedEnvironment[key] = value
-                }
+        let storageIdentityKeys: [String]
+        switch launcher {
+        case "opencode":
+            storageIdentityKeys = ["HOME", "XDG_DATA_HOME"]
+        case "hermes", "hermes-agent":
+            storageIdentityKeys = ["HOME"]
+        default:
+            storageIdentityKeys = []
+        }
+        // Storage identity is captured for transcript lookup; resume policy
+        // intentionally filters these keys before relaunching the agent.
+        for key in storageIdentityKeys {
+            if let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
+                selectedEnvironment[key] = value
             }
         }
         self.init(

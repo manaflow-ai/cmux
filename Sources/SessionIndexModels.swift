@@ -150,7 +150,6 @@ enum OpenCodeDatabaseSnapshot {
     }
 
     private static let defaultSourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
-    private static let copyChunkBytes = 256 * 1_024
 
     static func make(
         prefix: String,
@@ -178,26 +177,21 @@ enum OpenCodeDatabaseSnapshot {
         try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
 
         let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
-        var copiedBytes = 0
         do {
-            try copyFile(
-                from: URL(fileURLWithPath: resolvedSourcePath, isDirectory: false),
-                to: snapshotDB,
-                maximumTotalBytes: maximumTotalBytes,
-                copiedBytes: &copiedBytes
+            try SQLiteDatabaseSnapshotService().copyDatabase(
+                from: resolvedSourcePath,
+                to: snapshotDB.path,
+                maximumBytes: maximumTotalBytes
             )
-            for sidecar in ["-wal", "-shm"] {
-                let source = resolvedSourcePath + sidecar
-                let destination = snapshotDB.path + sidecar
-                if fileManager.fileExists(atPath: source) {
-                    try copyFile(
-                        from: URL(fileURLWithPath: source, isDirectory: false),
-                        to: URL(fileURLWithPath: destination, isDirectory: false),
-                        maximumTotalBytes: maximumTotalBytes,
-                        copiedBytes: &copiedBytes
-                    )
-                }
-            }
+        } catch SQLiteDatabaseSnapshotError.snapshotTooLarge(let maximumBytes) {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw snapshotTooLargeError(maximumBytes: maximumBytes)
+        } catch SQLiteDatabaseSnapshotError.sqlite(let message) {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw CocoaError(
+                .fileReadCorruptFile,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
         } catch {
             try? fileManager.removeItem(at: snapshotDir)
             throw error
@@ -206,53 +200,14 @@ enum OpenCodeDatabaseSnapshot {
         return Snapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
     }
 
-    private static func copyFile(
-        from sourceURL: URL,
-        to destinationURL: URL,
-        maximumTotalBytes: Int?,
-        copiedBytes: inout Int
-    ) throws {
-        try Task.checkCancellation()
-        try Data().write(to: destinationURL, options: .withoutOverwriting)
-        let source = try FileHandle(forReadingFrom: sourceURL)
-        defer { try? source.close() }
-        let destination = try FileHandle(forWritingTo: destinationURL)
-        defer { try? destination.close() }
-
-        while true {
-            try Task.checkCancellation()
-            let readCount: Int
-            if let maximumTotalBytes {
-                let remaining = maximumTotalBytes - copiedBytes
-                guard remaining >= 0 else {
-                    throw CocoaError(
-                        .fileReadTooLarge,
-                        userInfo: [
-                            NSLocalizedDescriptionKey:
-                                "OpenCode database snapshot exceeds the \(maximumTotalBytes)-byte transfer limit."
-                        ]
-                    )
-                }
-                readCount = min(copyChunkBytes, max(1, remaining))
-            } else {
-                readCount = copyChunkBytes
-            }
-            guard let data = try source.read(upToCount: readCount), !data.isEmpty else {
-                return
-            }
-            if let maximumTotalBytes,
-               data.count > maximumTotalBytes - copiedBytes {
-                throw CocoaError(
-                    .fileReadTooLarge,
-                    userInfo: [
-                        NSLocalizedDescriptionKey:
-                            "OpenCode database snapshot exceeds the \(maximumTotalBytes)-byte transfer limit."
-                    ]
-                )
-            }
-            try destination.write(contentsOf: data)
-            copiedBytes += data.count
-        }
+    private static func snapshotTooLargeError(maximumBytes: Int) -> CocoaError {
+        CocoaError(
+            .fileReadTooLarge,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "OpenCode database snapshot exceeds the \(maximumBytes)-byte transfer limit."
+            ]
+        )
     }
 }
 
