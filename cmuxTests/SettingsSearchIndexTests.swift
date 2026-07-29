@@ -73,6 +73,13 @@ struct SettingsSearchIndexTests {
         )
     }
 
+    @Test func settingsPathAnchorIncludesAgentAutoRetry() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.autoRetryAgentSessions")
+                == SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-retry")
+        )
+    }
+
     @Test func conditionalAutoNamingAgentDoesNotReuseWorkspaceAutoNamingAnchor() {
         #expect(SettingsSearchIndex.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
     }

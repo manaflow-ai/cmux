@@ -182,7 +182,7 @@ final class MobileStateSyncHost {
                 title: workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 currentDirectory: terminalDirectory,
                 isReady: terminal.surface.surface != nil,
-                isFocused: terminal.id == workspace.focusedPanelId
+                isFocused: workspace.isFocusedTerminalInputSurface(terminal.id)
             )
         }
         let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)
