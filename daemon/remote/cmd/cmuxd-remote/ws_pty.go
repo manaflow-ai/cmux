@@ -108,6 +108,7 @@ const (
 	defaultPTYInputChunkBytes                = 16 * 1024
 	defaultWebSocketWriteTimeout             = 10 * time.Second
 	defaultWebSocketSessionIdleTTL           = 24 * time.Hour
+	defaultPTYExitDrainTimeout               = time.Second
 	maxConcurrentPTYSessionStartOwnersPerHub = 16
 	standardExecutablePath                   = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 )
@@ -1665,6 +1666,27 @@ func (h *wsPTYHub) waitSessionProcess(session *wsPTYSession) {
 	// Explicit hub teardown still closes both sides to interrupt a stuck pump.
 	session.terminateProcesses()
 	session.closeTTYFile()
+
+	drainTimer := time.NewTimer(defaultPTYExitDrainTimeout)
+	defer func() {
+		if !drainTimer.Stop() {
+			select {
+			case <-drainTimer.C:
+			default:
+			}
+		}
+	}()
+	select {
+	case <-session.done:
+		return
+	case <-drainTimer.C:
+		// A child that deliberately escaped into a new POSIX session may still
+		// hold an inherited slave descriptor. It is outside this session's
+		// process ownership boundary, so bound output draining and force the
+		// pump to finalize rather than retaining the session indefinitely.
+		session.closePTYFile()
+		return
+	}
 }
 
 func (session *wsPTYSession) closePTYFiles() {

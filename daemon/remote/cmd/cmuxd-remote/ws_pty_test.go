@@ -1631,14 +1631,22 @@ func TestTerminateProcessesRunsOnlyOnce(t *testing.T) {
 	}
 }
 
-func TestWaitSessionProcessLeavesBufferedMasterOutputForPump(t *testing.T) {
+func TestWaitSessionProcessDrainsBufferedOutputBeforeForcedMasterClose(t *testing.T) {
 	master, slave, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("open buffered output pipe: %v", err)
 	}
+	heldSlaveFD, err := syscall.Dup(int(slave.Fd()))
+	if err != nil {
+		_ = master.Close()
+		_ = slave.Close()
+		t.Fatalf("duplicate escaped slave holder: %v", err)
+	}
+	heldSlave := os.NewFile(uintptr(heldSlaveFD), "escaped-slave-holder")
 	t.Cleanup(func() {
 		_ = master.Close()
 		_ = slave.Close()
+		_ = heldSlave.Close()
 	})
 
 	const marker = "CMUX_BUFFERED_FAST_EXIT_OUTPUT\n"
@@ -1664,19 +1672,29 @@ func TestWaitSessionProcessLeavesBufferedMasterOutputForPump(t *testing.T) {
 	}
 	hub.sessions[session.key] = session
 
-	// Deliberately reap the process before starting the pump. The process
-	// waiter may close the slave, but the pump must retain ownership of the
-	// master long enough to drain output already buffered by the terminal.
-	hub.waitSessionProcess(session)
-	hub.pumpSession(session)
+	go hub.pumpSession(session)
+	waiterDone := make(chan struct{})
+	go func() {
+		hub.waitSessionProcess(session)
+		close(waiterDone)
+	}()
+
+	select {
+	case <-waiterDone:
+	case <-time.After(defaultPTYExitDrainTimeout + 2*time.Second):
+		t.Fatal("process waiter did not force-close the master after its drain deadline")
+	}
+	select {
+	case <-session.done:
+	case <-time.After(time.Second):
+		t.Fatal("forced master close did not finish the escaped-holder session")
+	}
 
 	if got := string(session.scrollback); got != marker {
 		t.Fatalf("drained buffered output = %q, want %q", got, marker)
 	}
-	select {
-	case <-session.done:
-	default:
-		t.Fatal("buffered fast-exit session did not finish after its output drained")
+	if _, err := heldSlave.Stat(); err != nil {
+		t.Fatalf("escaped slave holder closed before the master drain deadline: %v", err)
 	}
 }
 
