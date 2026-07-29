@@ -452,9 +452,18 @@ struct CMUXMobileRootView: View {
         _ isAuthenticated: Bool,
         isRestoringSession: Bool? = nil
     ) {
+        let isRestoringSession = isRestoringSession ?? authManager.isRestoringSession
+        if !isAuthenticated, !isRestoringSession {
+            // Automatic auth loss (session expiry/revalidation) signs the
+            // shell out below, unmounting the connection presenter before it
+            // can dismiss anything; clear like the manual sign-out path so no
+            // actionable toast survives onto the sign-in screen. Mirrors the
+            // gate's own signOut condition.
+            toasts.dismissAll()
+        }
         MobileRootAuthGate.syncShellAuthentication(
             stackAuthenticated: isAuthenticated,
-            isRestoringSession: isRestoringSession ?? authManager.isRestoringSession,
+            isRestoringSession: isRestoringSession,
             store: store
         )
     }
