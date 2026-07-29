@@ -496,20 +496,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 return
             }
 
-            let capturedViewportAnchor =
-                await surfaceView.captureVerifiedReplayViewportAnchor()
-            guard !Task.isCancelled else { return }
-            let replayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
-            if frame.anchor == .screen, frame.activeScreen == .primary {
-                if let capturedViewportAnchor {
-                    pendingReplayViewportAnchor = capturedViewportAnchor
-                }
-                replayViewportAnchor = pendingReplayViewportAnchor
-            } else {
-                pendingReplayViewportAnchor = nil
-                replayViewportAnchor = nil
-            }
-
             let frozen = await surfaceView.freezeVerifiedReplayPresentation(
                 transactionID: transaction.id
             )
@@ -527,6 +513,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard resized else {
                 requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
                 return
+            }
+
+            // Capture reads the post-reflow scrollbar, so Ghostty's resize pin
+            // remap is authoritative and anchor math never sees reflow as append drift.
+            let capturedViewportAnchor =
+                await surfaceView.captureVerifiedReplayViewportAnchor()
+            guard !Task.isCancelled else { return }
+            let replayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
+            if frame.anchor == .screen, frame.activeScreen == .primary {
+                if let capturedViewportAnchor {
+                    pendingReplayViewportAnchor = capturedViewportAnchor
+                }
+                replayViewportAnchor = pendingReplayViewportAnchor
+            } else {
+                pendingReplayViewportAnchor = nil
+                replayViewportAnchor = nil
             }
 
             if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {

@@ -219,11 +219,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             || pendingVerifiedReplayViewportAnchorRestore != nil
             || pendingCopyableTextRead != nil || pendingVerifiedReplayPresentation != nil
     }
-    /// Viewport-restore gate. The lock is held only for field reads/writes —
-    /// NEVER across a Ghostty C call — so a main-actor generation bump can
-    /// never wait on the renderer lock. The ticket lets the deadline pump and
-    /// recovery invalidate a queued restore whose continuation already
-    /// resumed, so a late-running queue block cannot scroll after reveal.
+    /// Viewport-restore gate. All user viewport mutations and restores are
+    /// serialized on `outputQueue`; the generation orders gesture versus
+    /// restore across the main-to-queue boundary. The lock is held only for
+    /// field reads and writes, never across a Ghostty C call. The ticket revokes
+    /// a timed-out restore whose queued block has not yet claimed it.
     nonisolated struct ViewportRestoreGate {
         var interactionGeneration: UInt64 = 0
         var activeRestoreTicket: UInt64?
