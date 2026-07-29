@@ -2360,7 +2360,18 @@ func (s *rpcServer) handlePTYAttachContextWithReservation(
 			},
 		}
 	}
-	attachmentID, _ := getStringParam(req.Params, "attachment_id")
+	attachmentID, ok := getStringParam(req.Params, "attachment_id")
+	attachmentID = strings.TrimSpace(attachmentID)
+	if !ok || attachmentID == "" {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "invalid_params",
+				Message: "pty.attach requires attachment_id",
+			},
+		}
+	}
 	attachmentToken, _ := getStringParam(req.Params, "client_attachment_token")
 	attachmentToken = strings.TrimSpace(attachmentToken)
 	if attachmentToken == "" {
