@@ -4,6 +4,43 @@ import Foundation
 
 /// Surface navigation and sidebar status helpers extracted from `Workspace.swift`, which sits at its file-length budget.
 extension Workspace {
+    /// Synchronizes a nested remote-tmux pane with its outer workspace pane
+    /// without reactivating an already-selected container's hidden surface.
+    func focusRemoteTmuxContainerPaneIfNeeded(_ paneId: PaneID) {
+        guard bonsplitController.focusedPaneId != paneId else { return }
+        bonsplitController.focusPane(paneId)
+    }
+
+    /// Moves keyboard focus through the rendered pane hierarchy. A selected
+    /// remote-tmux window owns a nested split tree, so it gets first refusal;
+    /// an edge with no inner neighbor falls through to the workspace tree.
+    func moveFocus(direction: NavigationDirection) {
+        if layoutMode == .canvas {
+            moveCanvasFocus(direction: direction)
+            return
+        }
+        if let focusedPanelId,
+           let mirror = remoteTmuxWindowMirror(forPanelId: focusedPanelId) {
+            switch mirror.navigateFocus(direction: direction) {
+            case .moved, .invalid:
+                return
+            case .edge:
+                break
+            }
+        }
+
+        let previousFocusedPanelId = focusedPanelId
+        if let previousFocusedPanelId, let previous = panels[previousFocusedPanelId] {
+            previous.unfocus()
+        }
+
+        bonsplitController.navigateFocus(direction: direction)
+        if let paneId = bonsplitController.focusedPaneId,
+           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        }
+    }
+
     /// Moves the focused surface into another pane, optionally creating a
     /// directional split when no adjacent pane exists.
     @discardableResult
@@ -189,6 +226,29 @@ extension Workspace {
             return
         }
         bonsplitController.selectPreviousTab()
+
+        if let paneId = bonsplitController.focusedPaneId,
+           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        }
+    }
+
+    /// Cycles focus to the next or previous split pane in tree order, wrapping at the ends.
+    func cycleFocus(forward: Bool) {
+        let allPaneIds = bonsplitController.allPaneIds
+        guard allPaneIds.count > 1,
+              let currentId = bonsplitController.focusedPaneId,
+              let currentIndex = allPaneIds.firstIndex(of: currentId) else { return }
+
+        if let previousPanelId = focusedPanelId,
+           let previousPanel = panels[previousPanelId] {
+            previousPanel.unfocus()
+        }
+
+        let targetIndex = forward
+            ? (currentIndex + 1) % allPaneIds.count
+            : (currentIndex - 1 + allPaneIds.count) % allPaneIds.count
+        bonsplitController.focusPane(allPaneIds[targetIndex])
 
         if let paneId = bonsplitController.focusedPaneId,
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
