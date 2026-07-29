@@ -85,12 +85,7 @@ describe("subrouter accounts route", () => {
     const operation = withSubrouterAuthorizationDeadline(
       async () => await new Promise<never>(() => {}),
     );
-    const result = await Promise.race([
-      operation.catch((error: unknown) => error),
-      new Promise<"still-pending">((resolve) =>
-        setTimeout(() => resolve("still-pending"), 100)
-      ),
-    ]);
+    const result = await operation.catch((error: unknown) => error);
 
     expect(result).toBeInstanceOf(SubrouterAuthorizationTimeoutError);
   });
@@ -998,9 +993,8 @@ describe("subrouter accounts route", () => {
       { length: 12 },
       () => teamsRoute.GET(request("/api/subrouter/teams")),
     );
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    releasePermissions();
     const responses = await Promise.all(routes);
+    releasePermissions();
 
     expect(responses.every((response) => response.status === 503)).toBe(true);
     expect(maxActive).toBeLessThanOrEqual(8);

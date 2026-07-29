@@ -71,25 +71,46 @@ enum SSHPTYAttachStartupCommandBuilder {
     }
 
     private static func foregroundAuthLines(_ auth: ForegroundAuth) -> [String] {
-        let sshCommand = sshForegroundAuthCommand(auth)
-        let quotedToken = shellQuote(auth.token)
-        return [
+        let readinessInsideResolvedLock =
+            foregroundAuthenticationReadyShellLines(
+                auth,
+                includeResolvedControlPath: true,
+                requireSuccess: true,
+                cliVariable: "CMUX_SSH_ATTACH_CLI"
+            )
+        let (sshCommand, reportsReadiness) =
+            sshForegroundAuthCommand(
+                auth,
+                successShellLines: readinessInsideResolvedLock
+            )
+        var lines = [
             "cmux_ssh_attach_foreground_auth() {",
             "  \(sshCommand)",
             "cmux_ssh_auth_status=$?",
             "  if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then return \"$cmux_ssh_auth_status\"; fi",
-            "cmux_ssh_auth_token=\(quotedToken)",
-            "cmux_ssh_auth_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"$cmux_ssh_auth_token\\\"}\"",
-            "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.foreground_auth_ready \"$cmux_ssh_auth_payload\" >/dev/null 2>&1 || true",
-            "unset cmux_ssh_auth_payload cmux_ssh_auth_status cmux_ssh_auth_token",
+        ]
+        if !reportsReadiness {
+            lines += foregroundAuthenticationReadyShellLines(
+                auth,
+                includeResolvedControlPath: false,
+                requireSuccess: false,
+                cliVariable: "cmux_ssh_attach_cli"
+            )
+        }
+        lines += [
+            "unset cmux_ssh_auth_status",
             "}",
             "cmux_ssh_attach_foreground_auth",
             "cmux_ssh_auth_status=$?",
             "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi",
         ]
+        return lines
     }
 
-    private static func sshForegroundAuthCommand(_ auth: ForegroundAuth) -> String {
+    private static func sshForegroundAuthCommand(
+        _ auth: ForegroundAuth,
+        successShellLines: [String]
+    ) -> (command: String, reportsReadiness: Bool) {
         let sharingOptions = SSHConnectionSharingOptions()
         var arguments = ["ssh"]
         let options = sharingOptions.mergingDefaults(into: auth.sshOptions)
@@ -119,6 +140,13 @@ enum SSHPTYAttachStartupCommandBuilder {
             destination: auth.destination,
             options: options
         )
+        let resolvedAuthenticationLockLines =
+            resolvedControlMasterAuthenticationLockLines(
+                sharingOptions: sharingOptions,
+                sshArguments: arguments,
+                destination: auth.destination,
+                options: options
+            )
         arguments += ["-T", auth.destination, "true"]
         let command = arguments.map(shellQuote).joined(separator: " ")
         guard let lockPath = sharingOptions.foregroundAuthenticationLockPath(
@@ -126,7 +154,7 @@ enum SSHPTYAttachStartupCommandBuilder {
             port: auth.port,
             options: options
         ) else {
-            return command
+            return (command, false)
         }
         let inFlightPath = lockPath + ".inflight"
         var lockedCommand = [
@@ -142,15 +170,89 @@ enum SSHPTYAttachStartupCommandBuilder {
             ": >> \"$cmux_ssh_auth_lock_path\" || exit 255",
             "zmodload zsh/system || exit 255",
             "zsystem flock -t 45 -e -f cmux_ssh_auth_lock_fd \"$cmux_ssh_auth_lock_path\" || exit 255",
+        ]
+        lockedCommand += resolvedAuthenticationLockLines
+        lockedCommand += [
             preflight,
             preflight == nil ? nil : "cmux_ssh_preflight_control_path",
             "command \(command)",
             "cmux_ssh_auth_status=$?",
             "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi",
         ].compactMap { $0 }
+        lockedCommand += successShellLines
         lockedCommand += sharingOptions.successfulForegroundAuthenticationCleanupShellLines()
         lockedCommand.append("exit 0")
-        return "/bin/zsh -fc \(shellQuote(lockedCommand.joined(separator: "\n")))"
+        return (
+            "CMUX_SSH_ATTACH_CLI=\"$cmux_ssh_attach_cli\" " +
+                "/bin/zsh -fc " +
+                shellQuote(lockedCommand.joined(separator: "\n")),
+            true
+        )
+    }
+
+    private static func foregroundAuthenticationReadyShellLines(
+        _ auth: ForegroundAuth,
+        includeResolvedControlPath: Bool,
+        requireSuccess: Bool,
+        cliVariable: String
+    ) -> [String] {
+        let payload: String
+        if includeResolvedControlPath {
+            payload =
+                "cmux_ssh_auth_payload=\"{\\\"workspace_id\\\":\\\"" +
+                "$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"" +
+                "$cmux_ssh_auth_token\\\",\\\"control_path\\\":\\\"" +
+                "$cmux_ssh_resolved_control_path\\\"}\""
+        } else {
+            payload =
+                "cmux_ssh_auth_payload=\"{\\\"workspace_id\\\":\\\"" +
+                "$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"" +
+                "$cmux_ssh_auth_token\\\"}\""
+        }
+        let failureHandling = requireSuccess ? " || exit 255" : " || true"
+        return [
+            "cmux_ssh_auth_token=\(shellQuote(auth.token))",
+            payload,
+            "\"$\(cliVariable)\" --socket \"$CMUX_SOCKET_PATH\" rpc " +
+                "workspace.remote.foreground_auth_ready " +
+                "\"$cmux_ssh_auth_payload\" >/dev/null 2>&1" +
+                failureHandling,
+            "unset cmux_ssh_auth_payload cmux_ssh_auth_token",
+        ]
+    }
+
+    private static func resolvedControlMasterAuthenticationLockLines(
+        sharingOptions: SSHConnectionSharingOptions,
+        sshArguments: [String],
+        destination: String,
+        options: [String]
+    ) -> [String] {
+        guard sharingOptions.cmuxOwnedControlPath(in: options) != nil else {
+            return []
+        }
+        let sshPrefix = sshArguments.map(shellQuote).joined(separator: " ")
+        let quotedDestination = shellQuote(destination)
+        let lockPrefix = URL(
+            fileURLWithPath: sharingOptions.controlMasterLockDirectoryPath,
+            isDirectory: true
+        )
+        .appendingPathComponent(
+            "cmux-ssh-\(sharingOptions.userID)-resolved-auth-",
+            isDirectory: false
+        )
+        .path
+        return [
+            #"cmux_ssh_resolved_control_path="$(command \#(sshPrefix) -G \#(quotedDestination) 2>/dev/null | awk 'tolower($1) == "controlpath" { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }')" "#,
+            "case \"$cmux_ssh_resolved_control_path\" in",
+            "  /tmp/cmux-ssh-\(sharingOptions.userID)-*) ;;",
+            "  *) exit 255 ;;",
+            "esac",
+            "cmux_ssh_resolved_control_basename=\"${cmux_ssh_resolved_control_path##*/}\"",
+            "case \"$cmux_ssh_resolved_control_basename\" in ''|*[!A-Za-z0-9._-]*) exit 255 ;; esac",
+            "cmux_ssh_resolved_auth_lock_path=\(shellQuote(lockPrefix))\"$cmux_ssh_resolved_control_basename.lock\"",
+            ": >> \"$cmux_ssh_resolved_auth_lock_path\" || exit 255",
+            "zsystem flock -t 45 -e -f cmux_ssh_resolved_auth_lock_fd \"$cmux_ssh_resolved_auth_lock_path\" || exit 255",
+        ]
     }
 
     static func sshOptionsWithRestoreControlDefaults(_ options: [String], relayPort: Int? = nil) -> [String] {

@@ -234,4 +234,83 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(code == "invalid_params")
         #expect(context.terminalSessionEndCall == nil)
     }
+
+    @Test func foregroundAuthenticationForwardsResolvedControlPath() {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        context.foregroundAuthResolution = .unavailable(
+            workspaceID: workspaceID,
+            message: "localized ownership unavailable"
+        )
+
+        guard case .err(let code, let message, _) = coordinator.handle(request(
+            "workspace.remote.foreground_auth_ready",
+            [
+                "workspace_id": .string(workspaceID.uuidString),
+                "foreground_auth_token": .string(" auth-token "),
+                "control_path": .string(
+                    " /tmp/cmux-ssh-501-0123456789abcdef "
+                ),
+            ]
+        )) else {
+            Issue.record("unexpected foreground-auth result")
+            return
+        }
+
+        #expect(code == "unavailable")
+        #expect(message == "localized ownership unavailable")
+        #expect(context.foregroundAuthCall?.workspaceID == workspaceID)
+        #expect(context.foregroundAuthCall?.token == "auth-token")
+        #expect(
+            context.foregroundAuthCall?.controlPath ==
+                "/tmp/cmux-ssh-501-0123456789abcdef"
+        )
+    }
+
+    @Test func foregroundAuthenticationRequiresNonemptyToken() {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let requests: [[String: JSONValue]] = [
+            ["workspace_id": .string(workspaceID.uuidString)],
+            [
+                "workspace_id": .string(workspaceID.uuidString),
+                "foreground_auth_token": .string(" \n "),
+            ],
+        ]
+
+        for params in requests {
+            guard case .err(let code, let message, _) =
+                coordinator.handle(request(
+                    "workspace.remote.foreground_auth_ready",
+                    params
+                )) else {
+                Issue.record("missing foreground-auth token was accepted")
+                continue
+            }
+            #expect(code == "invalid_params")
+            #expect(message == "Missing foreground_auth_token")
+        }
+        #expect(context.foregroundAuthCall == nil)
+    }
+
+    @Test func foregroundAuthenticationNormalizesBlankControlPath() {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        context.foregroundAuthResolution = .unavailable(
+            workspaceID: workspaceID,
+            message: "localized ownership unavailable"
+        )
+
+        _ = coordinator.handle(request(
+            "workspace.remote.foreground_auth_ready",
+            [
+                "workspace_id": .string(workspaceID.uuidString),
+                "foreground_auth_token": .string("auth-token"),
+                "control_path": .string(" \n "),
+            ]
+        ))
+
+        #expect(context.foregroundAuthCall?.token == "auth-token")
+        #expect(context.foregroundAuthCall?.controlPath == nil)
+    }
 }
