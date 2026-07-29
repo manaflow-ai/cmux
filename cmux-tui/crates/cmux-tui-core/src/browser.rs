@@ -548,6 +548,29 @@ pub(crate) fn new_surface(
     opts: &SurfaceOptions,
     mux: Weak<Mux>,
 ) -> anyhow::Result<Arc<Surface>> {
+    new_surface_with_resource_identity(
+        id,
+        url,
+        size,
+        cell_pixels,
+        opts,
+        mux,
+        TabResourceIdentity::browser()?,
+    )
+}
+
+pub(crate) fn new_surface_with_resource_identity(
+    id: SurfaceId,
+    url: String,
+    size: (u16, u16),
+    cell_pixels: (u16, u16),
+    opts: &SurfaceOptions,
+    mux: Weak<Mux>,
+    resource_identity: TabResourceIdentity,
+) -> anyhow::Result<Arc<Surface>> {
+    if !matches!(resource_identity.content_id, crate::resource::ContentPublicId::Browser(_)) {
+        anyhow::bail!("browser surface cannot use a terminal resource identity");
+    }
     let normalized_url = normalize_url(&url);
     let (cols, rows) = (size.0.max(1), size.1.max(1));
     let (cell_w, cell_h) = (cell_pixels.0.max(1), cell_pixels.1.max(1));
@@ -568,7 +591,7 @@ pub(crate) fn new_surface(
     let surface = Arc::new(Surface::Browser(BrowserSurface {
         meta: SurfaceMeta {
             id,
-            resource_identity: Some(TabResourceIdentity::browser()?),
+            resource_identity: Some(resource_identity),
             name: Mutex::new(None),
             selection: Mutex::new(None),
         },

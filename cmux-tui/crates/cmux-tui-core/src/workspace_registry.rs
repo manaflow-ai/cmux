@@ -23,16 +23,19 @@ use crate::resource::{
 
 mod resource_store;
 
+pub(crate) use resource_store::validate_registry_screen_projection;
 #[allow(unused_imports)]
 pub use resource_store::{
-    RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, ResourceChange, ResourcePatch,
-    ResourcePatchCommit, ResourceTopologySnapshot,
+    RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
+    RegistryViewportColumn, ResourceChange, ResourcePatch, ResourcePatchCommit,
+    ResourceTopologySnapshot,
 };
 use resource_store::{
-    collect_split_public_ids, create_resource_schema, validate_resource_invariants,
+    collect_screen_split_public_ids, create_resource_schema,
+    migrate_resource_mutations_to_session_scope, validate_resource_invariants,
 };
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
 const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
@@ -269,6 +272,18 @@ impl WorkspaceRegistry {
                 backfill_workspace_public_ids(&tx)?;
                 tx.commit()?;
             }
+            Some(value) if value.parse::<i64>()? == 3 => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                migrate_resource_mutations_to_session_scope(&tx)?;
+                tx.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
+                tx.commit()?;
+            }
             Some(value) if matches!(value.parse::<i64>()?, 1 | 2) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
@@ -292,7 +307,7 @@ impl WorkspaceRegistry {
             }
             Some(value) => {
                 anyhow::bail!(
-                    "unsupported workspace registry schema {value}; expected 1, 2, or {SCHEMA_VERSION}"
+                    "unsupported workspace registry schema {value}; expected 1, 2, 3, or {SCHEMA_VERSION}"
                 );
             }
             None => {
@@ -960,6 +975,11 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_resource_revision = i64::try_from(resource_revision)
             .context("resource revision exceeds SQLite integer range")?;
+        let previous_active_workspace = tx
+            .query_row("SELECT value FROM meta WHERE key = 'active_workspace_id'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()?;
 
         for workspace in workspaces {
             let was_tombstoned = tx
@@ -981,6 +1001,9 @@ impl WorkspaceRegistry {
         tombstone_terminals_in_removed_workspaces(&tx, workspaces, mutation)?;
         tombstone_resources_in_removed_workspaces(&tx, workspaces, sqlite_resource_revision)?;
 
+        for workspace in workspaces {
+            upsert_workspace_resource(&tx, workspace, sqlite_resource_revision)?;
+        }
         tx.execute(
             "UPDATE workspaces SET tombstoned = 1, position = NULL,
              updated_revision = ?1, deleted_revision = ?1
@@ -990,7 +1013,6 @@ impl WorkspaceRegistry {
         // Tombstone first to release the partial unique position index, then
         // upsert the complete desired order in this same transaction.
         for (position, workspace) in workspaces.iter().enumerate() {
-            upsert_workspace_resource(&tx, workspace, sqlite_resource_revision)?;
             tx.execute(
                 "INSERT INTO workspaces(
                    workspace_key, numeric_id, name, group_key, position, tombstoned,
@@ -1013,6 +1035,26 @@ impl WorkspaceRegistry {
                     sqlite_revision
                 ],
             )?;
+        }
+        let active_workspace = previous_active_workspace
+            .filter(|active| {
+                workspaces.iter().any(|workspace| workspace.public_id.as_str() == active)
+            })
+            .or_else(|| {
+                workspaces
+                    .iter()
+                    .find(|workspace| workspace.key == workspace_key)
+                    .map(|workspace| workspace.public_id.to_string())
+            })
+            .or_else(|| workspaces.first().map(|workspace| workspace.public_id.to_string()));
+        if let Some(active_workspace) = active_workspace {
+            tx.execute(
+                "INSERT INTO meta(key, value) VALUES('active_workspace_id', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                [active_workspace],
+            )?;
+        } else {
+            tx.execute("DELETE FROM meta WHERE key = 'active_workspace_id'", [])?;
         }
         tx.execute("UPDATE meta SET value = ?1 WHERE key = 'revision'", [revision.to_string()])?;
         tx.execute(
@@ -1524,16 +1566,20 @@ fn tombstone_resources_in_removed_workspaces(
     for workspace_id in removed {
         let screens = {
             let mut statement = transaction.prepare(
-                "SELECT public_id, layout_json FROM resource_screens
+                "SELECT public_id, layout_json, viewport_json FROM resource_screens
                  WHERE workspace_id = ?1 AND deleted_revision IS NULL",
             )?;
             statement
                 .query_map([&workspace_id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?
         };
-        let screen_ids = screens.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+        let screen_ids = screens.iter().map(|(id, _, _)| id.clone()).collect::<Vec<_>>();
         let pane_ids = {
             let mut panes = Vec::new();
             for screen_id in &screen_ids {
@@ -1573,9 +1619,10 @@ fn tombstone_resources_in_removed_workspaces(
             identity_ids.push(tab_id.clone());
             identity_ids.push(content_id.clone());
         }
-        for (_, layout_json) in &screens {
+        for (_, layout_json, viewport_json) in &screens {
             let layout: RegistryLayoutNode = serde_json::from_str(layout_json)?;
-            collect_split_public_ids(&layout, &mut identity_ids);
+            let viewport: RegistryViewport = serde_json::from_str(viewport_json)?;
+            collect_screen_split_public_ids(&layout, &viewport, &mut identity_ids);
         }
 
         for (_, content_id) in &tab_and_content_ids {

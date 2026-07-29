@@ -2,7 +2,7 @@
 //! split tree of panes; each pane holds an ordered list of tabs
 //! (surfaces).
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use crate::resource::{
@@ -1023,11 +1023,13 @@ impl State {
 
     pub(crate) fn rebuild_resource_indexes(&mut self) {
         let mut indexes = PublicSlotIndexes::default();
+        let mut live_split_slots = self.split_screens.keys().copied().collect::<HashSet<_>>();
         for workspace in &self.workspaces {
             let old = indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
             debug_assert!(old.is_none(), "duplicate workspace public id");
             indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
             for screen in &workspace.screens {
+                live_split_slots.extend(screen.layout_columns.iter().map(|column| column.id));
                 let old = indexes.screens.insert(screen.public_id.clone(), screen.id);
                 debug_assert!(old.is_none(), "duplicate screen public id");
                 indexes.screen_ids.insert(screen.id, screen.public_id.clone());
@@ -1039,22 +1041,33 @@ impl State {
                         indexes.pane_ids.insert(pane.id, pane.public_id.clone());
                         indexes.pane_screen.insert(pane.id, screen.id);
                         for surface_id in &pane.tabs {
-                            let Some(surface) = self.surfaces.get(surface_id) else { continue };
-                            let Some(identity) = surface.resource_identity() else { continue };
-                            let old = indexes.tabs.insert(identity.tab_id.clone(), *surface_id);
+                            let identity = self
+                                .surfaces
+                                .get(surface_id)
+                                .and_then(|surface| surface.resource_identity())
+                                .map(|identity| {
+                                    (identity.tab_id.clone(), identity.content_id.clone())
+                                })
+                                .or_else(|| {
+                                    Some((
+                                        self.resource_indexes.tab_ids.get(surface_id)?.clone(),
+                                        self.resource_indexes.content_ids.get(surface_id)?.clone(),
+                                    ))
+                                });
+                            let Some((tab_id, content_id)) = identity else { continue };
+                            let old = indexes.tabs.insert(tab_id.clone(), *surface_id);
                             debug_assert!(old.is_none(), "duplicate tab public id");
-                            indexes.tab_ids.insert(*surface_id, identity.tab_id.clone());
-                            let old =
-                                indexes.content.insert(identity.content_id.clone(), *surface_id);
+                            indexes.tab_ids.insert(*surface_id, tab_id);
+                            let old = indexes.content.insert(content_id.clone(), *surface_id);
                             debug_assert!(old.is_none(), "duplicate content public id");
-                            indexes.content_ids.insert(*surface_id, identity.content_id.clone());
+                            indexes.content_ids.insert(*surface_id, content_id);
                             indexes.tab_pane.insert(*surface_id, pane.id);
                         }
                     }
                 }
             }
         }
-        for split in self.split_screens.keys().copied() {
+        for split in live_split_slots {
             if let Some(public_id) = self.resource_indexes.split_ids.get(&split).cloned() {
                 indexes.splits.insert(public_id.clone(), split);
                 indexes.split_ids.insert(split, public_id);

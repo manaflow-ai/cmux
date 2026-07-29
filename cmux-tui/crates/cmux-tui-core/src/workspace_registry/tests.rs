@@ -62,11 +62,135 @@ fn split_id(value: u128) -> SplitPublicId {
 }
 
 fn terminal_resource(id: &str) -> TerminalPublicId {
-    TerminalPublicId::from_terminal_host_id(id).unwrap()
+    let value = if id == TERMINAL_ONE { 1 } else { 2 };
+    TerminalPublicId::parse(format!("term_{value:032x}")).unwrap()
 }
 
 fn browser_id(value: u128) -> BrowserPublicId {
     BrowserPublicId::parse(format!("browser_{value:032x}")).unwrap()
+}
+
+fn viewport_screen() -> RegistryScreen {
+    let workspace = workspace(1, "one", "One").public_id;
+    let screen = screen_id(1);
+    let first = pane_id(1);
+    let second = pane_id(2);
+    let third = pane_id(3);
+    let internal = split_id(1);
+    let boundary = split_id(2);
+    let base_column = split_id(3);
+    let first_column = RegistryLayoutNode::Split {
+        split: internal,
+        direction: "down".into(),
+        ratio: 0.5,
+        first: Box::new(RegistryLayoutNode::Leaf { pane: first }),
+        second: Box::new(RegistryLayoutNode::Leaf { pane: second }),
+    };
+    RegistryScreen {
+        public_id: screen,
+        workspace_id: workspace,
+        position: 0,
+        name: None,
+        layout: RegistryLayoutNode::Split {
+            split: boundary.clone(),
+            direction: "right".into(),
+            ratio: 1.0 / (1.0 + 0.5),
+            first: Box::new(first_column.clone()),
+            second: Box::new(RegistryLayoutNode::Leaf { pane: third.clone() }),
+        },
+        active_pane: third.clone(),
+        zoomed_pane: Some(third.clone()),
+        auto_layout: None,
+        viewport: RegistryViewport {
+            base_width: Some(1.0),
+            columns: vec![
+                RegistryViewportColumn {
+                    id: base_column,
+                    width: 1.0,
+                    layout: first_column,
+                    auto_layout: None,
+                },
+                RegistryViewportColumn {
+                    id: boundary,
+                    width: 0.5,
+                    layout: RegistryLayoutNode::Leaf { pane: third },
+                    auto_layout: Some(vec![pane_id(3)]),
+                },
+            ],
+        },
+    }
+}
+
+#[test]
+fn viewport_schema_rejects_missing_duplicate_and_owner_splits() {
+    let valid = viewport_screen();
+    resource_store::validate_resource_patch(&ResourcePatch {
+        changes: vec![ResourceChange::UpsertScreen(valid.clone())],
+    })
+    .unwrap();
+
+    let mut missing = valid.clone();
+    missing.viewport.columns[0].layout =
+        RegistryLayoutNode::Stack { panes: vec![pane_id(1), pane_id(2)], expanded: pane_id(2) };
+    assert!(
+        resource_store::validate_resource_patch(&ResourcePatch {
+            changes: vec![ResourceChange::UpsertScreen(missing)],
+        })
+        .unwrap_err()
+        .to_string()
+        .contains("do not cover the screen splits")
+    );
+
+    let mut owner_inside = valid.clone();
+    owner_inside.viewport.columns[1].id = split_id(1);
+    assert!(
+        resource_store::validate_resource_patch(&ResourcePatch {
+            changes: vec![ResourceChange::UpsertScreen(owner_inside)],
+        })
+        .unwrap_err()
+        .to_string()
+        .contains("boundary owner also appears inside")
+    );
+
+    let mut duplicate = valid.clone();
+    let fourth = pane_id(4);
+    if let RegistryLayoutNode::Split { second, .. } = &mut duplicate.layout {
+        *second = Box::new(RegistryLayoutNode::Split {
+            split: split_id(4),
+            direction: "down".into(),
+            ratio: 0.5,
+            first: Box::new(RegistryLayoutNode::Leaf { pane: pane_id(3) }),
+            second: Box::new(RegistryLayoutNode::Leaf { pane: fourth.clone() }),
+        });
+    }
+    duplicate.viewport.columns[1].layout = RegistryLayoutNode::Split {
+        split: split_id(1),
+        direction: "down".into(),
+        ratio: 0.5,
+        first: Box::new(RegistryLayoutNode::Leaf { pane: pane_id(3) }),
+        second: Box::new(RegistryLayoutNode::Leaf { pane: fourth }),
+    };
+    assert!(
+        resource_store::validate_resource_patch(&ResourcePatch {
+            changes: vec![ResourceChange::UpsertScreen(duplicate)],
+        })
+        .unwrap_err()
+        .to_string()
+        .contains("more than one viewport column")
+    );
+
+    let mut mismatch = valid;
+    if let RegistryLayoutNode::Split { ratio, .. } = &mut mismatch.layout {
+        *ratio = 0.5;
+    }
+    assert!(
+        resource_store::validate_resource_patch(&ResourcePatch {
+            changes: vec![ResourceChange::UpsertScreen(mismatch)],
+        })
+        .unwrap_err()
+        .to_string()
+        .contains("compatibility layout")
+    );
 }
 
 fn terminal_topology_patch() -> ResourcePatch {
@@ -91,7 +215,7 @@ fn terminal_topology_patch() -> ResourcePatch {
                 active_pane: pane.clone(),
                 zoomed_pane: None,
                 auto_layout: None,
-                viewport: json!({"offset":0}),
+                viewport: RegistryViewport::default(),
             }),
             ResourceChange::UpsertPane(RegistryPane {
                 public_id: pane.clone(),
@@ -111,6 +235,7 @@ fn terminal_topology_patch() -> ResourcePatch {
                 content_id: ContentPublicId::Terminal(terminal_id),
                 name: Some("zsh".into()),
                 browser_url: None,
+                terminal_id: Some(TERMINAL_ONE.into()),
             }),
             ResourceChange::SetWorkspaceOrder { workspace_ids: vec![workspace.public_id.clone()] },
             ResourceChange::SetScreenOrder {
@@ -182,7 +307,7 @@ fn resource_patch_replay_precedes_revision_and_rejects_changed_input() {
     let first = commit_terminal_topology(&mut registry, "same-key");
     let retry = registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("same-key", "test").unwrap(),
+            &WorkspaceMutation::new("same-key", "reconnected-client").unwrap(),
             "workspace.create",
             &json!({"operation":"workspace.create","name":"One"}),
             None,
@@ -196,7 +321,7 @@ fn resource_patch_replay_precedes_revision_and_rejects_changed_input() {
     assert!(retry.replayed);
     let error = registry
         .commit_resource_patch(
-            &WorkspaceMutation::new("same-key", "test").unwrap(),
+            &WorkspaceMutation::new("same-key", "another-client").unwrap(),
             "workspace.create",
             &json!({"operation":"workspace.create","name":"Different"}),
             None,
@@ -207,6 +332,31 @@ fn resource_patch_replay_precedes_revision_and_rejects_changed_input() {
         )
         .unwrap_err();
     assert!(error.to_string().contains("idempotency.conflict"));
+    assert_eq!(registry.resource_topology_snapshot().unwrap().revision, 1);
+}
+
+#[test]
+fn resource_patch_replays_across_registry_reopen_and_origin_change() {
+    let root = temp_root("resource-reconnect-replay");
+    let first = {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "reconnect-key")
+    };
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let replay = registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("reconnect-key", "new-connection").unwrap(),
+            "workspace.create",
+            &json!({"operation":"workspace.create","name":"One"}),
+            None,
+            Some(0),
+            &terminal_topology_patch(),
+            &json!({"workspace_id":workspace(1, "one", "One").public_id}),
+            &json!([{"kind":"workspace.created"}]),
+        )
+        .unwrap();
+    assert_eq!(replay.revision, first.revision);
+    assert!(replay.replayed);
     assert_eq!(registry.resource_topology_snapshot().unwrap().revision, 1);
 }
 
@@ -370,6 +520,9 @@ fn resource_order_is_exact_and_positions_are_contiguous() {
                     ResourceChange::SetWorkspaceOrder {
                         workspace_ids: vec![one.public_id.clone(), two.public_id.clone()],
                     },
+                    ResourceChange::SetActiveWorkspace {
+                        workspace_id: Some(one.public_id.clone()),
+                    },
                 ],
             },
             &json!({}),
@@ -461,7 +614,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         active_pane: first_pane.clone(),
                         zoomed_pane: None,
                         auto_layout: None,
-                        viewport: json!({"offset":0}),
+                        viewport: RegistryViewport::default(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -481,6 +634,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         content_id: ContentPublicId::Browser(browser.clone()),
                         name: Some("Docs".into()),
                         browser_url: Some("https://cmux.dev".into()),
+                        terminal_id: None,
                     }),
                     ResourceChange::SetTabOrder {
                         pane_id: second_pane.clone(),
@@ -523,7 +677,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         active_pane: first_pane,
                         zoomed_pane: None,
                         auto_layout: None,
-                        viewport: json!({"offset":0}),
+                        viewport: RegistryViewport::default(),
                     }),
                     ResourceChange::TombstonePane { pane_id: second_pane },
                 ],
@@ -625,6 +779,9 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
         .collect::<Vec<_>>();
     changes.push(ResourceChange::SetWorkspaceOrder {
         workspace_ids: workspaces.iter().map(|workspace| workspace.public_id.clone()).collect(),
+    });
+    changes.push(ResourceChange::SetActiveWorkspace {
+        workspace_id: Some(workspaces[0].public_id.clone()),
     });
     registry
         .commit_resource_patch(
@@ -1257,7 +1414,7 @@ fn schema_one_migrates_transactionally_to_terminal_registry() {
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
     assert_eq!(migrated.terminal_snapshot().unwrap().revision, 0);
     assert!(migrated.terminal_snapshot().unwrap().terminals.is_empty());
-    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "3");
+    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "4");
     fs::remove_dir_all(root).unwrap();
 }
 

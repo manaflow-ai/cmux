@@ -140,14 +140,18 @@ pub enum ResourceOperation {
     ClientList,
     #[serde(rename = "client.get")]
     ClientGet,
-    #[serde(rename = "client.update")]
-    ClientUpdate,
+    #[serde(rename = "client.label.set")]
+    ClientLabelSet,
+    #[serde(rename = "client.sizing.set")]
+    ClientSizingSet,
+    #[serde(rename = "client.sizing.release")]
+    ClientSizingRelease,
     #[serde(rename = "client.detach")]
     ClientDetach,
-    #[serde(rename = "window.title.set")]
-    WindowTitleSet,
-    #[serde(rename = "window.title.clear")]
-    WindowTitleClear,
+    #[serde(rename = "session.window.title.set")]
+    SessionWindowTitleSet,
+    #[serde(rename = "session.window.title.clear")]
+    SessionWindowTitleClear,
     #[serde(rename = "pairing_request.list")]
     PairingRequestList,
     #[serde(rename = "pairing_request.resolve")]
@@ -248,6 +252,8 @@ pub enum ResourceOperation {
     TerminalInputFocus,
     #[serde(rename = "terminal.screen.read")]
     TerminalScreenRead,
+    #[serde(rename = "terminal.state.read")]
+    TerminalStateRead,
     #[serde(rename = "terminal.history.read")]
     TerminalHistoryRead,
     #[serde(rename = "terminal.history.clear")]
@@ -322,6 +328,10 @@ pub enum ResourceOperation {
     SidebarViewInput,
     #[serde(rename = "sidebar_view.resize")]
     SidebarViewResize,
+    #[serde(rename = "sidebar_view.reload")]
+    SidebarViewReload,
+    #[serde(rename = "sidebar_view.use_builtin")]
+    SidebarViewUseBuiltin,
     #[serde(rename = "provider_scope.list")]
     ProviderScopeList,
     #[serde(rename = "provider_action.invoke")]
@@ -330,6 +340,12 @@ pub enum ResourceOperation {
     ProviderNoticeEvents,
     #[serde(rename = "provider_authority.install")]
     ProviderAuthorityInstall,
+    #[serde(rename = "provider_workspace.mark")]
+    ProviderWorkspaceMark,
+    #[serde(rename = "provider_workspace.rename")]
+    ProviderWorkspaceRename,
+    #[serde(rename = "provider_workspace.close")]
+    ProviderWorkspaceClose,
     #[serde(rename = "stream.cancel")]
     StreamCancel,
 }
@@ -362,6 +378,7 @@ impl ResourceOperation {
                 | Self::TerminalList
                 | Self::TerminalGet
                 | Self::TerminalScreenRead
+                | Self::TerminalStateRead
                 | Self::TerminalHistoryRead
                 | Self::TerminalWait
                 | Self::TerminalProcessGet
@@ -611,20 +628,13 @@ public_id!(SplitPublicId, "split");
 public_id!(StreamPublicId, "stream");
 public_id!(NotificationPublicId, "notification");
 public_id!(AgentPublicId, "agent");
-public_id!(ProjectionPublicId, "projection");
+public_id!(FrontendProjectionPublicId, "projection");
 public_id!(PairingRequestPublicId, "pairing");
 public_id!(SidebarViewPublicId, "sidebar_view");
 public_id!(SidebarPluginPublicId, "sidebar_plugin");
-
-impl TerminalPublicId {
-    pub fn from_terminal_host_id(value: &str) -> Result<Self, ResourceError> {
-        Self::parse(format!("term_{value}"))
-    }
-
-    pub fn terminal_host_id(&self) -> &str {
-        self.as_str().strip_prefix("term_").expect("validated terminal public id")
-    }
-}
+public_id!(ProviderScopePublicId, "provider_scope");
+public_id!(ProviderActionPublicId, "provider_action");
+public_id!(ProviderNoticePublicId, "provider_notice");
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -634,22 +644,28 @@ pub struct TabResourceIdentity {
 }
 
 impl TabResourceIdentity {
+    pub fn new(tab_id: TabPublicId, content_id: ContentPublicId) -> Self {
+        Self { tab_id, content_id }
+    }
+
+    pub fn persisted_terminal(tab_id: TabPublicId, terminal_id: TerminalPublicId) -> Self {
+        Self::new(tab_id, ContentPublicId::Terminal(terminal_id))
+    }
+
+    pub fn persisted_browser(tab_id: TabPublicId, browser_id: BrowserPublicId) -> Self {
+        Self::new(tab_id, ContentPublicId::Browser(browser_id))
+    }
+
     pub fn terminal(terminal_id: Option<TerminalPublicId>) -> Result<Self, ResourceError> {
         let terminal_id = match terminal_id {
             Some(terminal_id) => terminal_id,
             None => TerminalPublicId::random()?,
         };
-        Ok(Self {
-            tab_id: TabPublicId::random()?,
-            content_id: ContentPublicId::Terminal(terminal_id),
-        })
+        Ok(Self::persisted_terminal(TabPublicId::random()?, terminal_id))
     }
 
     pub fn browser() -> Result<Self, ResourceError> {
-        Ok(Self {
-            tab_id: TabPublicId::random()?,
-            content_id: ContentPublicId::Browser(BrowserPublicId::random()?),
-        })
+        Ok(Self::persisted_browser(TabPublicId::random()?, BrowserPublicId::random()?))
     }
 }
 
@@ -760,16 +776,99 @@ impl Selector {
         if is_registered_public_id(value) {
             return Ok(Self::Id(value.to_string()));
         }
-        if value.contains('_') {
+        if value.contains('_') || is_reserved_selector_token(value) {
             return Err(ResourceError::new(
                 "selector.escape_required",
-                "names containing '_' must use the name: prefix",
+                "reserved or ambiguous names must use the name: prefix",
                 json!({"selector":value,"escaped":format!("name:{value}")}),
                 false,
             ));
         }
         Ok(Self::Name(value.to_string()))
     }
+}
+
+/// Tokens consumed by the noun-first CLI grammar. A resource may retain any
+/// of these exact names, but callers must select it with the `name:` escape.
+pub fn is_reserved_selector_token(value: &str) -> bool {
+    matches!(
+        value,
+        "machine"
+            | "session"
+            | "client"
+            | "window"
+            | "pairing"
+            | "request"
+            | "frontend"
+            | "projection"
+            | "workspace"
+            | "screen"
+            | "pane"
+            | "tab"
+            | "terminal"
+            | "browser"
+            | "split"
+            | "notification"
+            | "agent"
+            | "sidebar"
+            | "view"
+            | "plugin"
+            | "provider"
+            | "scope"
+            | "action"
+            | "notice"
+            | "list"
+            | "get"
+            | "show"
+            | "create"
+            | "open"
+            | "rename"
+            | "delete"
+            | "restore"
+            | "purge"
+            | "connect"
+            | "snapshot"
+            | "events"
+            | "ping"
+            | "shutdown"
+            | "update"
+            | "detach"
+            | "set"
+            | "clear"
+            | "resolve"
+            | "put"
+            | "move"
+            | "focus"
+            | "close"
+            | "run"
+            | "apply"
+            | "export"
+            | "undo"
+            | "neighbor"
+            | "swap"
+            | "zoom"
+            | "resize"
+            | "send"
+            | "keys"
+            | "read"
+            | "history"
+            | "state"
+            | "direction"
+            | "process"
+            | "copy"
+            | "attach"
+            | "navigate"
+            | "back"
+            | "forward"
+            | "reload"
+            | "activate"
+            | "install"
+            | "use"
+            | "disable"
+            | "remove"
+            | "report"
+            | "notify"
+    )
 }
 
 fn is_registered_public_id(value: &str) -> bool {
@@ -968,6 +1067,19 @@ mod tests {
     }
 
     #[test]
+    fn auxiliary_resource_ids_use_the_canonical_prefix_registry() {
+        let payload = "0".repeat(32);
+        assert_eq!(
+            FrontendProjectionPublicId::parse(format!("projection_{payload}")).unwrap().as_str(),
+            format!("projection_{payload}")
+        );
+        assert!(PairingRequestPublicId::parse(format!("pairing_{payload}")).is_ok());
+        assert!(ProviderScopePublicId::parse(format!("provider_scope_{payload}")).is_ok());
+        assert!(ProviderActionPublicId::parse(format!("provider_action_{payload}")).is_ok());
+        assert!(ProviderNoticePublicId::parse(format!("provider_notice_{payload}")).is_ok());
+    }
+
+    #[test]
     fn name_escape_selects_reserved_and_id_shaped_names() {
         assert_eq!(Selector::parse("current").unwrap(), Selector::Current);
         assert_eq!(Selector::parse("name:current").unwrap(), Selector::Name("current".into()));
@@ -984,6 +1096,27 @@ mod tests {
             Selector::Name("hello_world".into())
         );
         assert_eq!(Selector::parse("hello_world").unwrap_err().code, "selector.escape_required");
+        for reserved in ["create", "show", "close", "screen", "pane", "tab"] {
+            assert_eq!(
+                Selector::parse(reserved).unwrap_err().details["escaped"],
+                json!(format!("name:{reserved}"))
+            );
+            assert_eq!(
+                Selector::parse(&format!("name:{reserved}")).unwrap(),
+                Selector::Name(reserved.into())
+            );
+        }
+        for legacy in ["send-key", "clear-history", "vt-state", "focus-direction"] {
+            assert_eq!(Selector::parse(legacy).unwrap(), Selector::Name(legacy.into()));
+        }
+    }
+
+    #[test]
+    fn terminal_public_identity_is_independent_from_host_uuid_bits() {
+        let terminal = TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff").unwrap();
+        let tab = TabPublicId::parse("tab_00000000000000000000000000000001").unwrap();
+        let identity = TabResourceIdentity::persisted_terminal(tab, terminal.clone());
+        assert_eq!(identity.content_id, ContentPublicId::Terminal(terminal));
     }
 
     #[test]

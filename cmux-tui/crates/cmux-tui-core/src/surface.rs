@@ -24,7 +24,7 @@ use ghostty_vt::{
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::platform;
-use crate::resource::{TabResourceIdentity, TerminalPublicId};
+use crate::resource::TabResourceIdentity;
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{
@@ -1024,7 +1024,22 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
-        Self::spawn_with_terminal_id(id, opts, mux, None)
+        Self::spawn_with_resource_identity(
+            id,
+            opts,
+            mux,
+            Some(TabResourceIdentity::terminal(None)?),
+        )
+    }
+
+    /// Spawn runtime-only terminal content which is not part of the public
+    /// resource tree, such as a sidebar view process.
+    pub(crate) fn spawn_auxiliary(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_with_resource_identity(id, opts, mux, None)
     }
 
     pub(crate) fn spawn_with_terminal_id(
@@ -1032,6 +1047,31 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let identity = Some(TabResourceIdentity::terminal(None)?);
+        Self::spawn_with_terminal_id_and_resource_identity(id, opts, mux, terminal_id, identity)
+    }
+
+    pub(crate) fn spawn_with_resource_identity(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        resource_identity: Option<TabResourceIdentity>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        if resource_identity.as_ref().is_some_and(|identity| {
+            matches!(identity.content_id, crate::resource::ContentPublicId::Browser(_))
+        }) {
+            anyhow::bail!("terminal surface cannot use a browser resource identity");
+        }
+        Self::spawn_with_terminal_id_and_resource_identity(id, opts, mux, None, resource_identity)
+    }
+
+    fn spawn_with_terminal_id_and_resource_identity(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        terminal_id: Option<crate::terminal_host::TerminalId>,
+        resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
         #[cfg(unix)]
         if let Some(root) = opts.terminal_host_root.clone() {
@@ -1051,7 +1091,7 @@ impl Surface {
                     default_colors,
                 )?,
             };
-            return Self::spawn_hosted(id, opts, mux, attachment, true);
+            return Self::spawn_hosted(id, opts, mux, attachment, true, resource_identity);
         }
         let _ = terminal_id;
         let pty = native_pty_system().openpty(PtySize {
@@ -1131,7 +1171,7 @@ impl Surface {
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
-                resource_identity: Some(TabResourceIdentity::terminal(None)?),
+                resource_identity,
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
@@ -1277,6 +1317,7 @@ impl Surface {
         mux: Weak<Mux>,
         mut attachment: crate::terminal_host_runtime::HostAttachment,
         terminate_on_error: bool,
+        resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
         let initial_defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         attachment.send_default_colors(initial_defaults)?;
@@ -1310,15 +1351,13 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
         let sequence_boundary = snapshot.sequence_boundary;
         let host_identity = attachment.identity();
-        let public_terminal_id =
-            TerminalPublicId::from_terminal_host_id(&host_identity.terminal_id)?;
         let supports_clear_history_key_fallback = attachment.supports_clear_history();
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
-                resource_identity: Some(TabResourceIdentity::terminal(Some(public_terminal_id))?),
+                resource_identity,
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
@@ -1789,8 +1828,27 @@ impl Surface {
         record: crate::terminal_host_runtime::TerminalHostRecord,
         record_path: PathBuf,
     ) -> anyhow::Result<Arc<Surface>> {
+        Self::adopt_hosted_with_resource_identity(
+            id,
+            opts,
+            mux,
+            record,
+            record_path,
+            TabResourceIdentity::terminal(None)?,
+        )
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn adopt_hosted_with_resource_identity(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        record: crate::terminal_host_runtime::TerminalHostRecord,
+        record_path: PathBuf,
+        resource_identity: TabResourceIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
         let attachment = crate::terminal_host_runtime::adopt_terminal_host(record, record_path)?;
-        Self::spawn_hosted(id, opts, mux, attachment, false)
+        Self::spawn_hosted(id, opts, mux, attachment, false, Some(resource_identity))
     }
 
     /// Materialize canonical Exited registry state without inventing a live
@@ -1804,7 +1862,26 @@ impl Surface {
         mux: Weak<Mux>,
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
-        let public_terminal_id = TerminalPublicId::from_terminal_host_id(&identity.terminal_id)?;
+        Self::exited_terminal_placeholder_with_resource_identity(
+            id,
+            opts,
+            mux,
+            identity,
+            TabResourceIdentity::terminal(None)?,
+        )
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn exited_terminal_placeholder_with_resource_identity(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        identity: crate::terminal_host_runtime::TerminalHostIdentity,
+        resource_identity: TabResourceIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        if matches!(resource_identity.content_id, crate::resource::ContentPublicId::Browser(_)) {
+            anyhow::bail!("exited terminal cannot use a browser resource identity");
+        }
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
@@ -1827,7 +1904,7 @@ impl Surface {
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
-                resource_identity: Some(TabResourceIdentity::terminal(Some(public_terminal_id))?),
+                resource_identity: Some(resource_identity),
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
@@ -1871,6 +1948,21 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_for_test_with_resource_identity(
+            id,
+            opts,
+            mux,
+            Some(TabResourceIdentity::terminal(None)?),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn spawn_for_test_with_resource_identity(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        resource_identity: Option<TabResourceIdentity>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let callbacks = Callbacks {
             on_bell: Some(Box::new({
                 let mux = mux.clone();
@@ -1899,7 +1991,7 @@ impl Surface {
         Ok(Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
-                resource_identity: Some(TabResourceIdentity::terminal(None)?),
+                resource_identity,
                 name: Mutex::new(None),
                 selection: Mutex::new(None),
             },
@@ -3214,6 +3306,25 @@ mod tests {
             panic!("test surface unexpectedly uses a terminal host");
         };
         *writer = replacement;
+    }
+
+    #[test]
+    fn test_surface_accepts_non_uuid_public_terminal_identity() {
+        let mux = Mux::new_for_test("opaque-terminal-id", SurfaceOptions::default());
+        let terminal =
+            crate::resource::TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff")
+                .unwrap();
+        let tab =
+            crate::resource::TabPublicId::parse("tab_00000000000000000000000000000001").unwrap();
+        let identity = TabResourceIdentity::persisted_terminal(tab, terminal);
+        let surface = Surface::spawn_for_test_with_resource_identity(
+            1,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            Some(identity.clone()),
+        )
+        .unwrap();
+        assert_eq!(surface.resource_identity(), Some(&identity));
     }
 
     #[cfg(unix)]

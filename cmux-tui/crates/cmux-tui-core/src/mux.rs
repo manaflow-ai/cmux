@@ -28,14 +28,18 @@ use crate::model::{
     ProjectedSplitRatioUpdate, Screen, State, Workspace,
 };
 use crate::pairing::PairingBroker;
-use crate::resource::{PanePublicId, ScreenPublicId, WorkspacePublicId};
+use crate::resource::{
+    ContentPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId, SplitPublicId,
+    TabResourceIdentity, WorkspacePublicId,
+};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
-    FrontendProjection, ProjectionCommit, RegistryCommit, RegistryTerminal, RegistryWorkspace,
+    FrontendProjection, ProjectionCommit, RegistryCommit, RegistryLayoutNode, RegistrySnapshot,
+    RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace, ResourceTopologySnapshot,
     TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
@@ -937,6 +941,20 @@ pub struct Mux {
     pub session: String,
 }
 
+#[derive(Clone)]
+struct RestoredResourceContent {
+    slot: SurfaceId,
+    identity: TabResourceIdentity,
+    name: Option<String>,
+    browser_url: Option<String>,
+}
+
+struct RestoredResourceState {
+    state: State,
+    next_id: u64,
+    contents: Vec<RestoredResourceContent>,
+}
+
 impl Mux {
     fn default_workspace_name(state: &State) -> String {
         state.workspaces.len().to_string()
@@ -1083,41 +1101,11 @@ impl Mux {
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> anyhow::Result<Arc<Self>> {
         let snapshot = registry.snapshot()?;
-        let next_id = snapshot.next_numeric_id;
-        let workspaces = snapshot
-            .workspaces
-            .into_iter()
-            .map(|workspace| {
-                Ok(Workspace {
-                    id: workspace.id,
-                    public_id: workspace.public_id,
-                    key: workspace.key,
-                    name: workspace.name,
-                    screens: Vec::new(),
-                    active_screen: 0,
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let workspace_index_by_id =
-            workspaces.iter().enumerate().map(|(index, workspace)| (workspace.id, index)).collect();
-        let workspace_id_by_key =
-            workspaces.iter().map(|workspace| (workspace.key.clone(), workspace.id)).collect();
+        let topology = registry.resource_topology_snapshot()?;
+        let RestoredResourceState { mut state, next_id, contents } =
+            restore_resource_state(snapshot, topology)?;
         surface_options.browser_session_name = session.clone();
-        let mut state = State {
-            workspaces,
-            workspace_index_by_id,
-            workspace_id_by_key,
-            workspace_revision: snapshot.revision,
-            pane_revision: 0,
-            resource_revision: snapshot.resource_revision,
-            focus_sequence: 0,
-            active_workspace: 0,
-            panes: HashMap::new(),
-            surfaces: HashMap::new(),
-            split_screens: HashMap::new(),
-            resource_indexes: Default::default(),
-        };
-        state.rebuild_resource_indexes();
+        Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
             workspace_registry: Mutex::new(registry),
             state: Mutex::new(state),
@@ -1170,9 +1158,67 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        mux.materialize_restored_browsers(&contents)?;
         #[cfg(unix)]
         mux.adopt_terminal_hosts()?;
+        {
+            let mut state = mux.state.lock().unwrap();
+            state.rebuild_resource_indexes();
+            for content in &contents {
+                if let Some(surface) = state.surfaces.get(&content.slot) {
+                    surface.set_name(content.name.clone());
+                }
+            }
+        }
         Ok(mux)
+    }
+
+    fn materialize_restored_browsers(
+        self: &Arc<Self>,
+        contents: &[RestoredResourceContent],
+    ) -> anyhow::Result<()> {
+        let opts = self.surface_options.lock().unwrap().clone();
+        let cell_pixels = *self.cell_pixels.lock().unwrap();
+        for content in contents {
+            let Some(url) = content.browser_url.clone() else { continue };
+            let size = (opts.cols.max(1), opts.rows.max(1));
+            let surface = browser::new_surface_with_resource_identity(
+                content.slot,
+                url.clone(),
+                size,
+                cell_pixels,
+                &opts,
+                Arc::downgrade(self),
+                content.identity.clone(),
+            )?;
+            surface.set_name(content.name.clone());
+            insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
+            self.start_browser_bootstrap(surface, BrowserBootstrap::Create { url }, None);
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn restored_terminal_binding(
+        &self,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<(SurfaceId, TabResourceIdentity)>> {
+        let registry = self.workspace_registry.lock().unwrap();
+        let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
+            return Ok(None);
+        };
+        let state = self.state.lock().unwrap();
+        let content_id = ContentPublicId::Terminal(public_id);
+        let Some(slot) = state.resource_indexes.content.get(&content_id).copied() else {
+            return Ok(None);
+        };
+        let tab_id = state
+            .resource_indexes
+            .tab_ids
+            .get(&slot)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("restored terminal slot has no tab identity"))?;
+        Ok(Some((slot, TabResourceIdentity::new(tab_id, content_id))))
     }
 
     #[cfg(unix)]
@@ -1290,18 +1336,30 @@ impl Mux {
                 handled_terminals.insert(terminal_id.clone());
                 continue;
             }
-            let id = self.next_id();
+            let restored_binding = self.restored_terminal_binding(&terminal_id)?;
+            let id =
+                restored_binding.as_ref().map(|(slot, _)| *slot).unwrap_or_else(|| self.next_id());
             // Bound startup head-of-line blocking per host. One handshake is
             // enough for healthy hosts; live or indeterminate failures
             // continue on the asynchronous adoption loop instead of retrying
             // serially ahead of every later terminal.
-            let adopted = Surface::adopt_hosted(
-                id,
-                options.clone(),
-                Arc::downgrade(self),
-                record.clone(),
-                record_path.clone(),
-            )
+            let adopted = match restored_binding {
+                Some((_, identity)) => Surface::adopt_hosted_with_resource_identity(
+                    id,
+                    options.clone(),
+                    Arc::downgrade(self),
+                    record.clone(),
+                    record_path.clone(),
+                    identity,
+                ),
+                None => Surface::adopt_hosted(
+                    id,
+                    options.clone(),
+                    Arc::downgrade(self),
+                    record.clone(),
+                    record_path.clone(),
+                ),
+            }
             .ok();
             let surface = match adopted {
                 Some(surface) => surface,
@@ -1396,6 +1454,47 @@ impl Mux {
             terminal_id: terminal.terminal_id,
             incarnation: terminal.incarnation.expect("filtered Exited incarnation"),
         };
+        if let Some((slot, resource_identity)) =
+            self.restored_terminal_binding(&identity.terminal_id)?
+        {
+            if let Some(placement) = {
+                let state = self.state.lock().unwrap();
+                state
+                    .surfaces
+                    .contains_key(&slot)
+                    .then(|| run_placement_for_surface(&state, slot))
+                    .flatten()
+            } {
+                return Ok(Some(placement));
+            }
+            let placeholder = Surface::exited_terminal_placeholder_with_resource_identity(
+                slot,
+                options.clone(),
+                Arc::downgrade(self),
+                identity.clone(),
+                resource_identity,
+            )?;
+            let placement = {
+                let registry = self.workspace_registry.lock().unwrap();
+                let Some(current) = registry.terminal_record(terminal_id)? else {
+                    return Ok(None);
+                };
+                if current.lifecycle != TerminalLifecycle::Exited
+                    || current.incarnation.as_deref() != Some(identity.incarnation.as_str())
+                {
+                    return Ok(None);
+                }
+                let mut state = self.state.lock().unwrap();
+                if !state.surfaces.contains_key(&slot) {
+                    insert_surface_checked(&mut state, placeholder)?;
+                }
+                run_placement_for_surface(&state, slot).ok_or_else(|| {
+                    anyhow::anyhow!("restored terminal has no durable tab placement")
+                })?
+            };
+            self.emit(MuxEvent::TreeChanged);
+            return Ok(Some(placement));
+        }
         let existing_projection = {
             let registry = self.workspace_registry.lock().unwrap();
             let Some(current) = registry.terminal_record(terminal_id)? else {
@@ -1530,6 +1629,46 @@ impl Mux {
                 Some(serde_json::json!({"reason":"host-exited-during-adoption"})),
             )?;
             anyhow::bail!("terminal host exited during adoption");
+        }
+        {
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut state = self.state.lock().unwrap();
+            if let Some(placement) = run_placement_for_surface(&state, surface.id) {
+                anyhow::ensure!(
+                    !state.surfaces.contains_key(&surface.id),
+                    "restored terminal slot is already materialized"
+                );
+                let expected_tab = state.resource_indexes.tab_ids.get(&surface.id);
+                let expected_content = state.resource_indexes.content_ids.get(&surface.id);
+                let actual = surface.resource_identity();
+                anyhow::ensure!(
+                    actual.is_some_and(|actual| {
+                        Some(&actual.tab_id) == expected_tab
+                            && Some(&actual.content_id) == expected_content
+                    }),
+                    "adopted terminal identity does not match its durable tab"
+                );
+                let (terminal, revision) = commit_terminal_lifecycle(
+                    &mut registry,
+                    "terminal-ready",
+                    "terminal-adopted",
+                    terminal_id,
+                    TerminalLifecycle::Running,
+                    Some(incarnation),
+                    None,
+                )?;
+                let workspace_key = state
+                    .workspace_by_id(placement.workspace)
+                    .map(|workspace| workspace.key.as_str());
+                anyhow::ensure!(
+                    workspace_key == Some(terminal.workspace_key.as_str()),
+                    "restored terminal workspace does not match durable placement"
+                );
+                state.surfaces.insert(surface.id, surface);
+                drop(state);
+                self.emit_terminal_registry_changed(&registry, revision);
+                return Ok(());
+            }
         }
         let (pane_id, pane) = self.make_pane(surface.id)?;
         let screen_id = self.next_id();
@@ -2637,12 +2776,12 @@ impl Mux {
         opts.extra_env.push(("CMUX_SIDEBAR".to_string(), "1".to_string()));
         #[cfg(test)]
         let surface = if self.test_surface_runtime {
-            Surface::spawn_for_test(id, opts, Arc::downgrade(self))?
+            Surface::spawn_for_test_with_resource_identity(id, opts, Arc::downgrade(self), None)?
         } else {
-            Surface::spawn(id, opts, Arc::downgrade(self))?
+            Surface::spawn_auxiliary(id, opts, Arc::downgrade(self))?
         };
         #[cfg(not(test))]
-        let surface = Surface::spawn(id, opts, Arc::downgrade(self))?;
+        let surface = Surface::spawn_auxiliary(id, opts, Arc::downgrade(self))?;
         insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
         Ok(surface)
     }
@@ -8342,6 +8481,26 @@ fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::R
     if state.surfaces.contains_key(&surface.id) {
         anyhow::bail!("duplicate_surface_id");
     }
+    if let Some(expected_tab) = state.resource_indexes.tab_ids.get(&surface.id) {
+        let expected_content = state
+            .resource_indexes
+            .content_ids
+            .get(&surface.id)
+            .ok_or_else(|| anyhow::anyhow!("reserved tab has no content identity"))?;
+        let actual = surface
+            .resource_identity()
+            .ok_or_else(|| anyhow::anyhow!("public tab slot received auxiliary content"))?;
+        if &actual.tab_id != expected_tab || &actual.content_id != expected_content {
+            anyhow::bail!("surface resource identity does not match its reserved tab slot");
+        }
+    } else if let Some(identity) = surface.resource_identity() {
+        if state.resource_indexes.tabs.contains_key(&identity.tab_id) {
+            anyhow::bail!("duplicate_tab_id");
+        }
+        if state.resource_indexes.content.contains_key(&identity.content_id) {
+            anyhow::bail!("duplicate_content_id");
+        }
+    }
     if let Some(identity) = surface.terminal_host_identity()
         && unique_terminal_match(
             &identity.terminal_id,
@@ -8406,6 +8565,446 @@ impl Drop for Mux {
             runtime.shutdown();
         }
     }
+}
+
+fn restore_resource_state(
+    snapshot: RegistrySnapshot,
+    topology: ResourceTopologySnapshot,
+) -> anyhow::Result<RestoredResourceState> {
+    anyhow::ensure!(
+        topology.session_id == snapshot.session_id,
+        "resource topology belongs to a different session"
+    );
+    anyhow::ensure!(
+        topology.generation == snapshot.generation,
+        "resource topology generation changed during startup"
+    );
+    anyhow::ensure!(
+        topology.revision == snapshot.resource_revision,
+        "resource topology revision changed during startup"
+    );
+
+    let mut next_id = snapshot.next_numeric_id.max(1);
+    let mut allocate = || -> anyhow::Result<u64> {
+        let id = next_id;
+        next_id =
+            next_id.checked_add(1).ok_or_else(|| anyhow::anyhow!("runtime id space exhausted"))?;
+        Ok(id)
+    };
+
+    let workspace_revision = snapshot.revision;
+    let resource_revision = snapshot.resource_revision;
+    let mut workspaces = snapshot
+        .workspaces
+        .into_iter()
+        .map(|workspace| Workspace {
+            id: workspace.id,
+            public_id: workspace.public_id,
+            key: workspace.key,
+            name: workspace.name,
+            screens: Vec::new(),
+            active_screen: 0,
+        })
+        .collect::<Vec<_>>();
+    let workspace_index_by_public = workspaces
+        .iter()
+        .enumerate()
+        .map(|(index, workspace)| (workspace.public_id.clone(), index))
+        .collect::<HashMap<_, _>>();
+
+    let mut screen_slots = HashMap::new();
+    for screen in &topology.screens {
+        let old = screen_slots.insert(screen.public_id.clone(), allocate()?);
+        anyhow::ensure!(old.is_none(), "duplicate screen {}", screen.public_id);
+    }
+    let mut pane_slots = HashMap::new();
+    for pane in &topology.panes {
+        let old = pane_slots.insert(pane.public_id.clone(), allocate()?);
+        anyhow::ensure!(old.is_none(), "duplicate pane {}", pane.public_id);
+    }
+    let mut tab_slots = HashMap::new();
+    for tab in &topology.tabs {
+        let old = tab_slots.insert(tab.public_id.clone(), allocate()?);
+        anyhow::ensure!(old.is_none(), "duplicate tab {}", tab.public_id);
+    }
+
+    let mut indexes = PublicSlotIndexes::default();
+    for workspace in &workspaces {
+        anyhow::ensure!(
+            indexes.workspaces.insert(workspace.public_id.clone(), workspace.id).is_none(),
+            "duplicate workspace {}",
+            workspace.public_id
+        );
+        indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
+    }
+    for (public_id, slot) in &screen_slots {
+        indexes.screens.insert(public_id.clone(), *slot);
+        indexes.screen_ids.insert(*slot, public_id.clone());
+    }
+    for (public_id, slot) in &pane_slots {
+        indexes.panes.insert(public_id.clone(), *slot);
+        indexes.pane_ids.insert(*slot, public_id.clone());
+    }
+
+    let mut tabs_by_pane = HashMap::<PanePublicId, Vec<RegistryTab>>::new();
+    let mut contents = Vec::with_capacity(topology.tabs.len());
+    for tab in topology.tabs {
+        match (&tab.content_id, &tab.browser_url, &tab.terminal_id) {
+            (ContentPublicId::Terminal(_), None, Some(_))
+            | (ContentPublicId::Browser(_), Some(_), None) => {}
+            _ => anyhow::bail!("tab {} has inconsistent persisted content metadata", tab.public_id),
+        }
+        let slot = tab_slots[&tab.public_id];
+        let identity = TabResourceIdentity::new(tab.public_id.clone(), tab.content_id.clone());
+        anyhow::ensure!(
+            indexes.tabs.insert(tab.public_id.clone(), slot).is_none(),
+            "duplicate tab {}",
+            tab.public_id
+        );
+        indexes.tab_ids.insert(slot, tab.public_id.clone());
+        anyhow::ensure!(
+            indexes.content.insert(tab.content_id.clone(), slot).is_none(),
+            "duplicate content {}",
+            tab.content_id.as_str()
+        );
+        indexes.content_ids.insert(slot, tab.content_id.clone());
+        contents.push(RestoredResourceContent {
+            slot,
+            identity,
+            name: tab.name.clone(),
+            browser_url: tab.browser_url.clone(),
+        });
+        tabs_by_pane.entry(tab.pane_id.clone()).or_default().push(tab);
+    }
+    for tabs in tabs_by_pane.values_mut() {
+        tabs.sort_by_key(|tab| tab.position);
+    }
+
+    let mut panes = HashMap::new();
+    for pane in &topology.panes {
+        let id = pane_slots[&pane.public_id];
+        let pane_tabs = tabs_by_pane.get(&pane.public_id).map(Vec::as_slice).unwrap_or_default();
+        let tabs = pane_tabs.iter().map(|tab| tab_slots[&tab.public_id]).collect::<Vec<_>>();
+        let active_tab = match pane.active_tab.as_ref() {
+            Some(active) => {
+                pane_tabs.iter().position(|tab| &tab.public_id == active).ok_or_else(|| {
+                    anyhow::anyhow!("pane {} has unknown active tab {}", pane.public_id, active)
+                })?
+            }
+            None if pane_tabs.is_empty() => 0,
+            None => anyhow::bail!("pane {} has tabs but no active tab", pane.public_id),
+        };
+        anyhow::ensure!(
+            panes
+                .insert(
+                    id,
+                    Pane {
+                        id,
+                        public_id: pane.public_id.clone(),
+                        name: pane.name.clone(),
+                        tabs,
+                        active_tab,
+                        active_at: pane.creation_ordinal,
+                        focused_at: 0,
+                    },
+                )
+                .is_none(),
+            "duplicate pane slot {id}"
+        );
+        let screen = *screen_slots
+            .get(&pane.screen_id)
+            .ok_or_else(|| anyhow::anyhow!("pane {} has unknown screen", pane.public_id))?;
+        indexes.pane_screen.insert(id, screen);
+        for tab in pane_tabs {
+            indexes.tab_pane.insert(tab_slots[&tab.public_id], id);
+        }
+    }
+
+    let mut split_slots = HashMap::<SplitPublicId, SplitId>::new();
+    let mut screens_by_workspace = HashMap::<WorkspacePublicId, Vec<(usize, Screen)>>::new();
+    for screen in &topology.screens {
+        let expected_panes = topology
+            .panes
+            .iter()
+            .filter(|pane| pane.screen_id == screen.public_id)
+            .map(|pane| pane.public_id.clone())
+            .collect::<HashSet<_>>();
+        crate::workspace_registry::validate_registry_screen_projection(screen, &expected_panes)?;
+        let id = screen_slots[&screen.public_id];
+        let root =
+            restore_layout_node(&screen.layout, &pane_slots, &mut split_slots, &mut allocate)?;
+        let active_pane = *pane_slots.get(&screen.active_pane).ok_or_else(|| {
+            anyhow::anyhow!("screen {} has unknown active pane", screen.public_id)
+        })?;
+        let zoomed_pane = screen
+            .zoomed_pane
+            .as_ref()
+            .map(|pane| {
+                pane_slots.get(pane).copied().ok_or_else(|| {
+                    anyhow::anyhow!("screen {} has unknown zoomed pane {}", screen.public_id, pane)
+                })
+            })
+            .transpose()?;
+        let zellij_auto_layout = screen
+            .auto_layout
+            .as_ref()
+            .map(|panes| {
+                panes
+                    .iter()
+                    .map(|pane| {
+                        pane_slots.get(pane).copied().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "screen {} auto-layout has unknown pane {}",
+                                screen.public_id,
+                                pane
+                            )
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()
+            })
+            .transpose()?;
+        let (viewport_splits, viewport_base_width, layout_columns) = restore_registry_viewport(
+            &screen.viewport,
+            &pane_slots,
+            &mut split_slots,
+            &mut allocate,
+        )?;
+        indexes.screen_workspace.insert(
+            id,
+            workspaces[*workspace_index_by_public.get(&screen.workspace_id).ok_or_else(|| {
+                anyhow::anyhow!("screen {} has unknown workspace", screen.public_id)
+            })?]
+            .id,
+        );
+        let restored_screen = Screen {
+            id,
+            public_id: screen.public_id.clone(),
+            name: screen.name.clone(),
+            root,
+            active_pane,
+            zoomed_pane,
+            zellij_auto_layout,
+            viewport_splits,
+            viewport_base_width,
+            layout_columns,
+            layout_revision: 0,
+            layout_undo: Default::default(),
+        };
+        anyhow::ensure!(
+            restored_screen.layout_column_projection_is_consistent(),
+            "screen {} has inconsistent viewport projection",
+            screen.public_id
+        );
+        screens_by_workspace
+            .entry(screen.workspace_id.clone())
+            .or_default()
+            .push((screen.position, restored_screen));
+    }
+    for (workspace_id, mut screens) in screens_by_workspace {
+        screens.sort_by_key(|(position, _)| *position);
+        let workspace_index = workspace_index_by_public[&workspace_id];
+        workspaces[workspace_index].screens =
+            screens.into_iter().map(|(_, screen)| screen).collect();
+    }
+    let mut active_screens = HashMap::new();
+    for (workspace, active) in topology.active_screens {
+        anyhow::ensure!(
+            active_screens.insert(workspace.clone(), active).is_none(),
+            "workspace {} has duplicate active-screen metadata",
+            workspace
+        );
+    }
+    anyhow::ensure!(
+        active_screens.len() == workspaces.len()
+            && workspaces.iter().all(|workspace| active_screens.contains_key(&workspace.public_id)),
+        "active-screen metadata does not exactly cover the live workspaces"
+    );
+    for workspace in &mut workspaces {
+        workspace.active_screen = match active_screens[&workspace.public_id].as_ref() {
+            Some(active) => {
+                workspace.screens.iter().position(|screen| &screen.public_id == active).ok_or_else(
+                    || {
+                        anyhow::anyhow!(
+                            "workspace {} has unknown active screen {}",
+                            workspace.public_id,
+                            active
+                        )
+                    },
+                )?
+            }
+            None if workspace.screens.is_empty() => 0,
+            None => {
+                anyhow::bail!("workspace {} has screens but no active screen", workspace.public_id)
+            }
+        };
+    }
+    let active_workspace = match topology.active_workspace.as_ref() {
+        Some(active) => workspaces
+            .iter()
+            .position(|workspace| &workspace.public_id == active)
+            .ok_or_else(|| anyhow::anyhow!("unknown active workspace {active}"))?,
+        None if workspaces.is_empty() => 0,
+        None => anyhow::bail!("session has workspaces but no active workspace"),
+    };
+
+    for (public_id, slot) in split_slots {
+        indexes.splits.insert(public_id.clone(), slot);
+        indexes.split_ids.insert(slot, public_id);
+    }
+    let workspace_index_by_id =
+        workspaces.iter().enumerate().map(|(index, workspace)| (workspace.id, index)).collect();
+    let workspace_id_by_key =
+        workspaces.iter().map(|workspace| (workspace.key.clone(), workspace.id)).collect();
+    Ok(RestoredResourceState {
+        state: State {
+            workspaces,
+            workspace_index_by_id,
+            workspace_id_by_key,
+            workspace_revision,
+            pane_revision: panes.len() as u64,
+            resource_revision,
+            focus_sequence: 0,
+            active_workspace,
+            panes,
+            surfaces: HashMap::new(),
+            split_screens: HashMap::new(),
+            resource_indexes: indexes,
+        },
+        next_id,
+        contents,
+    })
+}
+
+fn restore_layout_node(
+    node: &RegistryLayoutNode,
+    panes: &HashMap<PanePublicId, PaneId>,
+    splits: &mut HashMap<SplitPublicId, SplitId>,
+    allocate: &mut impl FnMut() -> anyhow::Result<u64>,
+) -> anyhow::Result<Node> {
+    Ok(match node {
+        RegistryLayoutNode::Leaf { pane } => Node::Leaf(
+            *panes.get(pane).ok_or_else(|| anyhow::anyhow!("layout has unknown pane {pane}"))?,
+        ),
+        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+            anyhow::ensure!(!splits.contains_key(split), "split {split} appears more than once");
+            let id = allocate()?;
+            splits.insert(split.clone(), id);
+            let dir = match direction.as_str() {
+                "right" => SplitDir::Right,
+                "down" => SplitDir::Down,
+                _ => anyhow::bail!("split {split} has invalid direction {direction:?}"),
+            };
+            Node::Split {
+                id,
+                dir,
+                ratio: *ratio,
+                a: Box::new(restore_layout_node(first, panes, splits, allocate)?),
+                b: Box::new(restore_layout_node(second, panes, splits, allocate)?),
+            }
+        }
+        RegistryLayoutNode::Stack { panes: members, expanded } => {
+            let members = members
+                .iter()
+                .map(|pane| {
+                    panes
+                        .get(pane)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("stack has unknown pane {pane}"))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let expanded = *panes
+                .get(expanded)
+                .ok_or_else(|| anyhow::anyhow!("stack has unknown expanded pane {expanded}"))?;
+            Node::stack_with_expanded(members, expanded)
+                .ok_or_else(|| anyhow::anyhow!("stored stack is empty or has invalid selection"))?
+        }
+    })
+}
+
+fn restore_registry_viewport(
+    viewport: &RegistryViewport,
+    panes: &HashMap<PanePublicId, PaneId>,
+    splits: &mut HashMap<SplitPublicId, SplitId>,
+    allocate: &mut impl FnMut() -> anyhow::Result<u64>,
+) -> anyhow::Result<(std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>)> {
+    if viewport.columns.is_empty() {
+        return Ok((Default::default(), None, Vec::new()));
+    }
+    let mut columns = Vec::with_capacity(viewport.columns.len());
+    for (index, column) in viewport.columns.iter().enumerate() {
+        let id = match splits.get(&column.id).copied() {
+            Some(id) => id,
+            None if index == 0 => {
+                let id = allocate()?;
+                splits.insert(column.id.clone(), id);
+                id
+            }
+            None => anyhow::bail!("viewport references unknown boundary split {}", column.id),
+        };
+        let root = restore_layout_node_from_known_splits(&column.layout, panes, splits)?;
+        let zellij_auto_layout = column
+            .auto_layout
+            .as_ref()
+            .map(|members| {
+                members
+                    .iter()
+                    .map(|pane| {
+                        panes.get(pane).copied().ok_or_else(|| {
+                            anyhow::anyhow!("viewport auto-layout has unknown pane {pane}")
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()
+            })
+            .transpose()?;
+        columns.push(LayoutColumn { id, width: column.width, root, zellij_auto_layout });
+    }
+    let viewport_splits = columns.iter().skip(1).map(|column| (column.id, column.width)).collect();
+    Ok((viewport_splits, viewport.base_width, columns))
+}
+
+fn restore_layout_node_from_known_splits(
+    node: &RegistryLayoutNode,
+    panes: &HashMap<PanePublicId, PaneId>,
+    splits: &HashMap<SplitPublicId, SplitId>,
+) -> anyhow::Result<Node> {
+    Ok(match node {
+        RegistryLayoutNode::Leaf { pane } => Node::Leaf(
+            *panes.get(pane).ok_or_else(|| anyhow::anyhow!("layout has unknown pane {pane}"))?,
+        ),
+        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+            let id = *splits
+                .get(split)
+                .ok_or_else(|| anyhow::anyhow!("layout has unknown split {split}"))?;
+            let dir = match direction.as_str() {
+                "right" => SplitDir::Right,
+                "down" => SplitDir::Down,
+                _ => anyhow::bail!("split {split} has invalid direction {direction:?}"),
+            };
+            Node::Split {
+                id,
+                dir,
+                ratio: *ratio,
+                a: Box::new(restore_layout_node_from_known_splits(first, panes, splits)?),
+                b: Box::new(restore_layout_node_from_known_splits(second, panes, splits)?),
+            }
+        }
+        RegistryLayoutNode::Stack { panes: members, expanded } => {
+            let members = members
+                .iter()
+                .map(|pane| {
+                    panes
+                        .get(pane)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("stack has unknown pane {pane}"))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let expanded = *panes
+                .get(expanded)
+                .ok_or_else(|| anyhow::anyhow!("stack has unknown expanded pane {expanded}"))?;
+            Node::stack_with_expanded(members, expanded)
+                .ok_or_else(|| anyhow::anyhow!("stored stack is empty or has invalid selection"))?
+        }
+    })
 }
 
 /// Every surface in a screen (all panes, all tabs).
@@ -8904,9 +9503,445 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
+    use crate::resource::{BrowserPublicId, SessionPublicId, TabPublicId};
+    use crate::workspace_registry::{
+        RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceChange, ResourcePatch,
+    };
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    fn restore_workspace_id(value: u128) -> WorkspacePublicId {
+        WorkspacePublicId::parse(format!("ws_{value:032x}")).unwrap()
+    }
+
+    fn restore_screen_id(value: u128) -> ScreenPublicId {
+        ScreenPublicId::parse(format!("screen_{value:032x}")).unwrap()
+    }
+
+    fn restore_pane_id(value: u128) -> PanePublicId {
+        PanePublicId::parse(format!("pane_{value:032x}")).unwrap()
+    }
+
+    fn restore_tab_id(value: u128) -> TabPublicId {
+        TabPublicId::parse(format!("tab_{value:032x}")).unwrap()
+    }
+
+    fn restore_browser_id(value: u128) -> BrowserPublicId {
+        BrowserPublicId::parse(format!("browser_{value:032x}")).unwrap()
+    }
+
+    fn restore_split_id(value: u128) -> SplitPublicId {
+        SplitPublicId::parse(format!("split_{value:032x}")).unwrap()
+    }
+
+    fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
+        let first_workspace = RegistryWorkspace {
+            id: 10,
+            public_id: restore_workspace_id(1),
+            key: "first".into(),
+            name: "Duplicate".into(),
+            group_key: "test".into(),
+        };
+        let empty_workspace = RegistryWorkspace {
+            id: 20,
+            public_id: restore_workspace_id(2),
+            key: "empty".into(),
+            name: "Duplicate".into(),
+            group_key: "test".into(),
+        };
+        let first_screen = restore_screen_id(1);
+        let second_screen = restore_screen_id(2);
+        let panes = (1..=5).map(restore_pane_id).collect::<Vec<_>>();
+        let tabs = (1..=6).map(restore_tab_id).collect::<Vec<_>>();
+        let internal_split = restore_split_id(1);
+        let boundary_split = restore_split_id(2);
+        let base_column = restore_split_id(3);
+        let first_column_layout = RegistryLayoutNode::Split {
+            split: internal_split,
+            direction: "down".into(),
+            ratio: 0.6,
+            first: Box::new(RegistryLayoutNode::Stack {
+                panes: vec![panes[0].clone(), panes[1].clone()],
+                expanded: panes[1].clone(),
+            }),
+            second: Box::new(RegistryLayoutNode::Leaf { pane: panes[2].clone() }),
+        };
+        let first_layout = RegistryLayoutNode::Split {
+            split: boundary_split.clone(),
+            direction: "right".into(),
+            ratio: 0.8 / (0.8 + 0.4),
+            first: Box::new(first_column_layout.clone()),
+            second: Box::new(RegistryLayoutNode::Leaf { pane: panes[3].clone() }),
+        };
+        let screens = vec![
+            RegistryScreen {
+                public_id: first_screen.clone(),
+                workspace_id: first_workspace.public_id.clone(),
+                position: 0,
+                name: Some("Columns".into()),
+                layout: first_layout,
+                active_pane: panes[2].clone(),
+                zoomed_pane: Some(panes[2].clone()),
+                auto_layout: None,
+                viewport: RegistryViewport {
+                    base_width: Some(0.8),
+                    columns: vec![
+                        RegistryViewportColumn {
+                            id: base_column,
+                            width: 0.8,
+                            layout: first_column_layout,
+                            auto_layout: None,
+                        },
+                        RegistryViewportColumn {
+                            id: boundary_split,
+                            width: 0.4,
+                            layout: RegistryLayoutNode::Leaf { pane: panes[3].clone() },
+                            auto_layout: Some(vec![panes[3].clone()]),
+                        },
+                    ],
+                },
+            },
+            RegistryScreen {
+                public_id: second_screen.clone(),
+                workspace_id: first_workspace.public_id.clone(),
+                position: 1,
+                name: Some("Selected".into()),
+                layout: RegistryLayoutNode::Leaf { pane: panes[4].clone() },
+                active_pane: panes[4].clone(),
+                zoomed_pane: Some(panes[4].clone()),
+                auto_layout: Some(vec![panes[4].clone()]),
+                viewport: RegistryViewport::default(),
+            },
+        ];
+        let registry_panes = vec![
+            RegistryPane {
+                public_id: panes[0].clone(),
+                screen_id: first_screen.clone(),
+                name: Some("one".into()),
+                active_tab: Some(tabs[0].clone()),
+                creation_ordinal: 1,
+            },
+            RegistryPane {
+                public_id: panes[1].clone(),
+                screen_id: first_screen.clone(),
+                name: Some("two".into()),
+                active_tab: Some(tabs[1].clone()),
+                creation_ordinal: 2,
+            },
+            RegistryPane {
+                public_id: panes[2].clone(),
+                screen_id: first_screen.clone(),
+                name: Some("three".into()),
+                active_tab: Some(tabs[2].clone()),
+                creation_ordinal: 3,
+            },
+            RegistryPane {
+                public_id: panes[3].clone(),
+                screen_id: first_screen.clone(),
+                name: Some("four".into()),
+                active_tab: Some(tabs[3].clone()),
+                creation_ordinal: 4,
+            },
+            RegistryPane {
+                public_id: panes[4].clone(),
+                screen_id: second_screen.clone(),
+                name: Some("five".into()),
+                active_tab: Some(tabs[5].clone()),
+                creation_ordinal: 5,
+            },
+        ];
+        let registry_tabs = tabs
+            .iter()
+            .enumerate()
+            .map(|(index, tab)| {
+                let pane_index = index.min(4);
+                RegistryTab {
+                    public_id: tab.clone(),
+                    pane_id: panes[pane_index].clone(),
+                    position: usize::from(index == 5),
+                    content_id: ContentPublicId::Browser(restore_browser_id(index as u128 + 1)),
+                    name: Some(format!("tab-{index}")),
+                    browser_url: Some(format!("about:blank#{index}")),
+                    terminal_id: None,
+                }
+            })
+            .collect();
+        let session_id =
+            SessionPublicId::parse("session_00000000000000000000000000000001").unwrap();
+        (
+            RegistrySnapshot {
+                registry_id: "registry".into(),
+                generation: "generation".into(),
+                revision: 1,
+                resource_revision: 1,
+                session_id: session_id.clone(),
+                next_numeric_id: 100,
+                workspaces: vec![first_workspace.clone(), empty_workspace.clone()],
+            },
+            ResourceTopologySnapshot {
+                session_id,
+                generation: "generation".into(),
+                revision: 1,
+                active_workspace: Some(empty_workspace.public_id.clone()),
+                active_screens: vec![
+                    (first_workspace.public_id, Some(second_screen)),
+                    (empty_workspace.public_id, None),
+                ],
+                screens,
+                panes: registry_panes,
+                tabs: registry_tabs,
+            },
+        )
+    }
+
+    #[test]
+    fn resource_startup_restores_nested_columns_selections_and_empty_workspace() {
+        let (snapshot, topology) = resource_restore_fixture();
+        let expected_tab = topology.tabs[5].public_id.clone();
+        let expected_browser = topology.tabs[5].content_id.clone();
+        let expected_base_column = topology.screens[0].viewport.columns[0].id.clone();
+        let mut restored = restore_resource_state(snapshot, topology).unwrap();
+        Mux::rebuild_split_screen_index(&mut restored.state);
+
+        let state = &restored.state;
+        assert_eq!(state.workspaces.len(), 2);
+        assert_eq!(state.active_workspace, 1);
+        assert!(state.workspaces[1].screens.is_empty());
+        assert_eq!(state.workspaces[0].active_screen, 1);
+        let columns = &state.workspaces[0].screens[0];
+        assert_eq!(columns.layout_columns.len(), 2);
+        assert_eq!(columns.viewport_base_width, Some(0.8));
+        assert_eq!(columns.zoomed_pane, Some(columns.active_pane));
+        assert!(matches!(
+            &columns.layout_columns[0].root,
+            Node::Split { a, .. }
+                if matches!(a.as_ref(), Node::Stack { expanded, .. }
+                    if *expanded == state.resource_indexes.panes[&restore_pane_id(2)])
+        ));
+        assert!(columns.layout_column_projection_is_consistent());
+        assert!(state.resource_indexes.splits.contains_key(&expected_base_column));
+        let selected_pane = state.resource_indexes.panes[&restore_pane_id(5)];
+        assert_eq!(
+            state.panes[&selected_pane].tabs[state.panes[&selected_pane].active_tab],
+            state.resource_indexes.tabs[&expected_tab]
+        );
+        assert_eq!(
+            state.resource_indexes.content[&expected_browser],
+            state.resource_indexes.tabs[&expected_tab]
+        );
+        assert_eq!(state.surfaces.len(), 0);
+        assert_eq!(restored.contents.len(), 6);
+        assert!(restored.next_id > 100);
+    }
+
+    #[test]
+    fn resource_startup_rejects_corrupt_persisted_selectors() {
+        let (snapshot, mut topology) = resource_restore_fixture();
+        topology.active_screens[0].1 = Some(restore_screen_id(999));
+        assert!(
+            restore_resource_state(snapshot.clone(), topology)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("unknown active screen")
+        );
+
+        let (_, mut topology) = resource_restore_fixture();
+        topology.panes[0].active_tab = Some(restore_tab_id(999));
+        assert!(
+            restore_resource_state(snapshot, topology)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("unknown active tab")
+        );
+    }
+
+    #[test]
+    fn resource_startup_rejects_missing_required_active_selectors() {
+        let (snapshot, mut topology) = resource_restore_fixture();
+        topology.panes[0].active_tab = None;
+        assert_eq!(
+            restore_resource_state(snapshot.clone(), topology).err().unwrap().to_string(),
+            format!("pane {} has tabs but no active tab", restore_pane_id(1))
+        );
+
+        let (_, mut topology) = resource_restore_fixture();
+        topology.active_screens[0].1 = None;
+        assert_eq!(
+            restore_resource_state(snapshot.clone(), topology).err().unwrap().to_string(),
+            format!("workspace {} has screens but no active screen", restore_workspace_id(1))
+        );
+
+        let (_, mut topology) = resource_restore_fixture();
+        topology.active_workspace = None;
+        assert_eq!(
+            restore_resource_state(snapshot.clone(), topology).err().unwrap().to_string(),
+            "session has workspaces but no active workspace"
+        );
+
+        let (_, mut topology) = resource_restore_fixture();
+        topology.active_screens.pop();
+        assert_eq!(
+            restore_resource_state(snapshot, topology).err().unwrap().to_string(),
+            "active-screen metadata does not exactly cover the live workspaces"
+        );
+    }
+
+    #[test]
+    fn resource_startup_accepts_none_only_for_empty_containers() {
+        let (snapshot, mut topology) = resource_restore_fixture();
+        let empty_pane = topology.panes[0].public_id.clone();
+        topology.tabs.retain(|tab| tab.pane_id != empty_pane);
+        topology.panes[0].active_tab = None;
+        let restored = restore_resource_state(snapshot, topology).unwrap();
+        assert!(
+            restored.state.panes[&restored.state.resource_indexes.panes[&empty_pane]]
+                .tabs
+                .is_empty()
+        );
+
+        let (mut snapshot, mut topology) = resource_restore_fixture();
+        snapshot.workspaces.clear();
+        topology.active_workspace = None;
+        topology.active_screens.clear();
+        topology.screens.clear();
+        topology.panes.clear();
+        topology.tabs.clear();
+        assert!(restore_resource_state(snapshot, topology).unwrap().state.workspaces.is_empty());
+    }
+
+    #[test]
+    fn resource_startup_revalidates_exact_layout_and_viewport_coverage() {
+        let (snapshot, mut topology) = resource_restore_fixture();
+        topology.panes[3].screen_id = restore_screen_id(2);
+        assert_eq!(
+            restore_resource_state(snapshot.clone(), topology).err().unwrap().to_string(),
+            format!("screen {} layout does not cover its panes exactly once", restore_screen_id(1))
+        );
+
+        let (_, mut topology) = resource_restore_fixture();
+        topology.screens[0].viewport.columns[1].id = restore_split_id(999);
+        assert!(
+            restore_resource_state(snapshot, topology)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("unknown projected split")
+        );
+    }
+
+    fn resource_restore_patch(
+        snapshot: &RegistrySnapshot,
+        topology: &ResourceTopologySnapshot,
+    ) -> ResourcePatch {
+        let active_screens = topology.active_screens.iter().cloned().collect::<HashMap<_, _>>();
+        let mut changes = Vec::new();
+        for (position, workspace) in snapshot.workspaces.iter().enumerate() {
+            changes.push(ResourceChange::UpsertWorkspace {
+                workspace: workspace.clone(),
+                position,
+                active_screen: active_screens.get(&workspace.public_id).cloned().flatten(),
+            });
+        }
+        changes.extend(topology.screens.iter().cloned().map(ResourceChange::UpsertScreen));
+        changes.extend(topology.panes.iter().cloned().map(ResourceChange::UpsertPane));
+        for tab in &topology.tabs {
+            let ContentPublicId::Browser(browser) = &tab.content_id else {
+                panic!("restart fixture uses browser tabs");
+            };
+            changes.push(ResourceChange::UpsertBrowser {
+                public_id: browser.clone(),
+                url: tab.browser_url.clone().unwrap(),
+            });
+            changes.push(ResourceChange::UpsertTab(tab.clone()));
+        }
+        changes.push(ResourceChange::SetWorkspaceOrder {
+            workspace_ids: snapshot
+                .workspaces
+                .iter()
+                .map(|workspace| workspace.public_id.clone())
+                .collect(),
+        });
+        for workspace in &snapshot.workspaces {
+            changes.push(ResourceChange::SetScreenOrder {
+                workspace_id: workspace.public_id.clone(),
+                screen_ids: topology
+                    .screens
+                    .iter()
+                    .filter(|screen| screen.workspace_id == workspace.public_id)
+                    .map(|screen| screen.public_id.clone())
+                    .collect(),
+            });
+        }
+        for pane in &topology.panes {
+            changes.push(ResourceChange::SetTabOrder {
+                pane_id: pane.public_id.clone(),
+                tab_ids: topology
+                    .tabs
+                    .iter()
+                    .filter(|tab| tab.pane_id == pane.public_id)
+                    .map(|tab| tab.public_id.clone())
+                    .collect(),
+            });
+        }
+        changes.push(ResourceChange::SetActiveWorkspace {
+            workspace_id: topology.active_workspace.clone(),
+        });
+        ResourcePatch { changes }
+    }
+
+    #[test]
+    fn persistent_mux_restart_keeps_public_topology_and_browser_tabs() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-resource-restart-{}", WorkspacePublicId::random().unwrap()));
+        let (fixture_snapshot, fixture_topology) = resource_restore_fixture();
+        {
+            let mut registry = WorkspaceRegistry::open(&root, "restart").unwrap();
+            registry
+                .commit_resource_patch(
+                    &WorkspaceMutation::new("seed-restart", "test").unwrap(),
+                    "session.restore_fixture",
+                    &serde_json::json!({"fixture":"nested-columns"}),
+                    None,
+                    Some(0),
+                    &resource_restore_patch(&fixture_snapshot, &fixture_topology),
+                    &serde_json::json!({"restored":true}),
+                    &serde_json::json!([{"event":"session.restored"}]),
+                )
+                .unwrap();
+        }
+
+        let registry = WorkspaceRegistry::open(&root, "restart").unwrap();
+        let mux = Mux::from_workspace_registry(
+            "restart".into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 2);
+            assert_eq!(state.active_workspace, 1);
+            assert!(state.workspaces[1].screens.is_empty());
+            assert_eq!(state.workspaces[0].active_screen, 1);
+            assert_eq!(state.workspaces[0].screens[0].layout_columns.len(), 2);
+            assert!(state.workspaces[0].screens[0].layout_column_projection_is_consistent());
+            assert_eq!(state.surfaces.len(), fixture_topology.tabs.len());
+            for tab in &fixture_topology.tabs {
+                let slot = state.resource_indexes.tabs[&tab.public_id];
+                let surface = &state.surfaces[&slot];
+                assert_eq!(surface.resource_identity().unwrap().tab_id, tab.public_id);
+                assert_eq!(surface.resource_identity().unwrap().content_id, tab.content_id);
+                assert_eq!(surface.name(), tab.name);
+            }
+        });
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(unix)]
@@ -13419,7 +14454,7 @@ mod tests {
     }
 
     #[test]
-    fn key_close_reacquires_replacement_workspace_lifecycle() {
+    fn key_close_cannot_rebind_a_live_durable_workspace_identity() {
         let mux = test_mux();
         let key = "018f6e21-7b70-7e70-8000-000000001021".to_string();
         let original =
@@ -13454,57 +14489,16 @@ mod tests {
             state.remove_workspace(index);
             state.workspace_revision = state.workspace_revision.saturating_add(1);
         }
-        let replacement = mux
+        let replacement_error = mux
             .create_empty_workspace(Some("replacement".into()), Some(key.clone()), None)
-            .unwrap();
-
-        let (reserved_tx, reserved_rx) = std::sync::mpsc::sync_channel(1);
-        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
-        let release_rx = Arc::new(Mutex::new(release_rx));
-        *mux.terminal_create_after_workspace_reservation.lock().unwrap() = Some(Arc::new({
-            move || {
-                reserved_tx.send(()).unwrap();
-                release_rx.lock().unwrap().recv().unwrap();
-            }
-        }));
-        let create = std::thread::spawn({
-            let mux = mux.clone();
-            move || {
-                mux.create_terminal_surface_in_workspace(
-                    replacement.workspace,
-                    None,
-                    None,
-                    None,
-                    Some((80, 24)),
-                )
-            }
-        });
-        reserved_rx.recv().unwrap();
+            .unwrap_err();
+        assert!(replacement_error.to_string().contains("is already bound to public id"));
         drop(original_guard);
 
-        let premature_close = close_done_rx.recv_timeout(Duration::from_millis(250));
-        let closed_early = premature_close.is_ok();
-        release_tx.send(()).unwrap();
-        let created = create.join().unwrap();
-        let close_result = match premature_close {
-            Ok(result) => result,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => close_done_rx.recv().unwrap(),
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                panic!("workspace close result channel disconnected")
-            }
-        };
+        let close_result = close_done_rx.recv().unwrap();
         close.join().unwrap();
         *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
-        *mux.terminal_create_after_workspace_reservation.lock().unwrap() = None;
-
-        assert!(!closed_early, "replacement closed without its lifecycle lock");
-        let (surface, placement) = created.expect("replacement terminal commits before close");
-        assert_eq!(placement.workspace, replacement.workspace);
-        assert_eq!(
-            close_result.unwrap(),
-            Some((replacement.workspace, key, replacement.revision + 1))
-        );
-        surface.kill();
+        assert!(close_result.unwrap_err().to_string().contains("unknown workspace key"));
         mux.shutdown();
     }
 
