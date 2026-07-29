@@ -168,6 +168,10 @@ def run_decision_scenario(
     prior_event: str = "schedule",
     prior_artifact: str = "ios-testflight-build-metadata",
     prior_uploads: tuple[tuple[str, str], ...] = (),
+    prior_upload_pages: tuple[
+        tuple[tuple[str, str], ...],
+        ...,
+    ] = (),
     prior_run_ids: tuple[int, ...] = (),
     head_sha: str = "head-sha",
     changed_files: tuple[str, ...] = (),
@@ -182,37 +186,51 @@ def run_decision_scenario(
         workflow_text(),
         "ios-testflight-build-metadata-override",
     )
-    assert not (
-        prior_sha and prior_uploads
-    ), "use prior_sha or prior_uploads, not both"
+    history_sources = sum(
+        bool(source)
+        for source in (prior_sha, prior_uploads, prior_upload_pages)
+    )
+    assert history_sources <= 1, "use only one prior upload source"
     assert ordering_api_failure in (
         None,
         "runs",
         "jobs",
     ), "ordering_api_failure must be runs or jobs"
-    upload_history = prior_uploads
-    if prior_sha:
-        upload_history = ((prior_sha, prior_artifact),)
+    upload_pages = prior_upload_pages
+    if not upload_pages:
+        upload_history = prior_uploads
+        if prior_sha:
+            upload_history = ((prior_sha, prior_artifact),)
+        upload_pages = (upload_history,) if upload_history else ()
+    upload_history = tuple(
+        upload for page in upload_pages for upload in page
+    )
     assert not prior_run_ids or len(prior_run_ids) == len(
         upload_history
     ), "prior_run_ids must match the upload history"
     run_ids = prior_run_ids or tuple(
         50 - index for index in range(len(upload_history))
     )
-    prior_runs = [
-        {
-            "id": run_id,
-            "sha": sha,
-            "artifact": artifact,
-            "event": prior_event,
-        }
-        for (sha, artifact), run_id in zip(upload_history, run_ids)
-    ]
+    prior_run_pages = []
+    run_index = 0
+    for page in upload_pages:
+        page_runs = []
+        for sha, artifact in page:
+            page_runs.append(
+                {
+                    "id": run_ids[run_index],
+                    "sha": sha,
+                    "artifact": artifact,
+                    "event": prior_event,
+                }
+            )
+            run_index += 1
+        prior_run_pages.append(page_runs)
     scenario = {
         "eventName": event_name,
         "schedule": schedule,
         "inputVariant": input_variant,
-        "priorRuns": prior_runs,
+        "priorRunPages": prior_run_pages,
         "headSha": head_sha,
         "changedFiles": changed_files,
         "blockingPriorRun": blocking_prior_run,
@@ -234,15 +252,21 @@ let uploadPhase = scenario.blockingPriorRun
   ? (scenario.uploadJobStartsLate ? 0 : 1)
   : 2;
 let orderingFailurePending = scenario.orderingApiFailure !== null;
-const priorRuns = () => scenario.priorRuns.map((run, index) => ({{
+const allPriorRuns = scenario.priorRunPages.flat();
+const firstPriorRunId = allPriorRuns[0]?.id;
+const priorRuns = (request) => {{
+  const page = Number(request.page ?? 1);
+  const pageRuns = scenario.priorRunPages[page - 1] ?? [];
+  return pageRuns.map((run) => ({{
   id: run.id,
   status:
-    scenario.blockingPriorRun && index === 0
+    scenario.blockingPriorRun && run.id === firstPriorRunId
       ? 'in_progress'
       : 'completed',
   event: run.event,
   head_sha: run.sha,
-}}));
+  }}));
+}};
 const setTimeout = (resolve, milliseconds) => {{
   waitCalls.push(milliseconds);
   uploadPhase = Math.min(uploadPhase + 1, 2);
@@ -278,7 +302,7 @@ const github = {{
           orderingFailurePending = false;
           throw new Error('transient runs failure');
         }}
-        const workflowRuns = priorRuns();
+        const workflowRuns = priorRuns(request);
         priorRunStatuses.push(...workflowRuns.map((run) => run.status));
         return {{
           data: {{ workflow_runs: workflowRuns }},
@@ -292,12 +316,12 @@ const github = {{
           orderingFailurePending = false;
           throw new Error('transient jobs failure');
         }}
-        const priorRun = scenario.priorRuns.find(
+        const priorRun = allPriorRuns.find(
           (run) => run.id === Number(request.run_id)
         );
         const isBlockingRun =
           scenario.blockingPriorRun &&
-          priorRun?.id === scenario.priorRuns[0]?.id;
+          priorRun?.id === firstPriorRunId;
         const phase = isBlockingRun ? uploadPhase : 2;
         if (phase === 0) {{
           uploadJobStatuses.push(null);
@@ -316,7 +340,7 @@ const github = {{
         }};
       }},
       listWorkflowRunArtifacts: async (request) => {{
-        const priorRun = scenario.priorRuns.find(
+        const priorRun = allPriorRuns.find(
           (run) => run.id === Number(request.run_id)
         );
         return {{
