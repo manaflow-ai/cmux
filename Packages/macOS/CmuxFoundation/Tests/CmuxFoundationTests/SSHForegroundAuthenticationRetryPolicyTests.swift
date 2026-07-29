@@ -93,6 +93,35 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.temporaryFiles.isEmpty)
     }
 
+    @Test func mapsAddressQualifiedConnectionResetToRetryableStatus() throws {
+        let result = try run(
+            "printf '%s\\n' 'Connection reset by 192.0.2.1 port 22' >&2; exit 255"
+        )
+
+        #expect(result.status == 254)
+        #expect(result.stderr.contains("Connection reset by 192.0.2.1 port 22"))
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
+    @Test(arguments: [
+        "Warning: Identity file /tmp/missing-key not accessible: No such file or directory.",
+        "debug1: load_hostkeys: fopen /tmp/missing-known-hosts: No such file or directory",
+    ])
+    func nonFatalMissingFileDiagnosticDoesNotOverrideTransportFailure(_ diagnostic: String) throws {
+        let result = try run(
+            """
+            printf '%s\\n' '\(diagnostic)' >&2
+            printf '%s\\n' 'ssh: connect to host example.test port 22: Network is unreachable' >&2
+            exit 255
+            """
+        )
+
+        #expect(result.status == 254)
+        #expect(result.stderr.contains(diagnostic))
+        #expect(result.stderr.contains("Network is unreachable"))
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
     @Test(arguments: [
         "kex_exchange_identification: Connection closed by remote host",
         "Connection closed by 192.0.2.1 port 22",
