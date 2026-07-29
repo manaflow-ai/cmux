@@ -513,37 +513,23 @@ struct OmpDirectoryResolverTests {
         ]
 
         for name in invalidNames {
-            var environmentError: (any Error)?
-            do {
+            #expect(throws: OmpDirectoryResolverError.invalidProfileName(name)) {
                 _ = try OmpDirectoryResolver().resolve(
                     arguments: ["omp"],
                     environment: ["OMP_PROFILE": name],
                     homeDirectory: fixture.home.path,
                     currentDirectory: fixture.currentDirectory.path
                 )
-            } catch {
-                environmentError = error
             }
-            #expect(
-                environmentError != nil,
-                Comment(rawValue: "Expected invalid OMP_PROFILE to throw: \(name)")
-            )
 
-            var cliError: (any Error)?
-            do {
+            #expect(throws: OmpDirectoryResolverError.invalidProfileName(name)) {
                 _ = try OmpDirectoryResolver().resolve(
                     arguments: ["omp", "--profile", name],
                     environment: [:],
                     homeDirectory: fixture.home.path,
                     currentDirectory: fixture.currentDirectory.path
                 )
-            } catch {
-                cliError = error
             }
-            #expect(
-                cliError != nil,
-                Comment(rawValue: "Expected invalid --profile to throw: \(name)")
-            )
         }
     }
 
@@ -558,18 +544,14 @@ struct OmpDirectoryResolverTests {
             ["omp", "--profile", "   "],
             ["omp", "--profile", "--model", "anthropic/claude-sonnet-4-6"],
         ] {
-            var thrownError: (any Error)?
-            do {
+            #expect(throws: OmpDirectoryResolverError.missingOptionValue("--profile")) {
                 _ = try OmpDirectoryResolver().resolve(
                     arguments: arguments,
                     environment: [:],
                     homeDirectory: fixture.home.path,
                     currentDirectory: fixture.currentDirectory.path
                 )
-            } catch {
-                thrownError = error
             }
-            #expect(thrownError != nil, Comment(rawValue: "Expected malformed arguments to throw: \(arguments)"))
         }
     }
 

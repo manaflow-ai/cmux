@@ -1507,6 +1507,7 @@
       "underHoodItemResume": "Podczas przywracania cmux najpierw odbudowuje okna i panele. Jeśli automatyczne wznawianie agentów jest włączone, uruchamia jednorazowe polecenie shell, które wykonuje natywne polecenie resume agenta z zapisanym ID sesji.",
       "underHoodMore": "Zwykła <configLink>dokumentacja konfiguracji</configLink> opisuje cmux.json. Przywracanie sesji trzyma layout aplikacji oddzielnie od ustawień renderowania terminala Ghostty.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "Telemetria narzędzi, podagentów i kompakcji",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

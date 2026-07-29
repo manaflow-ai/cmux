@@ -9,8 +9,8 @@ struct PiTranscriptParserTests {
     private let parser = PiTranscriptParser()
 
     @Test("v3 session header maps to a session-started status")
-    func sessionHeader() {
-        let result = parser.parse(lines: [headerLine()], startingSeq: 7)
+    func sessionHeader() throws {
+        let result = parser.parse(lines: [try headerLine()], startingSeq: 7)
 
         #expect(result.messages.count == 1)
         let message = result.messages[0]
@@ -22,10 +22,10 @@ struct PiTranscriptParserTests {
     }
 
     @Test("wrapped user and assistant text plus thinking map to typed chat messages")
-    func proseAndThinking() {
+    func proseAndThinking() throws {
         let lines = [
-            userLine(id: "u0000001", text: "Inspect the parser."),
-            assistantLine(
+            try userLine(id: "u0000001", text: "Inspect the parser."),
+            try assistantLine(
                 id: "a0000001",
                 parentID: "u0000001",
                 content: [
@@ -54,16 +54,16 @@ struct PiTranscriptParserTests {
     }
 
     @Test("synthetic prompts cannot displace the first real user title candidate")
-    func firstUserTitleCandidate() {
+    func firstUserTitleCandidate() throws {
         let lines = [
-            assistantLine(
+            try assistantLine(
                 id: "a-preface",
                 parentID: nil,
                 content: [["type": "text", "text": "Assistant preface"]]
             ),
-            userLine(id: "u-synthetic", text: "Continue automatically", synthetic: true),
-            userLine(id: "u-real", text: "Implement mobile OMP history."),
-            userLine(id: "u-later", text: "Then verify pagination."),
+            try userLine(id: "u-synthetic", text: "Continue automatically", synthetic: true),
+            try userLine(id: "u-real", text: "Implement mobile OMP history."),
+            try userLine(id: "u-later", text: "Then verify pagination."),
         ]
 
         let result = parser.parse(lines: lines, startingSeq: 0)
@@ -77,9 +77,9 @@ struct PiTranscriptParserTests {
     }
 
     @Test("tool results arriving in a later parse update the original tool call")
-    func toolPairingAcrossIncrementalParses() {
+    func toolPairingAcrossIncrementalParses() throws {
         let first = parser.parse(
-            lines: [assistantLine(
+            lines: [try assistantLine(
                 id: "a-tool",
                 parentID: "u0000001",
                 content: [[
@@ -103,7 +103,7 @@ struct PiTranscriptParserTests {
         #expect(first.state.pendingToolUses["call_read_1"]?.count == 1)
 
         let second = parser.parse(
-            lines: [toolResultLine(
+            lines: [try toolResultLine(
                 id: "r0000001",
                 parentID: "a-tool",
                 toolCallID: "call_read_1",
@@ -129,9 +129,9 @@ struct PiTranscriptParserTests {
     }
 
     @Test("failed tool results mark the incrementally paired tool call failed")
-    func failedToolResult() {
+    func failedToolResult() throws {
         let first = parser.parse(
-            lines: [assistantLine(
+            lines: [try assistantLine(
                 id: "a-failed-tool",
                 parentID: "u0000001",
                 content: [[
@@ -144,7 +144,7 @@ struct PiTranscriptParserTests {
             startingSeq: 40
         )
         let second = parser.parse(
-            lines: [toolResultLine(
+            lines: [try toolResultLine(
                 id: "r-failed-tool",
                 parentID: "a-failed-tool",
                 toolCallID: "call_read_failed",
@@ -168,8 +168,8 @@ struct PiTranscriptParserTests {
     }
 
     @Test("developer text is system prose and cannot become the user title candidate")
-    func developerMessage() {
-        let developer = messageLine(
+    func developerMessage() throws {
+        let developer = try messageLine(
             id: "d0000001",
             parentID: nil,
             message: [
@@ -184,7 +184,7 @@ struct PiTranscriptParserTests {
         let result = parser.parse(
             lines: [
                 developer,
-                userLine(id: "u-after-developer", text: "Implement the mobile history view."),
+                try userLine(id: "u-after-developer", text: "Implement the mobile history view."),
             ],
             startingSeq: 50
         )
@@ -204,14 +204,14 @@ struct PiTranscriptParserTests {
     }
 
     @Test("malformed and unknown entries are skipped while line seq remains stable")
-    func malformedUnknownAndStableSeq() {
-        let unknownEntry = Self.json([
+    func malformedUnknownAndStableSeq() throws {
+        let unknownEntry = try Self.json([
             "type": "future_entry",
             "id": "future-1",
             "parentId": NSNull(),
             "timestamp": "2026-02-16T10:20:31.000Z",
         ])
-        let settingEntry = Self.json([
+        let settingEntry = try Self.json([
             "type": "thinking_level_change",
             "id": "thinking-setting",
             "parentId": NSNull(),
@@ -219,7 +219,7 @@ struct PiTranscriptParserTests {
             "thinkingLevel": "high",
             "configured": "high",
         ])
-        let unknownBlock = assistantLine(
+        let unknownBlock = try assistantLine(
             id: "a-unknown",
             parentID: nil,
             content: [["type": "future_content", "value": "ignored"]]
@@ -229,7 +229,7 @@ struct PiTranscriptParserTests {
             unknownEntry,
             settingEntry,
             unknownBlock,
-            userLine(id: "u-visible", text: "Visible after noise."),
+            try userLine(id: "u-visible", text: "Visible after noise."),
         ]
 
         let result = parser.parse(lines: lines, startingSeq: 100)
@@ -240,8 +240,8 @@ struct PiTranscriptParserTests {
         #expect(result.messages[0].kind == .prose(ChatProse(text: "Visible after noise.")))
     }
 
-    private func headerLine() -> String {
-        Self.json([
+    private func headerLine() throws -> String {
+        try Self.json([
             "type": "session",
             "version": 3,
             "id": "019f0000-0000-7000-8000-000000000001",
@@ -256,7 +256,7 @@ struct PiTranscriptParserTests {
         id: String,
         text: String,
         synthetic: Bool = false
-    ) -> String {
+    ) throws -> String {
         var message: [String: Any] = [
             "role": "user",
             "content": [["type": "text", "text": text]],
@@ -265,15 +265,15 @@ struct PiTranscriptParserTests {
         if synthetic {
             message["synthetic"] = true
         }
-        return messageLine(id: id, parentID: nil, message: message)
+        return try messageLine(id: id, parentID: nil, message: message)
     }
 
     private func assistantLine(
         id: String,
         parentID: String?,
         content: [[String: Any]]
-    ) -> String {
-        messageLine(
+    ) throws -> String {
+        try messageLine(
             id: id,
             parentID: parentID,
             message: [
@@ -310,8 +310,8 @@ struct PiTranscriptParserTests {
         toolName: String,
         texts: [String],
         isError: Bool = false
-    ) -> String {
-        messageLine(
+    ) throws -> String {
+        try messageLine(
             id: id,
             parentID: parentID,
             message: [
@@ -330,7 +330,7 @@ struct PiTranscriptParserTests {
         id: String,
         parentID: String?,
         message: [String: Any]
-    ) -> String {
+    ) throws -> String {
         var entry: [String: Any] = [
             "type": "message",
             "id": id,
@@ -342,11 +342,11 @@ struct PiTranscriptParserTests {
         } else {
             entry["parentId"] = NSNull()
         }
-        return Self.json(entry)
+        return try Self.json(entry)
     }
 
-    private static func json(_ object: [String: Any]) -> String {
-        let data = try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    private static func json(_ object: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         return String(decoding: data, as: UTF8.self)
     }
 }

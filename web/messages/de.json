@@ -1505,6 +1505,7 @@
       "underHoodItemResume": "Bei der Wiederherstellung baut cmux zuerst Fenster und Paneele neu auf. Wenn automatische Agent-Wiederaufnahme aktiviert ist, startet es einen einmaligen Shell-Befehl, der den nativen Wiederaufnahmebefehl des Agents mit der gespeicherten Sitzungs-ID ausführt.",
       "underHoodMore": "Die reguläre <configLink>Konfigurationsdokumentation</configLink> behandelt cmux.json. Sitzungswiederherstellung hält App-Layout getrennt von Ghostty-Terminal-Rendering-Einstellungen.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "Tool-, Subagenten- und Komprimierungstelemetrie",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

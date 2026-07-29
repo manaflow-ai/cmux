@@ -1505,6 +1505,7 @@
       "underHoodItemResume": "복원 시 cmux는 먼저 창과 pane을 다시 만듭니다. agent 자동 resume이 켜져 있으면 저장된 session ID로 agent의 native resume 명령을 실행하는 one-shot shell 명령을 시작합니다.",
       "underHoodMore": "일반 <configLink>configuration docs</configLink>는 cmux.json을 다룹니다. 세션 복원은 app layout을 Ghostty 터미널 렌더링 설정과 분리해 저장합니다.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "도구, 하위 에이전트 및 압축 텔레메트리",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

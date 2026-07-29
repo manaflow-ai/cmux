@@ -481,7 +481,7 @@ mod.default({
     handlers.set(name, handler);
   }
 });
-for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown"]) {
+for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown", "tool_execution_start"]) {
   if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
 }
 process.argv.splice(
@@ -574,22 +574,27 @@ const firstPhasePids = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
 if (firstPhasePids.length !== 3) {
   throw new Error(`nested OMP task session spawned a hook child: ${firstPhasePids}`);
 }
-currentSessionId = "priority-stop-session";
+currentSessionId = "priority-feed-pressure";
 await handlers.get("session_start")({}, parentCtx);
-await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, parentCtx);
 for (let index = 0; index < 40; index += 1) {
-  currentSessionId = `priority-prompt-${index}`;
-  await handlers.get("before_agent_start")({ prompt: `priority prompt ${index}` }, parentCtx);
+  await handlers.get("tool_execution_start")({
+    type: "tool_execution_start",
+    toolCallId: `priority-feed-${index}`,
+    toolName: "bash",
+    args: { command: `printf feed-${index}` },
+  }, parentCtx);
 }
+await handlers.get("before_agent_start")({ prompt: "priority prompt survives feed pressure" }, parentCtx);
 await releaseHook(4);
 await waitForCompletedHooks(4);
-await releaseHook(5);
-await waitForCompletedHooks(5);
-const priorityPromptPid = await stoppedHookPID(6);
-const priorityDrain = handlers.get("session_shutdown")({}, parentCtx);
+const priorityPromptPid = await stoppedHookPID(5);
+const priorityStartedArgs = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG);
+if (priorityStartedArgs.at(-1) !== "hooks omp prompt-submit") {
+  throw new Error(`Feed pressure dropped the queued prompt: ${priorityStartedArgs}`);
+}
 process.kill(priorityPromptPid, "SIGCONT");
-await waitForCompletedHooks(6);
-await priorityDrain;
+await waitForCompletedHooks(5);
+await handlers.get("session_shutdown")({}, parentCtx);
 currentSessionId = "omp-session-test";
 await handlers.get("session_start")({}, parentCtx);
 for (let index = 0; index < 40; index += 1) {
@@ -599,7 +604,7 @@ await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, paren
 await handlers.get("session_shutdown")({}, parentCtx);
 const hungPidLines = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
 const startedArgs = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG);
-if (hungPidLines.length !== 8) {
+if (hungPidLines.length !== 7) {
   throw new Error(`shutdown did not start the queued Stop after cancelling the active hook: ${hungPidLines}`);
 }
 if (
@@ -776,11 +781,19 @@ const ctx = {
 function records() {
   const path = process.env.CMUX_TEST_OMP_BEHAVIOR_LOG;
   if (!path || !fs.existsSync(path)) return [];
-  return fs.readFileSync(path, "utf8")
-    .split("\\n")
+  const contents = fs.readFileSync(path, "utf8");
+  const lines = contents.split("\\n");
+  if (!contents.endsWith("\\n")) lines.pop();
+  return lines
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line));
 }
+
+const behaviorLogPath = process.env.CMUX_TEST_OMP_BEHAVIOR_LOG;
+fs.appendFileSync(behaviorLogPath, '{"phase":"partial');
+if (records().length !== 0) throw new Error("partial JSONL record was parsed before completion");
+fs.appendFileSync(behaviorLogPath, '"}\\n');
+if (records()[0]?.phase !== "partial") throw new Error("completed JSONL record was not parsed");
 
 function hasArgvPrefix(record, expected) {
   return expected.every((value, index) => record.argv[index] === value);
@@ -1207,7 +1220,7 @@ assertTranscript(sessionEnd, currentSessionFile);
                 print(f"behavior log={behavior_log.read_text(encoding='utf-8').strip()}")
             return 1
 
-        expected_invocations = 6
+        expected_invocations = 5
         args_log = wait_for_stable_text(fake_args_log, expected_invocations, timeout=20.0)
         stdin_log = wait_for_stable_text(fake_stdin_log, expected_invocations * 2, timeout=20.0)
         env_log = wait_for_stable_text(fake_env_log, expected_invocations * 4, timeout=20.0)
@@ -1235,8 +1248,11 @@ assertTranscript(sessionEnd, currentSessionFile);
         if '"hook_event_name":"Stop"' not in stdin_log:
             print(f"FAIL: stop hook payload was missing: {stdin_log!r}")
             return 1
-        if '"session_id":"priority-stop-session","cwd":"/tmp/omp-project","hook_event_name":"Stop"' not in stdin_log:
-            print(f"FAIL: queued stop hook was evicted under prompt pressure: {stdin_log!r}")
+        if '"session_id":"priority-feed-pressure","cwd":"/tmp/omp-project","hook_event_name":"UserPromptSubmit"' not in stdin_log:
+            print(f"FAIL: queued prompt was evicted under Feed pressure: {stdin_log!r}")
+            return 1
+        if '"prompt":"priority prompt survives feed pressure"' not in stdin_log:
+            print(f"FAIL: surviving priority prompt lost its payload: {stdin_log!r}")
             return 1
         if '"prompt":"hello omp 39"' not in stdin_log or '"last_assistant_message":"done"' not in stdin_log:
             print(f"FAIL: extension did not pass prompt/assistant payload, got {stdin_log!r}")

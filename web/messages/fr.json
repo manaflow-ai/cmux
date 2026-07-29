@@ -1509,6 +1509,7 @@
       "underHoodItemResume": "À la restauration, cmux reconstruit d'abord les fenêtres et les panneaux. Si la reprise automatique des agents est activée, il lance une commande shell ponctuelle qui exécute la commande de reprise native de l'agent avec l'ID de session enregistré.",
       "underHoodMore": "La <configLink>documentation de configuration</configLink> habituelle couvre cmux.json. La restauration de session garde la disposition de l'app séparée des réglages de rendu du terminal Ghostty.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "Télémétrie des outils, des sous-agents et du compactage",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

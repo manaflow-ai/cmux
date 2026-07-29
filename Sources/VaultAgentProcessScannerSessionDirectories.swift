@@ -7,11 +7,12 @@ extension PiSessionLocator {
         registration: CmuxVaultAgentRegistration,
         fileManager: FileManager
     ) -> [String] {
-        if registration == .builtInOmp {
-            return ompCandidateSessionDirectories(for: process, fileManager: fileManager)
-        }
         if registration.id == CmuxVaultAgentRegistration.builtInOmp.id {
-            return configuredCandidateSessionDirectories(for: process, registration: registration)
+            return ompCandidateSessionDirectories(
+                for: process,
+                registration: registration,
+                fileManager: fileManager
+            )
         }
 
         let sessionRoot = process.arguments.sessionDirectoryValue(afterOption: "--session-dir")
@@ -28,6 +29,7 @@ extension PiSessionLocator {
 
     private static func ompCandidateSessionDirectories(
         for process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration,
         fileManager: FileManager
     ) -> [String] {
         let environmentPath = { (name: String) -> String? in
@@ -35,42 +37,57 @@ extension PiSessionLocator {
             return value
         }
         let homeDirectory = environmentPath("HOME") ?? NSHomeDirectory()
-        let currentDirectory = environmentPath("CMUX_AGENT_LAUNCH_CWD")
+        let fallbackCurrentDirectory = environmentPath("CMUX_AGENT_LAUNCH_CWD")
             ?? environmentPath("PWD")
             ?? homeDirectory
-        guard let resolution = try? OmpDirectoryResolver().resolve(
+        let resolver = OmpDirectoryResolver()
+        let resolution = try? resolver.resolve(
             arguments: process.arguments,
             environment: process.environment,
             homeDirectory: homeDirectory,
-            currentDirectory: currentDirectory,
+            currentDirectory: fallbackCurrentDirectory,
             fileManager: fileManager
-        ) else {
+        )
+
+        let builtInSessionDirectory = CmuxVaultAgentRegistration.builtInOmp.sessionDirectory
+        let configuredSessionRoot = registration.sessionDirectory.flatMap { directory -> String? in
+            guard directory != builtInSessionDirectory else { return nil }
+            return expandedOmpRegistrationSessionRoot(directory, homeDirectory: homeDirectory)
+        }
+        guard let sessionRoot = configuredSessionRoot ?? resolution?.sessionRoot.path else {
             return []
         }
-        let sessionRoot = resolution.sessionRoot
-        guard sessionRoot.usesCwdBuckets else {
-            return [sessionRoot.path]
+        let usesCwdBuckets = configuredSessionRoot != nil
+            || resolution?.sessionRoot.usesCwdBuckets == true
+        guard usesCwdBuckets else {
+            return [sessionRoot]
         }
 
-        let buckets = OmpDirectoryResolver().cwdBucketNames(
-            currentDirectory: resolution.currentDirectory,
+        let currentDirectory = resolution?.currentDirectory ?? fallbackCurrentDirectory
+        let buckets = resolver.cwdBucketNames(
+            currentDirectory: currentDirectory,
             homeDirectory: homeDirectory,
             fileManager: fileManager
         )
         return buckets.searchOrder.map {
-            (sessionRoot.path as NSString).appendingPathComponent($0)
+            (sessionRoot as NSString).appendingPathComponent($0)
         }
     }
 
-    private static func configuredCandidateSessionDirectories(
-        for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration
-    ) -> [String] {
-        let sessionRoot = registration.sessionDirectory ?? defaultSessionsRoot()
-        return candidateSessionDirectories(
-            root: sessionRoot,
-            workingDirectory: process.environment["CMUX_AGENT_LAUNCH_CWD"] ?? process.environment["PWD"]
-        )
+    private static func expandedOmpRegistrationSessionRoot(
+        _ rawPath: String,
+        homeDirectory: String
+    ) -> String? {
+        let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return nil }
+        if path == "~" {
+            return (homeDirectory as NSString).standardizingPath
+        }
+        if path.hasPrefix("~/") {
+            return ((homeDirectory as NSString).appendingPathComponent(String(path.dropFirst(2))) as NSString)
+                .standardizingPath
+        }
+        return (path as NSString).expandingTildeInPath
     }
 
     private static func candidateSessionDirectories(

@@ -1590,6 +1590,7 @@
       "underHoodItemResume": "Під час відновлення cmux спочатку перебудовує вікна й панелі. Якщо автоматичне відновлення агентів увімкнене, він запускає одноразову shell-команду, яка виконує native resume command агента зі збереженим session ID.",
       "underHoodMore": "Звичайна <configLink>документація конфігурації</configLink> описує cmux.json. Session restore тримає app layout окремо від налаштувань рендерингу термінала Ghostty.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "Телеметрія інструментів, субагентів і стиснення",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

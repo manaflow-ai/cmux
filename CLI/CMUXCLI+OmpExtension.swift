@@ -310,7 +310,7 @@ function boundedHookText(value: unknown, maximumBytes = 32768): string | undefin
 function invocationPriority(invocationClass: InvocationClass, name: string): number {
   if (name === "stop" || name === "session-end") return 3;
   if (name === "session-start" || invocationClass === "approval") return 2;
-  if (invocationClass === "lifecycle") return 1;
+  if (invocationClass === "lifecycle" || invocationClass === "prompt") return 1;
   return 0;
 }
 
@@ -728,43 +728,70 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
 }
 """#
 
+    private static func resolvedOmpHomeDirectory(
+        environment: [String: String],
+        homeDirectory: String?
+    ) -> String {
+        let environmentHome = environment["HOME"].flatMap { $0.isEmpty ? nil : $0 }
+        return homeDirectory.flatMap { $0.isEmpty ? nil : $0 }
+            ?? environmentHome
+            ?? NSHomeDirectory()
+    }
+
+    private static func requiredOmpAgentDirectory(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String? = nil,
+        currentDirectory: String = FileManager.default.currentDirectoryPath
+    ) throws -> URL {
+        let home = resolvedOmpHomeDirectory(
+            environment: environment,
+            homeDirectory: homeDirectory
+        )
+        let resolver = OmpDirectoryResolver()
+        do {
+            let resolution = try resolver.resolve(
+                arguments: ["omp"],
+                environment: environment,
+                homeDirectory: home,
+                currentDirectory: currentDirectory
+            )
+            return URL(fileURLWithPath: resolution.agentDirectory, isDirectory: true)
+        } catch {
+            var defaultEnvironment = environment
+            defaultEnvironment.removeValue(forKey: "OMP_PROFILE")
+            defaultEnvironment.removeValue(forKey: "PI_PROFILE")
+            let fallback = try resolver.resolve(
+                arguments: ["omp"],
+                environment: defaultEnvironment,
+                homeDirectory: home,
+                currentDirectory: currentDirectory
+            )
+            return URL(fileURLWithPath: fallback.agentDirectory, isDirectory: true)
+        }
+    }
+
     static func resolvedOmpAgentDirectory(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         homeDirectory: String? = nil,
         currentDirectory: String = FileManager.default.currentDirectoryPath
     ) -> URL {
-        let environmentHome = environment["HOME"].flatMap { $0.isEmpty ? nil : $0 }
-        let home = homeDirectory.flatMap { $0.isEmpty ? nil : $0 }
-            ?? environmentHome
-            ?? NSHomeDirectory()
-        let resolver = OmpDirectoryResolver()
-        let resolution = try? resolver.resolve(
-            arguments: ["omp"],
+        if let resolved = try? requiredOmpAgentDirectory(
             environment: environment,
-            homeDirectory: home,
+            homeDirectory: homeDirectory,
             currentDirectory: currentDirectory
-        )
-        if let resolution {
-            return URL(fileURLWithPath: resolution.agentDirectory, isDirectory: true)
+        ) {
+            return resolved
         }
-
-        var defaultEnvironment = environment
-        defaultEnvironment.removeValue(forKey: "OMP_PROFILE")
-        defaultEnvironment.removeValue(forKey: "PI_PROFILE")
-        let fallback = try? resolver.resolve(
-            arguments: ["omp"],
-            environment: defaultEnvironment,
-            homeDirectory: home,
-            currentDirectory: currentDirectory
+        let home = resolvedOmpHomeDirectory(
+            environment: environment,
+            homeDirectory: homeDirectory
         )
-        return URL(
-            fileURLWithPath: fallback?.agentDirectory ?? currentDirectory,
-            isDirectory: true
-        )
+        return URL(fileURLWithPath: home, isDirectory: true)
+            .appendingPathComponent(".omp/agent", isDirectory: true)
     }
 
-    private func ompExtensionURL(for def: AgentHookDef) -> URL {
-        URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+    private func ompExtensionURL(for def: AgentHookDef) throws -> URL {
+        try Self.requiredOmpAgentDirectory()
             .appendingPathComponent(def.configFile, isDirectory: false)
     }
 
@@ -785,7 +812,7 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
     }
 
     func installOmpExtensionHooks(_ def: AgentHookDef) throws {
-        let extensionURL = ompExtensionURL(for: def)
+        let extensionURL = try ompExtensionURL(for: def)
         let fileManager = FileManager.default
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
@@ -837,7 +864,7 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
     }
 
     func uninstallOmpExtensionHooks(_ def: AgentHookDef) throws {
-        let extensionURL = ompExtensionURL(for: def)
+        let extensionURL = try ompExtensionURL(for: def)
         let fm = FileManager.default
         guard fm.fileExists(atPath: extensionURL.path) else {
             print(String.localizedStringWithFormat(

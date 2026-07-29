@@ -70,7 +70,7 @@ struct AgentChatTranscriptResolver: Sendable {
         if let recorded = recordedTranscriptPath(for: record) {
             return recorded
         }
-        if record.agentKind == .omp, record.transcriptPath != nil {
+        if hasAuthoritativeOmpTranscriptReference(record) {
             return nil
         }
         switch record.agentKind {
@@ -96,7 +96,7 @@ struct AgentChatTranscriptResolver: Sendable {
         if let recorded = recordedTranscriptPath(for: record) {
             return recorded
         }
-        if record.agentKind == .omp, record.transcriptPath != nil {
+        if hasAuthoritativeOmpTranscriptReference(record) {
             return nil
         }
         switch record.agentKind {
@@ -116,6 +116,10 @@ struct AgentChatTranscriptResolver: Sendable {
         guard let recorded = record.transcriptPath else { return nil }
         let expanded = (recorded as NSString).expandingTildeInPath
         return FileManager.default.fileExists(atPath: expanded) ? expanded : nil
+    }
+
+    private func hasAuthoritativeOmpTranscriptReference(_ record: AgentChatSessionRecord) -> Bool {
+        record.agentKind == .omp && record.transcriptPath != nil
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {

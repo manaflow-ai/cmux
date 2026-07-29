@@ -1506,6 +1506,7 @@
       "underHoodItemResume": "恢复时，cmux 会先重建窗口和 pane。如果 agent 自动恢复已启用，它会启动一个一次性 shell 命令，用保存的会话 ID 运行 agent 的原生 resume 命令。",
       "underHoodMore": "常规<configLink>配置文档</configLink>介绍 cmux.json。会话恢复会把应用布局与 Ghostty 终端渲染设置分开保存。",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "工具、子智能体和压缩遥测数据",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

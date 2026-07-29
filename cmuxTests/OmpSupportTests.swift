@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -200,17 +201,22 @@ struct OmpSupportTests {
         #expect(detected.workingDirectory == workspace.path)
     }
 
-    @Test func directProcessDetectionPreservesCustomSessionDirectoryBeforeOmpEnvironment() throws {
+    @Test func directProcessDetectionPreservesCustomSessionDirectoryWithOmpBuckets() throws {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-custom-session-dir-")
         defer { try? FileManager.default.removeItem(at: root) }
-        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let workspace = home.appendingPathComponent("repo", isDirectory: true)
         let customRoot = root.appendingPathComponent("custom-sessions", isDirectory: true)
         let environmentRoot = root.appendingPathComponent("environment-sessions", isDirectory: true)
-        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
-        let customProjectSessions = customRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        let cwdBucket = OmpDirectoryResolver().cwdBucketNames(
+            currentDirectory: workspace.path,
+            homeDirectory: home.path,
+            fileManager: .default
+        ).current
+        let customProjectSessions = customRoot.appendingPathComponent(cwdBucket, isDirectory: true)
         let environmentProjectSessions = environmentRoot
             .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent(projectDirectory, isDirectory: true)
+            .appendingPathComponent(cwdBucket, isDirectory: true)
         try FileManager.default.createDirectory(at: customProjectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: environmentProjectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
@@ -231,12 +237,13 @@ struct OmpSupportTests {
             name: "OMP",
             detect: CmuxVaultAgentDetectRule(processName: "omp"),
             sessionIdSource: .piSessionFile,
-            resumeCommand: "{{executable}} --session {{sessionId}}",
+            resumeCommand: "{{executable}} --resume {{sessionId}}",
             sessionDirectory: customRoot.path
         )
         let detected = try #require(Self.detectedOmpSnapshot(
             arguments: ["/Users/example/.bun/bin/omp"],
             environment: [
+                "HOME": home.path,
                 "PWD": workspace.path,
                 "PI_CODING_AGENT_DIR": environmentRoot.path,
             ],

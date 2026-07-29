@@ -34279,7 +34279,7 @@ export default CMUXSessionRestore;
             return
         }
 
-        if source == "pi" {
+        if source == "pi" || source == "omp" {
             if let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: activeClient) {
                 if let workspaceId = target.workspaceId {
                     eventDict["workspace_id"] = workspaceId

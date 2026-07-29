@@ -17,9 +17,13 @@ extension FeedCoordinator {
     @MainActor
     func resolveDeliveryTarget(for events: [WorkstreamEvent]) -> DeliveryTargetResolution {
         guard let first = events.first else { return .accepted([]) }
-        let containsPiEvent = events.contains { $0.source == "pi" }
-        guard containsPiEvent else { return .accepted(events) }
-        guard events.allSatisfy({ $0.source == "pi" }) else { return .notFound }
+        let containsAuthoritativeEvent = events.contains {
+            $0.source == "pi" || $0.source == "omp"
+        }
+        guard containsAuthoritativeEvent else { return .accepted(events) }
+        guard events.allSatisfy({
+            $0.source == first.source && ($0.source == "pi" || $0.source == "omp")
+        }) else { return .notFound }
         guard let claimedSurfaceId = first.surfaceId else {
             guard events.allSatisfy({ $0.surfaceId == nil }) else { return .notFound }
             guard let claimedWorkspaceId = first.workspaceId else {

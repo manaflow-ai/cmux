@@ -808,11 +808,9 @@ extension SessionIndexStore {
         }
         var candidates: [(URL, Date)] = []
         for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            var candidateIsDirectory: ObjCBool = false
-            guard fm.fileExists(atPath: url.path, isDirectory: &candidateIsDirectory),
-                  !candidateIsDirectory.boolValue,
-                  let attributes = try? fm.attributesOfItem(atPath: url.path),
-                  let modified = attributes[.modificationDate] as? Date else {
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile == true,
+                  let modified = values?.contentModificationDate else {
                 continue
             }
             candidates.append((url, modified))

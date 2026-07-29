@@ -1506,6 +1506,7 @@
       "underHoodItemResume": "Pri obnovi cmux prvo rekonstruira prozore i paneove. Ako je automatski nastavak agenata uključen, pokreće jednokratnu shell komandu koja izvršava nativnu resume komandu agenta sa sačuvanim session ID-jem.",
       "underHoodMore": "Redovna <configLink>dokumentacija konfiguracije</configLink> pokriva cmux.json. Obnova sesije drži layout aplikacije odvojen od Ghostty terminal rendering postavki.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "Telemetrija alata, podagenata i sažimanja",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {
