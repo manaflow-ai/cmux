@@ -1922,6 +1922,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // per-route timeouts into the opaque ~60s blob.
         let manualRoutes = directRoute.map { [$0] } ?? []
         guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: manualRoutes) == .proceed else { return }
+        if let directRoute,
+           remoteClient?.sharesPhysicalTransportRoute(
+               with: directRoute
+           ) == true {
+            await releaseRemoteClientForReplacement()
+            guard isCurrentPairingAttempt(attemptID),
+                  ifStillCurrent?() ?? true else { return }
+        }
         do {
             let ticket = try await manualHostTicket(
                 name: trimmedName,
@@ -7105,12 +7113,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Retiring it here would strand an Iroh control owner long enough for the
         // replacement background dial to time out against that same peer.
         if previousFocusedConnection == nil {
-            if let currentFocusedConnection {
-                removeFocusedConnection(
-                    ifMatching: currentFocusedConnection
-                )
-            }
-            await replaceRemoteClientAwaitingTeardownRegistration(with: nil)
+            await releaseRemoteClientForReplacement()
             guard isConnectCurrent() else { return nil }
         }
 
@@ -7807,6 +7810,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async {
         let previous = replaceRemoteClientOwnership(with: newValue)
         await previous?.disconnect()
+    }
+
+    /// Release the current foreground owner before a same-Mac or same-route
+    /// replacement. Registry removal and synchronous retirement happen before
+    /// the await; returning means the physical route lease has transferred to
+    /// bounded cleanup and one recovery dial may proceed.
+    func releaseRemoteClientForReplacement() async {
+        let previous = remoteClient
+        if let foregroundMacDeviceID,
+           let focused = connections[foregroundMacDeviceID],
+           focused.client === previous {
+            removeFocusedConnection(ifMatching: focused)
+        }
+        await replaceRemoteClientAwaitingTeardownRegistration(with: nil)
     }
 
     /// Publish one remote-client ownership change synchronously. Callers choose
