@@ -6,15 +6,25 @@ import tempfile
 import unittest
 from pathlib import Path, PurePosixPath
 
-from codegen.generate import run_generation, selected_languages
+from codegen.generate import (
+    available_languages,
+    load_emitter,
+    run_generation,
+    selected_languages,
+)
+from codegen.ir import load_ir
 from codegen.writer import (
     Emitter,
     GeneratedOutputDrift,
     GenerationError,
     NondeterministicGenerationError,
+    generate_twice,
 )
 
 from support import write_schema
+
+
+LIVE_SCHEMA = Path(__file__).resolve().parents[3] / "spec" / "sdk-schema.json"
 
 
 class GenerateTests(unittest.TestCase):
@@ -124,6 +134,78 @@ class GenerateTests(unittest.TestCase):
                     discovered_languages=emitters,
                 )
             self.assertFalse((root / "bindings" / "go").exists())
+
+    def test_live_v10_raw_commands_and_types_emit_for_all_languages(self) -> None:
+        markers = {
+            "cpp": (
+                "Client::clear_history(",
+                "Client::new_pane_right(",
+                "Client::set_viewport_pane_width(",
+                "Client::undo_layout(",
+                "enum class TerminalKey {",
+                "struct LayoutUndoResult {",
+            ),
+            "go": (
+                "func (c *Client) ClearHistory(",
+                "func (c *Client) NewPaneRight(",
+                "func (c *Client) SetViewportPaneWidth(",
+                "func (c *Client) UndoLayout(",
+                "type TerminalKey string",
+                "type LayoutUndoResult struct {",
+            ),
+            "java": (
+                "EmptyResult clearHistory(",
+                "SurfaceResult newPaneRight(",
+                "EmptyResult setViewportPaneWidth(",
+                "LayoutUndoResult undoLayout(",
+                "public enum TerminalKey implements WireEnum {",
+                "public final class LayoutUndoResult implements WireValue {",
+            ),
+            "python": (
+                "def clear_history(",
+                "def new_pane_right(",
+                "def set_viewport_pane_width(",
+                "def undo_layout(",
+                "class TerminalKey(str, Enum):",
+                "LayoutUndoResult = Union[",
+            ),
+            "rust": (
+                "pub fn clear_history(",
+                "pub fn new_pane_right(",
+                "pub fn set_viewport_pane_width(",
+                "pub fn undo_layout(",
+                "pub enum TerminalKey {",
+                "pub enum LayoutUndoResult {",
+            ),
+            "typescript": (
+                "export interface ClearHistoryRequest",
+                "export interface NewPaneRightRequest",
+                "export interface SetViewportPaneWidthRequest",
+                "export interface UndoLayoutRequest",
+                "export type TerminalKey =",
+                "export type LayoutUndoResult =",
+            ),
+            "zig": (
+                "pub fn clearHistory(",
+                "pub fn newPaneRight(",
+                "pub fn setViewportPaneWidth(",
+                "pub fn undoLayout(",
+                "pub const TerminalKey = enum {",
+                "pub const LayoutUndoResult = union(enum) {",
+            ),
+        }
+        self.assertEqual(available_languages(), tuple(sorted(markers)))
+        ir = load_ir(LIVE_SCHEMA)
+        for language, expected_markers in markers.items():
+            with self.subTest(language=language):
+                tree = generate_twice(load_emitter(language), ir)
+                generated = b"\n".join(
+                    content
+                    for path, content in tree.files.items()
+                    if path.name != ".cmux-sdk-manifest.json"
+                ).decode("utf-8")
+                for marker in expected_markers:
+                    self.assertIn(marker, generated)
 
 
 if __name__ == "__main__":

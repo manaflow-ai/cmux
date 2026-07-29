@@ -16,6 +16,9 @@ TUI = ROOT / "cmux-tui"
 SPEC = TUI / "spec"
 BINDINGS = TUI / "bindings"
 SERVER = TUI / "crates/cmux-tui-core/src/server.rs"
+RUNTIME_NAMED_REQUEST_REFS = {
+    "ProtocolKeyInput": "TerminalKeyInput",
+}
 
 sys.path.insert(0, str(BINDINGS))
 
@@ -238,6 +241,8 @@ def _runtime_type_shape(rust_type: str) -> str:
         if not separator or key != "String":
             fail(f"unsupported Rust map request type {rust_type!r}")
         return f"map<{_runtime_type_shape(value)}>"
+    if sdk_type := RUNTIME_NAMED_REQUEST_REFS.get(rust_type):
+        return f"ref<{sdk_type}>"
     scalars = {
         "String": "string",
         "bool": "boolean",
@@ -302,6 +307,8 @@ def _schema_type_shape(
         name = str(expression["name"])
         if name == "DeclarativeLayout":
             return "declarative-layout"
+        if name in RUNTIME_NAMED_REQUEST_REFS.values():
+            return f"ref<{name}>"
         if name in seen:
             fail(f"cyclic SDK type reference while checking Rust request field: {name}")
         target = types.get(name)

@@ -11,6 +11,9 @@ from codegen.validate import ValidationError
 from support import schema_document, write_schema
 
 
+LIVE_SCHEMA = Path(__file__).resolve().parents[3] / "spec" / "sdk-schema.json"
+
+
 class IrTests(unittest.TestCase):
     def test_loads_immutable_sorted_ir_and_hashes_it(self) -> None:
         with tempfile.TemporaryDirectory() as raw_directory:
@@ -62,6 +65,182 @@ class IrTests(unittest.TestCase):
         copy = mutable_document(ir)
         copy["types"]["Id"]["kind"] = "opaque_json"
         self.assertEqual(ir.type("Id")["kind"], "alias")
+
+    def test_live_raw_v10_layout_and_history_contracts_are_exact(self) -> None:
+        ir = load_ir(LIVE_SCHEMA)
+
+        def field_signature(field: dict) -> tuple:
+            type_expression = field["type"]
+            return (
+                type_expression["kind"],
+                type_expression.get("name"),
+                field["presence"],
+                field["nullable"],
+                "default" in field,
+                field.get("default"),
+                field.get("since"),
+                field.get("capability"),
+            )
+
+        expected = {
+            "clear-history": {
+                "since": 9,
+                "capability": "clear-history-v1",
+                "result": "EmptyResult",
+                "fields": {
+                    "surface": ("ref", "Id", "required", False, False, None, None, None),
+                    "fallback_key": (
+                        "ref",
+                        "TerminalKeyInput",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        9,
+                        "clear-history-key-v1",
+                    ),
+                },
+            },
+            "new-pane-right": {
+                "since": 9,
+                "capability": "viewport-splits-v1",
+                "result": "SurfaceResult",
+                "fields": {
+                    "pane": ("ref", "Id", "required", False, False, None, None, None),
+                    "width": (
+                        "scalar",
+                        "float32",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        None,
+                        None,
+                    ),
+                    "cols": (
+                        "scalar",
+                        "uint16",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        None,
+                        None,
+                    ),
+                    "rows": (
+                        "scalar",
+                        "uint16",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        None,
+                        None,
+                    ),
+                },
+            },
+            "set-viewport-pane-width": {
+                "since": 9,
+                "capability": "viewport-column-resize-v1",
+                "result": "EmptyResult",
+                "fields": {
+                    "pane": ("ref", "Id", "required", False, False, None, None, None),
+                    "width": (
+                        "scalar",
+                        "float32",
+                        "required",
+                        False,
+                        False,
+                        None,
+                        None,
+                        None,
+                    ),
+                    "transaction": (
+                        "scalar",
+                        "uint64",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        9,
+                        "layout-undo-v1",
+                    ),
+                },
+            },
+            "undo-layout": {
+                "since": 9,
+                "capability": "layout-undo-v1",
+                "result": "LayoutUndoResult",
+                "fields": {
+                    "pane": ("ref", "Id", "required", False, False, None, None, None),
+                    "revision": (
+                        "scalar",
+                        "uint64",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        None,
+                        None,
+                    ),
+                    "confirm_close": (
+                        "scalar",
+                        "boolean",
+                        "optional",
+                        False,
+                        True,
+                        False,
+                        None,
+                        None,
+                    ),
+                },
+            },
+        }
+        for wire_name, contract in expected.items():
+            with self.subTest(command=wire_name):
+                command = ir.command(wire_name)
+                self.assertEqual(command["authority"], "control")
+                self.assertEqual(command["since"], contract["since"])
+                self.assertEqual(command["capability"], contract["capability"])
+                self.assertEqual(
+                    dict(command["result"]),
+                    {"kind": "ref", "name": contract["result"]},
+                )
+                self.assertEqual(
+                    {
+                        name: field_signature(field)
+                        for name, field in command["request"]["fields"].items()
+                    },
+                    contract["fields"],
+                )
+
+        transaction = ir.command("set-split-ratio")["request"]["fields"]["transaction"]
+        self.assertEqual(
+            field_signature(transaction),
+            (
+                "scalar",
+                "uint64",
+                "optional",
+                True,
+                True,
+                None,
+                9,
+                "layout-undo-v1",
+            ),
+        )
+
+        terminal_key = ir.type("TerminalKey")
+        self.assertEqual(terminal_key["kind"], "enum")
+        self.assertEqual(len(terminal_key["values"]), 113)
+        self.assertEqual(terminal_key["values"][0], "unidentified")
+        self.assertEqual(terminal_key["values"][-1], "f20")
+        self.assertEqual(
+            tuple(ir.type("LayoutUndoResult")["variants"]),
+            (
+                {"kind": "ref", "name": "LayoutUndoUndone"},
+                {"kind": "ref", "name": "LayoutUndoConfirmationRequired"},
+            ),
+        )
 
 
 if __name__ == "__main__":

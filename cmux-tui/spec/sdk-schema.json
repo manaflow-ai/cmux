@@ -165,6 +165,288 @@
         "tombstoned"
       ]
     },
+    "TerminalKeyAction": {
+      "kind": "enum",
+      "values": [
+        "press",
+        "release",
+        "repeat"
+      ]
+    },
+    "TerminalKey": {
+      "kind": "enum",
+      "values": [
+        "unidentified",
+        "backquote",
+        "backslash",
+        "bracket-left",
+        "bracket-right",
+        "comma",
+        "digit0",
+        "digit1",
+        "digit2",
+        "digit3",
+        "digit4",
+        "digit5",
+        "digit6",
+        "digit7",
+        "digit8",
+        "digit9",
+        "equal",
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f",
+        "g",
+        "h",
+        "i",
+        "j",
+        "k",
+        "l",
+        "m",
+        "n",
+        "o",
+        "p",
+        "q",
+        "r",
+        "s",
+        "t",
+        "u",
+        "v",
+        "w",
+        "x",
+        "y",
+        "z",
+        "minus",
+        "period",
+        "quote",
+        "semicolon",
+        "slash",
+        "backspace",
+        "enter",
+        "space",
+        "tab",
+        "delete",
+        "end",
+        "home",
+        "insert",
+        "page-down",
+        "page-up",
+        "arrow-down",
+        "arrow-left",
+        "arrow-right",
+        "arrow-up",
+        "numpad0",
+        "numpad1",
+        "numpad2",
+        "numpad3",
+        "numpad4",
+        "numpad5",
+        "numpad6",
+        "numpad7",
+        "numpad8",
+        "numpad9",
+        "numpad-add",
+        "numpad-backspace",
+        "numpad-comma",
+        "numpad-decimal",
+        "numpad-divide",
+        "numpad-enter",
+        "numpad-equal",
+        "numpad-multiply",
+        "numpad-subtract",
+        "numpad-up",
+        "numpad-down",
+        "numpad-right",
+        "numpad-left",
+        "numpad-begin",
+        "numpad-home",
+        "numpad-end",
+        "numpad-insert",
+        "numpad-delete",
+        "numpad-page-up",
+        "numpad-page-down",
+        "escape",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "f13",
+        "f14",
+        "f15",
+        "f16",
+        "f17",
+        "f18",
+        "f19",
+        "f20"
+      ]
+    },
+    "TerminalModifiers": {
+      "kind": "object",
+      "fields": {
+        "shift": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "control": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "alt": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "super": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "caps_lock": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "num_lock": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "TerminalKeyInput": {
+      "kind": "object",
+      "fields": {
+        "key": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalKey"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "mods": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalModifiers"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "consumed_mods": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalModifiers"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "composing": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "optional",
+          "nullable": false,
+          "default": false
+        },
+        "utf8": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "required",
+          "nullable": false,
+          "constraints": [
+            {
+              "max_length": 4096
+            }
+          ]
+        },
+        "unshifted_codepoint": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "shifted_codepoint": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "base_layout_codepoint": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "action": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalKeyAction"
+          },
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "macos_option_as_alt": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false,
+      "constraints": [
+        "consumed_mods must be a subset of mods.",
+        "unshifted_codepoint, shifted_codepoint, and base_layout_codepoint contain exactly one Unicode scalar when present.",
+        "utf8 contains no control characters.",
+        "macos_option_as_alt may be false only when Alt is active and consumed."
+      ]
+    },
     "CursorStyle": {
       "kind": "enum",
       "values": [
@@ -1844,6 +2126,107 @@
         }
       },
       "additional_properties": false
+    },
+    "LayoutUndoUndone": {
+      "kind": "object",
+      "fields": {
+        "undone": {
+          "type": {
+            "kind": "literal",
+            "value": true
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "confirmation_required": {
+          "type": {
+            "kind": "literal",
+            "value": false
+          },
+          "presence": "optional",
+          "nullable": false,
+          "default": false
+        },
+        "screen": {
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "revision": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "LayoutUndoConfirmationRequired": {
+      "kind": "object",
+      "fields": {
+        "undone": {
+          "type": {
+            "kind": "literal",
+            "value": false
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "confirmation_required": {
+          "type": {
+            "kind": "literal",
+            "value": true
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "screen": {
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "revision": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "closes_panes": {
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "Id"
+            }
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "LayoutUndoResult": {
+      "kind": "untagged_union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "LayoutUndoUndone"
+        },
+        {
+          "kind": "ref",
+          "name": "LayoutUndoConfirmationRequired"
+        }
+      ]
     },
     "WorkspaceMutationResult": {
       "kind": "object",
@@ -3648,6 +4031,45 @@
         "PTY surfaces only."
       ]
     },
+    "clear-history": {
+      "authority": "control",
+      "since": 9,
+      "capability": "clear-history-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "fallback_key": {
+            "type": {
+              "kind": "ref",
+              "name": "TerminalKeyInput"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null,
+            "since": 9,
+            "capability": "clear-history-key-v1"
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "EmptyResult"
+      },
+      "stream": null,
+      "constraints": [
+        "PTY surfaces only.",
+        "Failed responses classify error_delivery as known-not-delivered or ambiguous."
+      ]
+    },
     "read-scrollback": {
       "authority": "control",
       "since": 7,
@@ -4742,6 +5164,68 @@
       "stream": null,
       "constraints": []
     },
+    "new-pane-right": {
+      "authority": "control",
+      "since": 9,
+      "capability": "viewport-splits-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "pane": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "width": {
+            "type": {
+              "kind": "scalar",
+              "name": "float32"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null,
+            "constraints": [
+              {
+                "minimum": 0.1,
+                "maximum": 1.0
+              }
+            ]
+          },
+          "cols": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "rows": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          }
+        },
+        "additional_properties": false,
+        "constraints": [
+          "Omitted width defaults to two thirds.",
+          "cols and rows affect sizing only when both are present."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "SurfaceResult"
+      },
+      "stream": null,
+      "constraints": []
+    },
     "split": {
       "authority": "control",
       "since": 5,
@@ -4871,6 +5355,17 @@
                 "clamped_maximum": 0.95
               }
             ]
+          },
+          "transaction": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null,
+            "since": 9,
+            "capability": "layout-undo-v1"
           }
         },
         "additional_properties": false
@@ -4881,6 +5376,106 @@
       },
       "stream": null,
       "constraints": []
+    },
+    "set-viewport-pane-width": {
+      "authority": "control",
+      "since": 9,
+      "capability": "viewport-column-resize-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "pane": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "width": {
+            "type": {
+              "kind": "scalar",
+              "name": "float32"
+            },
+            "presence": "required",
+            "nullable": false,
+            "constraints": [
+              {
+                "minimum": 0.1,
+                "maximum": 1.0
+              }
+            ]
+          },
+          "transaction": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null,
+            "since": 9,
+            "capability": "layout-undo-v1"
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "EmptyResult"
+      },
+      "stream": null,
+      "constraints": [
+        "width must be finite."
+      ]
+    },
+    "undo-layout": {
+      "authority": "control",
+      "since": 9,
+      "capability": "layout-undo-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "pane": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "revision": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "confirm_close": {
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            },
+            "presence": "optional",
+            "nullable": false,
+            "default": false
+          }
+        },
+        "additional_properties": false,
+        "constraints": [
+          "confirm_close requires the exact preview revision."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "LayoutUndoResult"
+      },
+      "stream": null,
+      "constraints": [
+        "Clients must reject incomplete or contradictory result variants."
+      ]
     },
     "pane-neighbor": {
       "authority": "control",

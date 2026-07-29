@@ -47,6 +47,20 @@ class LiveSchemaTests(unittest.TestCase):
             self.inventory,
         )
 
+    def test_protocol_key_input_maps_to_the_named_terminal_key_input_type(self) -> None:
+        runtime_field = CHECKER.runtime_command_fields()["clear-history"]["fallback_key"]
+        schema_type = self.ir.command("clear-history")["request"]["fields"][
+            "fallback_key"
+        ]["type"]
+        self.assertEqual(
+            CHECKER._runtime_type_shape(runtime_field.rust_type),
+            "ref<TerminalKeyInput>",
+        )
+        self.assertEqual(
+            CHECKER._schema_type_shape(schema_type, self.ir.types),
+            "ref<TerminalKeyInput>",
+        )
+
     def test_missing_command_is_rejected(self) -> None:
         document = copy.deepcopy(self.document)
         document["commands"].pop("ping")
