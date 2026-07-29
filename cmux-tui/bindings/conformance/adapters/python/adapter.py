@@ -67,6 +67,100 @@ def mutation_value(result: Any) -> dict[str, Any]:
     }
 
 
+def required_handle_id(handle: Any, label: str) -> str:
+    identifier = getattr(handle, "id", None)
+    if identifier is None:
+        raise AssertionError(f"created path omitted {label}")
+    return str(identifier)
+
+
+def created_path_value(path: cmux.CreatedPath) -> dict[str, Any]:
+    result = {
+        "kind": path.kind,
+        "workspace_id": required_handle_id(path.workspace, "workspace_id"),
+    }
+    if path.kind == "workspace":
+        return result
+    result.update(
+        {
+            "screen_id": required_handle_id(path.screen, "screen_id"),
+            "pane_id": required_handle_id(path.pane, "pane_id"),
+            "tab_id": required_handle_id(path.tab, "tab_id"),
+        }
+    )
+    if path.kind == "terminal":
+        result["terminal_id"] = required_handle_id(
+            path.terminal,
+            "terminal_id",
+        )
+        return result
+    if path.kind == "browser":
+        result["browser_id"] = required_handle_id(path.browser, "browser_id")
+        return result
+    raise AssertionError(f"unsupported created path kind {path.kind!r}")
+
+
+def creation_resolution_value(
+    resolution: cmux.CreationResolution[cmux.CreatedPath],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "correlation_key": resolution.correlation_key,
+        "state": resolution.state,
+        "recovery": resolution.recovery,
+    }
+    if resolution.operation is not None:
+        result["operation"] = resolution.operation
+    if resolution.idempotency_key is not None:
+        result["idempotency_key"] = resolution.idempotency_key
+    if resolution.created_path is not None:
+        result["created_path"] = created_path_value(resolution.created_path)
+    if resolution.generation is not None:
+        result["generation"] = resolution.generation
+    if resolution.revision is not None:
+        result["revision"] = resolution.revision
+    return result
+
+
+def terminal_exit_outcome_value(outcome: cmux.TerminalExitOutcome) -> dict[str, Any]:
+    if isinstance(outcome, cmux.TerminalExitCode):
+        return {"kind": outcome.kind, "code": outcome.code}
+    if isinstance(outcome, cmux.TerminalExitSignal):
+        return {
+            "kind": outcome.kind,
+            "signal": outcome.signal,
+            "core_dumped": outcome.core_dumped,
+        }
+    if isinstance(outcome, cmux.TerminalExitUnknown):
+        return {"kind": outcome.kind, "reason": outcome.reason}
+    raise AssertionError(
+        f"unsupported terminal exit outcome {type(outcome).__name__}"
+    )
+
+
+def terminal_wait_exit_value(
+    value: cmux.TerminalWaitExitResult,
+) -> dict[str, Any]:
+    if isinstance(value, cmux.TerminalWaitExitPending):
+        return {
+            "state": value.state,
+            "terminal_id": str(value.terminal_id),
+            "lifecycle": value.lifecycle,
+            "revision": value.revision,
+        }
+    if isinstance(value, cmux.TerminalWaitExitExited):
+        return {
+            "state": value.state,
+            "terminal_id": str(value.terminal_id),
+            "lifecycle": value.lifecycle,
+            "outcome": terminal_exit_outcome_value(value.outcome),
+            "exited_at": value.exited_at,
+            "revision": value.revision,
+        }
+    raise AssertionError(
+        f"unsupported terminal wait result {type(value).__name__}"
+    )
+
+
 def unknown_value(item: Any) -> tuple[str, dict[str, Any]]:
     value = getattr(item, "value", getattr(item, "item", None))
     if not isinstance(value, cmux.Unknown):
@@ -105,7 +199,7 @@ def live_setup(
     key_prefix: str,
 ) -> dict[str, Any]:
     current = live_session(client)
-    pinged = bool(plain(current.ping())["alive"])
+    pinged = current.ping().alive
     stable = current.create_workspace(
         cmux.CreateWorkspaceOptions(
             name=base_name,
@@ -212,13 +306,126 @@ def live_restart(
     }
 
 
+def live_creation_exit(
+    client: cmux.Client,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    current = live_session(client)
+    workspace_handle = current.workspace(
+        cmux.WorkspaceId(str(payload["expected_stable_id"]))
+    )
+    screen_created = workspace_handle.create_screen(
+        cmux.CreateScreenOptions(),
+        idempotency_key=f"{payload['key_prefix']}-runtime-screen",
+    )
+    pane = screen_created.value.pane
+    if pane is None or pane.id is None:
+        raise AssertionError("screen.create omitted its terminal pane")
+
+    correlation_key = f"{payload['key_prefix']}-terminal-correlation"
+    run_result = pane.run(
+        cmux.RunOptions(
+            command=cmux.ShellCommand(str(payload["exit_shell"])),
+            correlation_key=correlation_key,
+        ),
+        idempotency_key=f"{payload['key_prefix']}-terminal-run",
+    )
+    path = created_path_value(run_result.value)
+    terminal = run_result.value.terminal
+    if terminal is None or terminal.id is None:
+        raise AssertionError("pane.run omitted its terminal")
+
+    pending = terminal_wait_exit_value(
+        terminal.wait_exit(int(str(payload["pending_timeout_ms"])))
+    )
+    resolution = creation_resolution_value(
+        current.creation.resolve(correlation_key)
+    )
+    exited = terminal_wait_exit_value(
+        terminal.wait_exit(int(str(payload["exit_timeout_ms"])))
+    )
+    if resolution.get("created_path") != path:
+        raise AssertionError(
+            "creation resolution returned a different terminal path"
+        )
+    outcome = exited.get("outcome")
+    if not isinstance(outcome, Mapping):
+        raise AssertionError("terminal did not return an exited outcome")
+
+    return {
+        "correlation_key": correlation_key,
+        "created_path": path,
+        "pending_terminal_id": pending["terminal_id"],
+        "pending_state": pending["state"],
+        "pending_lifecycle": pending["lifecycle"],
+        "creation_state": resolution["state"],
+        "creation_recovery": resolution["recovery"],
+        "creation_generation": resolution.get("generation"),
+        "creation_revision": resolution.get("revision"),
+        "exit_state": exited["state"],
+        "exit_terminal_id": exited["terminal_id"],
+        "exit_lifecycle": exited["lifecycle"],
+        "exit_kind": outcome.get("kind"),
+        "exit_code": outcome.get("code"),
+        "exited_at": exited.get("exited_at"),
+        "exit_revision": exited["revision"],
+    }
+
+
+def live_exit_restart(
+    client: cmux.Client,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    current = live_session(client)
+    resolution = creation_resolution_value(
+        current.creation.resolve(str(payload["expected_correlation_key"]))
+    )
+    expected_path = payload["expected_created_path"]
+    if not isinstance(expected_path, Mapping):
+        raise TypeError("expected_created_path must be an object")
+    terminal_id = expected_path.get("terminal_id")
+    if not isinstance(terminal_id, str):
+        raise TypeError("expected_created_path.terminal_id must be a string")
+    exited = terminal_wait_exit_value(
+        current.terminal(cmux.TerminalId(terminal_id)).wait_exit(
+            int(str(payload["exit_timeout_ms"]))
+        )
+    )
+    outcome = exited.get("outcome")
+    if not isinstance(outcome, Mapping):
+        raise AssertionError("terminal did not return a durable exit outcome")
+    return {
+        "correlation_key": resolution["correlation_key"],
+        "created_path": resolution.get("created_path"),
+        "creation_state": resolution["state"],
+        "creation_recovery": resolution["recovery"],
+        "creation_generation": resolution.get("generation"),
+        "creation_revision": resolution.get("revision"),
+        "exit_state": exited["state"],
+        "exit_terminal_id": exited["terminal_id"],
+        "exit_lifecycle": exited["lifecycle"],
+        "exit_kind": outcome.get("kind"),
+        "exit_code": outcome.get("code"),
+        "exited_at": exited.get("exited_at"),
+        "exit_revision": exited["revision"],
+    }
+
+
 def run(payload: Mapping[str, Any]) -> Any:
     operation = payload["op"]
     constants = payload["constants"]
     if operation == "redaction":
         secret = "provider://conformance-secret"
         token = "renderer-conformance-secret"
-        specifier = cmux.ExternalMachineSpecifier(secret)
+        specifier = cmux.RendererGrant(
+            secret,
+            endpoint="unix:///tmp/renderer",
+            terminal_id=cmux.TerminalId(
+                "term_66666666666666666666666666666666"
+            ),
+            rights=("render",),
+            ttl_ms=1000,
+        )
         grant = cmux.RendererGrant(
             token,
             endpoint="unix:///tmp/renderer",
@@ -241,11 +448,10 @@ def run(payload: Mapping[str, Any]) -> Any:
         random_hex_128=lambda: "a" * 32,
     ) as client:
         if operation == "read":
-            document = session(client, constants).ping()
-            fields = plain(document)
+            result = session(client, constants).ping()
             return {
-                "alive": fields["alive"],
-                "cursor": fields["cursor"],
+                "alive": result.alive,
+                "cursor": plain(result.cursor),
             }
         if operation == "mutation-replay":
             target = workspace(client, constants)
@@ -269,6 +475,31 @@ def run(payload: Mapping[str, Any]) -> Any:
             except cmux.ResourceError as error:
                 return error_value(error)
             raise AssertionError("mutation unexpectedly succeeded")
+        if operation == "creation-resolve":
+            return creation_resolution_value(
+                session(client, constants).creation.resolve(
+                    constants["correlation_key"]
+                )
+            )
+        if operation == "creation-conflict":
+            try:
+                session(client, constants).create_workspace(
+                    cmux.CreateWorkspaceOptions(
+                        name=constants["name"],
+                        initial_content="empty",
+                        correlation_key=constants["correlation_key"],
+                    ),
+                    idempotency_key=constants["idempotency_key"],
+                )
+            except cmux.ResourceError as error:
+                return error_value(error)
+            raise AssertionError("creation conflict unexpectedly succeeded")
+        if operation == "terminal-wait-exit":
+            return terminal_wait_exit_value(
+                session(client, constants)
+                .terminal(cmux.TerminalId(constants["terminal"]))
+                .wait_exit(int(str(payload["timeout_ms"])))
+            )
         if operation == "stream-unknown":
             stream = session(client, constants).events()
             item = next(stream)
@@ -310,11 +541,11 @@ def run(payload: Mapping[str, Any]) -> Any:
                 next(second)
             except StopIteration:
                 pass
-            control = plain(session(client, constants).ping())
+            control = session(client, constants).ping()
             return {
                 "first_end": first_end,
                 "second_kind": second_kind,
-                "control_alive": control["alive"],
+                "control_alive": control.alive,
             }
         if operation == "live-setup":
             return live_setup(
@@ -322,6 +553,10 @@ def run(payload: Mapping[str, Any]) -> Any:
                 str(payload["workspace_name"]),
                 str(payload["key_prefix"]),
             )
+        if operation == "live-creation-exit":
+            return live_creation_exit(client, payload)
+        if operation == "live-exit-restart":
+            return live_exit_restart(client, payload)
         if operation == "live-restart":
             duplicate_ids = payload["expected_duplicate_ids"]
             if not isinstance(duplicate_ids, list) or not all(
