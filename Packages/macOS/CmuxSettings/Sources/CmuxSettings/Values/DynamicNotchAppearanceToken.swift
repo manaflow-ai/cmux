@@ -3,6 +3,7 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
     case compactWidth
     case compactHeight
     case syntheticNotchWidth
+    case syntheticNotchHorizontalPosition
     case expandedWidth
     case maximumExpandedHeight
     case shellPadding
@@ -127,6 +128,8 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
             .number(minimum: 24, maximum: 120, step: 1)
         case .syntheticNotchWidth:
             .number(minimum: 72, maximum: 480, step: 1)
+        case .syntheticNotchHorizontalPosition:
+            .number(minimum: 0, maximum: 1, step: 0.01)
         case .expandedWidth:
             .number(minimum: 300, maximum: 1_200, step: 1)
         case .maximumExpandedHeight:
@@ -224,6 +227,8 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
             .number(26)
         case .syntheticNotchWidth:
             .number(164)
+        case .syntheticNotchHorizontalPosition:
+            .number(0.5)
         case .expandedWidth:
             .number(460)
         case .maximumExpandedHeight:

@@ -45,11 +45,16 @@ extension NSScreen {
     }
 
     func dynamicNotchGeometry(
-        syntheticNotchWidth: CGFloat = 164
+        syntheticNotchWidth: CGFloat = 164,
+        syntheticNotchSafeAreaWidth: CGFloat? = nil,
+        syntheticNotchHorizontalPosition: CGFloat = 0.5
     ) -> DynamicNotchScreenGeometry {
         DynamicNotchScreenGeometry(
             screen: self,
-            syntheticNotchWidth: syntheticNotchWidth
+            syntheticNotchWidth: syntheticNotchWidth,
+            syntheticNotchSafeAreaWidth: syntheticNotchSafeAreaWidth,
+            syntheticNotchHorizontalPosition:
+                syntheticNotchHorizontalPosition
         )
     }
 

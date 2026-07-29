@@ -109,6 +109,31 @@ struct DynamicNotchNotificationTrayModelTests {
         #expect(model.appearance(for: notification)[.expandedWidth] == .number(720))
     }
 
+    @Test("Display position stays local and wins over row overrides")
+    func displayPositionOverridesNotificationPosition() throws {
+        let model = DynamicNotchNotificationTrayModel(
+            displayHorizontalPosition: 0.2
+        )
+        let notification = makeNotification(
+            title: "Positioned",
+            appearance: try DynamicNotchAppearanceOverrides(assignments: [
+                "syntheticNotchHorizontalPosition=0.9",
+            ])
+        )
+        #expect(model.enqueue(notification))
+
+        #expect(
+            model.trayAppearance[.syntheticNotchHorizontalPosition]
+                == .number(0.2)
+        )
+
+        model.setDisplayHorizontalPosition(0.7)
+        #expect(
+            model.trayAppearance[.syntheticNotchHorizontalPosition]
+                == .number(0.7)
+        )
+    }
+
     private func makeNotification(
         title: String,
         appearance: DynamicNotchAppearanceOverrides = DynamicNotchAppearanceOverrides()
@@ -137,8 +162,15 @@ struct DynamicNotchAppearanceSettingsFileTests {
     @Test("cmux.json applies validated appearance and advertises every leaf path")
     func settingsFileAppliesAppearance() throws {
         let setting = SettingCatalog().notifications.dynamicNotch
+        let positionsSetting = SettingCatalog().notifications
+            .dynamicNotchDisplayPositions
         let defaults = UserDefaults.standard
-        let keys = [setting.userDefaultsKey, backupsKey, importedKey]
+        let keys = [
+            setting.userDefaultsKey,
+            positionsSetting.userDefaultsKey,
+            backupsKey,
+            importedKey,
+        ]
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }
         keys.forEach(defaults.removeObject(forKey:))
         defer {
@@ -169,6 +201,9 @@ struct DynamicNotchAppearanceSettingsFileTests {
               "expandedWidth": 680,
               "accentColor": "#AABBCC",
               "showScrollIndicators": false
+            },
+            "dynamicNotchDisplayPositions": {
+              "uuid:external": 0.25
             }
           }
         }
@@ -188,6 +223,11 @@ struct DynamicNotchAppearanceSettingsFileTests {
         #expect(appearance[.accentColor] == .color(.hex("#AABBCC")))
         #expect(appearance[.showScrollIndicators] == .boolean(false))
         #expect(
+            UserDefaultsSettingsClient(defaults: defaults).value(
+                for: positionsSetting
+            ) == ["uuid:external": "0.25"]
+        )
+        #expect(
             CmuxSettingsFileStore.supportedSettingsJSONPaths.contains(
                 "notifications.dynamicNotch"
             )
@@ -202,6 +242,11 @@ struct DynamicNotchAppearanceSettingsFileTests {
         #expect(
             CmuxSettingsFileStore.defaultTemplate().contains(
                 #""dynamicNotch""#
+            )
+        )
+        #expect(
+            CmuxSettingsFileStore.supportedSettingsJSONPaths.contains(
+                "notifications.dynamicNotchDisplayPositions"
             )
         )
     }

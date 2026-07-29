@@ -435,6 +435,7 @@ extension CmuxSettingsFileStore {
         "terminal.uploadCommands",
         "notifications.delivery",
         "notifications.dynamicNotch",
+        "notifications.dynamicNotchDisplayPositions",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",

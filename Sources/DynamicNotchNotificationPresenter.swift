@@ -70,7 +70,8 @@ private final class DynamicNotchEscapeMonitor {
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
             [weak self] event in
             guard event.keyCode == 53,
-                  self?.pressed() == true else {
+                self?.pressed() == true
+            else {
                 return event
             }
             return nil
@@ -90,8 +91,8 @@ private final class DynamicNotchEscapeMonitor {
     }
 }
 
-/// Owns one accumulated menu-bar notification surface and maps each row's
-/// controls back to the existing navigation and read-state paths.
+/// Owns one accumulated notification queue mirrored into an independently
+/// interactive Dynamic Notch surface on every connected display.
 @MainActor
 final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
     static let windowIdentifier = "cmux.dynamicNotchNotification"
@@ -103,22 +104,38 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         DynamicNotchNotificationCompactTrailingView
     >
 
-    private final class ActivePresentation {
+    private final class DisplayPresentation {
+        let displayKey: String
+        var screen: NSScreen
         let model: DynamicNotchNotificationTrayModel
         let notch: Notch
-        var selectedScreen: NSScreen?
-        var pointerMonitor: DynamicNotchPointerMonitor?
-        var escapeMonitor: DynamicNotchEscapeMonitor?
-        var timeoutTasks: [UUID: Task<Void, Never>] = [:]
         var transitionTask: Task<Void, Never>?
         var arrivalRetractionTask: Task<Void, Never>?
 
         init(
+            displayKey: String,
+            screen: NSScreen,
             model: DynamicNotchNotificationTrayModel,
             notch: Notch
         ) {
+            self.displayKey = displayKey
+            self.screen = screen
             self.model = model
             self.notch = notch
+        }
+    }
+
+    private final class ActivePresentation {
+        /// Canonical queue. Display models mirror its notifications while
+        /// retaining an independent phase and horizontal position.
+        let model: DynamicNotchNotificationTrayModel
+        var displays: [String: DisplayPresentation] = [:]
+        var pointerMonitor: DynamicNotchPointerMonitor?
+        var escapeMonitor: DynamicNotchEscapeMonitor?
+        var timeoutTasks: [UUID: Task<Void, Never>] = [:]
+
+        init(model: DynamicNotchNotificationTrayModel) {
+            self.model = model
         }
     }
 
@@ -138,29 +155,50 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
     private let markRead: (UUID) -> Void
     private let sleep: Sleep
     private let appearanceProvider: () -> DynamicNotchAppearance
+    private let displayPositionsProvider: () -> [String: String]
+    private let deliveryModeProvider: () -> NotificationDeliveryMode
+    private let screensProvider: () -> [NSScreen]
     private let notificationCenter: NotificationCenter
     private var appearanceObserver: NSObjectProtocol?
+    private var screenObserver: NSObjectProtocol?
     private var activePresentation: ActivePresentation?
     private var dismissalTransitions: [UUID: Task<Void, Never>] = [:]
-#if DEBUG
-    private var debugPhaseOverride: DynamicNotchNotificationPhase?
-#endif
+    #if DEBUG
+        private var debugPhaseOverride: DynamicNotchNotificationPhase?
+    #endif
 
     init(
         openNotification: @escaping (TerminalNotification) -> Void,
         markRead: @escaping (UUID) -> Void,
-        sleep: @escaping Sleep = { duration in try await Task.sleep(for: duration) },
+        sleep: @escaping Sleep = { duration in
+            try await Task.sleep(for: duration)
+        },
         appearanceProvider: @escaping () -> DynamicNotchAppearance = {
             UserDefaultsSettingsClient(defaults: .standard).value(
                 for: SettingCatalog().notifications.dynamicNotch
             )
         },
+        displayPositionsProvider: @escaping () -> [String: String] = {
+            UserDefaultsSettingsClient(defaults: .standard).value(
+                for: SettingCatalog().notifications
+                    .dynamicNotchDisplayPositions
+            )
+        },
+        deliveryModeProvider: @escaping () -> NotificationDeliveryMode = {
+            UserDefaultsSettingsClient(defaults: .standard).value(
+                for: SettingCatalog().notifications.delivery
+            )
+        },
+        screensProvider: @escaping () -> [NSScreen] = { NSScreen.screens },
         notificationCenter: NotificationCenter = .default
     ) {
         self.openNotification = openNotification
         self.markRead = markRead
         self.sleep = sleep
         self.appearanceProvider = appearanceProvider
+        self.displayPositionsProvider = displayPositionsProvider
+        self.deliveryModeProvider = deliveryModeProvider
+        self.screensProvider = screensProvider
         self.notificationCenter = notificationCenter
         super.init()
         appearanceObserver = notificationCenter.addObserver(
@@ -172,11 +210,23 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
                 self?.refreshGlobalAppearance()
             }
         }
+        screenObserver = notificationCenter.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.screenParametersDidChange()
+            }
+        }
     }
 
     deinit {
         if let appearanceObserver {
             notificationCenter.removeObserver(appearanceObserver)
+        }
+        if let screenObserver {
+            notificationCenter.removeObserver(screenObserver)
         }
     }
 
@@ -194,11 +244,7 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
     }
 
     func dismiss(id: UUID, responseAction: String = "dismissed") {
-        resolve(
-            id: id,
-            responseAction: responseAction,
-            values: [:]
-        )
+        resolve(id: id, responseAction: responseAction, values: [:])
     }
 
     private func upsert(
@@ -206,31 +252,80 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         superseding identifiers: Set<UUID>
     ) {
         if let activePresentation {
-            guard activePresentation.model.notification(id: notification.id) == nil
-                || identifiers.contains(notification.id) else {
+            guard
+                activePresentation.model.notification(id: notification.id) == nil
+                    || identifiers.contains(notification.id)
+            else {
                 return
             }
-            let animationDuration = Double(
+            let duration = Double(
                 activePresentation.model.appearance(for: notification)
                     .dimension(.animationDuration)
             )
-            let removed = withAnimation(.snappy(duration: animationDuration)) {
-                activePresentation.model.upsert(
-                    notification,
-                    superseding: identifiers
-                )
+            let removed = activePresentation.model.upsert(
+                notification,
+                superseding: identifiers
+            )
+            for display in activePresentation.displays.values {
+                withAnimation(.snappy(duration: duration)) {
+                    display.model.upsert(
+                        notification,
+                        superseding: identifiers
+                    )
+                }
             }
             resolveSuperseded(removed, in: activePresentation)
+            reconcileDisplays(in: activePresentation, revealNewDisplays: false)
             synchronizeAppearance(in: activePresentation)
             scheduleTimeout(for: notification, in: activePresentation)
-            revealForArrival(in: activePresentation)
+            for display in activePresentation.displays.values {
+                revealForArrival(display, in: activePresentation)
+            }
             return
         }
 
-        let model = DynamicNotchNotificationTrayModel(
+        let canonicalModel = DynamicNotchNotificationTrayModel(
             globalAppearance: appearanceProvider()
         )
-        model.upsert(notification, superseding: identifiers)
+        canonicalModel.upsert(notification, superseding: identifiers)
+        let activePresentation = ActivePresentation(model: canonicalModel)
+        self.activePresentation = activePresentation
+
+        let pointerMonitor = DynamicNotchPointerMonitor {
+            [weak self, weak activePresentation] point in
+            guard let self, let activePresentation else { return }
+            self.handlePointerMoved(point, in: activePresentation)
+        }
+        activePresentation.pointerMonitor = pointerMonitor
+        pointerMonitor.start()
+
+        let escapeMonitor = DynamicNotchEscapeMonitor {
+            [weak self, weak activePresentation] in
+            guard let self, let activePresentation else { return false }
+            return self.handleEscape(in: activePresentation)
+        }
+        activePresentation.escapeMonitor = escapeMonitor
+        escapeMonitor.start()
+
+        reconcileDisplays(in: activePresentation, revealNewDisplays: false)
+        scheduleTimeout(for: notification, in: activePresentation)
+        for display in activePresentation.displays.values {
+            revealForArrival(display, in: activePresentation)
+        }
+    }
+
+    private func makeDisplayPresentation(
+        for screen: NSScreen,
+        in activePresentation: ActivePresentation
+    ) -> DisplayPresentation {
+        let displayKey = screen.cmuxDynamicNotchDisplayKey
+        let model = DynamicNotchNotificationTrayModel(
+            globalAppearance: appearanceProvider(),
+            displayHorizontalPosition: displayPosition(for: displayKey)
+        )
+        for notification in activePresentation.model.notifications.reversed() {
+            model.enqueue(notification)
+        }
 
         let notch = DynamicNotch(
             hoverBehavior: [.keepVisible],
@@ -239,7 +334,8 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         ) {
             DynamicNotchNotificationTrayView(
                 model: model,
-                performAction: { [weak self] action, values, selectedNotification in
+                performAction: {
+                    [weak self] action, values, selectedNotification in
                     self?.handleAction(
                         action,
                         values: values,
@@ -257,44 +353,94 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
             self?.configureWindow(window)
         }
 
-        let activePresentation = ActivePresentation(
+        let display = DisplayPresentation(
+            displayKey: displayKey,
+            screen: screen,
             model: model,
             notch: notch
         )
-        self.activePresentation = activePresentation
+        notch.allowsSyntheticNotchDragging = true
+        notch.onSyntheticNotchHorizontalPositionChanged = {
+            [weak self, weak activePresentation, weak display] position in
+            guard let self, let activePresentation, let display else { return }
+            self.persistSyntheticNotchPosition(
+                Double(position),
+                for: display,
+                in: activePresentation
+            )
+        }
+        notch.onHoverChanged = {
+            [weak self, weak activePresentation, weak display] hovering in
+            guard let self, let activePresentation, let display else { return }
+            self.handleHover(
+                hovering,
+                on: display,
+                in: activePresentation
+            )
+        }
+        return display
+    }
 
-        notch.onHoverChanged = { [weak self, weak activePresentation] hovering in
-            guard let self, let activePresentation else { return }
-            self.handleHover(hovering, in: activePresentation)
-        }
-        let pointerMonitor = DynamicNotchPointerMonitor {
-            [weak self, weak activePresentation] point in
-            guard let self, let activePresentation else { return }
-            self.handlePointerMoved(point, in: activePresentation)
-        }
-        activePresentation.pointerMonitor = pointerMonitor
-        pointerMonitor.start()
-        let escapeMonitor = DynamicNotchEscapeMonitor {
-            [weak self, weak activePresentation] in
-            guard let self, let activePresentation else { return false }
-            return self.handleEscape(in: activePresentation)
-        }
-        activePresentation.escapeMonitor = escapeMonitor
-        escapeMonitor.start()
-        scheduleTimeout(for: notification, in: activePresentation)
-
-        guard let fallbackScreen = NSScreen.screens.first else {
-            close(activePresentation)
-            return
-        }
-        let point = NSEvent.mouseLocation
-        let nearbyScreen = screenNearNotch(
-            for: point,
-            appearance: model.trayAppearance
+    private func reconcileDisplays(
+        in activePresentation: ActivePresentation,
+        revealNewDisplays: Bool
+    ) {
+        guard self.activePresentation === activePresentation else { return }
+        let screens = screensProvider()
+        let currentScreens = Dictionary(
+            screens.map { ($0.cmuxDynamicNotchDisplayKey, $0) },
+            uniquingKeysWith: { _, newest in newest }
         )
-        let screen = nearbyScreen ?? fallbackScreen
-        activePresentation.selectedScreen = screen
-        revealForArrival(in: activePresentation)
+
+        for displayKey in activePresentation.displays.keys
+        where currentScreens[displayKey] == nil {
+            guard
+                let removed = activePresentation.displays
+                    .removeValue(forKey: displayKey)
+            else {
+                continue
+            }
+            retire(removed)
+        }
+
+        for screen in screens {
+            let displayKey = screen.cmuxDynamicNotchDisplayKey
+            if let display = activePresentation.displays[displayKey] {
+                display.screen = screen
+                display.model.setGlobalAppearance(appearanceProvider())
+                display.model.setDisplayHorizontalPosition(
+                    displayPosition(for: displayKey)
+                )
+                synchronizeAppearance(for: display)
+                display.notch.refreshScreenGeometry(on: screen)
+                continue
+            }
+
+            let display = makeDisplayPresentation(
+                for: screen,
+                in: activePresentation
+            )
+            activePresentation.displays[displayKey] = display
+            #if DEBUG
+                if let debugPhaseOverride {
+                    transition(
+                        to: debugPhaseOverride,
+                        on: display,
+                        in: activePresentation
+                    )
+                    continue
+                }
+            #endif
+            if revealNewDisplays {
+                revealForArrival(display, in: activePresentation)
+            }
+        }
+    }
+
+    private func screenParametersDidChange() {
+        guard let activePresentation else { return }
+        reconcileDisplays(in: activePresentation, revealNewDisplays: true)
+        handlePointerMoved(NSEvent.mouseLocation, in: activePresentation)
     }
 
     private func resolveSuperseded(
@@ -325,9 +471,12 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
             guard let self else { return }
             try? await self.sleep(.seconds(timeout))
             guard !Task.isCancelled,
-                  let activePresentation,
-                  self.activePresentation === activePresentation,
-                  activePresentation.model.notification(id: notification.id) != nil else {
+                let activePresentation,
+                self.activePresentation === activePresentation,
+                activePresentation.model.notification(
+                    id: notification.id
+                ) != nil
+            else {
                 return
             }
             self.resolve(
@@ -339,41 +488,38 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
     }
 
     private func revealForArrival(
+        _ display: DisplayPresentation,
         in activePresentation: ActivePresentation
     ) {
-#if DEBUG
-        guard debugPhaseOverride == nil else { return }
-#endif
-        guard self.activePresentation === activePresentation,
-              !activePresentation.notch.isHovering,
-              activePresentation.model.phase != .expanded,
-              let screen = activePresentation.selectedScreen
-                ?? NSScreen.screens.first else {
+        #if DEBUG
+            guard debugPhaseOverride == nil else { return }
+        #endif
+        guard isActive(display, in: activePresentation),
+            !display.notch.isHovering,
+            display.model.phase != .expanded
+        else {
             return
         }
-        transition(
-            to: .compact,
-            on: screen,
-            in: activePresentation
-        )
+        transition(to: .compact, on: display, in: activePresentation)
 
-        activePresentation.arrivalRetractionTask?.cancel()
+        display.arrivalRetractionTask?.cancel()
         let duration = Double(
-            activePresentation.model.trayAppearance
-                .dimension(.arrivalRevealDuration)
+            display.model.trayAppearance.dimension(.arrivalRevealDuration)
         )
-        activePresentation.arrivalRetractionTask = Task {
-            @MainActor [weak self, weak activePresentation] in
+        display.arrivalRetractionTask = Task {
+            @MainActor [weak self, weak activePresentation, weak display] in
             guard let self else { return }
             if duration > 0 {
                 try? await self.sleep(.seconds(duration))
             }
             guard !Task.isCancelled,
-                  let activePresentation,
-                  self.activePresentation === activePresentation else {
+                let activePresentation,
+                let display,
+                self.isActive(display, in: activePresentation)
+            else {
                 return
             }
-            activePresentation.arrivalRetractionTask = nil
+            display.arrivalRetractionTask = nil
             self.handlePointerMoved(
                 NSEvent.mouseLocation,
                 in: activePresentation
@@ -385,75 +531,55 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         _ point: CGPoint,
         in activePresentation: ActivePresentation
     ) {
-#if DEBUG
-        guard debugPhaseOverride == nil else { return }
-#endif
-        guard self.activePresentation === activePresentation,
-              !activePresentation.notch.isHovering else {
-            return
-        }
-        let appearance = activePresentation.model.trayAppearance
-        let nearbyScreen = screenNearNotch(
-            for: point,
-            appearance: appearance
-        )
-        let screen = nearbyScreen
-            ?? activePresentation.selectedScreen
-            ?? NSScreen.screens.first
-        guard let screen else { return }
-        if activePresentation.arrivalRetractionTask != nil {
+        #if DEBUG
+            guard debugPhaseOverride == nil else { return }
+        #endif
+        guard self.activePresentation === activePresentation else { return }
+        for display in activePresentation.displays.values {
+            guard !display.notch.isHovering else { continue }
+            if display.arrivalRetractionTask != nil {
+                transition(to: .compact, on: display, in: activePresentation)
+                continue
+            }
+            let appearance = display.model.trayAppearance
             transition(
-                to: .compact,
-                on: screen,
+                to: idlePhase(
+                    isPointerNearby: isPointer(
+                        point,
+                        near: display.screen,
+                        appearance: appearance
+                    ),
+                    appearance: appearance
+                ),
+                on: display,
                 in: activePresentation
             )
-            return
         }
-        transition(
-            to: idlePhase(
-                isPointerNearby: nearbyScreen != nil,
-                appearance: appearance
-            ),
-            on: screen,
-            in: activePresentation
-        )
     }
 
     private func handleHover(
         _ hovering: Bool,
+        on display: DisplayPresentation,
         in activePresentation: ActivePresentation
     ) {
-        guard self.activePresentation === activePresentation else { return }
-#if DEBUG
-        if debugPhaseOverride != nil {
-            return
-        }
-#endif
-        if hovering {
-            guard let screen = activePresentation.notch.windowController?
-                .window?.screen
-                ?? activePresentation.selectedScreen
-                ?? NSScreen.screens.first else {
+        guard isActive(display, in: activePresentation) else { return }
+        #if DEBUG
+            if debugPhaseOverride != nil {
                 return
             }
-            transition(
-                to: .expanded,
-                on: screen,
-                in: activePresentation
-            )
-            if activePresentation.model.notifications.contains(
+        #endif
+        if hovering {
+            transition(to: .expanded, on: display, in: activePresentation)
+            if display.model.notifications.contains(
                 where: { !$0.presentation.inputs.isEmpty }
             ) {
-                activePresentation.notch.windowController?.window?.makeKey()
+                display.notch.windowController?.window?.makeKey()
             }
         } else {
-            if activePresentation.notch.windowController?.window?.isKeyWindow == true {
-                activePresentation.notch.windowController?.window?.resignKey()
+            if display.notch.windowController?.window?.isKeyWindow == true {
+                display.notch.windowController?.window?.resignKey()
             }
-            handlePointerMoved(
-                NSEvent.mouseLocation,
-                in: activePresentation
-            )
+            handlePointerMoved(NSEvent.mouseLocation, in: activePresentation)
         }
     }
 
@@ -461,52 +587,57 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
     private func handleEscape(
         in activePresentation: ActivePresentation
     ) -> Bool {
-        guard self.activePresentation === activePresentation,
-              activePresentation.model.phase == .expanded else {
+        guard self.activePresentation === activePresentation else {
             return false
         }
-#if DEBUG
-        debugPhaseOverride = nil
-#endif
-        activePresentation.arrivalRetractionTask?.cancel()
-        activePresentation.arrivalRetractionTask = nil
-
-        let appearance = activePresentation.model.trayAppearance
-        let nearbyScreen = screenNearNotch(
-            for: NSEvent.mouseLocation,
-            appearance: appearance
-        )
-        guard let screen = nearbyScreen
-            ?? activePresentation.selectedScreen
-            ?? NSScreen.screens.first else {
-            return false
+        let expandedDisplays = activePresentation.displays.values.filter {
+            $0.model.phase == .expanded
         }
-        transition(
-            to: idlePhase(
-                isPointerNearby: nearbyScreen != nil,
-                appearance: appearance
-            ),
-            on: screen,
-            in: activePresentation
-        )
-        if activePresentation.notch.windowController?.window?.isKeyWindow == true {
-            activePresentation.notch.windowController?.window?.resignKey()
+        guard !expandedDisplays.isEmpty else { return false }
+        #if DEBUG
+            debugPhaseOverride = nil
+        #endif
+        let point = NSEvent.mouseLocation
+        for display in expandedDisplays {
+            display.arrivalRetractionTask?.cancel()
+            display.arrivalRetractionTask = nil
+            let appearance = display.model.trayAppearance
+            transition(
+                to: idlePhase(
+                    isPointerNearby: isPointer(
+                        point,
+                        near: display.screen,
+                        appearance: appearance
+                    ),
+                    appearance: appearance
+                ),
+                on: display,
+                in: activePresentation
+            )
+            if display.notch.windowController?.window?.isKeyWindow == true {
+                display.notch.windowController?.window?.resignKey()
+            }
         }
         return true
     }
 
-    private func screenNearNotch(
-        for point: CGPoint,
+    private func isPointer(
+        _ point: CGPoint,
+        near screen: NSScreen,
         appearance: DynamicNotchAppearance
-    ) -> NSScreen? {
-        let distance = appearance.dimension(.pointerRevealDistance)
-        let syntheticWidth = appearance.dimension(.syntheticNotchWidth)
-        return NSScreen.screens.first { screen in
-            DynamicNotchScreenGeometry(
-                screen: screen,
-                syntheticNotchWidth: syntheticWidth
-            ).isNearNotch(point, distance: distance)
-        }
+    ) -> Bool {
+        DynamicNotchScreenGeometry(
+            screen: screen,
+            syntheticNotchWidth: appearance.dimension(.syntheticNotchWidth),
+            syntheticNotchSafeAreaWidth:
+                appearance.dynamicNotchHorizontalSafeWidth,
+            syntheticNotchHorizontalPosition: appearance.dimension(
+                .syntheticNotchHorizontalPosition
+            )
+        ).isNearNotch(
+            point,
+            distance: appearance.dimension(.pointerRevealDistance)
+        )
     }
 
     private func idlePhase(
@@ -521,42 +652,35 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
 
     private func transition(
         to phase: DynamicNotchNotificationPhase,
-        on screen: NSScreen,
+        on display: DisplayPresentation,
         in activePresentation: ActivePresentation
     ) {
-        guard self.activePresentation === activePresentation,
-              !activePresentation.model.notifications.isEmpty else {
+        guard isActive(display, in: activePresentation),
+            !display.model.notifications.isEmpty
+        else {
             return
         }
-        let screenChanged = !sameScreen(
-            activePresentation.selectedScreen,
-            screen
-        )
-        let windowMissing =
-            activePresentation.notch.windowController?.window == nil
-        guard activePresentation.model.phase != phase
-                || screenChanged
-                || windowMissing else {
-            return
-        }
+        let windowMissing = display.notch.windowController?.window == nil
+        guard display.model.phase != phase || windowMissing else { return }
 
-        let animationDuration = Double(
-            activePresentation.model.trayAppearance
-                .dimension(.animationDuration)
+        let duration = Double(
+            display.model.trayAppearance.dimension(.animationDuration)
         )
-        withAnimation(.snappy(duration: animationDuration)) {
-            activePresentation.model.transition(to: phase)
+        withAnimation(.snappy(duration: duration)) {
+            display.model.transition(to: phase)
         }
-        activePresentation.selectedScreen = screen
-        activePresentation.transitionTask?.cancel()
+        display.transitionTask?.cancel()
 
-        let notch = activePresentation.notch
-        activePresentation.transitionTask = Task {
-            @MainActor [weak self, weak activePresentation] in
+        let notch = display.notch
+        let screen = display.screen
+        display.transitionTask = Task {
+            @MainActor [weak self, weak activePresentation, weak display] in
             guard let self,
-                  let activePresentation,
-                  self.activePresentation === activePresentation,
-                  !Task.isCancelled else {
+                let activePresentation,
+                let display,
+                self.isActive(display, in: activePresentation),
+                !Task.isCancelled
+            else {
                 return
             }
             switch phase {
@@ -566,30 +690,25 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
                 await notch.expand(on: screen)
             }
             guard !Task.isCancelled,
-                  self.activePresentation === activePresentation else {
+                self.isActive(display, in: activePresentation)
+            else {
                 return
             }
-            self.configureWindow(for: activePresentation)
-            activePresentation.transitionTask = nil
+            self.configureWindow(for: display)
+            display.transitionTask = nil
         }
     }
 
-    private func sameScreen(
-        _ lhs: NSScreen?,
-        _ rhs: NSScreen
+    private func isActive(
+        _ display: DisplayPresentation,
+        in activePresentation: ActivePresentation
     ) -> Bool {
-        guard let lhs else { return false }
-        if let lhsID = lhs.cmuxDisplayID,
-           let rhsID = rhs.cmuxDisplayID {
-            return lhsID == rhsID
-        }
-        return lhs.frame == rhs.frame
+        self.activePresentation === activePresentation
+            && activePresentation.displays[display.displayKey] === display
     }
 
-    private func configureWindow(
-        for activePresentation: ActivePresentation
-    ) {
-        guard let window = activePresentation.notch.windowController?.window else {
+    private func configureWindow(for display: DisplayPresentation) {
+        guard let window = display.notch.windowController?.window else {
             return
         }
         configureWindow(window)
@@ -607,11 +726,13 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         values: [String: String],
         for notification: TerminalNotification
     ) {
-        guard let resolvedNotification = resolve(
-            id: notification.id,
-            responseAction: action,
-            values: values
-        ) else {
+        guard
+            let resolvedNotification = resolve(
+                id: notification.id,
+                responseAction: action,
+                values: values
+            )
+        else {
             return
         }
         switch action {
@@ -630,13 +751,16 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         responseAction: String,
         values: [String: String]
     ) -> TerminalNotification? {
-        guard let activePresentation else {
+        guard let activePresentation,
+            let notification = activePresentation.model.remove(id: id)
+        else {
             return nil
         }
-        let removed = withAnimation {
-            activePresentation.model.remove(id: id)
+        for display in activePresentation.displays.values {
+            withAnimation {
+                display.model.remove(id: id)
+            }
         }
-        guard let notification = removed else { return nil }
         activePresentation.timeoutTasks.removeValue(forKey: id)?.cancel()
         writeResponse(
             action: responseAction,
@@ -651,24 +775,31 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         return notification
     }
 
-    private func dismiss(ids: Set<UUID>) {
+    private func dismiss(
+        ids: Set<UUID>,
+        responseAction: String = "dismissed"
+    ) {
         guard let activePresentation, !ids.isEmpty else { return }
-        let notifications = withAnimation {
-            activePresentation.model.remove(ids: ids)
+        let notifications = activePresentation.model.remove(ids: ids)
+        guard !notifications.isEmpty else { return }
+        for display in activePresentation.displays.values {
+            withAnimation {
+                display.model.remove(ids: ids)
+            }
         }
         for notification in notifications {
             activePresentation.timeoutTasks
                 .removeValue(forKey: notification.id)?
                 .cancel()
             writeResponse(
-                action: "dismissed",
+                action: responseAction,
                 values: [:],
                 notification: notification
             )
         }
         if activePresentation.model.notifications.isEmpty {
             close(activePresentation)
-        } else if !notifications.isEmpty {
+        } else {
             synchronizeAppearance(in: activePresentation)
         }
     }
@@ -692,24 +823,31 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
     private func close(_ activePresentation: ActivePresentation) {
         guard self.activePresentation === activePresentation else { return }
         self.activePresentation = nil
-#if DEBUG
-        debugPhaseOverride = nil
-#endif
+        #if DEBUG
+            debugPhaseOverride = nil
+        #endif
         activePresentation.pointerMonitor?.stop()
         activePresentation.pointerMonitor = nil
         activePresentation.escapeMonitor?.stop()
         activePresentation.escapeMonitor = nil
-        activePresentation.transitionTask?.cancel()
-        activePresentation.arrivalRetractionTask?.cancel()
-        activePresentation.arrivalRetractionTask = nil
         activePresentation.timeoutTasks.values.forEach { $0.cancel() }
         activePresentation.timeoutTasks.removeAll()
-        if activePresentation.notch.windowController?.window?.isKeyWindow == true {
-            activePresentation.notch.windowController?.window?.resignKey()
+        let displays = Array(activePresentation.displays.values)
+        activePresentation.displays.removeAll()
+        displays.forEach(retire)
+    }
+
+    private func retire(_ display: DisplayPresentation) {
+        display.transitionTask?.cancel()
+        display.transitionTask = nil
+        display.arrivalRetractionTask?.cancel()
+        display.arrivalRetractionTask = nil
+        if display.notch.windowController?.window?.isKeyWindow == true {
+            display.notch.windowController?.window?.resignKey()
         }
 
         let transitionID = UUID()
-        let notch = activePresentation.notch
+        let notch = display.notch
         let task = Task { @MainActor [weak self] in
             await notch.hide()
             self?.dismissalTransitions[transitionID] = nil
@@ -719,24 +857,69 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
 
     private func refreshGlobalAppearance() {
         guard let activePresentation else { return }
+        if deliveryModeProvider() != .dynamicNotch {
+            let settingsDeliveredIDs = Set(
+                activePresentation.model.notifications
+                    .filter { $0.presentation.delivery == .settings }
+                    .map(\.id)
+            )
+            dismiss(
+                ids: settingsDeliveredIDs,
+                responseAction: "delivery_changed"
+            )
+            guard self.activePresentation === activePresentation else {
+                return
+            }
+        }
         activePresentation.model.setGlobalAppearance(appearanceProvider())
+        reconcileDisplays(in: activePresentation, revealNewDisplays: false)
         synchronizeAppearance(in: activePresentation)
-        handlePointerMoved(
-            NSEvent.mouseLocation,
-            in: activePresentation
+        handlePointerMoved(NSEvent.mouseLocation, in: activePresentation)
+    }
+
+    private func displayPosition(for displayKey: String) -> Double? {
+        DynamicNotchDisplayPositionSettings.position(
+            for: displayKey,
+            in: displayPositionsProvider()
         )
+    }
+
+    private func persistSyntheticNotchPosition(
+        _ position: Double,
+        for display: DisplayPresentation,
+        in activePresentation: ActivePresentation
+    ) {
+        guard isActive(display, in: activePresentation) else { return }
+        let settings = UserDefaultsSettingsClient(defaults: .standard)
+        let key = SettingCatalog().notifications.dynamicNotchDisplayPositions
+        let updated = DynamicNotchDisplayPositionSettings.setting(
+            position,
+            for: display.displayKey,
+            in: settings.value(for: key)
+        )
+        settings.set(updated, for: key)
+        display.model.setDisplayHorizontalPosition(position)
+        synchronizeAppearance(for: display)
     }
 
     private func synchronizeAppearance(
         in activePresentation: ActivePresentation
     ) {
-        activePresentation.notch.chrome =
-            activePresentation.model.trayAppearance.dynamicNotchChrome
+        for display in activePresentation.displays.values {
+            synchronizeAppearance(for: display)
+        }
+    }
+
+    private func synchronizeAppearance(for display: DisplayPresentation) {
+        display.notch.chrome = display.model.trayAppearance.dynamicNotchChrome
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let activePresentation,
-              activePresentation.notch.windowController?.window === sender else {
+            activePresentation.displays.values.contains(where: {
+                $0.notch.windowController?.window === sender
+            })
+        else {
             return true
         }
         dismissAll(responseAction: "dismissed")
@@ -770,103 +953,122 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         }
     }
 
-#if DEBUG
-    func debugSetPhase(_ rawPhase: String) -> Bool {
-        guard let activePresentation else { return false }
-        let normalized = rawPhase.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        ).lowercased()
-        if normalized == "auto" {
-            debugPhaseOverride = nil
-            handlePointerMoved(
-                NSEvent.mouseLocation,
-                in: activePresentation
-            )
+    #if DEBUG
+        func debugSetPhase(_ rawPhase: String) -> Bool {
+            guard let activePresentation,
+                !activePresentation.displays.isEmpty
+            else {
+                return false
+            }
+            let normalized = rawPhase.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).lowercased()
+            if normalized == "auto" {
+                debugPhaseOverride = nil
+                handlePointerMoved(
+                    NSEvent.mouseLocation,
+                    in: activePresentation
+                )
+                return true
+            }
+
+            let phase: DynamicNotchNotificationPhase
+            switch normalized {
+            case "retracted":
+                phase = .retracted
+            case "compact":
+                phase = .compact
+            case "expanded":
+                phase = .expanded
+            default:
+                return false
+            }
+            debugPhaseOverride = phase
+            for display in activePresentation.displays.values {
+                transition(to: phase, on: display, in: activePresentation)
+            }
             return true
         }
 
-        let phase: DynamicNotchNotificationPhase
-        switch normalized {
-        case "retracted":
-            phase = .retracted
-        case "compact":
-            phase = .compact
-        case "expanded":
-            phase = .expanded
-        default:
-            return false
+        func debugSnapshot() -> [String: Any]? {
+            guard let activePresentation else { return nil }
+            let displays = activePresentation.displays.values
+                .sorted { $0.displayKey < $1.displayKey }
+            guard let primary = displays.first else { return nil }
+            let window = primary.notch.windowController?.window
+            var payload: [String: Any] = [
+                "phase": phaseName(primary.model.phase),
+                "notification_count":
+                    activePresentation.model.notifications.count,
+                "notification_ids":
+                    activePresentation.model.notifications.map {
+                        $0.id.uuidString
+                    },
+                "display_count": displays.count,
+                "displays": displays.map(displayDebugPayload),
+                "arrival_reveal_active":
+                    displays.contains { $0.arrivalRetractionTask != nil },
+                "is_hovering":
+                    displays.contains { $0.notch.isHovering },
+                "uses_synthetic_notch": primary.notch.usesSyntheticNotch,
+                "window_visible": window?.isVisible ?? false,
+                "window_number": window?.windowNumber ?? 0,
+                "window_identifier": window?.identifier?.rawValue ?? "",
+            ]
+            if let debugPhaseOverride {
+                payload["phase_override"] = phaseName(debugPhaseOverride)
+            }
+            if let frame = window?.frame {
+                payload["window_frame"] = rectPayload(frame)
+            }
+            payload["display_id"] = primary.screen.cmuxDisplayID ?? 0
+            payload["screen_frame"] = rectPayload(primary.screen.frame)
+            return payload
         }
-        guard let screen = activePresentation.selectedScreen
-            ?? NSScreen.screens.first else {
-            return false
-        }
-        debugPhaseOverride = phase
-        transition(
-            to: phase,
-            on: screen,
-            in: activePresentation
-        )
-        return true
-    }
 
-    func debugSnapshot() -> [String: Any]? {
-        guard let activePresentation else { return nil }
-        let window = activePresentation.notch.windowController?.window
-        let phase: String
-        switch activePresentation.model.phase {
-        case .retracted:
-            phase = "retracted"
-        case .compact:
-            phase = "compact"
-        case .expanded:
-            phase = "expanded"
-        }
-        let override: String?
-        switch debugPhaseOverride {
-        case .retracted:
-            override = "retracted"
-        case .compact:
-            override = "compact"
-        case .expanded:
-            override = "expanded"
-        case nil:
-            override = nil
-        }
-        var payload: [String: Any] = [
-            "phase": phase,
-            "notification_count": activePresentation.model.notifications.count,
-            "notification_ids": activePresentation.model.notifications.map {
-                $0.id.uuidString
-            },
-            "arrival_reveal_active":
-                activePresentation.arrivalRetractionTask != nil,
-            "is_hovering": activePresentation.notch.isHovering,
-            "uses_synthetic_notch": activePresentation.notch.usesSyntheticNotch,
-            "window_visible": window?.isVisible ?? false,
-            "window_number": window?.windowNumber ?? 0,
-            "window_identifier": window?.identifier?.rawValue ?? "",
-        ]
-        if let override {
-            payload["phase_override"] = override
-        }
-        if let frame = window?.frame {
-            payload["window_frame"] = [
-                "x": frame.origin.x,
-                "y": frame.origin.y,
-                "width": frame.width,
-                "height": frame.height,
+        private func displayDebugPayload(
+            _ display: DisplayPresentation
+        ) -> [String: Any] {
+            let window = display.notch.windowController?.window
+            let position = display.model.trayAppearance.dimension(
+                .syntheticNotchHorizontalPosition
+            )
+            return [
+                "display_key": display.displayKey,
+                "display_id": display.screen.cmuxDisplayID ?? 0,
+                "display_name": display.screen.localizedName,
+                "phase": phaseName(display.model.phase),
+                "horizontal_position": Double(position),
+                "has_position_override":
+                    display.model.displayHorizontalPosition != nil,
+                "uses_synthetic_notch": display.notch.usesSyntheticNotch,
+                "window_visible": window?.isVisible ?? false,
+                "window_number": window?.windowNumber ?? 0,
+                "window_frame": rectPayload(window?.frame ?? .zero),
+                "screen_frame": rectPayload(display.screen.frame),
             ]
         }
-        if let screen = window?.screen ?? activePresentation.selectedScreen {
-            payload["display_id"] = screen.cmuxDisplayID ?? 0
-            payload["screen_frame"] = [
-                "x": screen.frame.origin.x,
-                "y": screen.frame.origin.y,
-                "width": screen.frame.width,
-                "height": screen.frame.height,
+
+        private func phaseName(
+            _ phase: DynamicNotchNotificationPhase
+        ) -> String {
+            switch phase {
+            case .retracted:
+                "retracted"
+            case .compact:
+                "compact"
+            case .expanded:
+                "expanded"
+            }
+        }
+
+        private func rectPayload(_ rect: CGRect) -> [String: Double] {
+            [
+                "x": Double(rect.origin.x),
+                "y": Double(rect.origin.y),
+                "width": Double(rect.width),
+                "height": Double(rect.height),
             ]
         }
-        return payload
-    }
-#endif
+    #endif
 }

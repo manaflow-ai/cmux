@@ -73,8 +73,17 @@ extension DynamicNotchAppearance {
             floatingCornerRadius: dimension(.floatingCornerRadius),
             notchTopCornerRadius: dimension(.notchTopCornerRadius),
             notchBottomCornerRadius: dimension(.notchBottomCornerRadius),
-            syntheticNotchWidth: dimension(.syntheticNotchWidth)
+            syntheticNotchWidth: dimension(.syntheticNotchWidth),
+            syntheticNotchSafeAreaWidth: dynamicNotchHorizontalSafeWidth,
+            syntheticNotchHorizontalPosition: dimension(
+                .syntheticNotchHorizontalPosition
+            )
         )
+    }
+
+    var dynamicNotchHorizontalSafeWidth: CGFloat {
+        dimension(.expandedWidth)
+            + (dimension(.notchTopCornerRadius) * 2)
     }
 
     func explicitColor(

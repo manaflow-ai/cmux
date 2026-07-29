@@ -224,6 +224,41 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         )
     }
 
+    func testDynamicNotchNotificationsCommandTogglesDeliveryMode() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.dynamicNotchNotifications"
+                )
+            )
+            let deliveryKey = SettingCatalog()
+                .notifications.delivery.userDefaultsKey
+
+            XCTAssertFalse(descriptor.isOn(defaults))
+            descriptor.toggle(
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
+
+            XCTAssertEqual(
+                defaults.string(forKey: deliveryKey),
+                NotificationDeliveryMode.dynamicNotch.rawValue
+            )
+            XCTAssertTrue(descriptor.isOn(defaults))
+
+            descriptor.toggle(
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
+
+            XCTAssertEqual(
+                defaults.string(forKey: deliveryKey),
+                NotificationDeliveryMode.system.rawValue
+            )
+            XCTAssertFalse(descriptor.isOn(defaults))
+        }
+    }
+
     func testSuppressSubagentNotificationsCommandTogglesDefaultAndReportsState() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(

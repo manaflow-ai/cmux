@@ -870,7 +870,7 @@
         },
         "dynamicNotch": {
           "descriptionKey": "schemaDescriptions.notifications.dynamicNotch",
-          "description": "Configure Dynamic Notch dimensions, padding, spacing, colors, opacity, line limits, and scrolling. Per-notification appearance overrides use the same keys.",
+          "description": "Configure Dynamic Notch dimensions, padding, spacing, colors, opacity, line limits, scrolling, and the draggable synthetic-notch position. Per-notification appearance overrides use the same keys.",
           "additionalProperties": false,
           "properties": {
             "accentColor": {
@@ -1436,6 +1436,12 @@
               "minimum": 1,
               "type": "integer"
             },
+            "syntheticNotchHorizontalPosition": {
+              "default": 0.5,
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
             "syntheticNotchWidth": {
               "default": 164,
               "maximum": 480,
@@ -1456,6 +1462,17 @@
             }
           },
           "type": "object"
+        },
+        "dynamicNotchDisplayPositions": {
+          "descriptionKey": "schemaDescriptions.notifications.dynamicNotchDisplayPositions",
+          "description": "Override the synthetic-notch horizontal position per display. Keys are stable display keys reported by `cmux dynamic-notch status`; values range from 0 (left) to 1 (right).",
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
         },
         "dockBadge": {
           "type": "boolean",

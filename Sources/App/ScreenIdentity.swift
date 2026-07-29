@@ -24,6 +24,22 @@ extension NSScreen {
         return Self.cmuxStableDisplayKey(for: CGDirectDisplayID(displayID))
     }
 
+    /// Persistent identity used by per-display Dynamic Notch placement.
+    ///
+    /// Stable hardware identity is preferred. Virtual displays fall back to
+    /// their current display id, then their frame, so each simultaneously
+    /// connected display still receives a distinct presentation.
+    var cmuxDynamicNotchDisplayKey: String {
+        if let stableKey = cmuxStableDisplayKey {
+            return stableKey
+        }
+        if let displayID = cmuxDisplayID {
+            return "display:\(displayID)"
+        }
+        let frame = frame.integral
+        return "frame:\(Int(frame.minX)),\(Int(frame.minY)),\(Int(frame.width)),\(Int(frame.height))"
+    }
+
     /// Pure resolution of a stable key from a `CGDirectDisplayID`, factored out so
     /// it can be exercised directly.
     static func cmuxStableDisplayKey(for displayID: CGDirectDisplayID) -> String? {

@@ -1,4 +1,7 @@
+import AppKit
 import CmuxControlSocket
+import CmuxSettings
+import DynamicNotchKit
 import Foundation
 
 /// The notification-domain witnesses are the byte-faithful bodies of the former
@@ -11,6 +14,101 @@ import Foundation
 /// own self-contained resolver (`TerminalNotificationCallerResolver.swift`) and
 /// stays on the legacy app-side dispatcher.
 extension TerminalController: ControlNotificationContext {
+    func controlDynamicNotchSettings()
+        -> ControlDynamicNotchSettingsSnapshot {
+        let settings = UserDefaultsSettingsClient(defaults: .standard)
+        let catalog = SettingCatalog().notifications
+        let appearance = settings.value(for: catalog.dynamicNotch)
+        let position: Double
+        if case .number(let value) =
+            appearance[.syntheticNotchHorizontalPosition] {
+            position = value
+        } else {
+            position = 0.5
+        }
+        let serializedPositions = settings.value(
+            for: catalog.dynamicNotchDisplayPositions
+        )
+        let displays = NSScreen.screens.map { screen in
+            let displayKey = screen.cmuxDynamicNotchDisplayKey
+            let override = DynamicNotchDisplayPositionSettings.position(
+                for: displayKey,
+                in: serializedPositions
+            )
+            let geometry = DynamicNotchScreenGeometry(
+                screen: screen,
+                syntheticNotchWidth: appearance.dimension(
+                    .syntheticNotchWidth
+                ),
+                syntheticNotchHorizontalPosition: CGFloat(
+                    override ?? position
+                )
+            )
+            return ControlDynamicNotchDisplaySnapshot(
+                key: displayKey,
+                id: screen.cmuxDisplayID,
+                name: screen.localizedName,
+                hasHardwareNotch: geometry.hasHardwareNotch,
+                horizontalPosition: override ?? position,
+                hasPositionOverride: override != nil
+            )
+        }
+        return ControlDynamicNotchSettingsSnapshot(
+            enabled: DynamicNotchDeliverySettings.isEnabled(
+                mode: settings.value(for: catalog.delivery)
+            ),
+            horizontalPosition: position,
+            displays: displays
+        )
+    }
+
+    func controlDynamicNotchConfigure(
+        enabled: Bool?,
+        horizontalPosition: Double?,
+        displayKey: String?,
+        resetDisplayPosition: Bool
+    ) -> ControlDynamicNotchSettingsSnapshot {
+        if let enabled {
+            DynamicNotchDeliverySettings.setEnabled(enabled)
+        }
+        let settings = UserDefaultsSettingsClient(defaults: .standard)
+        let catalog = SettingCatalog().notifications
+        if resetDisplayPosition, let displayKey {
+            let key = catalog.dynamicNotchDisplayPositions
+            settings.set(
+                DynamicNotchDisplayPositionSettings.removing(
+                    displayKey: displayKey,
+                    from: settings.value(for: key)
+                ),
+                for: key
+            )
+        } else if let horizontalPosition, let displayKey {
+            let key = catalog.dynamicNotchDisplayPositions
+            settings.set(
+                DynamicNotchDisplayPositionSettings.setting(
+                    horizontalPosition,
+                    for: displayKey,
+                    in: settings.value(for: key)
+                ),
+                for: key
+            )
+        } else if let horizontalPosition {
+            let key = catalog.dynamicNotch
+            settings.set(
+                settings.value(for: key).replacing(
+                    .number(horizontalPosition),
+                    for: .syntheticNotchHorizontalPosition
+                ),
+                for: key
+            )
+            settings.set(
+                [:],
+                for: catalog.dynamicNotchDisplayPositions
+            )
+        }
+        return controlDynamicNotchSettings()
+    }
+
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
         explicitSurfaceID: UUID?,
@@ -327,6 +425,44 @@ extension TerminalController: ControlNotificationContext {
             targetNotFound: String(
                 localized: "socket.notification.targetNotFound",
                 defaultValue: "Notification target not found"
+            ),
+            dynamicNotchUnavailable: String(
+                localized: "socket.notification.dynamicNotch.unavailable",
+                defaultValue: "Dynamic Notch settings unavailable"
+            ),
+            dynamicNotchEnabledMustBeBoolean: String(
+                localized:
+                    "socket.notification.dynamicNotch.enabledMustBeBoolean",
+                defaultValue: "enabled must be a boolean"
+            ),
+            dynamicNotchHorizontalPositionInvalid: String(
+                localized:
+                    "socket.notification.dynamicNotch.horizontalPositionInvalid",
+                defaultValue:
+                    "horizontal_position must be a number from 0 to 1"
+            ),
+            dynamicNotchDisplayKeyInvalid: String(
+                localized:
+                    "socket.notification.dynamicNotch.displayKeyInvalid",
+                defaultValue: "display_key must be a non-empty string"
+            ),
+            dynamicNotchResetMustBeBoolean: String(
+                localized:
+                    "socket.notification.dynamicNotch.resetMustBeBoolean",
+                defaultValue:
+                    "reset_display_position must be a boolean"
+            ),
+            dynamicNotchDisplayConfigurationInvalid: String(
+                localized:
+                    "socket.notification.dynamicNotch.displayConfigurationInvalid",
+                defaultValue:
+                    "display_key requires horizontal_position or reset_display_position"
+            ),
+            dynamicNotchConfigurationRequired: String(
+                localized:
+                    "socket.notification.dynamicNotch.configurationRequired",
+                defaultValue:
+                    "enabled, horizontal_position, or reset_display_position is required"
             )
         )
     }

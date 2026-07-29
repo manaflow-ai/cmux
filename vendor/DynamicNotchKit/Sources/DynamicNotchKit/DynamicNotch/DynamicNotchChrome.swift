@@ -28,6 +28,8 @@ public struct DynamicNotchChrome {
     public var notchTopCornerRadius: CGFloat?
     public var notchBottomCornerRadius: CGFloat?
     public var syntheticNotchWidth: CGFloat
+    public var syntheticNotchSafeAreaWidth: CGFloat?
+    public var syntheticNotchHorizontalPosition: CGFloat
 
     public init(
         backgroundColor: Color? = nil,
@@ -55,7 +57,9 @@ public struct DynamicNotchChrome {
         floatingCornerRadius: CGFloat? = nil,
         notchTopCornerRadius: CGFloat? = nil,
         notchBottomCornerRadius: CGFloat? = nil,
-        syntheticNotchWidth: CGFloat = 164
+        syntheticNotchWidth: CGFloat = 164,
+        syntheticNotchSafeAreaWidth: CGFloat? = nil,
+        syntheticNotchHorizontalPosition: CGFloat = 0.5
     ) {
         self.backgroundColor = backgroundColor
         self.backgroundOpacity = backgroundOpacity
@@ -73,5 +77,8 @@ public struct DynamicNotchChrome {
         self.notchTopCornerRadius = notchTopCornerRadius
         self.notchBottomCornerRadius = notchBottomCornerRadius
         self.syntheticNotchWidth = syntheticNotchWidth
+        self.syntheticNotchSafeAreaWidth = syntheticNotchSafeAreaWidth
+        self.syntheticNotchHorizontalPosition =
+            syntheticNotchHorizontalPosition
     }
 }

@@ -15,6 +15,13 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationDynamicNotchAppearance"
     )
 
+    /// Per-display synthetic-notch anchors keyed by cmux's stable display key.
+    public let dynamicNotchDisplayPositions = DefaultsKey<[String: String]>(
+        id: "notifications.dynamicNotchDisplayPositions",
+        defaultValue: [:],
+        userDefaultsKey: "notificationDynamicNotchDisplayPositions"
+    )
+
     public let dockBadge = DefaultsKey<Bool>(
         id: "notifications.dockBadge",
         defaultValue: true,

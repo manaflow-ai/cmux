@@ -60,6 +60,20 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
 
     var body: some View {
         notchContent()
+            .overlay(alignment: .top) {
+                if dynamicNotch.usesSyntheticNotch,
+                   dynamicNotch.allowsSyntheticNotchDragging {
+                    SyntheticNotchDragSurface(
+                        begin: dynamicNotch.beginSyntheticNotchDrag,
+                        drag: dynamicNotch.dragSyntheticNotch,
+                        end: dynamicNotch.endSyntheticNotchDrag
+                    )
+                    .frame(
+                        width: dynamicNotch.notchSize.width,
+                        height: dynamicNotch.notchSize.height
+                    )
+                }
+            }
             .background {
                 Rectangle()
                     .foregroundStyle(dynamicNotch.chrome.backgroundColor ?? .black)

@@ -653,16 +653,37 @@ public struct AppSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("notifications.delivery"),
-                String(localized: "settings.notifications.delivery.title", defaultValue: "Notification Delivery"),
-                subtitle: String(localized: "settings.notifications.delivery.subtitle", defaultValue: "Dynamic Notch stays visible when Focus or Do Not Disturb suppresses system notifications.")
+                String(
+                    localized: "settings.notifications.dynamicNotch.enabled.title",
+                    defaultValue: "Dynamic Notch Notifications"
+                ),
+                subtitle: String(
+                    localized: "settings.notifications.dynamicNotch.enabled.subtitle",
+                    defaultValue: "Use the interactive notch tray instead of macOS Notification Center. Focus and Do Not Disturb do not suppress it."
+                )
             ) {
-                Picker("", selection: Binding(get: { notificationDelivery.current }, set: { notificationDelivery.set($0) })) {
-                    Text(String(localized: "settings.notifications.delivery.option.system", defaultValue: "System")).tag(NotificationDeliveryMode.system)
-                    Text(String(localized: "settings.notifications.delivery.option.dynamicNotch", defaultValue: "Dynamic Notch")).tag(NotificationDeliveryMode.dynamicNotch)
-                }
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: {
+                            DynamicNotchDeliverySettings.isEnabled(
+                                mode: notificationDelivery.current
+                            )
+                        },
+                        set: {
+                            notificationDelivery.set(
+                                DynamicNotchDeliverySettings.mode(
+                                    enabled: $0
+                                )
+                            )
+                        }
+                    )
+                )
                 .labelsHidden()
-                .pickerStyle(.menu)
-                .accessibilityIdentifier("SettingsNotificationDeliveryPicker")
+                .controlSize(.small)
+                .accessibilityIdentifier(
+                    "SettingsDynamicNotchNotificationsToggle"
+                )
             }
 
             SettingsCardDivider()

@@ -28,6 +28,13 @@ public struct ControlNotificationStrings: Sendable, Equatable {
     public let surfaceIDRequiresWorkspace: String
     /// `socket.notification.targetNotFound` — "Notification target not found".
     public let targetNotFound: String
+    public let dynamicNotchUnavailable: String
+    public let dynamicNotchEnabledMustBeBoolean: String
+    public let dynamicNotchHorizontalPositionInvalid: String
+    public let dynamicNotchDisplayKeyInvalid: String
+    public let dynamicNotchResetMustBeBoolean: String
+    public let dynamicNotchDisplayConfigurationInvalid: String
+    public let dynamicNotchConfigurationRequired: String
 
     /// Creates the localized message bundle.
     ///
@@ -48,7 +55,14 @@ public struct ControlNotificationStrings: Sendable, Equatable {
         markReadSelectorRequired: String,
         surfaceIDInvalid: String,
         surfaceIDRequiresWorkspace: String,
-        targetNotFound: String
+        targetNotFound: String,
+        dynamicNotchUnavailable: String,
+        dynamicNotchEnabledMustBeBoolean: String,
+        dynamicNotchHorizontalPositionInvalid: String,
+        dynamicNotchDisplayKeyInvalid: String,
+        dynamicNotchResetMustBeBoolean: String,
+        dynamicNotchDisplayConfigurationInvalid: String,
+        dynamicNotchConfigurationRequired: String
     ) {
         self.invalidPresentation = invalidPresentation
         self.dismissSelectorRequired = dismissSelectorRequired
@@ -58,5 +72,18 @@ public struct ControlNotificationStrings: Sendable, Equatable {
         self.surfaceIDInvalid = surfaceIDInvalid
         self.surfaceIDRequiresWorkspace = surfaceIDRequiresWorkspace
         self.targetNotFound = targetNotFound
+        self.dynamicNotchUnavailable = dynamicNotchUnavailable
+        self.dynamicNotchEnabledMustBeBoolean =
+            dynamicNotchEnabledMustBeBoolean
+        self.dynamicNotchHorizontalPositionInvalid =
+            dynamicNotchHorizontalPositionInvalid
+        self.dynamicNotchDisplayKeyInvalid =
+            dynamicNotchDisplayKeyInvalid
+        self.dynamicNotchResetMustBeBoolean =
+            dynamicNotchResetMustBeBoolean
+        self.dynamicNotchDisplayConfigurationInvalid =
+            dynamicNotchDisplayConfigurationInvalid
+        self.dynamicNotchConfigurationRequired =
+            dynamicNotchConfigurationRequired
     }
 }

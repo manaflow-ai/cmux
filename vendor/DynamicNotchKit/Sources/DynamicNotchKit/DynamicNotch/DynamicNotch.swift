@@ -84,6 +84,13 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
     /// Called whenever the rendered notch content gains or loses pointer hover.
     public var onHoverChanged: ((Bool) -> Void)?
 
+    /// Enables horizontal dragging for synthetic notches. Hardware notches
+    /// remain fixed to the physical display cutout.
+    @Published public var allowsSyntheticNotchDragging = false
+
+    /// Called after a synthetic-notch drag commits its normalized position.
+    public var onSyntheticNotchHorizontalPositionChanged: ((CGFloat) -> Void)?
+
     /// Called synchronously whenever the underlying panel is created.
     ///
     /// Use this to attach identifiers, delegates, or accessibility metadata
@@ -103,6 +110,7 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
     @Published private(set) var menubarHeight: CGFloat = 0
     @Published public private(set) var usesSyntheticNotch = false
     @Published public private(set) var isHovering: Bool = false
+    @Published private(set) var isDraggingSyntheticNotch = false
 
     private var closePanelTask: Task<(), Never>? // Used to close the panel after hiding completes
     private var screenParametersTask: Task<Void, Never>?
@@ -191,6 +199,9 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
     /// Updates the hover state of the DynamicNotch, and processes necessary hover behavior.
     /// - Parameter hovering: a boolean indicating whether the mouse is hovering over the notch.
     func updateHoverState(_ hovering: Bool) {
+        if isDraggingSyntheticNotch, !hovering {
+            return
+        }
         // Ensure that we only update when the state changes
         guard state != .hidden, hovering != isHovering else { return }
 
@@ -202,11 +213,66 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
             performer.perform(.alignment, performanceTime: .default)
         }
     }
+
+    func beginSyntheticNotchDrag() -> Bool {
+        guard allowsSyntheticNotchDragging,
+              usesSyntheticNotch,
+              presentedScreen != nil else {
+            return false
+        }
+        isDraggingSyntheticNotch = true
+        updateHoverState(true)
+        return true
+    }
+
+    func dragSyntheticNotch(toScreenX screenX: CGFloat) {
+        guard isDraggingSyntheticNotch,
+              let screen = presentedScreen else {
+            return
+        }
+        let geometry = screen.dynamicNotchGeometry(
+            syntheticNotchWidth: chrome.syntheticNotchWidth,
+            syntheticNotchSafeAreaWidth:
+                chrome.syntheticNotchSafeAreaWidth,
+            syntheticNotchHorizontalPosition:
+                chrome.syntheticNotchHorizontalPosition
+        )
+        chrome.syntheticNotchHorizontalPosition =
+            geometry.syntheticHorizontalPosition(forScreenX: screenX)
+    }
+
+    func endSyntheticNotchDrag(atScreenX screenX: CGFloat) {
+        guard isDraggingSyntheticNotch,
+              let screen = presentedScreen else {
+            return
+        }
+        dragSyntheticNotch(toScreenX: screenX)
+        isDraggingSyntheticNotch = false
+        onSyntheticNotchHorizontalPositionChanged?(
+            chrome.syntheticNotchHorizontalPosition
+        )
+        let geometry = screen.dynamicNotchGeometry(
+            syntheticNotchWidth: chrome.syntheticNotchWidth,
+            syntheticNotchSafeAreaWidth:
+                chrome.syntheticNotchSafeAreaWidth,
+            syntheticNotchHorizontalPosition:
+                chrome.syntheticNotchHorizontalPosition
+        )
+        updateHoverState(
+            geometry.notchFrame.contains(NSEvent.mouseLocation)
+        )
+    }
 }
 
 // MARK: - Public
 
 extension DynamicNotch {
+    /// Re-anchors an existing presentation after display geometry changes.
+    public func refreshScreenGeometry(on screen: NSScreen) {
+        presentedScreen = screen
+        updateScreenGeometry(for: screen)
+    }
+
     public func expand(on screen: NSScreen = NSScreen.screens[0]) async {
         await _expand(on: screen, skipHide: transitionConfiguration.skipIntermediateHides)
     }
@@ -413,8 +479,15 @@ private extension DynamicNotch {
             width: screen.frame.width / 2,
             height: screen.frame.height / 2
         )
+        let geometry = screen.dynamicNotchGeometry(
+            syntheticNotchWidth: chrome.syntheticNotchWidth,
+            syntheticNotchSafeAreaWidth:
+                chrome.syntheticNotchSafeAreaWidth,
+            syntheticNotchHorizontalPosition:
+                chrome.syntheticNotchHorizontalPosition
+        )
         let origin = NSPoint(
-            x: screen.frame.midX - (size.width / 2),
+            x: geometry.notchFrame.midX - (size.width / 2),
             y: screen.frame.maxY - size.height
         )
 
@@ -461,10 +534,30 @@ private extension DynamicNotch {
 
     func updateScreenGeometry(for screen: NSScreen) {
         let geometry = screen.dynamicNotchGeometry(
-            syntheticNotchWidth: chrome.syntheticNotchWidth
+            syntheticNotchWidth: chrome.syntheticNotchWidth,
+            syntheticNotchSafeAreaWidth:
+                chrome.syntheticNotchSafeAreaWidth,
+            syntheticNotchHorizontalPosition:
+                chrome.syntheticNotchHorizontalPosition
         )
         notchSize = geometry.notchFrame.size
         menubarHeight = geometry.menuBarHeight
         usesSyntheticNotch = !geometry.hasHardwareNotch
+        if let window = windowController?.window {
+            let size = NSSize(
+                width: screen.frame.width / 2,
+                height: screen.frame.height / 2
+            )
+            window.setFrame(
+                NSRect(
+                    x: geometry.notchFrame.midX
+                        - (size.width / 2),
+                    y: screen.frame.maxY - size.height,
+                    width: size.width,
+                    height: size.height
+                ),
+                display: false
+            )
+        }
     }
 }

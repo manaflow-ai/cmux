@@ -286,6 +286,38 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "dynamicNotchNotifications",
+                settingsKey: "notifications.delivery",
+                title: {
+                    String(
+                        localized: "settings.notifications.dynamicNotch.enabled.title",
+                        defaultValue: "Dynamic Notch Notifications"
+                    )
+                },
+                sectionTitle: app,
+                keywords: [
+                    "notifications.delivery",
+                    "dynamic",
+                    "notch",
+                    "island",
+                    "notification",
+                    "focus",
+                    "do not disturb",
+                    "dnd",
+                ],
+                isOn: { defaults in
+                    DynamicNotchDeliverySettings.isEnabled(
+                        defaults: defaults
+                    )
+                },
+                setOn: { enabled, defaults, _ in
+                    DynamicNotchDeliverySettings.setEnabled(
+                        enabled,
+                        defaults: defaults
+                    )
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "dockBadge",
                 settingsKey: "notifications.dockBadge",
                 title: {

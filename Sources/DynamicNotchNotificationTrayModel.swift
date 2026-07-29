@@ -15,9 +15,14 @@ final class DynamicNotchNotificationTrayModel {
     private(set) var notifications: [TerminalNotification] = []
     private(set) var phase: DynamicNotchNotificationPhase = .retracted
     private(set) var globalAppearance: DynamicNotchAppearance
+    private(set) var displayHorizontalPosition: Double?
 
-    init(globalAppearance: DynamicNotchAppearance = DynamicNotchAppearance()) {
+    init(
+        globalAppearance: DynamicNotchAppearance = DynamicNotchAppearance(),
+        displayHorizontalPosition: Double? = nil
+    ) {
         self.globalAppearance = globalAppearance
+        self.displayHorizontalPosition = displayHorizontalPosition
     }
 
     /// Tray-wide dimensions and chrome follow the newest pending notification.
@@ -32,7 +37,14 @@ final class DynamicNotchNotificationTrayModel {
     func appearance(
         for notification: TerminalNotification
     ) -> DynamicNotchAppearance {
-        globalAppearance.applying(notification.presentation.appearance)
+        let appearance = globalAppearance.applying(
+            notification.presentation.appearance
+        )
+        guard let displayHorizontalPosition else { return appearance }
+        return appearance.replacing(
+            .number(displayHorizontalPosition),
+            for: .syntheticNotchHorizontalPosition
+        )
     }
 
     @discardableResult
@@ -105,5 +117,9 @@ final class DynamicNotchNotificationTrayModel {
 
     func setGlobalAppearance(_ appearance: DynamicNotchAppearance) {
         globalAppearance = appearance
+    }
+
+    func setDisplayHorizontalPosition(_ position: Double?) {
+        displayHorizontalPosition = position
     }
 }

@@ -29,6 +29,67 @@ struct DynamicNotchScreenGeometryTests {
         )
     }
 
+    @Test("Synthetic notch position moves the hover target across the menu bar")
+    func syntheticNotchUsesConfigurableHorizontalPosition() {
+        let geometry = DynamicNotchScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_415),
+            safeAreaTop: 0,
+            auxiliaryTopLeftWidth: nil,
+            auxiliaryTopRightWidth: nil,
+            statusBarThickness: 24,
+            syntheticNotchWidth: 164,
+            syntheticNotchHorizontalPosition: 0.25
+        )
+
+        #expect(geometry.notchFrame.midX == 689)
+        #expect(geometry.isNearNotch(
+            CGPoint(x: 689, y: geometry.notchFrame.midY),
+            distance: 0
+        ))
+        #expect(!geometry.isNearNotch(
+            CGPoint(x: geometry.screenFrame.midX, y: geometry.notchFrame.midY),
+            distance: 0
+        ))
+    }
+
+    @Test("Synthetic notch drag keeps expanded content on screen")
+    func syntheticNotchSafeAreaUsesExpandedContentWidth() {
+        let geometry = DynamicNotchScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 776),
+            safeAreaTop: 0,
+            auxiliaryTopLeftWidth: nil,
+            auxiliaryTopRightWidth: nil,
+            statusBarThickness: 24,
+            syntheticNotchWidth: 100,
+            syntheticNotchSafeAreaWidth: 500,
+            syntheticNotchHorizontalPosition: 0
+        )
+
+        #expect(geometry.notchFrame.midX == 266)
+        #expect(
+            geometry.syntheticHorizontalPosition(forScreenX: 266) == 0
+        )
+    }
+
+    @Test("Pointer locations map to a clamped synthetic notch position")
+    func syntheticNotchPositionClampsToSafeScreenEdges() {
+        let geometry = DynamicNotchScreenGeometry(
+            screenFrame: CGRect(x: 2_560, y: -358, width: 1_920, height: 1_080),
+            visibleFrame: CGRect(x: 2_560, y: -358, width: 1_920, height: 1_056),
+            safeAreaTop: 0,
+            auxiliaryTopLeftWidth: nil,
+            auxiliaryTopRightWidth: nil,
+            statusBarThickness: 24,
+            syntheticNotchWidth: 164
+        )
+
+        #expect(geometry.syntheticHorizontalPosition(forScreenX: 2_560) == 0)
+        #expect(geometry.syntheticHorizontalPosition(forScreenX: 4_480) == 1)
+        #expect(geometry.syntheticHorizontalPosition(forScreenX: 3_520) == 0.5)
+    }
+
     @Test("Status-bar thickness survives an auto-hidden menu bar")
     func statusBarFallbackHandlesAutoHide() {
         let geometry = DynamicNotchScreenGeometry(

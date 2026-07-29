@@ -21,6 +21,15 @@ struct DynamicNotchAppearanceTests {
         #expect(appearance[.pointerRevealDistance] == .number(0))
     }
 
+    @Test("Synthetic notch defaults to the center of each display")
+    func syntheticNotchHorizontalPositionDefaultsToCenter() {
+        let appearance = DynamicNotchAppearance()
+
+        #expect(
+            appearance[.syntheticNotchHorizontalPosition] == .number(0.5)
+        )
+    }
+
     @Test("Scroll container is flush with the shell by default")
     func scrollContainerHorizontalPaddingDefaultsToZero() {
         let appearance = DynamicNotchAppearance()
@@ -61,6 +70,11 @@ struct DynamicNotchAppearanceTests {
         #expect(DynamicNotchAppearance.decodeFromJSON(["expandedWidth": true]) == nil)
         #expect(DynamicNotchAppearance.decodeFromJSON(["expandedWidth": 299]) == nil)
         #expect(DynamicNotchAppearance.decodeFromJSON(["accentColor": "#XYZXYZ"]) == nil)
+        #expect(
+            DynamicNotchAppearance.decodeFromJSON([
+                "syntheticNotchHorizontalPosition": 1.1,
+            ]) == nil
+        )
     }
 
     @Test("Direct CLI assignments override spec appearance")
@@ -101,6 +115,97 @@ struct DynamicNotchAppearanceTests {
         #expect(
             Set(properties?.keys ?? Dictionary<String, Any>().keys)
                 == Set(DynamicNotchAppearanceToken.allCases.map(\.rawValue))
+        )
+    }
+
+    @Test("Per-display positions validate, round-trip, and remove independently")
+    func perDisplayPositions() {
+        let first = "uuid:first"
+        let second = "uuid:second"
+        var positions: [String: String] = [:]
+
+        positions = DynamicNotchDisplayPositionSettings.setting(
+            0.2,
+            for: first,
+            in: positions
+        )
+        positions = DynamicNotchDisplayPositionSettings.setting(
+            0.8,
+            for: second,
+            in: positions
+        )
+
+        #expect(
+            DynamicNotchDisplayPositionSettings.position(
+                for: first,
+                in: positions
+            ) == 0.2
+        )
+        #expect(
+            DynamicNotchDisplayPositionSettings.position(
+                for: second,
+                in: positions
+            ) == 0.8
+        )
+        #expect(
+            DynamicNotchDisplayPositionSettings.setting(
+                1.1,
+                for: first,
+                in: positions
+            ) == positions
+        )
+        #expect(
+            DynamicNotchDisplayPositionSettings.removing(
+                displayKey: first,
+                from: positions
+            ) == [second: "0.8"]
+        )
+    }
+
+    @Test("Per-display JSON positions reject booleans and invalid values")
+    func perDisplayPositionJSONValidation() {
+        #expect(
+            DynamicNotchDisplayPositionSettings.serializedPositions(
+                fromJSONObject: ["uuid:first": 0.25]
+            ) == ["uuid:first": "0.25"]
+        )
+        #expect(
+            DynamicNotchDisplayPositionSettings.serializedPositions(
+                fromJSONObject: ["uuid:first": true]
+            ) == nil
+        )
+        #expect(
+            DynamicNotchDisplayPositionSettings.serializedPositions(
+                fromJSONObject: ["uuid:first": -0.1]
+            ) == nil
+        )
+    }
+}
+
+@Suite("Dynamic Notch delivery")
+struct DynamicNotchDeliverySettingsTests {
+    @Test("Boolean controls map to the existing delivery enum")
+    func enabledStateUsesNotificationDeliveryMode() throws {
+        let suiteName = "cmux.dynamicNotchDelivery.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(!DynamicNotchDeliverySettings.isEnabled(defaults: defaults))
+
+        DynamicNotchDeliverySettings.setEnabled(true, defaults: defaults)
+        #expect(DynamicNotchDeliverySettings.isEnabled(defaults: defaults))
+        #expect(
+            defaults.string(
+                forKey: SettingCatalog().notifications.delivery.userDefaultsKey
+            ) == NotificationDeliveryMode.dynamicNotch.rawValue
+        )
+
+        DynamicNotchDeliverySettings.setEnabled(false, defaults: defaults)
+        #expect(!DynamicNotchDeliverySettings.isEnabled(defaults: defaults))
+        #expect(
+            defaults.string(
+                forKey: SettingCatalog().notifications.delivery.userDefaultsKey
+            ) == NotificationDeliveryMode.system.rawValue
         )
     }
 }

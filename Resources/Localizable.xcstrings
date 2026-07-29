@@ -261826,6 +261826,329 @@
         }
       }
     },
+    "socket.notification.dynamicNotch.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch settings unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch の設定を利用できません"
+          }
+        }
+      }
+    },
+    "socket.notification.dynamicNotch.enabledMustBeBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "enabled must be a boolean"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "enabled には真偽値を指定してください"
+          }
+        }
+      }
+    },
+    "socket.notification.dynamicNotch.horizontalPositionInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "horizontal_position must be a number from 0 to 1"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "horizontal_position には 0 から 1 の数値を指定してください"
+          }
+        }
+      }
+    },
+    "socket.notification.dynamicNotch.displayKeyInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "display_key must be a non-empty string"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "display_key には空でない文字列を指定してください"
+          }
+        }
+      }
+    },
+    "socket.notification.dynamicNotch.resetMustBeBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reset_display_position must be a boolean"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reset_display_position には真偽値を指定してください"
+          }
+        }
+      }
+    },
+    "socket.notification.dynamicNotch.displayConfigurationInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "display_key requires horizontal_position or reset_display_position"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "display_key には horizontal_position または reset_display_position が必要です"
+          }
+        }
+      }
+    },
+    "socket.notification.dynamicNotch.configurationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "enabled, horizontal_position, or reset_display_position is required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "enabled、horizontal_position、reset_display_position のいずれかが必要です"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.enabled.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch 通知"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.enabled.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the interactive notch tray instead of macOS Notification Center. Focus and Do Not Disturb do not suppress it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 通知センターの代わりに操作可能なノッチトレイを使用します。集中モードやおやすみモードでも抑制されません。"
+          }
+        }
+      }
+    },
+    "cli.dynamicNotch.state.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効"
+          }
+        }
+      }
+    },
+    "cli.dynamicNotch.state.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効"
+          }
+        }
+      }
+    },
+    "cli.dynamicNotch.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch: %@"
+          }
+        }
+      }
+    },
+    "cli.dynamicNotch.horizontalPosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default horizontal position: %.2f"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定の水平位置: %.2f"
+          }
+        }
+      }
+    },
+    "cli.dynamicNotch.error.invalidPosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch position must be left, center, right, or a number from 0 to 1."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch の位置には left、center、right、または 0 から 1 の数値を指定してください。"
+          }
+        }
+      }
+    },
+    "cli.dynamicNotch.error.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux dynamic-notch <status|enable|disable|toggle|position|center|reset-position> [value] [--display <id|name|key>] [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux dynamic-notch <status|enable|disable|toggle|position|center|reset-position> [値] [--display <ID|名前|キー>] [--json]"
+          }
+        }
+      }
+    },
+    "cli.help.dynamicNotch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux dynamic-notch <status|enable|disable|toggle|position|center|reset-position> [value] [--display <id|name|key>] [--json]\n\nControl the default interactive Dynamic Notch notification tray.\n\nSubcommands:\n  status                  Print enablement and every display.\n  enable|on               Use Dynamic Notch for default notifications.\n  disable|off             Use macOS Notification Center by default.\n  toggle                  Toggle the default notification delivery.\n  position <0...1>        Set the synthetic notch position.\n  position left|center|right\n                          Set a named synthetic notch position.\n  position <value> --display <id|name|key>\n                          Move one connected display's notch.\n  center [--display <id|name|key>]\n                          Center all displays or one display.\n  reset-position --display <id|name|key>\n                          Restore one display to the global position.\n\nExplicit `cmux notify --delivery notch` calls still show the tray\nwhen its default delivery is disabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux dynamic-notch <status|enable|disable|toggle|position|center|reset-position> [値] [--display <ID|名前|キー>] [--json]\n\n既定の操作可能な Dynamic Notch 通知トレイを制御します。\n\nサブコマンド:\n  status                  有効状態とすべてのディスプレイを表示します。\n  enable|on               既定の通知に Dynamic Notch を使用します。\n  disable|off             既定で macOS 通知センターを使用します。\n  toggle                  既定の通知配信を切り替えます。\n  position <0...1>        合成ノッチの位置を設定します。\n  position left|center|right\n                          名前で合成ノッチの位置を設定します。\n  position <値> --display <ID|名前|キー>\n                          接続中のディスプレイ 1 台のノッチを移動します。\n  center [--display <ID|名前|キー>]\n                          すべて、または 1 台のディスプレイを中央に配置します。\n  reset-position --display <ID|名前|キー>\n                          1 台のディスプレイを共通位置に戻します。\n\n既定の配信が無効でも、`cmux notify --delivery notch` を明示すると\nトレイを表示できます。"
+          }
+        }
+      }
+    },
+    "cli.dynamicNotch.error.displayNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display '%@' did not match exactly one connected display. Available: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスプレイ '%@' は接続中の 1 台のディスプレイに一致しませんでした。利用可能: %@"
+          }
+        }
+      }
+    },
+    "cli.dynamicNotch.displays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Displays:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスプレイ:"
+          }
+        }
+      }
+    },
+    "cli.dynamicNotch.display": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  %@ (%@): %.2f [%@]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  %@ (%@): %.2f [%@]"
+          }
+        }
+      }
+    },
     "cli.workspaceGroup.help.overview": {
       "extractionState": "manual",
       "localizations": {

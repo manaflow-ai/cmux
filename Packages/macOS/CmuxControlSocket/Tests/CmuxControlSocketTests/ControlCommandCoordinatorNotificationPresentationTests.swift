@@ -10,6 +10,14 @@ private final class FakeNotificationPresentationContext: ControlCommandContext {
     var capturedPresentation: ControlNotificationPresentation?
     var createCallCount = 0
     var existingNotifications: [ControlNotificationSnapshot] = []
+    var dynamicNotchSettings = ControlDynamicNotchSettingsSnapshot(
+        enabled: false,
+        horizontalPosition: 0.5
+    )
+    var configuredDynamicNotchEnabled: Bool?
+    var configuredDynamicNotchPosition: Double?
+    var configuredDynamicNotchDisplayKey: String?
+    var configuredDynamicNotchReset = false
 
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
@@ -26,6 +34,33 @@ private final class FakeNotificationPresentationContext: ControlCommandContext {
 
     func controlNotificationList() -> [ControlNotificationSnapshot] {
         existingNotifications
+    }
+
+    func controlDynamicNotchSettings()
+        -> ControlDynamicNotchSettingsSnapshot {
+        dynamicNotchSettings
+    }
+
+    func controlDynamicNotchConfigure(
+        enabled: Bool?,
+        horizontalPosition: Double?,
+        displayKey: String?,
+        resetDisplayPosition: Bool
+    ) -> ControlDynamicNotchSettingsSnapshot {
+        configuredDynamicNotchEnabled = enabled
+        configuredDynamicNotchPosition = horizontalPosition
+        configuredDynamicNotchDisplayKey = displayKey
+        configuredDynamicNotchReset = resetDisplayPosition
+        dynamicNotchSettings = ControlDynamicNotchSettingsSnapshot(
+            enabled: enabled ?? dynamicNotchSettings.enabled,
+            horizontalPosition:
+                displayKey == nil
+                    ? horizontalPosition
+                        ?? dynamicNotchSettings.horizontalPosition
+                    : dynamicNotchSettings.horizontalPosition,
+            displays: dynamicNotchSettings.displays
+        )
+        return dynamicNotchSettings
     }
 }
 
@@ -261,5 +296,124 @@ struct ControlCommandCoordinatorNotificationPresentationTests {
             data: nil
         ))
         #expect(context.createCallCount == 0)
+    }
+
+    @Test func dynamicNotchSettingsAreReadableAndConfigurable() {
+        let context = FakeNotificationPresentationContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let initial = coordinator.handle(
+            ControlRequest(
+                id: .int(1),
+                method: "notification.dynamic_notch.settings",
+                params: [:]
+            )
+        )
+        #expect(initial == .ok(.object([
+            "enabled": .bool(false),
+            "delivery": .string("system"),
+            "horizontal_position": .double(0.5),
+            "displays": .array([]),
+        ])))
+
+        let configured = coordinator.handle(
+            ControlRequest(
+                id: .int(2),
+                method: "notification.dynamic_notch.configure",
+                params: [
+                    "enabled": .bool(true),
+                    "horizontal_position": .double(0.25),
+                ]
+            )
+        )
+        #expect(context.configuredDynamicNotchEnabled == true)
+        #expect(context.configuredDynamicNotchPosition == 0.25)
+        #expect(configured == .ok(.object([
+            "enabled": .bool(true),
+            "delivery": .string("dynamicNotch"),
+            "horizontal_position": .double(0.25),
+            "displays": .array([]),
+        ])))
+    }
+
+    @Test func dynamicNotchPositionCanTargetOneDisplay() {
+        let context = FakeNotificationPresentationContext()
+        context.dynamicNotchSettings = ControlDynamicNotchSettingsSnapshot(
+            enabled: true,
+            horizontalPosition: 0.5,
+            displays: [
+                ControlDynamicNotchDisplaySnapshot(
+                    key: "uuid:external",
+                    id: 42,
+                    name: "Studio Display",
+                    hasHardwareNotch: false,
+                    horizontalPosition: 0.7,
+                    hasPositionOverride: true
+                ),
+            ]
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(
+            ControlRequest(
+                id: .int(3),
+                method: "notification.dynamic_notch.configure",
+                params: [
+                    "horizontal_position": .double(0.3),
+                    "display_key": .string("uuid:external"),
+                ]
+            )
+        )
+
+        #expect(context.configuredDynamicNotchPosition == 0.3)
+        #expect(
+            context.configuredDynamicNotchDisplayKey == "uuid:external"
+        )
+        #expect(!context.configuredDynamicNotchReset)
+        guard case .ok(.object(let payload)) = result,
+              case .array(let displays) = payload["displays"] else {
+            Issue.record("Expected a display settings payload")
+            return
+        }
+        #expect(displays.count == 1)
+    }
+
+    @Test(arguments: [
+        ["enabled": JSONValue.string("yes")],
+        ["horizontal_position": JSONValue.bool(true)],
+        ["horizontal_position": JSONValue.double(-0.01)],
+        ["horizontal_position": JSONValue.double(1.01)],
+        ["display_key": JSONValue.string("uuid:external")],
+        [
+            "display_key": JSONValue.string("uuid:external"),
+            "reset_display_position": JSONValue.bool(true),
+            "horizontal_position": JSONValue.double(0.5),
+        ],
+        ["reset_display_position": JSONValue.bool(true)],
+        [:],
+    ])
+    func invalidDynamicNotchConfigurationIsRejected(
+        params: [String: JSONValue]
+    ) {
+        let context = FakeNotificationPresentationContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(
+            ControlRequest(
+                id: .int(1),
+                method: "notification.dynamic_notch.configure",
+                params: params
+            )
+        )
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected invalid_params")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.configuredDynamicNotchEnabled == nil)
+        #expect(context.configuredDynamicNotchPosition == nil)
+        #expect(context.configuredDynamicNotchDisplayKey == nil)
+        #expect(!context.configuredDynamicNotchReset)
     }
 }

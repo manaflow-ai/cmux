@@ -92,6 +92,7 @@ extension CMUXCLI {
         "display-message",
         "docs",
         "drag-surface-to-split",
+        "dynamic-notch",
         "enable-browser",
         "events",
         "feedback",

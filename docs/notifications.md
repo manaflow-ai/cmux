@@ -60,11 +60,13 @@ choice=$(cmux notify --delivery notch --title "Deploy?" \
 
 ## Dynamic Notch
 
-Set `notifications.delivery` to `dynamicNotch` in `~/.config/cmux/cmux.json`, or choose Dynamic Notch under Settings > App > Notification Delivery. The panel is independent of macOS Notification Center, so Focus and Do Not Disturb do not suppress it.
+Enable Dynamic Notch Notifications under Settings > App, run `cmux dynamic-notch enable`, or set `notifications.delivery` to `dynamicNotch` in `~/.config/cmux/cmux.json`. Cmd-Shift-P also exposes Enable or Disable Dynamic Notch Notifications. The panel is independent of macOS Notification Center, so Focus and Do Not Disturb do not suppress it.
 
 Dynamic Notch notifications accumulate in a compact tray instead of replacing one another. The tray shows the pending count, expands into a newest-first scrollable list while hovered, and collapses when the pointer leaves or Escape is pressed. Each button, dismissal, or timeout resolves only its own row.
 
 `cmux notify --delivery notch` overrides the setting for one notification. `--icon` accepts an SF Symbol name, repeated `--action id=Label` flags add up to four buttons, and `--input id=Label` or `--secure-input id=Label` add runtime-defined fields. IDs must be unique ASCII strings containing only letters, numbers, `.`, `_`, or `-`. `--timeout` controls dismissal. `--wait` prints the selected action id when no fields exist, and prints JSON containing `action`, `notification_id`, and `values` when the form has fields. cmux never executes action payloads as shell commands.
+
+`cmux dynamic-notch status --json` returns `enabled`, `delivery`, the default `horizontal_position`, and every connected display with its stable key and resolved position. Use `enable`, `disable`, or `toggle` to change default delivery. `cmux dynamic-notch position left|center|right` and `position <0...1>` align every synthetic display. Add `--display <id|name|key>` to move one display. `reset-position --display <id|name|key>` removes that display's override.
 
 ### Appearance
 
@@ -77,11 +79,15 @@ Use Settings > App > Dynamic Notch Appearance, or set global values under `notif
     "dynamicNotch": {
       "expandedWidth": 560,
       "maximumExpandedHeight": 640,
+      "syntheticNotchHorizontalPosition": 0.5,
       "rowHorizontalPadding": 22,
       "accentColor": "#0A84FF",
       "shellBackgroundColor": "#111318",
       "shellBackgroundOpacity": 0.96,
       "showScrollIndicators": false
+    },
+    "dynamicNotchDisplayPositions": {
+      "uuid:DISPLAY-KEY-FROM-STATUS": 0.2
     }
   }
 }
@@ -116,7 +122,7 @@ Colors accept `system`, `null` in JSON, or `#RRGGBB`. `system` and `null` use th
 
 Available tokens:
 
-- Layout: `compactWidth`, `compactHeight`, `syntheticNotchWidth`, `expandedWidth`, `maximumExpandedHeight`, `shellPadding`, `scrollContainerHorizontalPadding`, `floatingOuterPadding`, `compactHorizontalPadding`, `compactVerticalPadding`, `rowHorizontalPadding`, `rowTopPadding`, `rowBottomPadding`, `dividerHorizontalPadding`, `floatingCornerRadius`, `notchTopCornerRadius`, `notchBottomCornerRadius`, `rowCornerRadius`, `compactCornerRadius`, `inputCornerRadius`, `inputHorizontalPadding`, `inputVerticalPadding`, `compactIconSize`, `notificationIconSize`, `notificationIconFrame`, `shellBorderWidth`, `inputBorderWidth`.
+- Layout: `compactWidth`, `compactHeight`, `syntheticNotchWidth`, `syntheticNotchHorizontalPosition`, `expandedWidth`, `maximumExpandedHeight`, `shellPadding`, `scrollContainerHorizontalPadding`, `floatingOuterPadding`, `compactHorizontalPadding`, `compactVerticalPadding`, `rowHorizontalPadding`, `rowTopPadding`, `rowBottomPadding`, `dividerHorizontalPadding`, `floatingCornerRadius`, `notchTopCornerRadius`, `notchBottomCornerRadius`, `rowCornerRadius`, `compactCornerRadius`, `inputCornerRadius`, `inputHorizontalPadding`, `inputVerticalPadding`, `compactIconSize`, `notificationIconSize`, `notificationIconFrame`, `shellBorderWidth`, `inputBorderWidth`.
 
 - Spacing: `compactSpacing`, `rowSpacing`, `headerSpacing`, `textSpacing`, `inputSpacing`, `inputLabelSpacing`, `actionSpacing`.
 
@@ -124,7 +130,9 @@ Available tokens:
 
 - Behavior: `animationDuration`, `arrivalRevealDuration`, `shellBackgroundOpacity`, `shadowOpacity`, `shadowRadius`, `hoverShadowOpacity`, `hoverShadowRadius`, `rowBackgroundOpacity`, `compactBackgroundOpacity`, `inputBackgroundOpacity`, `titleLineLimit`, `subtitleLineLimit`, `bodyLineLimit`, `showScrollIndicators`, `pointerRevealDistance`, `retractWhenPointerLeaves`.
 
-On a display without a physical notch, cmux draws a synthetic notch inside the menu-bar band. New arrivals show the compact pill for `arrivalRevealDuration` seconds, with rapid arrivals resetting that interval on the same panel. It then retracts to the plain notch silhouette while the pointer is away and expands the accumulated tray only when the pointer enters the hardware or synthetic notch. This direct-hover behavior applies independently to every display, including large notchless monitors. Set `pointerRevealDistance` above its default of `0` to add an approach margin around each notch, or set `retractWhenPointerLeaves` to `false` to keep the pending count visible. The scroll viewport and overlay indicator are flush with the shell by default, and the document width stays fixed while the indicator appears or fades. `scrollContainerHorizontalPadding` adds an outer inset without changing `rowHorizontalPadding`. Shadows are disabled by default; `shadowOpacity`, `hoverShadowOpacity`, their radii, and `shadowColor` can restore a custom shadow. Menu-bar height falls back to the system status-bar thickness when macOS auto-hides the menu bar.
+cmux creates one island on every connected display and mirrors the same accumulated queue into each island. Hover, expansion, and drag state remain local to that display, while acting on a row removes it from every display. On a display without a physical notch, cmux draws a synthetic notch inside the menu-bar band. Drag the pill horizontally to avoid menu-bar content. The pointer changes from an open hand to a closed hand while dragging, the vertical position stays pinned, and cmux persists the normalized position under that display's stable key. `syntheticNotchHorizontalPosition` remains the default for displays without an override.
+
+New arrivals show the compact pill for `arrivalRevealDuration` seconds, with rapid arrivals resetting that interval in place. Each island then retracts to the plain notch silhouette while the pointer is away and expands the accumulated tray only when the pointer enters that display's hardware or synthetic notch. Set `pointerRevealDistance` above its default of `0` to add an approach margin around each notch, or set `retractWhenPointerLeaves` to `false` to keep the pending count visible. The scroll viewport and overlay indicator are flush with the shell by default, and the document width stays fixed while the indicator appears or fades. `scrollContainerHorizontalPadding` adds an outer inset without changing `rowHorizontalPadding`. Shadows are disabled by default; `shadowOpacity`, `hoverShadowOpacity`, their radii, and `shadowColor` can restore a custom shadow. Menu-bar height falls back to the system status-bar thickness when macOS auto-hides the menu bar.
 
 Run `cmux notify --print-schema` for exact types, ranges, and defaults. The command works without a running cmux instance, which lets agents validate and generate forms before connecting.
 
