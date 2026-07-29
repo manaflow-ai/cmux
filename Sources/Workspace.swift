@@ -80,6 +80,11 @@ extension Workspace {
         for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) where seen.insert(panelId).inserted {
             allPanelIds.append(panelId)
         }
+        let terminalFontSizeSnapshotProjection =
+            terminalFontSizeChangeArbiter?.snapshotProjection(
+                for: self,
+                panelIds: Set(allPanelIds)
+            )
         let panelSnapshots = allPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
@@ -91,6 +96,8 @@ extension Workspace {
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
                     ),
+                    terminalFontSizeSnapshotProjection:
+                        terminalFontSizeSnapshotProjection,
                     currentAgentProcessIdentity: currentAgentProcessIdentity,
                     agentProcessPresence: agentProcessPresence
                 )
@@ -323,6 +330,8 @@ extension Workspace {
         includeScrollback: Bool,
         restorableAgentObservation: RestorableAgentSessionIndex.Entry?,
         resumeBinding: SurfaceResumeBindingSnapshot?,
+        terminalFontSizeSnapshotProjection:
+            WorkspaceTerminalFontSizeSnapshotProjection? = nil,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -533,9 +542,27 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
             )
+            let sessionFontSize: Float32?
+            let sessionFontSizeChangeTokens: [UUID]?
+            if let terminalFontSizeSnapshotProjection {
+                let projection =
+                    terminalFontSizeSnapshotProjection
+                        .sessionProjection(
+                            for: terminalPanel
+                        )
+                sessionFontSize = projection.overrideBasePoints
+                sessionFontSizeChangeTokens =
+                    projection.persistedRepresentedRequestTokens
+            } else {
+                sessionFontSize =
+                    terminalPanel.surface
+                        .sessionFontSizeOverrideBasePoints()
+                sessionFontSizeChangeTokens = nil
+            }
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
-                fontSize: terminalPanel.surface.sessionFontSizeOverrideBasePoints(),
+                fontSize: sessionFontSize,
+                fontSizeChangeTokens: sessionFontSizeChangeTokens,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
@@ -728,6 +755,11 @@ extension Workspace {
         let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
         let restorableAgentObservation = agentIndex.entry(workspaceId: id, panelId: panelId)
+        let terminalFontSizeSnapshotProjection =
+            terminalFontSizeChangeArbiter?.snapshotProjection(
+                for: self,
+                panelIds: [panelId]
+            )
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
@@ -735,7 +767,9 @@ extension Workspace {
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
-            )
+            ),
+            terminalFontSizeSnapshotProjection:
+                terminalFontSizeSnapshotProjection
         ) else {
             return nil
         }
@@ -1527,7 +1561,10 @@ extension Workspace {
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 restoredSurfaceId: reusableSurfaceId,
                 terminalFontSizeCreationPolicy: .sessionRestore(
-                    overrideBasePoints: snapshot.terminal?.fontSize
+                    overrideBasePoints: snapshot.terminal?.fontSize,
+                    representedChangeTokens: Set(
+                        snapshot.terminal?.fontSizeChangeTokens ?? []
+                    )
                 )
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
@@ -2121,6 +2158,29 @@ final class Workspace: Identifiable, ObservableObject {
             settings: settings,
             agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults
         )
+        store.terminalFontSizeChangeCoordinator =
+            terminalFontSizeChangeCoordinator
+        store.terminalFontSizeChangeArbiter =
+            terminalFontSizeChangeArbiter
+        store.terminalFontSizeOwningWorkspace = self
+        if let inheritanceContext =
+                activeTerminalFontSizeChangeInheritanceContext {
+            store.beginTerminalFontSizeChangeInheritance(
+                token: inheritanceContext.token,
+                change: inheritanceContext.change,
+                configuredRuntimePoints:
+                    inheritanceContext.configuredRuntimePoints,
+                magnificationPercent:
+                    inheritanceContext.magnificationPercent,
+                fallbackLineage: inheritanceContext.fallbackLineage,
+                fallbackLineageAlreadyIncludesChange: true
+            )
+        } else {
+            store.rememberTerminalFontSizeLineageForNewTerminals(
+                fallback:
+                    lastRememberedTerminalFontSizeLineageForConfigInheritance()
+            )
+        }
         _dockSplit = store
         return store
     }
@@ -2226,6 +2286,33 @@ final class Workspace: Identifiable, ObservableObject {
     /// surface owns live lineage; this fallback only survives removal of the
     /// last source panel.
     private var lastTerminalConfigInheritanceFontSizeLineage: TerminalFontSizeLineage?
+#if DEBUG
+    var debugInheritedTerminalConfigInvocationCount = 0
+#endif
+    /// Predicts per-source post-change lineage while a bounded workspace font
+    /// request spans multiple event-loop turns.
+    var activeTerminalFontSizeChangeInheritanceContext:
+        TerminalFontSizeChangeInheritanceContext?
+    weak var terminalFontSizeChangeCoordinator:
+        WorkspaceTerminalFontSizeCoordinator?
+    weak var terminalFontSizeChangeArbiter:
+        WorkspaceTerminalFontSizeArbiter?
+
+    /// Wires a coordinator into the workspace and its already-created Dock.
+    func setTerminalFontSizeChangeCoordinator(
+        _ coordinator: WorkspaceTerminalFontSizeCoordinator?
+    ) {
+        terminalFontSizeChangeCoordinator = coordinator
+        _dockSplit?.terminalFontSizeChangeCoordinator = coordinator
+    }
+
+    /// Wires an arbiter into the workspace and its already-created Dock.
+    func setTerminalFontSizeChangeArbiter(
+        _ arbiter: WorkspaceTerminalFontSizeArbiter?
+    ) {
+        terminalFontSizeChangeArbiter = arbiter
+        _dockSplit?.terminalFontSizeChangeArbiter = arbiter
+    }
 
     /// Callback used by TabManager to capture browser panels for closed-item restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
@@ -5191,6 +5278,29 @@ final class Workspace: Identifiable, ObservableObject {
         objectWillChange.send()
         if let mirror {
             remoteTmuxWindowMirrors[panelId] = mirror
+            mirror.onTerminalPanelAdded = { [weak self] panel in
+                guard let self else { return }
+                terminalFontSizeChangeCoordinator?
+                    .terminalDidEnterWorkspace(
+                        panel,
+                        workspace: self
+                    )
+            }
+            mirror.onTerminalPanelRemoved = { [weak self] panel in
+                guard let self else { return }
+                terminalFontSizeChangeCoordinator?
+                    .terminalDidLeaveWorkspace(
+                        panel,
+                        workspace: self
+                    )
+            }
+            for panel in mirror.panelsByPaneId.values {
+                terminalFontSizeChangeCoordinator?
+                    .terminalDidEnterWorkspace(
+                        panel,
+                        workspace: self
+                    )
+            }
         } else {
             remoteTmuxWindowMirrors.removeValue(forKey: panelId)
         }
@@ -6595,11 +6705,25 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Panel Operations
 
-    func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
+    func rememberTerminalConfigInheritanceSource(
+        _ terminalPanel: TerminalPanel,
+        magnificationPercent: Int? = nil
+    ) {
         guard let mountedPanel = panels[terminalPanel.id] as? TerminalPanel,
               mountedPanel === terminalPanel else { return }
         lastTerminalConfigInheritancePanelId = terminalPanel.id
-        lastTerminalConfigInheritanceFontSizeLineage = terminalPanel.surface.fontSizeLineageSnapshot()
+        lastTerminalConfigInheritanceFontSizeLineage =
+            terminalPanel.surface.fontSizeLineageSnapshot(
+                magnificationPercent: magnificationPercent
+            )
+    }
+
+    func rememberTerminalFontSizeLineageForConfigInheritance(_ lineage: TerminalFontSizeLineage) {
+        lastTerminalConfigInheritanceFontSizeLineage = lineage
+    }
+
+    func clearTerminalFontSizeLineageForConfigInheritance() {
+        lastTerminalConfigInheritanceFontSizeLineage = nil
     }
 
     func lastRememberedTerminalPanelForConfigInheritance() -> TerminalPanel? {
@@ -6825,6 +6949,9 @@ final class Workspace: Identifiable, ObservableObject {
         preferredPanelId: UUID? = nil,
         inPane preferredPaneId: PaneID? = nil
     ) -> CmuxSurfaceConfigTemplate? {
+#if DEBUG
+        debugInheritedTerminalConfigInvocationCount += 1
+#endif
         // Walk candidates in priority order and use the first panel that still exposes
         // a runtime surface pointer.
         for terminalPanel in terminalPanelConfigInheritanceCandidates(
@@ -6837,13 +6964,69 @@ final class Workspace: Identifiable, ObservableObject {
             // ghostty_surface_inherited_config or cmuxCurrentSurfaceFontSizePoints
             // is still reading through the pointer.
             let surface = terminalPanel.surface
-            let sourceFontSizeLineage = surface.fontSizeLineageSnapshot()
+            let inheritanceContext =
+                activeTerminalFontSizeChangeInheritanceContext
+            let transferProjection =
+                terminalFontSizeChangeArbiter?
+                    .transferInheritanceProjection(
+                        for: terminalPanel
+                    )
+            let sourceFontSizeLineage:
+                TerminalFontSizeLineage?
+            if let transferProjection {
+                sourceFontSizeLineage =
+                    transferProjection.lineage
+            } else if let inheritanceContext {
+                sourceFontSizeLineage =
+                    surface.fontSizeLineageForAdjustment(
+                        fallbackRuntimePoints:
+                            inheritanceContext
+                                .configuredRuntimePoints,
+                        magnificationPercent:
+                            inheritanceContext
+                                .magnificationPercent
+                    )
+            } else {
+                sourceFontSizeLineage =
+                    surface.fontSizeLineageSnapshot()
+            }
+            let inheritedFontSizeLineage: TerminalFontSizeLineage?
+            if let inheritanceContext {
+                inheritedFontSizeLineage =
+                    inheritanceContext.inheritedLineage(
+                        from: sourceFontSizeLineage,
+                        alreadyIncludesChange:
+                            surface.hasAppliedFontSizeChange(
+                                token:
+                                    inheritanceContext.token
+                            )
+                            || transferProjection?
+                                .representedRequestTokens
+                                .contains(
+                                    inheritanceContext.token
+                                ) == true
+                    )
+            } else {
+                inheritedFontSizeLineage =
+                    sourceFontSizeLineage
+            }
+            var fontSizeChangeTokens =
+                surface.fontSizeChangeTokensForInheritance()
+            fontSizeChangeTokens.formUnion(
+                transferProjection?
+                    .representedRequestTokens
+                ?? []
+            )
             guard let sourceSurface = surface.surface else {
-                if let sourceFontSizeLineage {
+                if let inheritedFontSizeLineage {
                     var config = CmuxSurfaceConfigTemplate()
-                    config.fontSizeLineage = sourceFontSizeLineage
+                    config.fontSizeLineage = inheritedFontSizeLineage
+                    config.fontSizeChangeToken = inheritanceContext?.token
+                    config.fontSizeChangeTokens =
+                        fontSizeChangeTokens
                     lastTerminalConfigInheritancePanelId = terminalPanel.id
-                    lastTerminalConfigInheritanceFontSizeLineage = sourceFontSizeLineage
+                    lastTerminalConfigInheritanceFontSizeLineage =
+                        inheritedFontSizeLineage
                     return config
                 }
                 continue
@@ -6852,9 +7035,12 @@ final class Workspace: Identifiable, ObservableObject {
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
             )
-            if let sourceFontSizeLineage {
-                config.fontSizeLineage = sourceFontSizeLineage
+            if let inheritedFontSizeLineage {
+                config.fontSizeLineage = inheritedFontSizeLineage
             }
+            config.fontSizeChangeToken = inheritanceContext?.token
+            config.fontSizeChangeTokens =
+                fontSizeChangeTokens
             // Prevent ARC from releasing panel/surface before the C calls above complete.
             withExtendedLifetime((terminalPanel, surface)) {}
             rememberTerminalConfigInheritanceSource(terminalPanel)
@@ -6864,9 +7050,13 @@ final class Workspace: Identifiable, ObservableObject {
             return config
         }
 
-        if let fallbackFontSizeLineage = lastTerminalConfigInheritanceFontSizeLineage {
+        if let fallbackFontSizeLineage =
+                activeTerminalFontSizeChangeInheritanceContext?.fallbackLineage
+                ?? lastTerminalConfigInheritanceFontSizeLineage {
             var config = CmuxSurfaceConfigTemplate()
             config.fontSizeLineage = fallbackFontSizeLineage
+            config.fontSizeChangeToken =
+                activeTerminalFontSizeChangeInheritanceContext?.token
 #if DEBUG
             cmuxDebugLog(
                 "zoom.inherit fallback=lastKnownFont context=split font=\(String(format: "%.2f", fallbackFontSizeLineage.basePoints))"
@@ -6876,6 +7066,106 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return nil
+    }
+
+    /// Remote tmux display surfaces need the workspace's durable font lineage
+    /// without inheriting a local terminal's command, environment, or other
+    /// process configuration.
+    private func inheritedTerminalFontSizeConfig() -> CmuxSurfaceConfigTemplate? {
+        let sourcePanel: TerminalPanel? = {
+            if let remembered =
+                    lastRememberedTerminalPanelForConfigInheritance() {
+                return remembered
+            }
+            if let focusedTerminalPanel {
+                rememberTerminalConfigInheritanceSource(
+                    focusedTerminalPanel
+                )
+                return focusedTerminalPanel
+            }
+            var deterministicFallback: TerminalPanel?
+            for terminalPanel in panels.values.compactMap({
+                $0 as? TerminalPanel
+            }) {
+                guard deterministicFallback.map({
+                    terminalPanel.id.uuidString < $0.id.uuidString
+                }) ?? true else {
+                    continue
+                }
+                deterministicFallback = terminalPanel
+            }
+            if let deterministicFallback {
+                rememberTerminalConfigInheritanceSource(
+                    deterministicFallback
+                )
+            }
+            return deterministicFallback
+        }()
+        let inheritanceContext =
+            activeTerminalFontSizeChangeInheritanceContext
+        let transferProjection =
+            sourcePanel.flatMap {
+                terminalFontSizeChangeArbiter?
+                    .transferInheritanceProjection(for: $0)
+            }
+        let sourceLineage: TerminalFontSizeLineage?
+        if let transferProjection {
+            sourceLineage = transferProjection.lineage
+        } else if let inheritanceContext {
+            sourceLineage =
+                sourcePanel?.surface
+                    .fontSizeLineageForAdjustment(
+                        fallbackRuntimePoints:
+                            inheritanceContext
+                                .configuredRuntimePoints,
+                        magnificationPercent:
+                            inheritanceContext
+                                .magnificationPercent
+                    )
+        } else {
+            sourceLineage =
+                sourcePanel?.surface
+                    .fontSizeLineageSnapshot()
+        }
+        let inheritedLineage: TerminalFontSizeLineage?
+        if let inheritanceContext {
+            inheritedLineage =
+                inheritanceContext.inheritedLineage(
+                    from: sourceLineage,
+                    alreadyIncludesChange:
+                        sourcePanel?.surface
+                            .hasAppliedFontSizeChange(
+                                token:
+                                    inheritanceContext.token
+                            ) == true
+                        || transferProjection?
+                            .representedRequestTokens
+                            .contains(
+                                inheritanceContext.token
+                            ) == true
+                )
+        } else {
+            inheritedLineage = sourceLineage
+        }
+        guard let fontSizeLineage =
+                inheritedLineage
+                ?? lastTerminalConfigInheritanceFontSizeLineage else {
+            return nil
+        }
+        var fontSizeChangeTokens =
+            sourcePanel?.surface
+                .fontSizeChangeTokensForInheritance()
+            ?? []
+        fontSizeChangeTokens.formUnion(
+            transferProjection?.representedRequestTokens
+            ?? []
+        )
+        var config = CmuxSurfaceConfigTemplate()
+        config.fontSizeLineage = fontSizeLineage
+        config.fontSizeChangeToken = inheritanceContext?.token
+        config.fontSizeChangeTokens =
+            fontSizeChangeTokens
+        return config
     }
 
     /// Create a new split with a terminal panel
@@ -7408,6 +7698,11 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             clearNonFocusSplitFocusReassert()
         }
+        terminalFontSizeChangeCoordinator?
+            .terminalDidEnterWorkspace(
+                newPanel,
+                workspace: self
+            )
         rememberTerminalConfigInheritanceSource(newPanel)
 
         if autoRefreshMetadata {
@@ -7429,7 +7724,7 @@ final class Workspace: Identifiable, ObservableObject {
         let surface = TerminalSurface(
             tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
+            configTemplate: inheritedTerminalFontSizeConfig(),
             manualIO: true,
             manualInputHandler: onInput
         )
@@ -7466,7 +7761,7 @@ final class Workspace: Identifiable, ObservableObject {
             let surface = TerminalSurface(
                 tabId: id,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                configTemplate: nil,
+                configTemplate: inheritedTerminalFontSizeConfig(),
                 manualIO: true,
                 manualInputHandler: onInput
             )
@@ -8940,6 +9235,13 @@ final class Workspace: Identifiable, ObservableObject {
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
+        if let terminalPanel = sourcePanel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalWillLeaveWorkspace(
+                    terminalPanel,
+                    workspace: self
+                )
+        }
         let sourcePaneId = paneId(forPanelId: panelId)
         let shouldSkipControlMasterCleanupAfterDetach =
             activeRemoteTerminalSurfaceIds.contains(panelId)
@@ -9110,6 +9412,14 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
             configureTerminalPanel(terminalPanel)
+            terminalPanel.fontSizePanelTransfer?.attach(
+                to: self
+            )
+            terminalFontSizeChangeCoordinator?
+                .terminalDidEnterWorkspace(
+                    terminalPanel,
+                    workspace: self
+                )
         } else if let browserPanel = detached.panel as? BrowserPanel {
             browserPanel.reattachToWorkspace(
                 id,
@@ -11935,7 +12245,8 @@ extension Workspace: BonsplitDelegate {
             publishSurfaceClosedEvent: !isDetaching,
             clearSurfaceNotifications: !preservesSurfaceForDetach,
             requestTransferredRemoteCleanup: false,
-            cleanupControllerSurfaceState: !isDetaching
+            cleanupControllerSurfaceState: !isDetaching,
+            preservesTerminalForTransfer: isDetaching
         )
         if !isDetaching {
             owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)
