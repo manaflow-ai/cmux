@@ -92,6 +92,13 @@ struct AgentWaitCoordinator {
 
             if let event = subscriptionSnapshot.subscription.next(timeout: waitInterval) {
                 if event["name"] as? String == "surface.closed" {
+                    let payload = event["payload"] as? [String: Any]
+                    if payload?["origin"] as? String == "detach" {
+                        if let timeout = timeoutResultIfExpired() {
+                            return .success(timeout)
+                        }
+                        continue
+                    }
                     return .success(
                         result(
                             status: .surfaceClosed,

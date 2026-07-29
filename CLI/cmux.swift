@@ -30533,6 +30533,9 @@ export default CMUXSessionRestore;
             cwd: hookCwd
         )
         let hasExplicitLifecycleSessionId = normalizedHookValue(input.sessionId) != nil
+        let authoritativeLifecycleSessionId = hasExplicitLifecycleSessionId
+            ? lifecycleSessionId
+            : nil
         let sessionId = lifecycleSessionId
             ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
             ?? ""
@@ -30564,8 +30567,8 @@ export default CMUXSessionRestore;
                     sessionDidEnd: true
                 )
                 var clearCommand = "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status"
-                if let lifecycleSessionId {
-                    clearCommand += " --session-id=\(socketQuote(lifecycleSessionId))"
+                if let authoritativeLifecycleSessionId {
+                    clearCommand += " --session-id=\(socketQuote(authoritativeLifecycleSessionId))"
                 }
                 _ = try? sendV1Command(clearCommand, client: client)
             }
@@ -30961,7 +30964,7 @@ export default CMUXSessionRestore;
                 lifecycle: .unknown,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                sessionId: lifecycleSessionId,
+                sessionId: authoritativeLifecycleSessionId,
                 startsNewOccupant: true
             )
 
@@ -31016,7 +31019,7 @@ export default CMUXSessionRestore;
                         lifecycle: lifecycle,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: lifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId
                     )
                 }
                 switch latest.runtimeStatus {
@@ -31027,7 +31030,7 @@ export default CMUXSessionRestore;
                         lifecycle: .running,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: lifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId
                     )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
@@ -31042,7 +31045,7 @@ export default CMUXSessionRestore;
                             lifecycle: .idle,
                             workspaceId: workspaceId,
                             surfaceId: surfaceId,
-                            sessionId: lifecycleSessionId
+                            sessionId: authoritativeLifecycleSessionId
                         )
                     }
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -31053,7 +31056,7 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: lifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
@@ -31070,7 +31073,7 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: lifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -31244,7 +31247,7 @@ export default CMUXSessionRestore;
                     lifecycle: .running,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: lifecycleSessionId
+                    sessionId: authoritativeLifecycleSessionId
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -31579,7 +31582,7 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: lifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId
                     )
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31592,7 +31595,7 @@ export default CMUXSessionRestore;
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: lifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -31609,7 +31612,7 @@ export default CMUXSessionRestore;
                         lifecycle: .running,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: lifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId
                     )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
@@ -31623,7 +31626,7 @@ export default CMUXSessionRestore;
                         lifecycle: .idle,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: lifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId
                     )
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
@@ -31711,7 +31714,7 @@ export default CMUXSessionRestore;
                     lifecycle: .running,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: lifecycleSessionId
+                    sessionId: authoritativeLifecycleSessionId
                 )
                 _ = try? sendV1Command(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31984,7 +31987,7 @@ export default CMUXSessionRestore;
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: lifecycleSessionId
+                    sessionId: authoritativeLifecycleSessionId
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
@@ -32001,7 +32004,7 @@ export default CMUXSessionRestore;
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: lifecycleSessionId
+                    sessionId: authoritativeLifecycleSessionId
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -32019,7 +32022,7 @@ export default CMUXSessionRestore;
                         lifecycle: .idle,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: lifecycleSessionId
+                        sessionId: authoritativeLifecycleSessionId
                     )
                 }
                 setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)

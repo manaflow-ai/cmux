@@ -314,7 +314,8 @@ struct AgentLifecycleEventTests {
             key: "codex",
             panelId: fixture.surfaceID,
             lifecycle: .idle,
-            sessionID: "session-new"
+            sessionID: "session-new",
+            startsNewOccupant: true
         )
         let baselineSequence = CmuxEventBus.shared.latestSequence
 

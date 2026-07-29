@@ -186,8 +186,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         connectionCount: Int = 1,
         handler: @escaping @Sendable (String) -> String
     ) {
-        for _ in 0..<max(1, connectionCount) {
-            DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async {
+            for _ in 0..<max(1, connectionCount) {
                 var clientAddr = sockaddr_un()
                 var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
                 let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in

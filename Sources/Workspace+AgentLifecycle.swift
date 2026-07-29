@@ -256,6 +256,12 @@ extension Workspace {
         let hasDifferentAuthoritativeSession = previous?.sessionID != nil
             && normalizedSessionID != nil
             && previous?.sessionID != normalizedSessionID
+        // Only a verified session-start hook may rotate an established
+        // authoritative occupant. Delayed turn/status hooks from an older
+        // session must not reclaim the surface.
+        if hasDifferentAuthoritativeSession && !startsNewOccupant {
+            return
+        }
         // Session-start hooks may retry. Preserve an established authoritative
         // occupant only when the retry carries the same session identity.
         let isDuplicateAuthoritativeStart = startsNewOccupant
@@ -426,10 +432,11 @@ extension Workspace {
 
     func agentWaitSurfaceSnapshot(panelID: UUID) -> AgentWaitSurfaceSnapshot? {
         guard panels[panelID] != nil else { return nil }
-        let occupant = agentLifecycleRecordsByPanelId[panelID]?
+        let occupants = agentLifecycleRecordsByPanelId[panelID]?
             .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
             .map(\.value)
-            .max { $0.revision < $1.revision }
+            ?? []
+        let occupant = occupants.count == 1 ? occupants[0] : nil
         return AgentWaitSurfaceSnapshot(
             workspaceID: id,
             surfaceID: panelID,
