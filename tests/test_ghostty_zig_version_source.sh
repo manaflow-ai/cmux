@@ -40,6 +40,7 @@ do
 done
 
 reload_script="$ROOT_DIR/scripts/reload.sh"
+installer_script="$ROOT_DIR/scripts/install-zig-ci.sh"
 for required_assignment in \
   'ZIG_LOCAL_INSTALL_ONLY=1' \
   'ZIG_PATH_OUTPUT="$ZIG_PATH_FILE"' \
@@ -50,6 +51,21 @@ do
     exit 1
   fi
 done
+
+if ! grep -Fq 'if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then' "$reload_script"; then
+  echo "FAIL: reload.sh does not preserve the explicit no-Zig build path" >&2
+  exit 1
+fi
+
+if grep -Fq 'rm -rf "$target_root"' "$installer_script"; then
+  echo "FAIL: Zig cache publication can delete a toolchain used by another reload" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'install_lock="${target_root}.install-lock"' "$installer_script"; then
+  echo "FAIL: Zig cache publication is not serialized per toolchain" >&2
+  exit 1
+fi
 
 for documentation in \
   "$ROOT_DIR/cmux-tui/README.md" \
