@@ -684,6 +684,30 @@ def test_manual_demo_dispatch_builds_even_when_head_already_uploaded() -> None:
     assert result["compareCalls"] == []
 
 
+def test_manual_override_artifact_is_excluded_from_canonical_history() -> None:
+    override_run = run_decision_scenario(
+        event_name="workflow_dispatch",
+        marketing_version_override="1.2.3",
+    )
+    produced_artifact = override_run["producedArtifactName"]
+    assert produced_artifact == "ios-testflight-build-metadata-override"
+
+    scheduled_run = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="override-sha",
+        prior_artifact=produced_artifact,
+        changed_files=("docs/cli-contract.md",),
+    )
+
+    assert scheduled_run["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "",
+        "variant": "internal",
+    }
+    assert scheduled_run["compareCalls"] == []
+
+
 def test_scheduled_run_waits_for_an_earlier_upload() -> None:
     result = run_decision_scenario(
         event_name="schedule",
@@ -966,6 +990,7 @@ if __name__ == "__main__":
     test_demo_history_skips_newer_internal_artifact()
     test_demo_history_paginates_to_matching_artifact()
     test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
+    test_manual_override_artifact_is_excluded_from_canonical_history()
     test_scheduled_run_waits_for_an_earlier_upload()
     test_scheduled_run_waits_before_upload_job_exists()
     test_ordering_retries_transient_api_failures()
