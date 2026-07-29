@@ -2,6 +2,13 @@ import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 
+/// Bounded settlement tracking for pipelined `terminal.input` RPCs.
+///
+/// Every dimension is scoped per surface — entry queues, reapers, the
+/// lane-transition barrier, and ambiguous-failure poisoning — because input
+/// ordering is a property of one PTY, and the host applies each surface's
+/// ordered requests independently. Only the four-slot capacity window is
+/// shared, bounding the connection-wide outstanding pipelined work.
 @MainActor
 final class MobileTerminalInputRPCPipeline {
     typealias SettlementHandler = @MainActor (
@@ -10,14 +17,14 @@ final class MobileTerminalInputRPCPipeline {
 
     private struct Entry {
         let id: UUID
-        let surfaceID: String
         let request: MobileCoreRPCPipelinedRequest
         let settlementHandler: SettlementHandler
     }
 
     private static let maximumUnsettledRequestCount = 4
 
-    private var entries: [Entry] = []
+    private var entriesBySurfaceID: [String: [Entry]] = [:]
+    private var reaperTasksBySurfaceID: [String: Task<Void, Never>] = [:]
     private var capacityWaiters: [CheckedContinuation<Void, Never>] = []
     /// Lane-transition barriers are per surface: ordering only matters within
     /// one PTY, and an app-wide wait would let one terminal's slow response
@@ -30,11 +37,14 @@ final class MobileTerminalInputRPCPipeline {
     /// path (which remains correctly ordered with a late apply) until the next
     /// connection-lifecycle clear().
     private var surfacesWithAmbiguousFailures: Set<String> = []
-    private var reaperTask: Task<Void, Never>?
     private var generation = UUID()
 
+    private var totalUnsettledCount: Int {
+        entriesBySurfaceID.values.reduce(0) { $0 + $1.count }
+    }
+
     func hasUnsettledRequests(surfaceID: String) -> Bool {
-        entries.contains { $0.surfaceID == surfaceID }
+        entriesBySurfaceID[surfaceID]?.isEmpty == false
     }
 
     func hasAmbiguousFailure(surfaceID: String) -> Bool {
@@ -47,7 +57,7 @@ final class MobileTerminalInputRPCPipeline {
         settlementHandler: @escaping SettlementHandler
     ) async throws {
         let enqueueGeneration = generation
-        while entries.count >= Self.maximumUnsettledRequestCount {
+        while totalUnsettledCount >= Self.maximumUnsettledRequestCount {
             await withCheckedContinuation { continuation in
                 capacityWaiters.append(continuation)
             }
@@ -63,13 +73,12 @@ final class MobileTerminalInputRPCPipeline {
             await request.abandon()
             throw CancellationError()
         }
-        entries.append(Entry(
+        entriesBySurfaceID[surfaceID, default: []].append(Entry(
             id: UUID(),
-            surfaceID: surfaceID,
             request: request,
             settlementHandler: settlementHandler
         ))
-        startReaperIfNeeded()
+        startReaperIfNeeded(surfaceID: surfaceID)
     }
 
     func waitUntilAllSettled(surfaceID: String) async {
@@ -96,16 +105,18 @@ final class MobileTerminalInputRPCPipeline {
 
     func clear() {
         generation = UUID()
-        let abandonedEntries = entries
-        entries.removeAll()
+        let abandonedEntries = entriesBySurfaceID.values.flatMap { $0 }
+        entriesBySurfaceID.removeAll()
         surfacesWithAmbiguousFailures.removeAll()
-        reaperTask?.cancel()
-        reaperTask = nil
+        for (_, reaperTask) in reaperTasksBySurfaceID {
+            reaperTask.cancel()
+        }
+        reaperTasksBySurfaceID.removeAll()
         // Dropped entries are never awaited again; release their session
         // settlement slots instead of leaving them to sit until the request
-        // deadline (or, once settled, until session teardown). The reaper's
-        // cancellation already abandons the head entry; a second abandon is a
-        // no-op.
+        // deadline (or, once settled, until session teardown). The reapers'
+        // cancellation already abandons each surface's head entry; a second
+        // abandon is a no-op.
         for entry in abandonedEntries {
             let request = entry.request
             Task { await request.abandon() }
@@ -114,16 +125,23 @@ final class MobileTerminalInputRPCPipeline {
         resumeAllSettledWaiters()
     }
 
-    private func startReaperIfNeeded() {
-        guard reaperTask == nil else { return }
+    private func startReaperIfNeeded(surfaceID: String) {
+        guard reaperTasksBySurfaceID[surfaceID] == nil else { return }
         let reaperGeneration = generation
-        reaperTask = Task { @MainActor [weak self] in
-            await self?.reapResponses(generation: reaperGeneration)
+        reaperTasksBySurfaceID[surfaceID] = Task { @MainActor [weak self] in
+            await self?.reapResponses(
+                surfaceID: surfaceID,
+                generation: reaperGeneration
+            )
         }
     }
 
-    private func reapResponses(generation reaperGeneration: UUID) async {
-        while generation == reaperGeneration, let entry = entries.first {
+    private func reapResponses(
+        surfaceID: String,
+        generation reaperGeneration: UUID
+    ) async {
+        while generation == reaperGeneration,
+              let entry = entriesBySurfaceID[surfaceID]?.first {
             let result: Result<Data, any Error>
             do {
                 result = .success(try await entry.request.response())
@@ -131,17 +149,17 @@ final class MobileTerminalInputRPCPipeline {
                 result = .failure(error)
             }
             guard generation == reaperGeneration,
-                  entries.first?.id == entry.id else {
+                  entriesBySurfaceID[surfaceID]?.first?.id == entry.id else {
                 return
             }
-            entries.removeFirst()
+            entriesBySurfaceID[surfaceID]?.removeFirst()
             if case let .failure(error) = result,
                !Self.isDefinitiveHostResponseFailure(error) {
-                surfacesWithAmbiguousFailures.insert(entry.surfaceID)
+                surfacesWithAmbiguousFailures.insert(surfaceID)
             }
             entry.settlementHandler(result)
-            if !hasUnsettledRequests(surfaceID: entry.surfaceID) {
-                resumeSettledWaiters(surfaceID: entry.surfaceID)
+            if !hasUnsettledRequests(surfaceID: surfaceID) {
+                resumeSettledWaiters(surfaceID: surfaceID)
             }
             // One settlement frees exactly one slot; waking only the
             // longest-parked producer keeps enqueue arrival order even if a
@@ -149,11 +167,12 @@ final class MobileTerminalInputRPCPipeline {
             resumeNextCapacityWaiter()
         }
         guard generation == reaperGeneration else { return }
-        reaperTask = nil
-        if entries.isEmpty {
-            resumeAllSettledWaiters()
+        reaperTasksBySurfaceID[surfaceID] = nil
+        if hasUnsettledRequests(surfaceID: surfaceID) {
+            startReaperIfNeeded(surfaceID: surfaceID)
         } else {
-            startReaperIfNeeded()
+            entriesBySurfaceID[surfaceID] = nil
+            resumeSettledWaiters(surfaceID: surfaceID)
         }
     }
 

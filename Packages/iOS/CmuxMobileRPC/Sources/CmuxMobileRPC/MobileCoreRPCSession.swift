@@ -283,9 +283,20 @@ actor MobileCoreRPCSession {
         for (_, cont) in pendingSnapshot {
             cont.resume(returning: .response(.failure(error)))
         }
-        for (_, settlement) in pipelinedSnapshot {
-            if case let .awaiting(continuation) = settlement {
+        for (requestID, settlement) in pipelinedSnapshot {
+            switch settlement {
+            case let .awaiting(continuation):
                 continuation.resume(returning: .response(.failure(error)))
+            case .pending:
+                // Preserve the real teardown failure for a handle nobody has
+                // awaited yet; dropping it would misreport the outcome as a
+                // protocol error (invalidResponse) when response() is called.
+                pipelinedPending[requestID] = .settled(.response(.failure(error)))
+            case .settled:
+                // Keep an already-settled outcome claimable; entries are
+                // bounded by the caller's pipeline window and are removed on
+                // claim or abandon.
+                pipelinedPending[requestID] = settlement
             }
         }
         let listenerSnapshot = listeners

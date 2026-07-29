@@ -171,6 +171,64 @@ import Testing
     }
 
     @MainActor
+    @Test func heldSurfaceDoesNotBlockAnotherSurfacesSettlementOrLane() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalInput(true)
+        let laneA = RawInputBarrierTerminalLane()
+        let laneB = RawInputBarrierTerminalLane()
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [
+                MobileShellComposite.terminalInputOrderedCapability,
+            ],
+            routeKind: .iroh,
+            terminalLaneProvider: { _, surfaceID, _ in
+                surfaceID == RoutingHostRouter.terminalB ? laneB : laneA
+            }
+        )
+        let outputStreamA = store.terminalOutputStream(
+            surfaceID: RoutingHostRouter.terminalA
+        )
+        let outputStreamB = store.terminalOutputStream(
+            surfaceID: RoutingHostRouter.terminalB
+        )
+        // Discarding a stream unregisters its sink and stops the lane.
+        defer { withExtendedLifetime((outputStreamA, outputStreamB)) {} }
+
+        // Surface A's request is held open by the host.
+        await store.submitTerminalRawInput(
+            Data("a".utf8),
+            surfaceID: RoutingHostRouter.terminalA
+        )
+        await router.awaitFirstTerminalInputReached()
+
+        // Surface B settles independently and its lane comes up.
+        await store.submitTerminalRawInput(
+            Data("b".utf8),
+            surfaceID: RoutingHostRouter.terminalB
+        )
+        await laneB.activate()
+        #expect(await waitForLaneReadiness(
+            store: store,
+            surfaceID: RoutingHostRouter.terminalB
+        ))
+
+        // B's lane transition must not wait for A's held request: its own
+        // settlements are the only barrier that applies.
+        await store.submitTerminalRawInput(
+            Data("c".utf8),
+            surfaceID: RoutingHostRouter.terminalB
+        )
+        #expect(await waitForLaneInputCount(1, lane: laneB))
+        #expect(await laneB.inputs() == ["c"])
+        #expect(await laneA.inputs().isEmpty)
+
+        await router.releaseFirstTerminalInput()
+        await laneB.close()
+        await laneA.close()
+    }
+
+    @MainActor
     @Test func ambiguousPipelinedFailureKeepsSurfaceOffTheLane() async throws {
         let router = RoutingHostRouter()
         await router.setHoldAllTerminalInputs(true)
@@ -324,7 +382,9 @@ import Testing
         store: MobileShellComposite,
         surfaceID: String
     ) async -> Bool {
-        for _ in 0..<1_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
             if store.terminalLaneOutputReadySurfaceIDs.contains(surfaceID) {
                 return true
             }

@@ -142,15 +142,19 @@ struct MobileCoreRPCSessionPipelinedTests {
         )
         await session.tearDown(error: .connectionClosed)
 
-        #expect(await session.pipelinedPending["unclaimed"] == nil)
+        // The unclaimed slot must retain the REAL teardown failure so a later
+        // response() reports connectionClosed, not a protocol error.
+        #expect(await session.pipelinedPending["unclaimed"] != nil)
         #expect(await session.requestTimeoutTasks["unclaimed"] == nil)
         do {
             _ = try await session.awaitResponse(requestID: "unclaimed")
-            Issue.record("Expected the cleared response handle to fail")
-        } catch MobileShellConnectionError.invalidResponse {
+            Issue.record("Expected the torn-down response handle to fail")
+        } catch MobileShellConnectionError.connectionClosed {
         } catch {
-            Issue.record("Expected invalidResponse, got \(error)")
+            Issue.record("Expected connectionClosed, got \(error)")
         }
+        // Claiming the settlement releases the slot.
+        #expect(await session.pipelinedPending["unclaimed"] == nil)
     }
 
     @Test
