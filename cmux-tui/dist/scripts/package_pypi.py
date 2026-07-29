@@ -19,6 +19,17 @@ VERSION_RE = re.compile(r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+\.dev
 DIST_NAME = "cmux"
 PACKAGE_NAME = "cmux_tui"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+MACOS_DEPLOYMENT_TARGET = (
+    Path(__file__).resolve().parents[1] / "macos-deployment-target.txt"
+).read_text().strip()
+if not re.fullmatch(r"[0-9]+\.[0-9]+", MACOS_DEPLOYMENT_TARGET):
+    raise RuntimeError("invalid macOS deployment target")
+macos_major, macos_minor = (int(part) for part in MACOS_DEPLOYMENT_TARGET.split("."))
+if macos_major >= 11 and macos_minor != 0:
+    raise RuntimeError(
+        "macOS 11+ wheel compatibility floors must use a major .0 release"
+    )
+MACOS_WHEEL_VERSION = MACOS_DEPLOYMENT_TARGET.replace(".", "_")
 
 
 @dataclass(frozen=True)
@@ -28,8 +39,8 @@ class Target:
 
 
 TARGETS = [
-    Target("aarch64-apple-darwin", ("macosx_11_0_arm64",)),
-    Target("x86_64-apple-darwin", ("macosx_10_12_x86_64",)),
+    Target("aarch64-apple-darwin", (f"macosx_{MACOS_WHEEL_VERSION}_arm64",)),
+    Target("x86_64-apple-darwin", (f"macosx_{MACOS_WHEEL_VERSION}_x86_64",)),
     Target(
         "x86_64-unknown-linux-musl",
         (

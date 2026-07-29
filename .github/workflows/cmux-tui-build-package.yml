@@ -108,6 +108,13 @@ jobs:
         shell: bash
         run: rustup target add ${{ matrix.target }}
 
+      - name: Configure macOS deployment target
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          target="$(tr -d '[:space:]' < cmux-tui/dist/macos-deployment-target.txt)"
+          printf 'MACOSX_DEPLOYMENT_TARGET=%s\n' "$target" >> "$GITHUB_ENV"
+
       - name: Install cargo-zigbuild
         if: matrix.cross == true
         shell: bash
@@ -153,6 +160,15 @@ jobs:
             cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi
           ls -la dist
+
+      - name: Verify macOS deployment target
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          binary="dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
+          expected="$(tr -d '[:space:]' < cmux-tui/dist/macos-deployment-target.txt)"
+          actual="$(xcrun vtool -show-build "$binary" | awk '$1 == "minos" { print $2; exit }')"
+          test "$actual" = "$expected"
 
       - name: Verify native binary identity
         if: matrix.cross == false
