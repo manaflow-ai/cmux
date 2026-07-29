@@ -216,7 +216,7 @@ import Testing
         let launchFinished = DispatchSemaphore(value: 0)
         let cancellationReturned = DispatchSemaphore(value: 0)
 
-        DispatchQueue.global().async {
+        Thread.detachNewThread {
             _ = latch.launch({
                 launchEntered.signal()
                 releaseLaunch.wait()
@@ -224,16 +224,18 @@ import Testing
             }, onCancel: { _ in })
             launchFinished.signal()
         }
-        #expect(launchEntered.wait(timeout: .now() + 1) == .success)
+        #expect(launchEntered.wait(timeout: .now() + 5) == .success)
 
-        DispatchQueue.global().async {
+        Thread.detachNewThread {
             latch.cancel()
             cancellationReturned.signal()
         }
         let returnedPromptly = cancellationReturned.wait(timeout: .now() + 0.1) == .success
         releaseLaunch.signal()
-        #expect(launchFinished.wait(timeout: .now() + 1) == .success)
-        #expect(cancellationReturned.wait(timeout: .now() + 1) == .success)
+        #expect(launchFinished.wait(timeout: .now() + 5) == .success)
+        if !returnedPromptly {
+            #expect(cancellationReturned.wait(timeout: .now() + 5) == .success)
+        }
 
         #expect(returnedPromptly)
     }

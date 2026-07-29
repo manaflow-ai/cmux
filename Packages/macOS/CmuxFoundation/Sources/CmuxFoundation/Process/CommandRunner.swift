@@ -37,20 +37,42 @@ final class CommandCancellationLatch: @unchecked Sendable {
 
     private let state = OSAllocatedUnfairLock(initialState: State())
 
-    /// Launches only while cancellation is inactive and installs the matching
-    /// group-termination action before cancellation can observe the child.
+    /// Launches the child suspended without holding the cancellation lock, then
+    /// atomically installs the matching group-termination action. Cancellation
+    /// that arrives during launch wins registration and terminates the child
+    /// before it can be resumed.
     func launch(
         _ operation: @Sendable () throws -> pid_t,
         onCancel: @escaping @Sendable (pid_t) -> Void
     ) rethrows -> pid_t? {
-        try state.withLock { state in
-            guard !state.isFinished, !state.isCancelled else { return nil }
-            let processIdentifier = try operation()
+        let mayLaunch = state.withLock { state in
+            !state.isFinished && !state.isCancelled
+        }
+        guard mayLaunch else { return nil }
+
+        let processIdentifier: pid_t
+        do {
+            processIdentifier = try operation()
+        } catch {
+            let wasCancelled = state.withLock { state in
+                state.isFinished || state.isCancelled
+            }
+            if wasCancelled { return nil }
+            throw error
+        }
+
+        let cancelLaunchedProcess = state.withLock { state -> Bool in
+            guard !state.isFinished, !state.isCancelled else { return true }
             state.action = {
                 onCancel(processIdentifier)
             }
-            return processIdentifier
+            return false
         }
+        guard !cancelLaunchedProcess else {
+            onCancel(processIdentifier)
+            return nil
+        }
+        return processIdentifier
     }
 
     /// Resumes a suspended launch while holding the same lock used by
@@ -211,8 +233,8 @@ public struct CommandRunner: CommandRunning, Sendable {
                 // The timeout path never goes through here, so a descendant that inherited a
                 // pipe and holds it open past the deadline can never delay the timeout result.
                 @Sendable func recordAndCompleteIfReady(_ mutate: @Sendable (inout RunState) -> Void) {
-                    let (completed, timerToCancel, reapProcess): (
-                        CommandResult?,
+                    let (completion, timerToCancel, reapProcess): (
+                        (stdout: Data, stderr: Data, exitStatus: Int32?)?,
                         CommandTimer?,
                         (@Sendable () -> Void)?
                     ) =
@@ -227,20 +249,21 @@ public struct CommandRunner: CommandRunning, Sendable {
                             let reapProcess = s.processReapAction
                             s.processReapAction = nil
                             return (
-                                CommandResult(
-                                    stdout: String(data: out, encoding: .utf8),
-                                    stderr: String(data: err, encoding: .utf8),
-                                    exitStatus: s.exitStatus,
-                                    timedOut: false,
-                                    executionError: nil
-                                ),
+                                (stdout: out, stderr: err, exitStatus: s.exitStatus),
                                 timer,
                                 reapProcess
                             )
                         }
                     timerToCancel?.cancel()
-                    if let completed {
+                    if let completion {
                         reapProcess?()
+                        let completed = CommandResult(
+                            stdout: String(data: completion.stdout, encoding: .utf8),
+                            stderr: String(data: completion.stderr, encoding: .utf8),
+                            exitStatus: completion.exitStatus,
+                            timedOut: false,
+                            executionError: nil
+                        )
                         cancellation.clear()
                         continuation.resume(returning: completed)
                     }
