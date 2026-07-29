@@ -151,7 +151,77 @@ struct AgentSessionDeferredResumeSettingsTests {
         #expect(!panel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
-    private static func makeDockAgentSnapshot(sessionId: String) throws -> SessionSplitContainerSnapshot {
+    /// Real-world restores mostly carry a local agent-hook resume binding for
+    /// the session (`codex resume …` / `claude --resume …` replayed into the
+    /// terminal). Deferring only the agent's own resume command while letting
+    /// the binding fire at startup would defeat the setting for exactly those
+    /// panels — the original ~90-concurrent-resume storm came from binding
+    /// launches (#9145 dogfood).
+    @Test("Dock restore defers an agent-hook binding resume into hibernation when enabled")
+    func deferEnabledSuppressesAgentHookBindingLaunch() throws {
+        let suiteName = "cmux-agent-session-deferred-resume-binding-on-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        AgentSessionDeferredResumeSettings.setEnabled(true, defaults: defaults)
+
+        let snapshot = try Self.makeDockAgentSnapshot(
+            sessionId: "dock-defer-binding-on-session-\(UUID().uuidString)",
+            includeAgentHookBinding: true
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { store.closeAllPanels() }
+
+        let restoredIds = store.restoreSessionSnapshot(snapshot)
+        let panelId = try #require(restoredIds.values.first)
+        let panel = try #require(store.panels[panelId] as? TerminalPanel)
+
+        #expect(panel.isAgentHibernated)
+        let input = panel.surface.debugInitialInputMetadata()
+        #expect(!input.hasInitialInput)
+        #expect(input.byteCount == 0)
+
+        // The existing focus-triggered resume must still be able to wake it.
+        #expect(store.resumeAgentHibernation(panelId: panelId, focus: false))
+        #expect(!panel.isAgentHibernated)
+    }
+
+    /// Default-off companion: without the defer setting, an auto-resume
+    /// agent-hook binding keeps firing its startup launch immediately.
+    @Test("Dock restore fires an agent-hook binding immediately while the setting is off")
+    func deferDisabledKeepsAgentHookBindingLaunch() throws {
+        let suiteName = "cmux-agent-session-deferred-resume-binding-off-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let snapshot = try Self.makeDockAgentSnapshot(
+            sessionId: "dock-defer-binding-off-session-\(UUID().uuidString)",
+            includeAgentHookBinding: true
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { store.closeAllPanels() }
+
+        let restoredIds = store.restoreSessionSnapshot(snapshot)
+        let panelId = try #require(restoredIds.values.first)
+        let panel = try #require(store.panels[panelId] as? TerminalPanel)
+
+        #expect(!panel.isAgentHibernated)
+        let input = panel.surface.debugInitialInputMetadata()
+        #expect(input.hasInitialInput)
+        #expect(input.byteCount > 0)
+    }
+
+    private static func makeDockAgentSnapshot(
+        sessionId: String,
+        includeAgentHookBinding: Bool = false
+    ) throws -> SessionSplitContainerSnapshot {
         let panelId = UUID()
         let agent = SessionRestorableAgentSnapshot(
             kind: .codex,
@@ -159,6 +229,18 @@ struct AgentSessionDeferredResumeSettingsTests {
             workingDirectory: "/tmp/dock-defer-project",
             launchCommand: nil
         )
+        let resumeBinding = includeAgentHookBinding
+            ? SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume \(sessionId)",
+                cwd: "/tmp/dock-defer-project",
+                checkpointId: sessionId,
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            )
+            : nil
         let panel = SessionPanelSnapshot(
             id: panelId,
             type: .terminal,
@@ -172,6 +254,7 @@ struct AgentSessionDeferredResumeSettingsTests {
             terminal: SessionTerminalPanelSnapshot(
                 workingDirectory: "/tmp/dock-defer-project",
                 agent: agent,
+                resumeBinding: resumeBinding,
                 wasAgentRunning: true
             ),
             browser: nil,
