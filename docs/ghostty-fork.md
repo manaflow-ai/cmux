@@ -12,7 +12,10 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `78621f8ce`, the reviewed head of
+The submodule pinned by this branch is `112faaa49`, the reviewed head of
+https://github.com/manaflow-ai/ghostty/pull/169, merged to fork main as
+`64d7fca66`. It combines the renderer-memory line ending at `78621f8ce` with
+the bounded app-mailbox fix at `2258bea96`. The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged
 https://github.com/manaflow-ai/ghostty/pull/153,
 https://github.com/manaflow-ai/ghostty/pull/165, and
@@ -141,7 +144,7 @@ owner per native tab group. The five PRs landed in merge commits `1e86b46e2`,
     single-owner tab observation, conservative tab selection, and off-main
     teardown without synchronous main-queue waits.
 
-The pinned `78621f8ce` universal ReleaseFast GhosttyKit archive was built with
+The renderer-base `78621f8ce` universal ReleaseFast GhosttyKit archive was built with
 Zig 0.16.0 on macOS 26.3 and Xcode 26.5. It is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-78621f8ce6c113c520cc9388f7306643a2329502-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. Verification
@@ -257,6 +260,14 @@ The issue-branch `2258bea96` universal ReleaseFast GhosttyKit archive is
 published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2258bea96ddc005156beceb741b7dabb283ec615-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The integrated `112faaa49` universal ReleaseFast GhosttyKit archive is
+published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-112faaa496f49cb3d7c74b82cbdc802929cc5a8d-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. Verification
+covered the archive layout and plist, absence of AppleDouble entries, every
+declared architecture, and `_ghostty_surface_rebuild_renderer` plus
+`_ghostty_init` in all three static-library slices.
 
 ### PTY reader and child lifecycle teardown
 
