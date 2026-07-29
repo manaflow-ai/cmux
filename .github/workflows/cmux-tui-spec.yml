@@ -46,5 +46,11 @@ jobs:
       - name: Check SDK schema against runtime inventory
         run: python3 cmux-tui/scripts/check-sdk-schema.py
 
+      - name: Test public resource boundary checker
+        run: python3 cmux-tui/scripts/test_check_resource_api_boundary.py
+
+      - name: Check public resource API boundary
+        run: python3 cmux-tui/scripts/check-resource-api-boundary.py
+
       - name: Check generated SDK wire layers
         run: python3 cmux-tui/bindings/codegen/generate.py --check
