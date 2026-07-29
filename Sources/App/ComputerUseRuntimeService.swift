@@ -29,6 +29,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
 
     private let bundledHelperAppURL: URL?
     private let transport: SocketTransport
+    private let applicationSurfaceInputConnection:
+        PersistentSocketLineConnection
     private var installedHelperURL: URL?
     private var helperLifecycleTask: Task<Void, Never>?
     private var helperLifecycleCancellationActions: [Int: @Sendable () -> Void] = [:]
@@ -64,6 +66,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     ) {
         self.paths = paths
         self.transport = transport
+        applicationSurfaceInputConnection =
+            PersistentSocketLineConnection(transport: transport)
         stateAuthenticationKey = Self.makeStateAuthenticationKey()
         let nestedURL = bundle.bundleURL
             .appendingPathComponent("Contents/Library/\(Self.helperAppName).app", isDirectory: true)
@@ -488,7 +492,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             transport: transport,
             timeout: 3,
             expectedPeerIdentity: identity,
-            socketURL: paths.daemonSocketURL
+            socketURL: paths.daemonSocketURL,
+            persistentConnection: applicationSurfaceInputConnection
         ) else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
@@ -539,7 +544,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             transport: transport,
             timeout: 3,
             expectedPeerIdentity: identity,
-            socketURL: paths.daemonSocketURL
+            socketURL: paths.daemonSocketURL,
+            persistentConnection: applicationSurfaceInputConnection
         ) else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
@@ -2164,7 +2170,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         transport: SocketTransport,
         timeout: TimeInterval,
         expectedPeerIdentity: AgentPIDProcessIdentity? = nil,
-        socketURL: URL
+        socketURL: URL,
+        persistentConnection: PersistentSocketLineConnection? = nil
     ) async -> [String: Any]? {
         await Task.detached(priority: .userInitiated) {
             sendDaemonRequestSynchronously(
@@ -2173,7 +2180,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 transport: transport,
                 timeout: timeout,
                 expectedPeerIdentity: expectedPeerIdentity,
-                socketURL: socketURL
+                socketURL: socketURL,
+                persistentConnection: persistentConnection
             )
         }.value
     }
@@ -2184,7 +2192,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         transport: SocketTransport,
         timeout: TimeInterval,
         expectedPeerIdentity: AgentPIDProcessIdentity? = nil,
-        socketURL: URL
+        socketURL: URL,
+        persistentConnection: PersistentSocketLineConnection? = nil
     ) -> [String: Any]? {
         var authenticatedRequest: [String: Any] = [
             "auth_token": paths.authenticationToken,
@@ -2194,33 +2203,45 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             authenticatedRequest["host_auth_token"] =
                 paths.hostAuthenticationToken
         }
-        guard
-            JSONSerialization.isValidJSONObject(authenticatedRequest),
-            let data = try? JSONSerialization.data(withJSONObject: authenticatedRequest),
-            let line = String(data: data, encoding: .utf8)
-        else {
+        guard JSONSerialization.isValidJSONObject(authenticatedRequest),
+              let data = try? JSONSerialization.data(
+                  withJSONObject: authenticatedRequest
+              ),
+              let line = String(data: data, encoding: .utf8) else {
             return nil
         }
         let socketPath = socketURL.path
-        guard
-            let probe = transport.probeCommandWithPeerProcessID(
+        let validatePeer: @Sendable (pid_t?) -> Bool = { peerProcessID in
+            expectedPeerIdentity.map { expected in
+                guard
+                    peerProcessID == expected.pid,
+                    let current = AgentPIDProcessIdentity(
+                        pid: expected.pid
+                    )
+                else {
+                    return false
+                }
+                return current == expected
+            } ?? true
+        }
+        let probe: (response: String, peerProcessID: pid_t?)?
+        if let persistentConnection {
+            probe = persistentConnection.command(
                 line,
                 at: socketPath,
                 timeout: timeout,
-                validatingPeer: { peerProcessID in
-                    expectedPeerIdentity.map { expected in
-                        guard
-                            peerProcessID == expected.pid,
-                            let current = AgentPIDProcessIdentity(
-                                pid: expected.pid
-                            )
-                        else {
-                            return false
-                        }
-                        return current == expected
-                    } ?? true
-                }
-            ),
+                validatingPeer: validatePeer
+            )
+        } else {
+            probe = transport.probeCommandWithPeerProcessID(
+                line,
+                at: socketPath,
+                timeout: timeout,
+                validatingPeer: validatePeer
+            )
+        }
+        guard
+            let probe,
             let data = probe.response.data(using: .utf8),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
