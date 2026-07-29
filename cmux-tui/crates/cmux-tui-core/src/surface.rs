@@ -1707,17 +1707,37 @@ impl Surface {
             .upgrade()
             .expect("control responses are live while installing their handler")
             .set_deferred_cell_pixel_handler(Arc::new(move |request_id, expected, resolution| {
+                if matches!(
+                    &resolution,
+                    crate::terminal_host_runtime::DeferredCellPixelResolution::Disconnected
+                ) {
+                    return;
+                }
                 let (Some(surface), Some(responses)) = (surface.upgrade(), responses.upgrade())
                 else {
                     return;
                 };
-                let _ = std::thread::Builder::new()
-                    .name(format!("surface-{}-cell-pixel-ack", surface.id))
-                    .spawn(move || {
-                        surface.reconcile_deferred_cell_pixel_ack(
-                            &responses, request_id, expected, resolution,
-                        );
-                    });
+                let Some(mux) = surface.as_pty().and_then(|pty| pty.mux.upgrade()) else {
+                    return;
+                };
+                let queued_surface = surface.clone();
+                let queued_responses = responses.clone();
+                let queued_resolution = resolution.clone();
+                if !mux.submit_deferred_cell_pixel_ack(move || {
+                    queued_surface.reconcile_deferred_cell_pixel_ack(
+                        &queued_responses,
+                        request_id,
+                        expected,
+                        queued_resolution,
+                    );
+                }) {
+                    // The bounded pool is saturated or cannot create its first
+                    // worker. Reconcile on the already-owned host reader
+                    // instead of dropping a valid acknowledgement.
+                    surface.reconcile_deferred_cell_pixel_ack(
+                        &responses, request_id, expected, resolution,
+                    );
+                }
             }));
     }
 

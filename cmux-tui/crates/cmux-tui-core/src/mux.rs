@@ -5178,6 +5178,13 @@ impl Mux {
         self.reconcile_cell_pixel_ack_locked(surface, target);
     }
 
+    pub(crate) fn submit_deferred_cell_pixel_ack(
+        &self,
+        task: impl FnOnce() + Send + 'static,
+    ) -> bool {
+        self.deadline_fanout_pool.submit(Box::new(task))
+    }
+
     fn reconcile_cell_pixel_ack_locked(&self, surface: SurfaceId, target: (u16, u16)) {
         let mut pending = self.pending_cell_pixels.lock().unwrap();
         let Some(update) = pending.as_mut().filter(|update| update.target == target) else {

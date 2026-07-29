@@ -1129,7 +1129,7 @@ struct RemoteSurfaceAttachExecutor {
 }
 
 fn remote_attach_background_limit(worker_count: usize) -> usize {
-    worker_count.saturating_sub(1).max(1)
+    worker_count.saturating_sub(1)
 }
 
 enum RemoteSurfaceAttachAdmission {
