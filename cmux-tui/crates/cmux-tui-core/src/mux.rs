@@ -14217,6 +14217,114 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_confirmation_preview_is_read_only() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let before = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            (
+                screen.layout_revision,
+                format!("{:?}", screen.layout_snapshot()),
+                format!("{:?}", screen.layout_undo),
+                state.panes[&right_pane].tabs.clone(),
+            )
+        });
+
+        let first_preview = mux.undo_layout(right_pane, None, false).unwrap();
+        let second_preview = mux.undo_layout(right_pane, None, false).unwrap();
+
+        assert_eq!(
+            first_preview,
+            LayoutUndoResult::ConfirmationRequired {
+                screen: mux.with_state(|state| state.workspaces[0].screens[0].id),
+                revision: before.0,
+                closes_panes: vec![right_pane],
+            }
+        );
+        assert_eq!(second_preview, first_preview);
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.layout_revision, before.0);
+            assert_eq!(format!("{:?}", screen.layout_snapshot()), before.1);
+            assert_eq!(format!("{:?}", screen.layout_undo), before.2);
+            assert_eq!(state.panes[&right_pane].tabs, before.3);
+        });
+    }
+
+    #[test]
+    fn resource_layout_undo_preview_does_not_enter_the_durable_journal() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let (selectors, before_screen) = {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let state = mux.state.lock().unwrap();
+            let (workspace, screen) = state.screen_of(right_pane).unwrap();
+            (
+                crate::ResourceSelectors {
+                    machine: Some(registry.machine_id().to_string()),
+                    session: Some(registry.session_id().to_string()),
+                    workspace: Some(state.workspaces[workspace].public_id.to_string()),
+                    screen: Some(state.workspaces[workspace].screens[screen].public_id.to_string()),
+                    ..crate::ResourceSelectors::default()
+                },
+                (
+                    state.workspaces[workspace].screens[screen].layout_revision,
+                    format!("{:?}", state.workspaces[workspace].screens[screen].layout_snapshot()),
+                    format!("{:?}", state.workspaces[workspace].screens[screen].layout_undo),
+                ),
+            )
+        };
+        let fields = serde_json::json!({"confirm_close":false}).as_object().unwrap().clone();
+        let fingerprint = serde_json::json!({
+            "operation":"screen.layout.undo",
+            "selectors":selectors,
+            "fields":fields,
+        });
+        let mutation = WorkspaceMutation::new("read-only-undo-preview", "test").unwrap();
+        let before_registry =
+            mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+
+        let error = mux
+            .resource_topology_operation(
+                crate::resource::ResourceOperation::ScreenLayoutUndo,
+                selectors,
+                fields,
+                Some(before_registry.revision),
+                &mutation,
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            error.downcast_ref::<ResourceError>().map(|error| error.code.as_str()),
+            Some("confirmation.required")
+        );
+        mux.with_state(|state| {
+            let (workspace, screen) = state.screen_of(right_pane).unwrap();
+            let screen = &state.workspaces[workspace].screens[screen];
+            assert_eq!(screen.layout_revision, before_screen.0);
+            assert_eq!(format!("{:?}", screen.layout_snapshot()), before_screen.1);
+            assert_eq!(format!("{:?}", screen.layout_undo), before_screen.2);
+        });
+        let registry = mux.workspace_registry.lock().unwrap();
+        assert_eq!(registry.resource_topology_snapshot().unwrap(), before_registry);
+        assert!(
+            registry.resource_events_after(before_registry.revision).unwrap().batches.is_empty()
+        );
+        assert!(
+            registry
+                .lookup_resource_effect(&mutation.id, "screen.layout.undo", &fingerprint,)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
     fn layout_undo_confirmation_fences_exact_created_pane_tab_membership() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 22))).unwrap();
