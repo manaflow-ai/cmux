@@ -1082,7 +1082,7 @@ struct ApplicationSurfaceTests {
             $0 == applicationProcessID
         }
 
-        let listed = try #require(CMUXCLI.applicationWindowListEntry(
+        let listed = try #require(ApplicationWindowListFilter.entry(
             base,
             currentProcessID: currentProcessID,
             isRegularApplication: regularApplication
@@ -1095,7 +1095,7 @@ struct ApplicationSurfaceTests {
         invalid[kCGWindowOwnerPID as String] = NSNumber(
             value: currentProcessID
         )
-        #expect(CMUXCLI.applicationWindowListEntry(
+        #expect(ApplicationWindowListFilter.entry(
             invalid,
             currentProcessID: currentProcessID,
             isRegularApplication: regularApplication
@@ -1103,7 +1103,7 @@ struct ApplicationSurfaceTests {
 
         invalid = base
         invalid[kCGWindowSharingState as String] = NSNumber(value: 0)
-        #expect(CMUXCLI.applicationWindowListEntry(
+        #expect(ApplicationWindowListFilter.entry(
             invalid,
             currentProcessID: currentProcessID,
             isRegularApplication: regularApplication
@@ -1111,7 +1111,7 @@ struct ApplicationSurfaceTests {
 
         invalid = base
         invalid[kCGWindowAlpha as String] = NSNumber(value: 0)
-        #expect(CMUXCLI.applicationWindowListEntry(
+        #expect(ApplicationWindowListFilter.entry(
             invalid,
             currentProcessID: currentProcessID,
             isRegularApplication: regularApplication
@@ -1119,7 +1119,7 @@ struct ApplicationSurfaceTests {
 
         invalid = base
         invalid[kCGWindowIsOnscreen as String] = false
-        #expect(CMUXCLI.applicationWindowListEntry(
+        #expect(ApplicationWindowListFilter.entry(
             invalid,
             currentProcessID: currentProcessID,
             isRegularApplication: regularApplication
@@ -1132,13 +1132,13 @@ struct ApplicationSurfaceTests {
             "Width": 0,
             "Height": 600,
         ] as NSDictionary
-        #expect(CMUXCLI.applicationWindowListEntry(
+        #expect(ApplicationWindowListFilter.entry(
             invalid,
             currentProcessID: currentProcessID,
             isRegularApplication: regularApplication
         ) == nil)
 
-        #expect(CMUXCLI.applicationWindowListEntry(
+        #expect(ApplicationWindowListFilter.entry(
             base,
             currentProcessID: currentProcessID,
             isRegularApplication: { _ in false }

@@ -3369,7 +3369,7 @@ struct CMUXCLI {
         ) as? [[String: Any]] ?? []
         let currentProcessID = getpid()
         let windows = rawWindows.compactMap { window in
-            Self.applicationWindowListEntry(
+            ApplicationWindowListFilter.entry(
                 window,
                 currentProcessID: currentProcessID,
                 isRegularApplication: { processID in
@@ -3393,64 +3393,6 @@ struct CMUXCLI {
                 print("\(window["window_id"] ?? "")\t\(window["process_id"] ?? "")\t\(owner)\t\(title)")
             }
         }
-    }
-
-    static func applicationWindowListEntry(
-        _ window: [String: Any],
-        currentProcessID: pid_t,
-        isRegularApplication: (pid_t) -> Bool
-    ) -> [String: Any]? {
-        guard
-            let rawWindowID = window[kCGWindowNumber as String] as? NSNumber,
-            rawWindowID.uint64Value > 0,
-            rawWindowID.uint64Value <= UInt32.max,
-            let rawProcessID =
-                window[kCGWindowOwnerPID as String] as? NSNumber,
-            rawProcessID.int64Value > 0,
-            rawProcessID.int64Value <= Int32.max,
-            let owner = window[kCGWindowOwnerName as String] as? String,
-            !owner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            (window[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
-            window[kCGWindowIsOnscreen as String] as? Bool == true,
-            (window[kCGWindowSharingState as String] as? NSNumber)?
-                .intValue != 0,
-            let bounds =
-                window[kCGWindowBounds as String] as? NSDictionary,
-            let frame = CGRect(dictionaryRepresentation: bounds)
-        else {
-            return nil
-        }
-        let processID = pid_t(rawProcessID.int32Value)
-        let alpha = (
-            window[kCGWindowAlpha as String] as? NSNumber
-        )?.doubleValue ?? 1
-        guard
-            processID != currentProcessID,
-            isRegularApplication(processID),
-            alpha.isFinite,
-            alpha > 0.01,
-            frame.width.isFinite,
-            frame.height.isFinite,
-            (64...16_384).contains(frame.width),
-            (64...16_384).contains(frame.height)
-        else {
-            return nil
-        }
-        let title = (
-            window[kCGWindowName as String] as? String
-        ).flatMap { value in
-            value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? nil
-                : value
-        } ?? owner
-        return [
-            "window_id": rawWindowID.intValue,
-            "process_id": Int(processID),
-            "owner": owner,
-            "title": title,
-            "width": frame.width,
-            "height": frame.height,
-        ]
     }
 
     private func sanitizedApplicationWindowListField(_ value: String) -> String {
