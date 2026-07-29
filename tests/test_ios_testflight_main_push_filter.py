@@ -517,6 +517,37 @@ def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
     }
 
 
+def test_schedule_decision_routes_internal_cron_to_internal_history() -> None:
+    first_run = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        input_variant="",
+    )
+    produced_artifact = first_run["producedArtifactName"]
+    assert isinstance(produced_artifact, str)
+    assert first_run["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "",
+        "variant": "internal",
+    }
+    assert produced_artifact == "ios-testflight-build-metadata"
+
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        input_variant="",
+        prior_sha="internal-base-sha",
+        prior_artifact=produced_artifact,
+        changed_files=("docs/cli-contract.md",),
+    )
+
+    assert result["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "internal-base-sha",
+        "variant": "internal",
+    }
+
+
 def test_demo_history_skips_newer_internal_artifact() -> None:
     result = run_decision_scenario(
         event_name="schedule",
@@ -644,6 +675,36 @@ def test_ordering_retries_transient_api_failures() -> None:
             "last_uploaded_sha": "base-sha",
             "variant": "internal",
         }
+
+
+def test_ordering_ignores_later_active_runs() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_uploads=(
+            ("newer-active-sha", "ios-testflight-build-metadata"),
+            ("base-sha", "ios-testflight-build-metadata"),
+        ),
+        prior_run_ids=(150, 50),
+        head_sha="head-sha",
+        changed_files=("docs/cli-contract.md",),
+        blocking_prior_run=True,
+        upload_job_starts_late=True,
+    )
+
+    assert result["waitCalls"] == []
+    assert result["priorRunStatuses"] == [
+        "in_progress",
+        "completed",
+        "in_progress",
+        "completed",
+    ]
+    assert result["uploadJobStatuses"] == [None, "completed"]
+    assert result["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
+    }
 
 
 def test_ordering_includes_manual_current_and_prior_runs() -> None:
@@ -784,11 +845,13 @@ if __name__ == "__main__":
     test_truncated_schedule_comparison_fails_open()
     test_schedule_comparison_failure_fails_open()
     test_schedule_decision_routes_demo_cron_to_demo_history()
+    test_schedule_decision_routes_internal_cron_to_internal_history()
     test_demo_history_skips_newer_internal_artifact()
     test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
     test_scheduled_run_waits_for_an_earlier_upload()
     test_scheduled_run_waits_before_upload_job_exists()
     test_ordering_retries_transient_api_failures()
+    test_ordering_ignores_later_active_runs()
     test_ordering_includes_manual_current_and_prior_runs()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
