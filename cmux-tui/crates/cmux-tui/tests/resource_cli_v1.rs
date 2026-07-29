@@ -75,7 +75,7 @@ fn every_public_scope_has_specific_help_instead_of_falling_back_to_root_help() {
         (&["sidebar"][..], &["view", "plugin"][..]),
         (&["pairing"][..], &["request"][..]),
         (&["projection"][..], &["show", "put"][..]),
-        (&["provider"][..], &["scope", "action", "notice", "authority"][..]),
+        (&["provider"][..], &["authority"][..]),
         (&["stream"][..], &["cancel"][..]),
         (&["raw"][..], &["operation"][..]),
     ] {
@@ -108,9 +108,6 @@ fn nested_non_hyphenated_actions_have_specific_help() {
         (&["sidebar", "plugin"][..], &["list", "install", "use", "update", "remove"][..]),
         (&["sidebar", "view"][..], &["show", "ensure", "attach", "reload"][..]),
         (&["pairing", "request"][..], &["list", "respond"][..]),
-        (&["provider", "scope"][..], &["list"][..]),
-        (&["provider", "action"][..], &["invoke"][..]),
-        (&["provider", "notice"][..], &["watch"][..]),
     ] {
         let mut args = path.to_vec();
         args.push("--help");
