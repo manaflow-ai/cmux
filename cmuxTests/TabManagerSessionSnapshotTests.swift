@@ -3585,6 +3585,50 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             startupCommand.contains("CMUX_SSH_ATTEMPT_ID"),
             startupCommand
         )
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ordinary-restore-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sshMarker = directory.appendingPathComponent("ssh-invoked")
+        let mockSSH = directory.appendingPathComponent("ssh")
+        try """
+        #!/bin/sh
+        printf invoked > "$CMUX_TEST_SSH_MARKER"
+        """.write(to: mockSSH, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: mockSSH.path
+        )
+
+        let process = Process()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", startupCommand]
+        process.environment = [
+            "CMUX_TEST_SSH_MARKER": sshMarker.path,
+            "HOME": directory.path,
+            "PATH": directory.path,
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = standardError
+        try process.run()
+        process.waitUntilExit()
+
+        let errorOutput = String(
+            decoding: standardError.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        )
+        XCTAssertNotEqual(process.terminationStatus, 0, errorOutput)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: sshMarker.path),
+            "A relay-backed restore must not bypass lifecycle registration by launching plain SSH"
+        )
+        XCTAssertFalse(
+            errorOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "A fail-closed restore must explain how to recover"
+        )
     }
 
     func testSessionRemoteWorkspaceSnapshotRequiresRelayPortForPTYRestore() throws {

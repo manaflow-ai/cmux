@@ -4631,6 +4631,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let bridgeReady = DispatchSemaphore(value: 0)
         let closeBridge = DispatchSemaphore(value: 0)
         let readinessAcknowledged = DispatchSemaphore(value: 0)
+        let unexpectedReadinessAfterAcknowledgement = expectation(
+            description: "readiness delivery stopped after acknowledgement"
+        )
+        unexpectedReadinessAfterAcknowledgement.isInverted = true
 
         defer {
             Darwin.close(listenerFD)
@@ -4687,8 +4691,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 }.filter {
                     $0 == "workspace.remote.terminal_session_connected"
                 }.count
-                if readinessReportCount == 1 {
+                if readinessReportCount <= 4 {
                     return nil
+                }
+                if readinessReportCount > 5 {
+                    unexpectedReadinessAfterAcknowledgement.fulfill()
                 }
                 readinessAcknowledged.signal()
                 return self.v2Response(
@@ -4717,13 +4724,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
         }
-        let socketHandled = (0..<4).map {
-            _ in startMockServerAllowingNoResponse(
-                listenerFD: listenerFD,
-                state: state,
-                handler: socketHandler
-            )
-        }
+        let socketHandled = startMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 10,
+            handler: socketHandler
+        )
 
         let bridgeHandled = expectation(description: "controlled bridge handled")
         DispatchQueue.global(qos: .userInitiated).async {
@@ -4807,7 +4813,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         XCTAssertEqual(exited.wait(timeout: .now() + 5), .success)
 
-        wait(for: socketHandled, timeout: 5)
+        wait(for: [socketHandled, unexpectedReadinessAfterAcknowledgement], timeout: 0.5)
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         XCTAssertEqual(process.terminationStatus, 0, stderr)
@@ -4819,8 +4825,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             methods.filter {
                 $0 == "workspace.remote.terminal_session_connected"
             }.count,
-            2,
-            "A live PTY must retry its authoritative readiness report after a transient no-response"
+            5,
+            "A live PTY must keep retrying authoritative readiness beyond transient local backpressure"
         )
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_resize" }.count, 1)
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 1)

@@ -3680,6 +3680,74 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testClearingProxyArtifactsPreservesSSHNotificationsForSameHost() {
+        let store = TerminalNotificationStore.shared
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = originalAppDelegate ?? AppDelegate()
+        let originalNotificationStore = appDelegate.notificationStore
+        AppDelegate.shared = appDelegate
+        appDelegate.notificationStore = store
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "dev@example.com",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64_019,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-notification-isolation.sock",
+                terminalStartupCommand: "ssh dev@example.com"
+            ),
+            autoConnect: false
+        )
+
+        let proxyNotificationID = UUID()
+        let sshNotificationID = UUID()
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: proxyNotificationID,
+                tabId: workspace.id,
+                surfaceId: nil,
+                correlationKey: "remote-host:example.com:proxy",
+                title: "Remote Proxy Unavailable",
+                subtitle: "dev@example.com",
+                body: "proxy unavailable",
+                createdAt: Date(),
+                isRead: false
+            ),
+            TerminalNotification(
+                id: sshNotificationID,
+                tabId: workspace.id,
+                surfaceId: nil,
+                correlationKey: "remote-host:example.com",
+                title: "Remote SSH Error",
+                subtitle: "dev@example.com",
+                body: "authentication failed",
+                createdAt: Date(),
+                isRead: false
+            ),
+        ])
+
+        workspace.clearProxyOnlyRemoteSidebarArtifacts()
+
+        XCTAssertEqual(
+            store.notifications.map(\.id),
+            [sshNotificationID],
+            "Proxy recovery must not clear unrelated SSH errors for the same host"
+        )
+    }
+
+    @MainActor
     func testDefaultCloudProxyOnlyErrorsDoNotPolluteConnectedSidebar() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
