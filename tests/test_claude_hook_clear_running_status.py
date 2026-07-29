@@ -297,6 +297,15 @@ def verify_stop_first_clear_transfers_background_work(cli_path: str) -> None:
                 "A Stop-first /clear did not publish replacement ownership:\n"
                 f"clear_commands={clear_commands!r}"
             )
+        if not has_command_with(
+            clear_commands,
+            '"method":"feed.push"',
+            '"_cmux_agent_lifecycle":"running"',
+        ):
+            raise RuntimeError(
+                "A Stop-first /clear did not publish its accepted lifecycle to "
+                f"Feed:\nclear_commands={clear_commands!r}"
+            )
 
         state = json.loads(state_path.read_text())
         clear_record = state["sessions"].get(clear_session_id)
@@ -376,6 +385,35 @@ def verify_unrelated_turn_event_preserves_pending_clear_handoff(
                 "background_tasks": [],
                 "session_crons": [],
             }
+        elif unrelated_subcommand == "notification":
+            unrelated_payload = {
+                "session_id": unrelated_session_id,
+                "cwd": "/tmp",
+                "notification_type": "permission_prompt",
+                "message": "unrelated permission request",
+            }
+        elif unrelated_subcommand == "pre-tool-use":
+            unrelated_payload = {
+                "session_id": unrelated_session_id,
+                "cwd": "/tmp",
+                "tool_name": "Bash",
+                "tool_input": {"command": "echo unrelated"},
+            }
+        elif unrelated_subcommand == "push-notification":
+            unrelated_payload = {
+                "session_id": unrelated_session_id,
+                "hook_event_name": "PostToolUse",
+                "cwd": "/tmp",
+                "tool_name": "PushNotification",
+                "tool_input": {
+                    "message": "unrelated push",
+                    "status": "proactive",
+                },
+                "tool_response": {
+                    "message": "unrelated push",
+                    "localSent": True,
+                },
+            }
         else:
             raise ValueError(f"Unsupported unrelated hook: {unrelated_subcommand}")
 
@@ -398,6 +436,7 @@ def verify_unrelated_turn_event_preserves_pending_clear_handoff(
             "notify_target_async ",
             '"method":"surface.resume.set"',
             '"method":"surface.resume.clear"',
+            '"method":"feed.push"',
         ]
         for fragment in forbidden_fragments:
             if has_command(unrelated_commands, fragment):
@@ -1559,6 +1598,153 @@ def verify_vacant_surface_accepts_authoritative_resume(cli_path: str) -> None:
             )
 
 
+def verify_inactive_session_resume_requires_newer_generation(cli_path: str) -> None:
+    with live_process_pid() as older_pid:
+        with live_process_pid() as newer_pid:
+            for replay_kind in ["older", "same", "unavailable"]:
+                workspace_id = str(uuid.uuid4()).upper()
+                surface_id = str(uuid.uuid4()).upper()
+                session_id = f"inactive-{replay_kind}-{uuid.uuid4().hex}"
+
+                with HookSocketServer(
+                    workspace_id=workspace_id,
+                    surface_id=surface_id,
+                ) as server:
+                    state_path = (
+                        Path(server.root.name)
+                        / f"inactive-{replay_kind}-resume-state.json"
+                    )
+                    env = hook_environment(
+                        server,
+                        workspace_id,
+                        surface_id,
+                        state_path,
+                    )
+                    newer_env = env.copy()
+                    newer_env["CMUX_CLAUDE_PID"] = str(newer_pid)
+                    run_claude_hook(
+                        cli_path,
+                        server.socket_path,
+                        "session-start",
+                        {
+                            "session_id": session_id,
+                            "source": "startup",
+                            "cwd": "/tmp",
+                        },
+                        newer_env,
+                    )
+
+                    replay_env = newer_env.copy()
+                    if replay_kind == "older":
+                        replay_env["CMUX_CLAUDE_PID"] = str(older_pid)
+                    elif replay_kind == "unavailable":
+                        replay_env.pop("CMUX_CLAUDE_PID")
+
+                    replay_start = len(server.commands)
+                    run_claude_hook(
+                        cli_path,
+                        server.socket_path,
+                        "session-start",
+                        {
+                            "session_id": session_id,
+                            "source": "resume",
+                            "cwd": "/tmp",
+                        },
+                        replay_env,
+                    )
+                    replay_commands = server.commands[replay_start:]
+                    forbidden_fragments = [
+                        "set_agent_pid claude_code ",
+                        "set_agent_lifecycle claude_code ",
+                        "set_status claude_code ",
+                        "clear_notifications ",
+                        '"method":"surface.resume.set"',
+                        '"method":"surface.resume.clear"',
+                        '"method":"feed.push"',
+                    ]
+                    for fragment in forbidden_fragments:
+                        if has_command(replay_commands, fragment):
+                            raise RuntimeError(
+                                f"An inactive session accepted a {replay_kind} "
+                                f"generation resume:\nfragment={fragment!r}\n"
+                                f"commands={replay_commands!r}"
+                            )
+
+                    state = json.loads(state_path.read_text())
+                    record = state["sessions"][session_id]
+                    if record.get("pid") != newer_pid:
+                        raise RuntimeError(
+                            f"A {replay_kind} resume rewrote an inactive session:\n"
+                            f"record={record!r}"
+                        )
+                    if surface_id in state.get("activeSessionsBySurface", {}):
+                        raise RuntimeError(
+                            f"A {replay_kind} resume claimed an inactive session's "
+                            f"surface:\nstate={state!r}"
+                        )
+
+            workspace_id = str(uuid.uuid4()).upper()
+            surface_id = str(uuid.uuid4()).upper()
+            session_id = f"inactive-newer-{uuid.uuid4().hex}"
+            with HookSocketServer(
+                workspace_id=workspace_id,
+                surface_id=surface_id,
+            ) as server:
+                state_path = Path(server.root.name) / "inactive-newer-resume-state.json"
+                env = hook_environment(server, workspace_id, surface_id, state_path)
+                older_env = env.copy()
+                older_env["CMUX_CLAUDE_PID"] = str(older_pid)
+                newer_env = env.copy()
+                newer_env["CMUX_CLAUDE_PID"] = str(newer_pid)
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "session-start",
+                    {
+                        "session_id": session_id,
+                        "source": "startup",
+                        "cwd": "/tmp",
+                    },
+                    older_env,
+                )
+
+                resume_start = len(server.commands)
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "session-start",
+                    {
+                        "session_id": session_id,
+                        "source": "resume",
+                        "cwd": "/tmp",
+                    },
+                    newer_env,
+                )
+                resume_commands = server.commands[resume_start:]
+                if not has_command_with(
+                    resume_commands,
+                    f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+                    f"--panel={surface_id}",
+                ):
+                    raise RuntimeError(
+                        "A proven newer generation could not claim an inactive "
+                        f"session:\ncommands={resume_commands!r}"
+                    )
+
+                state = json.loads(state_path.read_text())
+                record = state["sessions"][session_id]
+                surface_owner = state["activeSessionsBySurface"][surface_id]
+                if (
+                    record.get("pid") != newer_pid
+                    or surface_owner.get("sessionId") != session_id
+                ):
+                    raise RuntimeError(
+                        "A proven newer resume did not publish inactive-session "
+                        f"ownership:\nrecord={record!r}\n"
+                        f"surface_owner={surface_owner!r}"
+                    )
+
+
 def verify_older_generation_resume_is_rejected(cli_path: str) -> None:
     with live_process_pid() as older_pid:
         with live_process_pid() as newer_pid:
@@ -1889,6 +2075,74 @@ def verify_new_generation_resumes_same_session(cli_path: str) -> None:
                     "The resumed session kept its stale process identity:\n"
                     f"record={record!r}"
                 )
+
+            stale_events: list[tuple[str, dict[str, object]]] = [
+                (
+                    "prompt-submit",
+                    {
+                        "session_id": session_id,
+                        "turn_id": "displaced-prompt",
+                        "cwd": "/tmp",
+                    },
+                ),
+                (
+                    "stop",
+                    {
+                        "session_id": session_id,
+                        "turn_id": "displaced-stop",
+                        "cwd": "/tmp",
+                        "last_assistant_message": "old process stopped late",
+                        "background_tasks": [],
+                        "session_crons": [],
+                    },
+                ),
+            ]
+            for stale_subcommand, stale_payload in stale_events:
+                stale_start = len(server.commands)
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    stale_subcommand,
+                    stale_payload,
+                    env,
+                )
+                stale_commands = server.commands[stale_start:]
+                forbidden_fragments = [
+                    "set_agent_pid claude_code ",
+                    "set_agent_lifecycle claude_code ",
+                    "set_status claude_code ",
+                    "clear_notifications ",
+                    "notify_target_async ",
+                    '"method":"surface.resume.set"',
+                    '"method":"surface.resume.clear"',
+                    '"method":"feed.push"',
+                ]
+                for fragment in forbidden_fragments:
+                    if has_command(stale_commands, fragment):
+                        raise RuntimeError(
+                            f"A displaced process {stale_subcommand} published over "
+                            f"the resumed generation:\nfragment={fragment!r}\n"
+                            f"commands={stale_commands!r}"
+                        )
+
+                state = json.loads(state_path.read_text())
+                record = state["sessions"][session_id]
+                if (
+                    record.get("pid") != replacement_pid
+                    or record.get("agentLifecycle") != "idle"
+                ):
+                    raise RuntimeError(
+                        f"A displaced process {stale_subcommand} rewrote the resumed "
+                        f"generation:\nrecord={record!r}"
+                    )
+                surface_owner = state["activeSessionsBySurface"][surface_id]
+                if surface_owner.get("sessionId") != session_id or surface_owner.get(
+                    "turnId"
+                ):
+                    raise RuntimeError(
+                        f"A displaced process {stale_subcommand} rewrote active "
+                        f"ownership:\nsurface_owner={surface_owner!r}\nstate={state!r}"
+                    )
 
 
 def verify_new_generation_resume_clears_stale_background_work(
@@ -2473,6 +2727,18 @@ def main() -> int:
             cli_path,
             "stop",
         )
+        verify_unrelated_turn_event_preserves_pending_clear_handoff(
+            cli_path,
+            "notification",
+        )
+        verify_unrelated_turn_event_preserves_pending_clear_handoff(
+            cli_path,
+            "pre-tool-use",
+        )
+        verify_unrelated_turn_event_preserves_pending_clear_handoff(
+            cli_path,
+            "push-notification",
+        )
         verify_stale_start_preserves_pending_clear_handoff(cli_path)
         verify_stale_turn_event_preserves_pending_clear_handoff(cli_path, "stop")
         verify_stale_turn_event_preserves_pending_clear_handoff(
@@ -2490,6 +2756,7 @@ def main() -> int:
         verify_authoritative_resume_supersedes_clear_tombstone(cli_path)
         verify_unproven_process_cannot_consume_clear_handoff(cli_path)
         verify_vacant_surface_accepts_authoritative_resume(cli_path)
+        verify_inactive_session_resume_requires_newer_generation(cli_path)
         verify_older_generation_resume_is_rejected(cli_path)
         verify_new_generation_resumes_same_session(cli_path)
         verify_new_generation_resume_clears_stale_background_work(cli_path)
