@@ -18,7 +18,8 @@ public struct ProcessPipeStopAwareReader: Sendable {
     ///
     /// - Parameters:
     ///   - fileDescriptor: The process-pipe descriptor to drain.
-    ///   - chunkSize: The maximum bytes read per operation.
+    ///   - chunkSize: The requested maximum bytes read per operation.
+    ///     Non-positive values are normalized to one byte.
     ///   - stopFileDescriptor: A descriptor whose readiness ends the drain
     ///     after bytes already buffered in `fileDescriptor` are preserved.
     public init(
@@ -27,7 +28,7 @@ public struct ProcessPipeStopAwareReader: Sendable {
         stopFileDescriptor: Int32
     ) {
         self.fileDescriptor = fileDescriptor
-        self.chunkSize = chunkSize
+        self.chunkSize = max(1, chunkSize)
         self.stopFileDescriptor = stopFileDescriptor
     }
 
