@@ -124,6 +124,43 @@ struct RemoteSessionProcessRunnerTests {
         #expect(waitForProcessExit(processIdentifier, timeout: 2))
     }
 
+    @Test("A stdin write error wins when the child ignores termination")
+    func stdinWriteErrorWinsWhenChildIgnoresTermination() throws {
+        let markerURL = processMarkerURL()
+        defer { try? FileManager.default.removeItem(at: markerURL) }
+        let runner = RemoteSessionProcessRunner(
+            stdinWriter: MarkerGatedFailingRemoteProcessStdinWriter(
+                markerURL: markerURL,
+                gate: .launched
+            )
+        )
+
+        let outcome = try #require(runProcess(
+            runner,
+            request: RemoteProcessRequest(
+                executable: "/bin/sh",
+                arguments: [
+                    "-c",
+                    "trap '' TERM; echo $$ > \"$CMUX_TEST_PROCESS_MARKER\"; exec /bin/sleep 30",
+                ],
+                environment: ["CMUX_TEST_PROCESS_MARKER": markerURL.path],
+                stdin: Data("payload".utf8),
+                timeout: 10
+            ),
+            completingWithin: 4
+        ))
+
+        guard case .failure(let error) = outcome else {
+            Issue.record("Expected the stdin write to fail")
+            return
+        }
+        let nsError = error as NSError
+        let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? POSIXError
+        #expect(nsError.domain == "cmux.remote.process")
+        #expect(nsError.code == 3)
+        #expect(underlyingError?.code == .EIO)
+    }
+
     @Test("A late stdin write error wins over an earlier child exit")
     func lateStdinWriteErrorWinsOverChildExit() throws {
         let markerURL = processMarkerURL()
