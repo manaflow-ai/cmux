@@ -492,7 +492,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testSuccessfulMoshReportsAuthoritativeTerminalLifecycle() throws {
+    func testMoshDoesNotClaimConnectedBeforeTransportStarts() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent(
@@ -525,7 +525,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "  exit 0",
             "fi",
             "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_MOSH_LOG}\"",
-            "exit 0",
+            "exit 71",
         ])
         for executable in [fakeCLI, fakeSSH, fakeMosh] {
             try fileManager.setAttributes(
@@ -556,7 +556,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.status, 71, result.stderr)
         XCTAssertTrue(fileManager.fileExists(atPath: moshLog.path))
         let cliCalls = (try? String(contentsOf: cliLog, encoding: .utf8)) ?? ""
         XCTAssertTrue(
@@ -565,11 +565,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ),
             "Mosh must register an attempt before claiming readiness: \(cliCalls)"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             cliCalls.contains(
                 "rpc workspace.remote.terminal_session_connected"
             ),
-            "Successful Mosh startup must become authoritatively connected: \(cliCalls)"
+            "Mosh must not claim connected before its transport establishes: \(cliCalls)"
         )
     }
 

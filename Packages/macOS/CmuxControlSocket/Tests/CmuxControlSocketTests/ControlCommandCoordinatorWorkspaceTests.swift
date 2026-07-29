@@ -287,6 +287,31 @@ struct ControlCommandCoordinatorWorkspaceTests {
         )
     }
 
+    @Test func terminalSessionConnectedRejectsMissingAttemptGeneration() throws {
+        let (coordinator, context) = coordinator()
+        context.terminalSessionConnectedResolution = .resolved(
+            windowID: nil,
+            workspaceID: UUID(),
+            remoteStatus: .object(["connected": .bool(true)])
+        )
+
+        guard case .err(let code, _, _) = coordinator.handleSocketWorkerV2(
+            request("workspace.remote.terminal_session_connected", [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string(UUID().uuidString),
+                "relay_port": .int(64_007),
+                "terminal_lifecycle_id": .string(UUID().uuidString),
+            ]),
+            context: context
+        ) else {
+            Issue.record("terminal readiness without an attempt generation was accepted")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(context.terminalSessionConnectedCall == nil)
+    }
+
     @Test func persistentTerminalSessionConnectedForwardsLifecycleAuthority() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
