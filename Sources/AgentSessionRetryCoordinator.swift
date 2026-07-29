@@ -108,7 +108,8 @@ final class AgentSessionRetryCoordinator {
 
         if let state = statesByPanelId[panelId] {
             switch state.phase {
-            case .awaitingLaunch, .running where state.binding.isSameManagedSession(as: binding):
+            case .awaitingLaunch where state.binding.isSameManagedSession(as: binding),
+                 .running where state.binding.isSameManagedSession(as: binding):
                 var updatedState = state
                 updatedState.binding = binding
                 statesByPanelId[panelId] = updatedState
