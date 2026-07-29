@@ -19,22 +19,6 @@ extension TaskComposerSheet {
             .model(id: selectedModelID)
     }
 
-    /// Reconciles a hidden model with the Off picker state before submission.
-    ///
-    /// The restored initial request (and an adopted recovery request) is
-    /// cached as already-resolved, so submitting an untouched draft would
-    /// skip `makeSubmissionSnapshot` and bypass the `selectedModel` gate.
-    /// Marking the request dirty forces resolution through the builder, whose
-    /// gate strips the model; `MobileTaskSubmissionIdentity` then mints a
-    /// fresh operation ID for the changed bytes (retries of the stripped
-    /// request stay idempotent), while completed-operation reconciliation
-    /// keeps the originally submitted snapshot.
-    func reconcileHiddenModelBeforeSubmission() {
-        guard displaySettings.taskComposerModelPickerVariant.renderedVariant == .off,
-              selectedModelID != nil else { return }
-        submissionIdentity.markRequestDirty()
-    }
-
     func selectModel(_ id: String?) {
         guard !submissionPhase.disablesRequestEditing else { return }
         let validatedID: String?

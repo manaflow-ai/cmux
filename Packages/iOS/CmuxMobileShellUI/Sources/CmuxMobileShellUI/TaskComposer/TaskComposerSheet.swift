@@ -591,9 +591,8 @@ struct TaskComposerSheet: View {
     }
 
     private func submit() async {
-        guard submissionPhase.allowsSubmission else { return }
-        reconcileHiddenModelBeforeSubmission()
-        guard let snapshot = submissionSnapshot() else { return }
+        guard submissionPhase.allowsSubmission,
+              let snapshot = submissionSnapshot() else { return }
         guard store.persistTaskComposerDraft(
             snapshot.draft,
             ifSessionGeneration: sessionGeneration

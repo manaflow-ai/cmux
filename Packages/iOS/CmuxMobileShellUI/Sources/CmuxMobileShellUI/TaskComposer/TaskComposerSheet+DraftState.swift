@@ -106,17 +106,35 @@ extension TaskComposerSheet {
     }
 
     func submissionSnapshot() -> MobileTaskSubmissionSnapshot? {
-        let candidateID = submissionIdentity.id
-        return submissionIdentity.resolveCurrentRequest {
-            makeSubmissionSnapshot(operationID: candidateID)
-        }
+        resolveCurrentRequestReconcilingHiddenModel()
     }
 
-    func draftSnapshot() -> MobileTaskComposerDraft {
+    /// Resolves the current request, re-resolving once when the Off picker
+    /// hides a model that a clean cached request (restored draft or adopted
+    /// recovery) still carries. The forced resolution runs through
+    /// `makeSubmissionSnapshot`, whose `selectedModel` gate strips the model,
+    /// and `MobileTaskSubmissionIdentity` mints a fresh operation ID for the
+    /// changed bytes. Applied at BOTH the submission and draft-persistence
+    /// boundaries so a persisted draft can never pair a model-less request
+    /// with an operation ID previously bound to model-bearing bytes.
+    private func resolveCurrentRequestReconcilingHiddenModel() -> MobileTaskSubmissionSnapshot? {
         let candidateID = submissionIdentity.id
         let resolved = submissionIdentity.resolveCurrentRequest {
             makeSubmissionSnapshot(operationID: candidateID)
         }
+        guard displaySettings.taskComposerModelPickerVariant.renderedVariant == .off,
+              resolved?.modelID != nil else {
+            return resolved
+        }
+        submissionIdentity.markRequestDirty()
+        let rotatedID = submissionIdentity.id
+        return submissionIdentity.resolveCurrentRequest {
+            makeSubmissionSnapshot(operationID: rotatedID)
+        }
+    }
+
+    func draftSnapshot() -> MobileTaskComposerDraft {
+        let resolved = resolveCurrentRequestReconcilingHiddenModel()
         let completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
         return MobileTaskComposerDraft(
             prompt: prompt,

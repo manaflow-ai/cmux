@@ -232,4 +232,42 @@ import Testing
                 == expected
         )
     }
+
+    @Test(
+        arguments: [
+            (
+                "codex 2>&1 --model old -- \"$CMUX_TASK_PROMPT\"",
+                "codex 2>&1 --model 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
+            ),
+            (
+                "codex >&2 --model old",
+                "codex >&2 --model 'gpt-5.5'"
+            ),
+            (
+                "codex &>log --model old",
+                "codex &>log --model 'gpt-5.5'"
+            ),
+            (
+                "codex >|log --model old",
+                "codex >|log --model 'gpt-5.5'"
+            ),
+        ]
+    )
+    func redirectionOperatorsAreNotCommandBoundaries(command: String, expected: String) {
+        #expect(
+            MobileTaskAgentProvider.codex.command(applying: "gpt-5.5", to: command)
+                == expected
+        )
+    }
+
+    @Test func backgroundAndPipeOperatorsStillEndTheScan() {
+        #expect(
+            MobileTaskAgentProvider.codex.command(applying: "gpt-5.5", to: "codex & tail --model x")
+                == "codex -m 'gpt-5.5' & tail --model x"
+        )
+        #expect(
+            MobileTaskAgentProvider.codex.command(applying: "gpt-5.5", to: "codex | tee --model x")
+                == "codex -m 'gpt-5.5' | tee --model x"
+        )
+    }
 }

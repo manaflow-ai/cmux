@@ -166,20 +166,25 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
         }
     }
 
-    /// The index of the first unquoted `;`, `|`, or `&` in the token, i.e.
-    /// where the first simple command ends mid-token (`"$PROMPT";`, `&&`,
-    /// `--model=old;`). `nil` when the token carries no command boundary.
+    /// The index of the first unquoted control operator (`;`, pipe `|`, or
+    /// `&`) in the token, i.e. where the first simple command ends mid-token
+    /// (`"$PROMPT";`, `&&`, `--model=old;`). Redirection operators are NOT
+    /// boundaries: `&` adjacent to `>` (`2>&1`, `>&2`, `&>file`) and `|`
+    /// preceded by `>` (`>|file`) are part of the simple command. `nil` when
+    /// the token carries no command boundary.
     private static func unquotedCommandBoundaryIndex(
         in token: Substring
     ) -> Substring.Index? {
         var inSingleQuotes = false
         var inDoubleQuotes = false
+        var previousCharacter: Character?
         var current = token.startIndex
         while current < token.endIndex {
             let character = token[current]
             if character == "\\", !inSingleQuotes {
                 current = token.index(after: current)
                 if current < token.endIndex {
+                    previousCharacter = token[current]
                     current = token.index(after: current)
                 }
                 continue
@@ -188,10 +193,21 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
                 inSingleQuotes.toggle()
             } else if character == "\"", !inSingleQuotes {
                 inDoubleQuotes.toggle()
-            } else if !inSingleQuotes, !inDoubleQuotes,
-                      character == ";" || character == "|" || character == "&" {
-                return current
+            } else if !inSingleQuotes, !inDoubleQuotes {
+                let next = token.index(after: current)
+                let nextCharacter = next < token.endIndex ? token[next] : nil
+                switch character {
+                case ";":
+                    return current
+                case "|" where previousCharacter != ">":
+                    return current
+                case "&" where previousCharacter != ">" && nextCharacter != ">":
+                    return current
+                default:
+                    break
+                }
             }
+            previousCharacter = character
             current = token.index(after: current)
         }
         return nil
