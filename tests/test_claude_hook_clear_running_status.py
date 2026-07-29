@@ -1891,6 +1891,102 @@ def verify_new_generation_resumes_same_session(cli_path: str) -> None:
                 )
 
 
+def verify_new_generation_resume_clears_stale_background_work(
+    cli_path: str,
+) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    session_id = f"stale-work-resume-{uuid.uuid4().hex}"
+    clear_session_id = f"stale-work-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "stale-work-resume-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": session_id, "turn_id": "old-turn", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": session_id,
+                "turn_id": "old-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "old background work continues",
+                "background_tasks": [{"id": "old-task", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+
+        # SessionEnd can be missed when the old Claude process exits. A proven
+        # newer process resumes the stored conversation without inheriting the
+        # old generation's process-owned background task.
+        with live_process_pid() as replacement_pid:
+            replacement_env = env.copy()
+            replacement_env["CMUX_CLAUDE_PID"] = str(replacement_pid)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "session-start",
+                {"session_id": session_id, "source": "resume", "cwd": "/tmp"},
+                replacement_env,
+            )
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "session-end",
+                {"session_id": session_id, "reason": "clear", "cwd": "/tmp"},
+                replacement_env,
+            )
+
+            clear_start = len(server.commands)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "session-start",
+                {
+                    "session_id": clear_session_id,
+                    "source": "clear",
+                    "cwd": "/tmp",
+                },
+                replacement_env,
+            )
+            clear_commands = server.commands[clear_start:]
+            if not has_command_with(
+                clear_commands,
+                f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+                f"--panel={surface_id}",
+            ):
+                raise RuntimeError(
+                    "A clear after a new-generation resume inherited stale "
+                    f"background work:\ncommands={clear_commands!r}"
+                )
+            if has_command_with(
+                clear_commands,
+                f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+                f"--panel={surface_id}",
+            ):
+                raise RuntimeError(
+                    "A new generation's clear became Running from old Stop state:\n"
+                    f"commands={clear_commands!r}"
+                )
+
+            state = json.loads(state_path.read_text())
+            clear_record = state["sessions"][clear_session_id]
+            if clear_record.get("agentLifecycle") != "idle":
+                raise RuntimeError(
+                    "A new-generation clear persisted stale running lifecycle:\n"
+                    f"clear_record={clear_record!r}"
+                )
+
+
 def verify_new_generation_resume_discards_source_handoff(cli_path: str) -> None:
     workspace_id = str(uuid.uuid4()).upper()
     surface_id = str(uuid.uuid4()).upper()
@@ -2396,6 +2492,7 @@ def main() -> int:
         verify_vacant_surface_accepts_authoritative_resume(cli_path)
         verify_older_generation_resume_is_rejected(cli_path)
         verify_new_generation_resumes_same_session(cli_path)
+        verify_new_generation_resume_clears_stale_background_work(cli_path)
         verify_new_generation_resume_discards_source_handoff(cli_path)
         verify_late_resume_cannot_replace_clear_successor(cli_path)
     except Exception as exc:
