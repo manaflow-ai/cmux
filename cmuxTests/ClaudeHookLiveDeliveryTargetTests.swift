@@ -199,7 +199,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         let sessionId = "stale-tty-session"
         let ttyName = "ttys-stale-row"
 
-        let serverHandled = Harness.startDeliveryTargetServer(
+        _ = Harness.startDeliveryTargetServer(
             context: context,
             surfacesByWorkspace: [
                 Self.liveWorkspaceId: [Self.liveSurfaceId],
@@ -224,6 +224,12 @@ struct ClaudeHookLiveDeliveryTargetTests {
             environment: environment,
             sourceSessionId: "\(sessionId)-source"
         )
+        let setupCommands = context.state.snapshot()
+        let commandBaseline = setupCommands.count
+        #expect(
+            !Harness.resumeBindingParams(in: setupCommands).isEmpty,
+            "The fixture must reproduce setup traffic that cannot satisfy clear SessionStart assertions"
+        )
         let result = Harness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
@@ -231,12 +237,11 @@ struct ClaudeHookLiveDeliveryTargetTests {
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
 
-        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
 
-        let commands = context.state.snapshot()
+        let commands = Array(context.state.snapshot().dropFirst(commandBaseline))
         let resumeBinding = try #require(
-            Harness.resumeBindingParams(in: context).last,
+            Harness.resumeBindingParams(in: commands).last,
             "Expected SessionStart to publish a resume binding, saw \(commands)"
         )
         #expect(

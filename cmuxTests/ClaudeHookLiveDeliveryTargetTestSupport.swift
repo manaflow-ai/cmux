@@ -144,7 +144,11 @@ enum ClaudeHookLiveDeliveryHarness {
     }
 
     static func resumeBindingParams(in context: Context) -> [[String: Any]] {
-        context.state.snapshot().compactMap { command -> [String: Any]? in
+        resumeBindingParams(in: context.state.snapshot())
+    }
+
+    static func resumeBindingParams(in commands: [String]) -> [[String: Any]] {
+        commands.compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
                   payload["method"] as? String == "surface.resume.set" else {
                 return nil

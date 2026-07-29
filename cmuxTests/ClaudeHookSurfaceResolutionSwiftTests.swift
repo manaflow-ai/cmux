@@ -14,7 +14,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         let ttyName = "ttys-claude-leaked-surface"
         let sessionId = "claude-leaked-surface-session"
 
-        let serverHandled = startClaudeSurfaceResolutionServer(
+        _ = startClaudeSurfaceResolutionServer(
             context: context,
             surfaces: [
                 (leakedSurfaceId, "surface:1", true),
@@ -48,6 +48,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             sourceSessionId: "\(sessionId)-source",
             timeout: 5
         )
+        let commandBaseline = context.state.snapshot().count
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
@@ -56,27 +57,27 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             timeout: 5
         )
 
-        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
 
+        let commands = Array(context.state.snapshot().dropFirst(commandBaseline))
         let request = try #require(
-            resumeBindingRequests(in: context).last,
-            "Expected Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+            resumeBindingRequests(in: commands).last,
+            "Expected Claude SessionStart to publish a resume binding, saw \(commands)"
         )
         #expect(
             request["surface_id"] as? String == ttySurfaceId,
             "Claude must persist the agent TTY surface, not the leaked ambient CMUX_SURFACE_ID; params=\(request)"
         )
         #expect(
-            context.state.snapshot().contains {
+            commands.contains {
                 $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--panel=\(ttySurfaceId)")
             },
-            "Claude visible status should also target the TTY surface, saw \(context.state.snapshot())"
+            "Claude visible status should also target the TTY surface, saw \(commands)"
         )
         #expect(
-            !context.state.snapshot().contains { $0.contains(#""method":"system.top""#) },
-            "Claude hooks with a TTY binding must not do a process snapshot; saw \(context.state.snapshot())"
+            !commands.contains { $0.contains(#""method":"system.top""#) },
+            "Claude hooks with a TTY binding must not do a process snapshot; saw \(commands)"
         )
     }
 
@@ -91,7 +92,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         let ttyName = "ttys-claude-leaked-workspace"
         let sessionId = "claude-leaked-workspace-session"
 
-        let serverHandled = startClaudeSurfaceResolutionServer(
+        _ = startClaudeSurfaceResolutionServer(
             context: context,
             surfaces: [(leakedSurfaceId, "surface:1", true)],
             ttyName: ttyName,
@@ -127,6 +128,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             sourceSessionId: "\(sessionId)-source",
             timeout: 5
         )
+        let commandBaseline = context.state.snapshot().count
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
@@ -135,12 +137,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             timeout: 5
         )
 
-        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
 
+        let commands = Array(context.state.snapshot().dropFirst(commandBaseline))
         let request = try #require(
-            resumeBindingRequests(in: context).last,
-            "Expected Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+            resumeBindingRequests(in: commands).last,
+            "Expected Claude SessionStart to publish a resume binding, saw \(commands)"
         )
         #expect(
             request["workspace_id"] as? String == ttyWorkspaceId,
@@ -151,12 +153,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "Claude must persist the agent TTY surface, not the leaked ambient CMUX_SURFACE_ID; params=\(request)"
         )
         #expect(
-            context.state.snapshot().contains {
+            commands.contains {
                 $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(ttyWorkspaceId)")
                     && $0.contains("--panel=\(ttySurfaceId)")
             },
-            "Claude visible status should target the TTY workspace and surface, saw \(context.state.snapshot())"
+            "Claude visible status should target the TTY workspace and surface, saw \(commands)"
         )
     }
 
@@ -172,7 +174,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         let socketPassword = "claude-pid-secret"
         let sessionId = "claude-pid-surface-session"
 
-        let serverHandled = startClaudeSurfaceResolutionServer(
+        _ = startClaudeSurfaceResolutionServer(
             context: context,
             surfaces: [(leakedSurfaceId, "surface:1", true)],
             ttyName: "ttys-unused-claude-pid-surface",
@@ -211,6 +213,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             sourceSessionId: "\(sessionId)-source",
             timeout: 5
         )
+        let commandBaseline = context.state.snapshot().count
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
@@ -219,12 +222,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             timeout: 5
         )
 
-        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
 
+        let commands = Array(context.state.snapshot().dropFirst(commandBaseline))
         let request = try #require(
-            resumeBindingRequests(in: context).last,
-            "Expected Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+            resumeBindingRequests(in: commands).last,
+            "Expected Claude SessionStart to publish a resume binding, saw \(commands)"
         )
         #expect(
             request["workspace_id"] as? String == pidWorkspaceId,
@@ -235,7 +238,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "Claude PID binding must beat leaked ambient CMUX_SURFACE_ID when no TTY marker exists; params=\(request)"
         )
         #expect(
-            context.state.snapshot().contains("auth \(socketPassword)"),
+            commands.contains("auth \(socketPassword)"),
             "Claude PID probe must authenticate before reading system.top on password-protected sockets"
         )
     }
@@ -256,7 +259,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         let socketPassword = "claude-stale-tty-pid-secret"
         let sessionId = "claude-stale-tty-pid-session"
 
-        let serverHandled = startClaudeSurfaceResolutionServer(
+        _ = startClaudeSurfaceResolutionServer(
             context: context,
             surfaces: [(leakedSurfaceId, "surface:1", true)],
             ttyName: ttyName,
@@ -298,6 +301,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             sourceSessionId: "\(sessionId)-source",
             timeout: 5
         )
+        let commandBaseline = context.state.snapshot().count
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
@@ -306,12 +310,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             timeout: 5
         )
 
-        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
 
+        let commands = Array(context.state.snapshot().dropFirst(commandBaseline))
         let request = try #require(
-            resumeBindingRequests(in: context).last,
-            "Expected Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+            resumeBindingRequests(in: commands).last,
+            "Expected Claude SessionStart to publish a resume binding, saw \(commands)"
         )
         #expect(
             request["workspace_id"] as? String == pidWorkspaceId,
@@ -322,11 +326,11 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "Stale TTY binding must fall through to the Claude PID surface, not leaked ambient env; params=\(request)"
         )
         #expect(
-            context.state.snapshot().contains { $0.contains(#""method":"system.top""#) },
-            "Stale TTY binding must not suppress the Claude PID process lookup; saw \(context.state.snapshot())"
+            commands.contains { $0.contains(#""method":"system.top""#) },
+            "Stale TTY binding must not suppress the Claude PID process lookup; saw \(commands)"
         )
         #expect(
-            context.state.snapshot().contains("auth \(socketPassword)"),
+            commands.contains("auth \(socketPassword)"),
             "Claude PID fallback must authenticate before reading system.top on password-protected sockets"
         )
     }
@@ -341,7 +345,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         let ttyName = "ttys-claude-stale-workspace"
         let sessionId = "claude-stale-tty-workspace-session"
 
-        let serverHandled = startClaudeSurfaceResolutionServer(
+        _ = startClaudeSurfaceResolutionServer(
             context: context,
             surfaces: [(context.surfaceId, "surface:1", true)],
             ttyName: ttyName,
@@ -377,6 +381,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             sourceSessionId: "\(sessionId)-source",
             timeout: 5
         )
+        let commandBaseline = context.state.snapshot().count
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
@@ -385,12 +390,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             timeout: 5
         )
 
-        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
 
+        let commands = Array(context.state.snapshot().dropFirst(commandBaseline))
         let request = try #require(
-            resumeBindingRequests(in: context).last,
-            "Expected Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+            resumeBindingRequests(in: commands).last,
+            "Expected Claude SessionStart to publish a resume binding, saw \(commands)"
         )
         #expect(
             request["workspace_id"] as? String == context.workspaceId,
@@ -401,12 +406,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "Stale TTY workspace must not fall through to its focused surface; params=\(request)"
         )
         #expect(
-            context.state.snapshot().contains {
+            commands.contains {
                 $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Claude visible status should stay on the valid ambient workspace and surface, saw \(context.state.snapshot())"
+            "Claude visible status should stay on the valid ambient workspace and surface, saw \(commands)"
         )
     }
 
@@ -824,7 +829,11 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
     }
 
     private func resumeBindingRequests(in context: ClaudeHookContext) -> [[String: Any]] {
-        context.state.snapshot().compactMap { command -> [String: Any]? in
+        resumeBindingRequests(in: context.state.snapshot())
+    }
+
+    private func resumeBindingRequests(in commands: [String]) -> [[String: Any]] {
+        commands.compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
                   payload["method"] as? String == "surface.resume.set" else {
                 return nil
