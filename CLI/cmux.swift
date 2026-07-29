@@ -10092,9 +10092,10 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
-    /// Prefixes a caller-supplied OpenSSH remote command with the authoritative
-    /// readiness report. The resulting positional command is still executed by
-    /// the account's login shell, matching OpenSSH's normal command mode.
+    /// Runs the authoritative readiness report alongside a caller-supplied
+    /// OpenSSH remote command. The resulting positional command is still
+    /// executed by the account's login shell, matching OpenSSH's normal command
+    /// mode.
     private func buildSSHRawRemoteCommandSnippet(
         options: SSHCommandOptions,
         localCommandScript: String?
@@ -10104,16 +10105,49 @@ struct CMUXCLI {
         )
         .map(shellQuote)
         .joined(separator: " ")
+        // Raw commands intentionally skip remote bootstrap staging. Give a
+        // concurrently installed daemon/CLI a bounded window to become ready
+        // without delaying or suppressing the caller's command.
         let readinessTemplate = posixShellCommand(
             (
+                ["trap 'exit 0' HUP INT TERM"] +
                 remoteBootstrapTTYCaptureLines(
                     remoteRelayPort: options.remoteRelayPort,
                     includeRelayRPC: false
                 ) +
-                remoteTerminalConnectedReportLines(remoteRelayPort: options.remoteRelayPort)
+                remoteTerminalConnectedReportLines(
+                    remoteRelayPort: options.remoteRelayPort,
+                    maximumAttempts: 120,
+                    retryDelaySeconds: 0.25
+                )
             ).joined(separator: "\n")
         )
         let originalRemoteCommand = options.extraArguments.joined(separator: " ")
+        let remoteCommandPrefix = [
+            "cmux_remote_readiness_pid=",
+            "cmux_remote_readiness_cleanup() {",
+            "  if [ -n \"${cmux_remote_readiness_pid:-}\" ]; then",
+            "    kill \"$cmux_remote_readiness_pid\" >/dev/null 2>&1 || true",
+            "    wait \"$cmux_remote_readiness_pid\" >/dev/null 2>&1 || true",
+            "    cmux_remote_readiness_pid=",
+            "  fi",
+            "}",
+            "trap 'cmux_remote_readiness_cleanup' EXIT",
+            "trap 'exit 129' HUP",
+            "trap 'exit 130' INT",
+            "trap 'exit 143' TERM",
+        ].joined(separator: "\n") + "\n"
+        let remoteCommandBetween = " </dev/null >/dev/null 2>&1 &\n" + [
+            "cmux_remote_readiness_pid=$!",
+            "(",
+        ].joined(separator: "\n") + "\n"
+        let remoteCommandSuffix = "\n" + [
+            ")",
+            "cmux_user_remote_command_status=$?",
+            "cmux_remote_readiness_cleanup",
+            "trap - EXIT HUP INT TERM",
+            "exit \"$cmux_user_remote_command_status\"",
+        ].joined(separator: "\n")
         let lines = [
             "cmux_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
             "cmux_surface_id=\"${CMUX_SURFACE_ID:-}\"",
@@ -10122,7 +10156,7 @@ struct CMUXCLI {
             "cmux_remote_readiness_template=\(shellQuote(readinessTemplate))",
             "cmux_remote_readiness=\"$(printf '%s' \"$cmux_remote_readiness_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g; s/__CMUX_TERMINAL_LIFECYCLE_ID__/$cmux_terminal_lifecycle_id/g; s/__CMUX_SSH_ATTEMPT_ID__/$cmux_ssh_attempt_id/g\")\"",
             "cmux_user_remote_command=\(shellQuote(originalRemoteCommand))",
-            "cmux_remote_command=\"$cmux_remote_readiness\ncmux_remote_readiness_status=\\$?\nif [ \\\"\\$cmux_remote_readiness_status\\\" -ne 0 ]; then exit \\\"\\$cmux_remote_readiness_status\\\"; fi\n$cmux_user_remote_command\"",
+            "cmux_remote_command=\(shellQuote(remoteCommandPrefix))\"$cmux_remote_readiness\"\(shellQuote(remoteCommandBetween))\"$cmux_user_remote_command\"\(shellQuote(remoteCommandSuffix))",
             "command \(sshPrefix) \(shellQuote(options.destination)) \"$cmux_remote_command\"",
         ]
         return lines.joined(separator: "\n")
@@ -10175,7 +10209,9 @@ struct CMUXCLI {
     }
 
     private func remoteTerminalConnectedReportLines(
-        remoteRelayPort: Int
+        remoteRelayPort: Int,
+        maximumAttempts: Int = 4,
+        retryDelaySeconds: Double = 0.1
     ) -> [String] {
         guard remoteRelayPort > 0 else { return [] }
         return [
@@ -10183,7 +10219,7 @@ struct CMUXCLI {
             "  cmux_relay_terminal_connected='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"relay_port\":\(remoteRelayPort),\"terminal_lifecycle_id\":\"__CMUX_TERMINAL_LIFECYCLE_ID__\",\"attempt_id\":\"__CMUX_SSH_ATTEMPT_ID__\"}'",
             "  cmux_relay_terminal_connected_acknowledged=0",
             "  cmux_relay_terminal_connected_retry=0",
-            "  while [ \"$cmux_relay_terminal_connected_retry\" -lt 4 ]; do",
+            "  while [ \"$cmux_relay_terminal_connected_retry\" -lt \(maximumAttempts) ]; do",
             "    cmux_relay_cli=\"$HOME/.cmux/bin/cmux\"",
             "    if [ ! -x \"$cmux_relay_cli\" ]; then cmux_relay_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "    if [ -n \"$cmux_relay_cli\" ] && env -u CMUX_SOCKET CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc workspace.remote.terminal_session_connected \"$cmux_relay_terminal_connected\" >/dev/null 2>&1; then",
@@ -10191,7 +10227,7 @@ struct CMUXCLI {
             "      break",
             "    fi",
             "    cmux_relay_terminal_connected_retry=$((cmux_relay_terminal_connected_retry + 1))",
-            "    if [ \"$cmux_relay_terminal_connected_retry\" -lt 4 ]; then /bin/sleep 0.1; fi",
+            "    if [ \"$cmux_relay_terminal_connected_retry\" -lt \(maximumAttempts) ]; then /bin/sleep \(retryDelaySeconds); fi",
             "  done",
             "  if [ \"$cmux_relay_terminal_connected_acknowledged\" -ne 1 ]; then exit 255; fi",
             "fi",
