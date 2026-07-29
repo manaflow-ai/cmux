@@ -294,6 +294,37 @@ export interface NudgeSocketView {
   expiresAt: number;
 }
 
+/** Combined WebSocket + SSE presence/sync subscriber cap per team. */
+export const MAX_SUBSCRIBERS_PER_TEAM = 64;
+/** Directed (device-scoped) nudge sockets draw from their OWN pool, never the
+ * presence pool above: every enabled Mac instance holds one, so counting them
+ * against the shared 64 would let a fleet of Macs (trivially reached with
+ * tagged dev builds) 429 the phones' presence streams. Directed sockets are
+ * silent and hibernation-friendly, so the pool is wide; it exists only to
+ * bound a runaway client, not to ration a scarce resource. */
+export const MAX_DIRECTED_SUBSCRIBERS_PER_TEAM = 256;
+
+export type SubscriberAdmission =
+  | { ok: true }
+  | { ok: false; error: "too_many_subscribers" };
+
+/** Admission decision for one incoming subscription, given the split counts
+ * of already-connected subscribers. Each pool only ever rejects its own kind,
+ * so directed Mac sockets can never starve presence subscribers and vice
+ * versa. Pure for tests. */
+export function checkSubscriberAdmission(input: {
+  directed: boolean;
+  /** Connected device-scoped (nudge) WebSockets. */
+  directedCount: number;
+  /** Connected presence/sync subscribers (WebSocket + SSE). */
+  presenceCount: number;
+}): SubscriberAdmission {
+  const overCap = input.directed
+    ? input.directedCount >= MAX_DIRECTED_SUBSCRIBERS_PER_TEAM
+    : input.presenceCount >= MAX_SUBSCRIBERS_PER_TEAM;
+  return overCap ? { ok: false, error: "too_many_subscribers" } : { ok: true };
+}
+
 /** Owner-only delivery filter for directed nudges. A frame goes to a socket
  * only when ALL hold: the socket is device-scoped to exactly the nudged
  * device (normal presence subscribers never receive nudges), the socket's

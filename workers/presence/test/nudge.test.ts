@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { checkDeviceOwner, shouldDeliverNudge, type NudgeSocketView } from "../src/core";
+import {
+  checkDeviceOwner,
+  checkSubscriberAdmission,
+  MAX_DIRECTED_SUBSCRIBERS_PER_TEAM,
+  MAX_SUBSCRIBERS_PER_TEAM,
+  shouldDeliverNudge,
+  type NudgeSocketView,
+} from "../src/core";
 import { MAX_TAG_LENGTH, parseDeviceScope, parseNudge } from "../src/validate";
 
 const DEVICE_ID = "11111111-2222-4333-8444-555555555555";
@@ -142,5 +149,47 @@ describe("shouldDeliverNudge", () => {
       shouldDeliverNudge(socket, DEVICE_ID, owner, NOW),
     );
     expect(delivered).toEqual([ownerSocket]);
+  });
+});
+
+// Directed sockets draw from their own pool: a fleet of Macs (one directed
+// socket per enabled instance) must never 429 the phones' presence streams,
+// and a full presence pool must not block a Mac's wake-up channel.
+describe("checkSubscriberAdmission", () => {
+  it("admits each kind while its own pool has room", () => {
+    expect(
+      checkSubscriberAdmission({ directed: true, directedCount: 0, presenceCount: 0 }),
+    ).toEqual({ ok: true });
+    expect(
+      checkSubscriberAdmission({ directed: false, directedCount: 0, presenceCount: 0 }),
+    ).toEqual({ ok: true });
+  });
+
+  it("a full directed pool rejects directed sockets but not presence subscribers", () => {
+    const directedFull = {
+      directedCount: MAX_DIRECTED_SUBSCRIBERS_PER_TEAM,
+      presenceCount: 0,
+    };
+    expect(checkSubscriberAdmission({ directed: true, ...directedFull })).toEqual({
+      ok: false,
+      error: "too_many_subscribers",
+    });
+    expect(checkSubscriberAdmission({ directed: false, ...directedFull })).toEqual({
+      ok: true,
+    });
+  });
+
+  it("a full presence pool rejects presence subscribers but not directed sockets", () => {
+    const presenceFull = {
+      directedCount: 0,
+      presenceCount: MAX_SUBSCRIBERS_PER_TEAM,
+    };
+    expect(checkSubscriberAdmission({ directed: false, ...presenceFull })).toEqual({
+      ok: false,
+      error: "too_many_subscribers",
+    });
+    expect(checkSubscriberAdmission({ directed: true, ...presenceFull })).toEqual({
+      ok: true,
+    });
   });
 });

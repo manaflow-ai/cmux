@@ -126,6 +126,13 @@ final class PresenceNudgeSubscriber {
 
     private static let legacyReprobeDelay: Duration = .seconds(15 * 60)
 
+    /// How long an EMPTY cleanly-closed stream must have lived to count as
+    /// `.served`. The healthy quiet close arrives at the service's 15-minute
+    /// deadline, far above this; an accept-then-close loop stays below it and
+    /// backs off. Set well under a deployment drain's stream lifetime so a
+    /// normal rollout still resubscribes promptly.
+    private static let minServedStreamDuration: Duration = .seconds(60)
+
     private func startLoop() {
         loopTask = Task { @MainActor [weak self] in
             let clock = ContinuousClock()
@@ -193,6 +200,8 @@ final class PresenceNudgeSubscriber {
         let task = URLSession.shared.webSocketTask(with: request)
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
+        let streamClock = ContinuousClock()
+        let streamStart = streamClock.now
 
         // `URLSessionWebSocketTask.receive()` does not observe Swift task
         // cancellation, so a cancelled loop would otherwise stay suspended in
@@ -211,11 +220,21 @@ final class PresenceNudgeSubscriber {
                     // deadline having delivered nothing. That close arrives as
                     // a normal/going-away close code and must reset backoff,
                     // otherwise every quiet renewal doubles the reconnect gap
-                    // and one-shot nudges get lost in it. Only a connection
-                    // that neither delivered nor closed cleanly is a failure.
+                    // and one-shot nudges get lost in it. But the close code
+                    // alone is not proof of service: an endpoint that accepts
+                    // and immediately closes cleanly in a loop (persistent
+                    // drain, misbehaving proxy) would otherwise pin every Mac
+                    // at one handshake per second forever. An empty stream
+                    // counts as served only when it lived long enough to have
+                    // been a real subscription window.
+                    if delivered { return .served }
                     let closedCleanly = task.closeCode == .normalClosure
                         || task.closeCode == .goingAway
-                    return (delivered || closedCleanly) ? .served : .connectFailed
+                    if closedCleanly,
+                       streamClock.now - streamStart >= Self.minServedStreamDuration {
+                        return .served
+                    }
+                    return .connectFailed
                 }
                 guard !Task.isCancelled else { return .served }
                 let text: String?

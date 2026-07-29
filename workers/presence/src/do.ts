@@ -21,6 +21,7 @@ import {
   buildSnapshot,
   checkDeviceOwner,
   checkPresenceCaps,
+  checkSubscriberAdmission,
   expireInstances,
   HEARTBEAT_INTERVAL_MS,
   MAX_DEVICES_PER_TEAM,
@@ -79,8 +80,6 @@ const INSTANCE_PREFIX = "inst:";
  * MAX_DEVICES_PER_TEAM (owner pins are the DO's device records). */
 const OWNER_PREFIX = "owner:";
 const TEAM_ID_KEY = "meta:teamId";
-/** Combined WebSocket + SSE subscriber cap per team. */
-const MAX_SUBSCRIBERS_PER_TEAM = 64;
 /** Max bytes of an inbound WS message the DO will parse (the `sync.hello`).
  * Client-controlled input on a live DO, so it is bounded before JSON.parse to
  * avoid a resource-exhaustion vector. A real hello is well under 4 KiB. */
@@ -482,19 +481,6 @@ export class TeamPresence extends DurableObject {
       );
     }
 
-    if (this.subscriberCount() >= MAX_SUBSCRIBERS_PER_TEAM) {
-      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
-    // The verified Stack user id, forwarded by the worker. Pinned on the socket
-    // so the per-user `pairedMacs` backup collection can be scoped to its owner.
-    // Absent for an old worker that does not forward it (the socket then never
-    // gets served `pairedMacs`).
-    const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
-
     // `?deviceScope=<deviceId>` turns the stream into a directed nudge channel
     // for that one device: WS-only, no snapshot, no presence broadcast, only
     // `nudge` frames. Ownership mirrors heartbeat: the subscriber must be the
@@ -508,6 +494,28 @@ export class TeamPresence extends DurableObject {
         headers: { "content-type": "application/json" },
       });
     }
+
+    // Split admission pools: every enabled Mac holds a directed socket, so
+    // counting those against the presence pool would let a Mac fleet 429 the
+    // phones (see checkSubscriberAdmission in core.ts, where this is tested).
+    const counts = this.subscriberCounts();
+    const admission = checkSubscriberAdmission({
+      directed: deviceScope.scope === "device",
+      directedCount: counts.directed,
+      presenceCount: counts.presence,
+    });
+    if (!admission.ok) {
+      return new Response(JSON.stringify({ error: admission.error }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    // The verified Stack user id, forwarded by the worker. Pinned on the socket
+    // so the per-user `pairedMacs` backup collection can be scoped to its owner.
+    // Absent for an old worker that does not forward it (the socket then never
+    // gets served `pairedMacs`).
+    const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
     if (deviceScope.scope === "device") {
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
         return new Response(JSON.stringify({ error: "device_scope_requires_websocket" }), {
@@ -883,8 +891,19 @@ export class TeamPresence extends DurableObject {
     }
   }
 
-  private subscriberCount(): number {
-    return this.ctx.getWebSockets().length + this.sseSubscribers.size;
+  /** Connected subscribers split by pool: directed (device-scoped nudge)
+   * WebSockets vs presence/sync consumers (plain WebSockets + SSE). */
+  private subscriberCounts(): { directed: number; presence: number } {
+    let directed = 0;
+    let presence = 0;
+    for (const ws of this.ctx.getWebSockets()) {
+      if (wsDeviceScope(ws) !== null) {
+        directed += 1;
+      } else {
+        presence += 1;
+      }
+    }
+    return { directed, presence: presence + this.sseSubscribers.size };
   }
 
   private nextSubscriberDeadline(): number | null {
