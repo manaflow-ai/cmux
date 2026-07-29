@@ -14,6 +14,7 @@ mod model;
 mod mux;
 mod pairing;
 pub mod provider_management;
+pub mod resource;
 mod short_id;
 mod surface;
 mod workspace_registry;
