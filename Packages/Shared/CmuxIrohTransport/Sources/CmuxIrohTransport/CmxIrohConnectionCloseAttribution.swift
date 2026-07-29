@@ -32,7 +32,7 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
 
     /// Classifies an opaque iroh-ffi close cause without retaining its text.
     ///
-    /// iroh-ffi 1.0.2-cmux.4 exposes the terminal cause as a string. These
+    /// iroh-ffi 1.0.2-cmux.4 and later expose the terminal cause as a string. These
     /// tokens mirror the package's pinned `IrohError` classification until the
     /// binding exports a structured close-reason taxonomy.
     ///
