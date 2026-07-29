@@ -541,6 +541,23 @@ mod tests {
         server.shutdown().await;
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn admin_socket_rejects_an_intermediate_symlink_before_creating_the_parent() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        let target = directory.path().join("target");
+        let alias = directory.path().join("alias");
+        std::fs::create_dir(&target).unwrap();
+        symlink(&target, &alias).unwrap();
+
+        let result = prepare_socket_path(&alias.join("missing/admin.sock")).await;
+
+        assert!(result.is_err(), "intermediate symlink was accepted");
+        assert!(!target.join("missing").exists());
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn repeated_admin_requests_do_not_fail_spuriously() {
         let directory = tempdir().unwrap();

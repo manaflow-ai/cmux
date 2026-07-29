@@ -1695,6 +1695,32 @@ mod tests {
         assert!(!real_parent.join("link.sock").exists());
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn serve_unix_rejects_an_intermediate_symlink_before_creating_the_parent() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        let target = directory.path().join("target");
+        let alias = directory.path().join("alias");
+        std::fs::create_dir(&target).unwrap();
+        symlink(&target, &alias).unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "intermediate-symlink-parent", false)
+            .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        match serve_unix(daemon, alias.join("missing/link.sock"), 65_535).await {
+            Err(DaemonError::Protocol(_)) => {}
+            Err(error) => panic!("unexpected error: {error}"),
+            Ok(server) => {
+                server.shutdown().await;
+                panic!("intermediate symlink was accepted");
+            }
+        }
+        assert!(!target.join("missing").exists());
+    }
+
     #[tokio::test]
     async fn carrier_authorization_requires_verified_ingress_and_policy() {
         let allowed_directory = tempdir().unwrap();

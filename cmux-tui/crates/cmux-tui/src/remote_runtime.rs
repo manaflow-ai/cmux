@@ -1932,6 +1932,40 @@ mod tests {
         assert!(!metadata.exists());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn daemon_runtime_rejects_an_intermediate_state_symlink_before_creating_state() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let target = directory.path().join("target");
+        let alias = directory.path().join("alias");
+        fs::create_dir(&target).unwrap();
+        symlink(&target, &alias).unwrap();
+
+        let result = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "symlinked-state".into(),
+                state_dir: Some(alias.clone()),
+                link_socket: Some(directory.path().join("sockets/link.sock")),
+                admin_socket: Some(directory.path().join("sockets/admin.sock")),
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        );
+        if let Ok(runtime) = result {
+            runtime.shutdown().unwrap();
+            panic!("intermediate state symlink was accepted");
+        }
+        assert!(!target.join("sessions").exists());
+    }
+
     #[test]
     fn runtime_route_debug_redacts_raw_urls_slots_and_routing_hints() {
         let candidate = resolved_test_route_with_routing(
@@ -3205,6 +3239,23 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("symlink"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn client_socket_rejects_an_intermediate_symlink_before_creating_the_parent() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let alias = directory.path().join("alias");
+        fs::create_dir(&target).unwrap();
+        symlink(&target, &alias).unwrap();
+
+        let result = prepare_client_socket(&alias.join("missing/mux.sock")).await;
+
+        assert!(result.is_err(), "intermediate symlink was accepted");
+        assert!(!target.join("missing").exists());
     }
 
     #[cfg(unix)]

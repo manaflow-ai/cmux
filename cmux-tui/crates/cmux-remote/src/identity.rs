@@ -1793,6 +1793,23 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn auth_state_rejects_an_intermediate_symlink_without_creating_under_its_target() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let alias = directory.path().join("alias");
+        fs::create_dir(&target).unwrap();
+        symlink(&target, &alias).unwrap();
+
+        let result = AuthDatabase::load_or_create(alias.join("missing"), "daemon", false);
+
+        assert!(result.is_err(), "intermediate symlink was accepted");
+        assert!(!target.join("missing").exists());
+    }
+
     #[tokio::test]
     async fn failed_known_daemon_pin_does_not_publish_live_trust() {
         let temp = tempfile::tempdir().unwrap();

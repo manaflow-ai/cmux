@@ -1262,6 +1262,23 @@ mod tests {
         assert!(error.is_retryable_carrier_failure(), "{error}");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn iroh_secret_rejects_an_intermediate_symlink_without_creating_under_its_target() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let alias = directory.path().join("alias");
+        fs::create_dir(&target).unwrap();
+        symlink(&target, &alias).unwrap();
+
+        let result = load_or_create_iroh_secret(&alias.join("missing/iroh.key"));
+
+        assert!(result.is_err(), "intermediate symlink was accepted");
+        assert!(!target.join("missing").exists());
+    }
+
     async fn wait_for_available_permits(semaphore: &Semaphore, expected: usize) {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
