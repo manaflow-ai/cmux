@@ -934,6 +934,8 @@ pub(crate) enum ActionExecution {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    NewPaneRight,
+    UndoLayout,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -946,6 +948,7 @@ pub(crate) enum ActionExecution {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    ClearHistory,
     BrowserBack,
     BrowserForward,
     BrowserReload,
@@ -1540,6 +1543,18 @@ impl Action {
                 "frontend action adapter",
                 ActionExecution::FocusSidebar,
             ),
+            Action::NewPaneRight => ActionMetadata::new(
+                "new-pane-right",
+                ActionClassification::Direct,
+                "new-pane-right",
+                ActionExecution::NewPaneRight,
+            ),
+            Action::UndoLayout => ActionMetadata::new(
+                "undo-layout",
+                ActionClassification::Direct,
+                "undo-layout",
+                ActionExecution::UndoLayout,
+            ),
             Action::FocusLeft => ActionMetadata::new(
                 "focus-left",
                 ActionClassification::Composite,
@@ -1611,6 +1626,12 @@ impl Action {
                 ActionClassification::PresentationOnly,
                 "frontend viewport adapter; scroll-surface for shared local viewport",
                 ActionExecution::ScrollDown,
+            ),
+            Action::ClearHistory => ActionMetadata::new(
+                "clear-history",
+                ActionClassification::Direct,
+                "clear-history",
+                ActionExecution::ClearHistory,
             ),
             Action::BrowserBack => ActionMetadata::new(
                 "browser-back",
