@@ -24840,21 +24840,25 @@ struct CMUXCLI {
                     workspaceId = consumedSession.workspaceId
                     cleanupSurfaceId = consumedSession.surfaceId
                 }
-                clearAgentSurfaceResumeBinding(
+                if !clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: cleanupSurfaceId,
                     sessionId: consumedSession.sessionId,
                     sessionDidEnd: true
-                )
+                ) {
+                    telemetry.breadcrumb("claude-hook.session-end.live-resume-clear-failed")
+                }
                 if cleanupSurfaceId != consumedSession.surfaceId {
-                    clearAgentSurfaceResumeBinding(
+                    if !clearAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: consumedSession.workspaceId,
                         surfaceId: consumedSession.surfaceId,
                         sessionId: consumedSession.sessionId,
                         sessionDidEnd: true
-                    )
+                    ) {
+                        telemetry.breadcrumb("claude-hook.session-end.recorded-resume-clear-failed")
+                    }
                 }
                 sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
                 // Staleness is judged on the pane being CLEANED: gating on a
@@ -30508,13 +30512,15 @@ export default CMUXSessionRestore;
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
-                clearAgentSurfaceResumeBinding(
+                if !clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: consumed.workspaceId,
                     surfaceId: consumed.surfaceId,
                     sessionId: consumed.sessionId,
                     sessionDidEnd: true
-                )
+                ) {
+                    telemetry.breadcrumb("\(def.name)-hook.session-end.resume-clear-failed")
+                }
                 _ = try? sendV1Command(
                     "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
                     client: client
@@ -32208,6 +32214,7 @@ export default CMUXSessionRestore;
         switch source {
         case "claude": envKey = "CMUX_CLAUDE_PID"
         case "codex": envKey = "CMUX_CODEX_PID"
+        case "omp": envKey = "CMUX_OMP_PID"
         case "cursor": envKey = "CMUX_CURSOR_PID"
         case "gemini": envKey = "CMUX_GEMINI_PID"
         case "antigravity": envKey = "CMUX_ANTIGRAVITY_PID"

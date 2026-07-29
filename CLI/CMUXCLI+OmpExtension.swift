@@ -168,11 +168,13 @@ interface RunningHook {
 function startHook(invocation: HookInvocation, subcommand: string): RunningHook {
   let child: ReturnType<typeof spawn> | null = null;
   let settle = () => {};
+  const terminate = () => {
+    if (child && !child.killed) child.kill("SIGKILL");
+  };
   const completion = new Promise<void>((resolve) => {
     let settled = false;
     const timeout = setTimeout(() => {
-      child?.kill("SIGKILL");
-      settle();
+      terminate();
     }, 5000);
     timeout.unref();
     settle = () => {
@@ -197,8 +199,7 @@ function startHook(invocation: HookInvocation, subcommand: string): RunningHook 
   return {
     completion,
     cancel: () => {
-      child?.kill("SIGKILL");
-      settle();
+      terminate();
     },
   };
 }

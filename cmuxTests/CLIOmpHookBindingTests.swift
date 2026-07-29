@@ -280,7 +280,9 @@ struct CLIOmpHookBindingTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        let resume = try #require(Harness.resumeBindingParams(in: context).last)
+        let resumeBindings = Harness.resumeBindingParams(in: context)
+        #expect(resumeBindings.count == 1)
+        let resume = try #require(resumeBindings.first)
         #expect(resume["workspace_id"] as? String == Self.liveWorkspaceId)
         #expect(resume["surface_id"] as? String == Self.liveSurfaceId)
     }
