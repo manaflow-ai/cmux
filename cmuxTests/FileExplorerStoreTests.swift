@@ -490,14 +490,17 @@ struct FileExplorerStoreTests {
     }
 
     @Test
-    func distinctNodeBurstFallsBackToOneOutlineReload() async throws {
+    func distinctNodeBurstDrainsScopedBatchesWithoutOutlineReload() async throws {
         let store = FileExplorerStore()
-        let nodes = (0..<1_000).map {
+        let nodes = (0..<130).map {
             FileExplorerNode(
-                name: "File\($0).swift",
-                path: "/project/File\($0).swift",
-                isDirectory: false
+                name: "Directory\($0)",
+                path: "/project/Directory\($0)",
+                isDirectory: true
             )
+        }
+        for node in nodes {
+            node.children = []
         }
         store.rootPath = "/project"
         store.rootNodes = nodes
@@ -520,14 +523,64 @@ struct FileExplorerStoreTests {
         outlineView.resetMetrics()
 
         for node in nodes {
-            coordinator.enqueueOutlineChange(.nodeChanged(node: node, reloadChildren: false))
+            coordinator.enqueueOutlineChange(.expansionChanged(node: node, isExpanded: true))
         }
 
-        try await waitFor("bounded outline fallback") {
-            outlineView.reloadDataCallCount == 1
+        try await waitFor("bounded scoped outline batches") {
+            outlineView.reloadItemCallCount == nodes.count
         }
-        #expect(outlineView.reloadDataCallCount == 1)
-        #expect(outlineView.reloadItemCallCount == 0)
+        #expect(outlineView.reloadDataCallCount == 0)
+        #expect(outlineView.reloadItemCallCount == nodes.count)
+    }
+
+    @Test
+    func childChangeWaitsForItsRootRevisionToReachOutline() async throws {
+        let store = FileExplorerStore()
+        let oldNode = FileExplorerNode(
+            name: "Old.swift",
+            path: "/project/Old.swift",
+            isDirectory: false
+        )
+        store.rootPath = "/project"
+        store.rootNodes = [oldNode]
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+
+        let newDirectory = FileExplorerNode(
+            name: "Sources",
+            path: "/project/Sources",
+            isDirectory: true
+        )
+        newDirectory.children = [
+            FileExplorerNode(
+                name: "App.swift",
+                path: "/project/Sources/App.swift",
+                isDirectory: false
+            ),
+        ]
+        store.rootNodes = [newDirectory]
+        coordinator.enqueueOutlineChange(
+            .expansionChanged(node: newDirectory, isExpanded: true)
+        )
+
+        try await waitFor("new root revision installed") {
+            outlineView.item(atRow: 0) as? FileExplorerNode === newDirectory
+        }
+        #expect(outlineView.isItemExpanded(newDirectory))
     }
 
     @Test
