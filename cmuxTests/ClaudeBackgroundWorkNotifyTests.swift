@@ -104,12 +104,13 @@ struct ClaudeBackgroundWorkNotifyTests {
             ttyName: "ttys-bg-clear-carry",
             ttySurfaceId: context.surfaceId
         )
-        let environment = harness.claudeHookEnvironment(
+        var environment = harness.claudeHookEnvironment(
             context: context,
             surfaceId: context.surfaceId,
             ttyName: "ttys-bg-clear-carry",
             storeURL: storeURL
         )
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
 
         let promptResult = harness.runProcess(
             executablePath: context.cliPath,
