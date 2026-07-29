@@ -278,8 +278,12 @@ struct SSHConfiguredRemoteCommandHostTests {
                 as? [String: Any]
         )
         let startupCommand = try #require(createParams["initial_command"] as? String)
-        #expect(startupCommand.contains("RemoteCommand=printf explicit-fallback"), "\(startupCommand)")
-        #expect(!startupCommand.contains("ssh-pty-attach"), "\(startupCommand)")
+        let startupURL = URL(fileURLWithPath: startupCommand)
+        let startupArtifact = FileManager.default.fileExists(atPath: startupURL.path)
+            ? try String(contentsOf: startupURL, encoding: .utf8)
+            : startupCommand
+        #expect(startupArtifact.contains("RemoteCommand=printf explicit-fallback"), "\(startupArtifact)")
+        #expect(!startupArtifact.contains("ssh-pty-attach"), "\(startupArtifact)")
         let configureParams = try #require(
             requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"]
                 as? [String: Any]
