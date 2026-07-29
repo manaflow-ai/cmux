@@ -9,15 +9,22 @@ internal import Foundation
 final class RemoteProcessExitSignal: Sendable {
     private let didExit = AtomicBooleanGate(false)
     private let group = DispatchGroup()
+    private let pollSignal: ProcessPipeStopSignal
 
-    init() {
+    init() throws {
+        pollSignal = try ProcessPipeStopSignal()
         group.enter()
+    }
+
+    var readFileDescriptor: Int32 {
+        pollSignal.readFileDescriptor
     }
 
     func recordExit() {
         guard didExit.compareExchange(expected: false, desired: true) else {
             return
         }
+        pollSignal.signal()
         group.leave()
     }
 

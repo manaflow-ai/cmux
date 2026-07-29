@@ -93,9 +93,10 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
         let captureQueue = DispatchQueue(label: "cmux.remote.process.capture")
-        let processExitSignal = RemoteProcessExitSignal()
+        let processExitSignal = try RemoteProcessExitSignal()
         let captureStopSignal = try ProcessPipeStopSignal()
         let stdinStopSignal = try ProcessPipeStopSignal()
+        let stdinFailureSignal = try ProcessPipeStopSignal()
         let stdinWriteState = RemoteProcessStdinWriteState()
         let captureState = RemoteProcessPipeCaptureState()
         let captureGroup = DispatchGroup()
@@ -239,6 +240,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
                     // POSIX helper turns that race into EPIPE instead of SIGPIPE.
                 } catch {
                     stdinWriteState.record(error: error)
+                    stdinFailureSignal.signal()
                     if process.isRunning {
                         process.terminate()
                     }
@@ -247,7 +249,33 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         }
 
         let timeoutDeadline = DispatchTime.now() + max(0, timeout)
-        var didTimeOut = !processExitSignal.wait(until: timeoutDeadline)
+        let completionOutcome = RemoteProcessCompletionWaiter(
+            processExitFileDescriptor: processExitSignal.readFileDescriptor,
+            stdinFailureFileDescriptor: stdinFailureSignal.readFileDescriptor
+        ).wait(until: timeoutDeadline)
+        var didTimeOut = false
+        switch completionOutcome {
+        case .processExited:
+            break
+        case .stdinWriteFailed:
+            let stdinWriteError = stdinWriteState.recordedError ?? POSIXError(.EIO)
+            if process.isRunning {
+                terminateProcessAndWait()
+            }
+            stdinWriteGroup.wait()
+            finishCaptureAndCloseReadHandles()
+            throw stdinWriteFailure(stdinWriteError)
+        case .timedOut:
+            didTimeOut = true
+        case .waitFailed(let code):
+            stdinStopSignal.signal()
+            if process.isRunning {
+                terminateProcessAndWait()
+            }
+            stdinWriteGroup.wait()
+            finishCaptureAndCloseReadHandles()
+            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+        }
         if didTimeOut, !process.isRunning {
             process.waitUntilExit()
             noteProcessExit()
@@ -258,6 +286,14 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         }
 
         if didTimeOut {
+            if let stdinWriteError = stdinWriteState.recordedError {
+                if process.isRunning {
+                    terminateProcessAndWait()
+                }
+                stdinWriteGroup.wait()
+                finishCaptureAndCloseReadHandles()
+                throw stdinWriteFailure(stdinWriteError)
+            }
             stdinStopSignal.signal()
             if let operation, operation.isCancelled {
                 if process.isRunning {
