@@ -164,7 +164,7 @@ final class MacPairedMacBackupPublisher {
         }
         if let buildScope = MobileIOSBuildScope(instanceTag),
            let appNamespace = MobileIOSAppNamespace(
-               bundleIdentifier: "dev.cmux.ios.\(buildScope.tag)"
+               bundleIdentifier: "dev.cmux.ios.\(buildScope.value)"
            ) {
             request.setValue(
                 appNamespace.serverScope,
