@@ -227,6 +227,15 @@ struct FileExplorerStoreTests {
         return contents.split(separator: "\n").count { $0 == Substring(value) }
     }
 
+    private func hostInScrollView(
+        _ outlineView: NSOutlineView
+    ) -> NSScrollView {
+        let scrollView = NSScrollView(frame: outlineView.frame)
+        scrollView.documentView = outlineView
+        scrollView.layoutSubtreeIfNeeded()
+        return scrollView
+    }
+
     // MARK: - Basic loading
 
     @Test
@@ -278,6 +287,7 @@ struct FileExplorerStoreTests {
             onOpenFilePreview: { _ in }
         )
         let outlineView = CountingFileExplorerOutlineView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let scrollView = hostInScrollView(outlineView)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
@@ -286,6 +296,7 @@ struct FileExplorerStoreTests {
         coordinator.outlineView = outlineView
 
         coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
         #expect(outlineView.numberOfRows == 1_001)
         outlineView.resetMetrics()
 
@@ -358,6 +369,7 @@ struct FileExplorerStoreTests {
         let outlineView = CountingFileExplorerOutlineView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 240)
         )
+        let scrollView = hostInScrollView(outlineView)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
@@ -365,6 +377,7 @@ struct FileExplorerStoreTests {
         outlineView.delegate = coordinator
         coordinator.outlineView = outlineView
         coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
         outlineView.resetMetrics()
 
         for directory in directories {
@@ -402,6 +415,7 @@ struct FileExplorerStoreTests {
         let outlineView = CountingFileExplorerOutlineView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 240)
         )
+        let scrollView = hostInScrollView(outlineView)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
@@ -409,6 +423,7 @@ struct FileExplorerStoreTests {
         outlineView.delegate = coordinator
         coordinator.outlineView = outlineView
         coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
         outlineView.resetMetrics()
 
         coordinator.enqueueOutlineChange(
@@ -546,6 +561,7 @@ struct FileExplorerStoreTests {
         let outlineView = CountingFileExplorerOutlineView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 240)
         )
+        let scrollView = hostInScrollView(outlineView)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
@@ -553,6 +569,7 @@ struct FileExplorerStoreTests {
         outlineView.delegate = coordinator
         coordinator.outlineView = outlineView
         coordinator.reloadIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
         let visibleRowCount = outlineView.rows(in: outlineView.visibleRect).length
         outlineView.resetMetrics()
 
@@ -618,8 +635,9 @@ struct FileExplorerStoreTests {
         outlineView.resetMetrics()
         newStore.expand(node: newDirectory)
         try await waitFor("replacement store outline change") {
-            outlineView.reloadRowsCallCount == 1
+            outlineView.cellViewLookupCallCount == 1
         }
+        #expect(outlineView.reloadRowsCallCount == 0)
     }
 
     @Test

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -137,7 +138,8 @@ import Testing
             await command.value
         }
 
-        #expect(result.executionError != nil)
+        #expect(result.cancelled == true)
+        #expect(result.executionError == nil)
         #expect(result.timedOut == false)
         #expect(result.exitStatus == nil)
     }
@@ -159,9 +161,100 @@ import Testing
             await command.value
         }
 
-        #expect(result.executionError == "cancelled")
+        #expect(result.cancelled == true)
+        #expect(result.executionError == nil)
         #expect(result.timedOut == false)
         #expect(result.exitStatus == nil)
+    }
+
+    @Test func taskCancellationTerminatesDescendantProcessGroup() async throws {
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-command-runner-child-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+
+        var childPID: pid_t?
+        defer {
+            if let childPID {
+                _ = Darwin.kill(childPID, SIGKILL)
+            }
+        }
+
+        let command = Task {
+            await runner.run(
+                directory: tempDir,
+                executable: "sh",
+                arguments: [
+                    "-c",
+                    "sleep 30 & child=$!; printf '%s' \"$child\" > \"$1\"; wait",
+                    "cmux-command-runner-test",
+                    pidFile.path,
+                ],
+                timeout: 30
+            )
+        }
+        childPID = try await waitForProcessID(in: pidFile)
+        command.cancel()
+
+        let result = try await expectCompletes(within: 4) {
+            await command.value
+        }
+        let descendantExited = try await waitForProcessExit(
+            try #require(childPID)
+        )
+
+        #expect(result.cancelled == true)
+        #expect(descendantExited)
+    }
+
+    @Test func timeoutTerminatesDescendantProcessGroup() async throws {
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-command-runner-timeout-child-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+
+        var childPID: pid_t?
+        defer {
+            if let childPID {
+                _ = Darwin.kill(childPID, SIGKILL)
+            }
+        }
+
+        let command = Task {
+            await runner.run(
+                directory: tempDir,
+                executable: "sh",
+                arguments: [
+                    "-c",
+                    "sleep 30 & child=$!; printf '%s' \"$child\" > \"$1\"; wait",
+                    "cmux-command-runner-test",
+                    pidFile.path,
+                ],
+                timeout: 0.3
+            )
+        }
+        childPID = try await waitForProcessID(in: pidFile)
+        let result = try await expectCompletes(within: 4) {
+            await command.value
+        }
+        let descendantExited = try await waitForProcessExit(
+            try #require(childPID)
+        )
+
+        #expect(result.timedOut == true)
+        #expect(descendantExited)
+    }
+
+    @Test func canDrainAndDiscardStandardError() async {
+        let runner = CommandRunner(standardErrorCaptureLimit: 0)
+        let result = await runner.run(
+            directory: tempDir,
+            executable: "sh",
+            arguments: ["-c", "yes noisy | head -n 100000 >&2; printf done"],
+            timeout: 10
+        )
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout == "done")
+        #expect(result.stderr == "")
     }
 
     @Test func handlesLargeOutputWithoutDeadlock() async {
@@ -281,6 +374,31 @@ import Testing
                 throw TimedOutWaiting()
             }
         }
+    }
+
+    private func waitForProcessID(in file: URL) async throws -> pid_t {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if let contents = try? String(contentsOf: file, encoding: .utf8),
+               let processID = pid_t(contents.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return processID
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        throw TimedOutWaiting()
+    }
+
+    private func waitForProcessExit(_ processID: pid_t) async throws -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if Darwin.kill(processID, 0) == -1, errno == ESRCH {
+                return true
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return Darwin.kill(processID, 0) == -1 && errno == ESRCH
     }
 
     /// The guard deadline in ``expectCompletes(within:_:sourceLocation:)`` won the race
