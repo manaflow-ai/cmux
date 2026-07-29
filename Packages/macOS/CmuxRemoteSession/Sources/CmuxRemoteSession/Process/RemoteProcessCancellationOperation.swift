@@ -3,6 +3,10 @@ internal import Foundation
 /// Cancellation token used to terminate a blocking process runner from a
 /// coordinator-owned task.
 ///
+/// `installCancellationHandler` and `cancel` run synchronously from
+/// non-isolated contexts that cannot await, so actor-backed state cannot serve
+/// this bridge.
+///
 /// `@unchecked Sendable` is safe because the lock protects the complete
 /// mutable state, and handlers are always invoked after releasing the lock.
 final class RemoteProcessCancellationOperation: RemoteTransferCancelling, @unchecked Sendable {
@@ -11,6 +15,8 @@ final class RemoteProcessCancellationOperation: RemoteTransferCancelling, @unche
     private let lock = NSLock()
     private var cancelled = false
     private var cancellationHandler: (() -> Void)?
+
+    deinit {}
 
     var isCancelled: Bool {
         lock.lock()
