@@ -100,6 +100,59 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func decoratedHTMLURLStillReusesOneBrowser() throws {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        let previousSupportedFiles = defaults.object(forKey: supportedFilesKey)
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            restore(previousSupportedFiles, forKey: supportedFilesKey, in: defaults)
+            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
+        }
+        defaults.set(true, forKey: supportedFilesKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>decorated browser URL</title>".write(
+            to: htmlURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: htmlURL.path
+        ))
+        let browser = try #require(workspace.panels.values.compactMap { $0 as? BrowserPanel }.first)
+        var components = try #require(URLComponents(url: htmlURL, resolvingAgainstBaseURL: false))
+        components.query = "preview=1"
+        components.fragment = "section"
+        let decoratedURL = try #require(components.url)
+        browser.isMainFrameProvisionalNavigationActive = true
+        browser.navigationDelegate?.recordAttemptedRequest(URLRequest(url: decoratedURL))
+
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: htmlURL.path
+        ))
+
+        #expect(workspace.panels.values.compactMap { $0 as? BrowserPanel }.count == 1)
+        #expect(workspace.focusedPanelId == browser.id)
+    }
+
+    @Test
     func repeatedHTMLPathOpenReloadsChangedContent() async throws {
         _ = NSApplication.shared
 
