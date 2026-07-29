@@ -275,6 +275,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return surfaceListResponse(id: id, surfaceId: surfaceId)
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
+        case "surface.resume.set":
+            return v2Response(
+                id: id,
+                ok: true,
+                result: ["resume_binding": ["updated_at": 123.25]]
+            )
+        case "surface.resume.clear":
+            return v2Response(id: id, ok: true, result: ["cleared": true])
         default:
             return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }

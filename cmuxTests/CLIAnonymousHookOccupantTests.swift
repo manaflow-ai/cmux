@@ -99,6 +99,35 @@ extension CLINotifyProcessIntegrationRegressionTests {
             currentCommands.contains { $0.hasPrefix("set_agent_pid ") },
             "Only anonymous session-start may claim PID ownership: \(currentCommands)"
         )
+
+        let teardownCommandStart = state.snapshot().count
+        let currentTeardown = runKiroHook(
+            "session-end",
+            pid: replacementPID,
+            eventName: "SessionEnd"
+        )
+        XCTAssertFalse(currentTeardown.timedOut, currentTeardown.stderr)
+        XCTAssertEqual(currentTeardown.status, 0, currentTeardown.stderr)
+        XCTAssertEqual(currentTeardown.stdout, "{}\n")
+        let teardownCommands = Array(state.snapshot().dropFirst(teardownCommandStart))
+        XCTAssertTrue(
+            teardownCommands.contains {
+                $0.hasPrefix("clear_agent_pid kiro.\(surfaceID) ")
+                    && $0.contains("--expected-pid=\(replacementPID)")
+            },
+            "Anonymous teardown must clear only the PID occupant it consumed: \(teardownCommands)"
+        )
+        XCTAssertTrue(
+            teardownCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.clear",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return (params["_cmux_expected_updated_at"] as? NSNumber)?.doubleValue == 123.25
+            },
+            "Anonymous teardown must compare-and-clear the binding revision it published: \(teardownCommands)"
+        )
     }
 
     func testLateRovoDevHookCannotMutateReplacementOccupantSharingInferredSessionID() throws {

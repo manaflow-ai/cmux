@@ -393,6 +393,122 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
+    func staleExplicitPIDClaimCannotEraseReplacementLifecycle() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            TerminalMutationBus.shared.drainForTesting()
+        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let target = "--tab=\(workspace.id.uuidString) --panel=\(surfaceID.uuidString)"
+        workspace.recordAgentPID(
+            key: "codex.session-new",
+            pid: getpid(),
+            panelId: surfaceID,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: surfaceID,
+            lifecycle: .running,
+            sessionID: "session-new",
+            startsNewOccupant: true
+        )
+        let replacement = try #require(
+            workspace.agentLifecycleRecordsByPanelId[surfaceID]?["codex"]
+        )
+        let baselineSequence = CmuxEventBus.shared.latestSequence
+
+        #expect(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_pid codex.session-old \(getpid()) \(target) --session-id=session-old"
+            ) == "OK"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        #expect(
+            workspace.agentLifecycleRecordsByPanelId[surfaceID]?["codex"] == replacement
+        )
+        #expect(workspace.agentPIDs["codex.session-new"] == getpid())
+        #expect(workspace.agentPIDs["codex.session-old"] == nil)
+        #expect(CmuxEventBus.shared.latestSequence == baselineSequence)
+    }
+
+    @Test
+    func staleResumeBindingRevisionCannotClearAnonymousReplacement() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let sharedSessionID = surfaceID.uuidString
+        let original = SurfaceResumeBindingSnapshot(
+            name: "Kiro",
+            kind: "kiro",
+            command: "kiro --resume",
+            checkpointId: sharedSessionID,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 100
+        )
+        let replacement = SurfaceResumeBindingSnapshot(
+            name: "Kiro",
+            kind: "kiro",
+            command: "kiro --resume",
+            checkpointId: sharedSessionID,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 200
+        )
+        #expect(
+            workspace.setSurfaceResumeBinding(
+                original,
+                panelId: surfaceID
+            )
+        )
+        #expect(
+            workspace.setSurfaceResumeBinding(
+                replacement,
+                panelId: surfaceID
+            )
+        )
+
+        let request: [String: Any] = [
+            "id": "stale-resume-binding-clear",
+            "method": "surface.resume.clear",
+            "params": [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "checkpoint_id": sharedSessionID,
+                "source": "agent-hook",
+                "agent_session_ended": true,
+                "_cmux_expected_updated_at": original.updatedAt,
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(String(data: requestData, encoding: .utf8))
+        let responseLine = TerminalController.shared.handleSocketLine(requestLine)
+        let responseData = try #require(responseLine.data(using: .utf8))
+        let envelope = try #require(
+            JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+        )
+        let result = try #require(envelope["result"] as? [String: Any])
+
+        #expect(envelope["ok"] as? Bool == true)
+        #expect(result["cleared"] as? Bool == false)
+        #expect(
+            workspace.surfaceResumeBinding(panelId: surfaceID)
+                == replacement
+        )
+    }
+
+    @Test
     func staleSessionTeardownCannotClearReplacementLifecycle() throws {
         let fixture = try Fixture()
         fixture.workspace.recordAgentPID(
