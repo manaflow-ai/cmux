@@ -54,6 +54,7 @@ extension CommandRunning {
             timeout: timeout
         )
         guard result.executionError == nil,
+              !result.cancelled,
               !result.timedOut,
               result.exitStatus == 0 else {
             return nil

@@ -711,8 +711,11 @@ final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
     @Published var rootNodes: [FileExplorerNode] = [] {
         didSet {
-            rootNodesByPath = rootNodes.reduce(into: [:]) { index, node in
-                index[node.path] = node
+            for node in oldValue where nodesByPath[node.path] === node {
+                nodesByPath.removeValue(forKey: node.path)
+            }
+            for node in rootNodes {
+                nodesByPath[node.path] = node
             }
         }
     }
@@ -759,7 +762,6 @@ final class FileExplorerStore: ObservableObject {
 
     /// Cache of path -> node for quick lookup
     private var nodesByPath: [String: FileExplorerNode] = [:]
-    private var rootNodesByPath: [String: FileExplorerNode] = [:]
 
     /// Narrow view invalidations. The store is main-thread confined, so observers
     /// are invoked synchronously and never need to rescan the full outline.
@@ -1110,7 +1112,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func loadedNode(at path: String) -> FileExplorerNode? {
-        nodesByPath[path] ?? rootNodesByPath[path]
+        nodesByPath[path]
     }
 
     func select(node: FileExplorerNode?) {
@@ -1228,7 +1230,9 @@ final class FileExplorerStore: ObservableObject {
             guard ownsLoad(at: path, identifier: identifier) else { return }
             let children = entries.map { entry in
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
-                nodesByPath[entry.path] = node
+                if parentNode != nil {
+                    nodesByPath[entry.path] = node
+                }
                 return node
             }.sorted { a, b in
                 if a.isDirectory != b.isDirectory { return a.isDirectory }

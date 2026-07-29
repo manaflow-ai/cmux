@@ -2,12 +2,12 @@
 ///
 /// All fields are optional because a command can fail to launch, time out, or be
 /// killed before producing output. Inspect ``executionError`` first (the process
-/// never started), then ``timedOut`` (it was terminated for exceeding its
-/// deadline), then ``exitStatus`` and the captured streams.
+/// never started), then ``cancelled`` or ``timedOut``, then ``exitStatus`` and
+/// the captured streams.
 ///
 /// ```swift
 /// let result = await runner.run(directory: ".", executable: "gh", arguments: ["auth", "token"], timeout: 5)
-/// if result.executionError == nil, !result.timedOut, result.exitStatus == 0 {
+/// if result.executionError == nil, !result.cancelled, !result.timedOut, result.exitStatus == 0 {
 ///     print(result.stdout ?? "")
 /// }
 /// ```
@@ -23,6 +23,8 @@ public struct CommandResult: Sendable, Equatable {
     public let timedOut: Bool
     /// A description of the launch failure when the process never started, else `nil`.
     public let executionError: String?
+    /// Whether structured task cancellation terminated the process.
+    public let cancelled: Bool
 
     /// Creates a command result.
     /// - Parameters:
@@ -31,17 +33,20 @@ public struct CommandResult: Sendable, Equatable {
     ///   - exitStatus: The process exit status, or `nil` if it did not exit normally.
     ///   - timedOut: Whether the process was killed for exceeding its deadline.
     ///   - executionError: A launch-failure description, or `nil`.
+    ///   - cancelled: Whether structured task cancellation terminated the process.
     public init(
         stdout: String?,
         stderr: String?,
         exitStatus: Int32?,
         timedOut: Bool,
-        executionError: String?
+        executionError: String?,
+        cancelled: Bool = false
     ) {
         self.stdout = stdout
         self.stderr = stderr
         self.exitStatus = exitStatus
         self.timedOut = timedOut
         self.executionError = executionError
+        self.cancelled = cancelled
     }
 }

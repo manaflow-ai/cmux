@@ -25,7 +25,8 @@ struct GitStatusProvider: Sendable {
         commandRunner = CommandRunner(
             environment: nonLockingEnvironment,
             bundledBinPath: nil,
-            fallbackSearchDirectories: []
+            fallbackSearchDirectories: [],
+            standardErrorCaptureLimit: 0
         )
         self.processTimeout = max(0, processTimeout)
     }

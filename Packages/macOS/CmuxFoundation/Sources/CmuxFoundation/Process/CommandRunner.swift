@@ -104,6 +104,7 @@ public struct CommandRunner: CommandRunning, Sendable {
     private let environment: [String: String]
     private let bundledBinPath: String?
     private let fallbackSearchDirectories: [String]
+    private let standardErrorCaptureLimit: Int?
 
     /// Creates a command runner.
     /// - Parameters:
@@ -111,14 +112,18 @@ public struct CommandRunner: CommandRunning, Sendable {
     ///   - bundledBinPath: An extra directory searched ahead of the fallbacks (the app's
     ///     bundled CLI directory); defaults to `Bundle.main`'s `Contents/Resources/bin`.
     ///   - fallbackSearchDirectories: Directories searched after `PATH` and the bundled bin.
+    ///   - standardErrorCaptureLimit: Maximum stderr bytes retained while the full
+    ///     stream is drained. `nil` retains all stderr; `0` discards it.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundledBinPath: String? = Bundle.main.resourceURL?.appendingPathComponent("bin").path,
-        fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories
+        fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories,
+        standardErrorCaptureLimit: Int? = nil
     ) {
         self.environment = environment
         self.bundledBinPath = bundledBinPath
         self.fallbackSearchDirectories = fallbackSearchDirectories
+        self.standardErrorCaptureLimit = standardErrorCaptureLimit.map { max(0, $0) }
     }
 
     /// Runs `executable` with `arguments` in `directory`, capturing its output.
@@ -145,13 +150,24 @@ public struct CommandRunner: CommandRunning, Sendable {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
+        let commandPath: String
+        let commandArguments: [String]
         if let resolved = resolvedCommandPath(executable: executable) {
-            process.executableURL = URL(fileURLWithPath: resolved)
-            process.arguments = arguments
+            commandPath = resolved
+            commandArguments = arguments
         } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [executable] + arguments
+            commandPath = "/usr/bin/env"
+            commandArguments = [executable] + arguments
         }
+        // Establish an owned process group before replacing the wrapper with
+        // the requested executable. Descendants inherit the group.
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "set -m; exec \"$@\"",
+            "cmux-command-runner",
+            commandPath,
+        ] + commandArguments
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
@@ -160,6 +176,7 @@ public struct CommandRunner: CommandRunning, Sendable {
 
         let outFD = stdoutPipe.fileHandleForReading.fileDescriptor
         let errFD = stderrPipe.fileHandleForReading.fileDescriptor
+        let stderrCaptureLimit = standardErrorCaptureLimit
         let cancellation = CommandCancellationLatch()
 
         return await withTaskCancellationHandler {
@@ -229,11 +246,14 @@ public struct CommandRunner: CommandRunning, Sendable {
                 // does not block on them. Keyed by the raw fd so no non-Sendable `FileHandle`
                 // crosses the task boundary.
                 Task.detached {
-                    let data = Self.readToEnd(fileDescriptor: outFD)
+                    let data = Self.readToEnd(fileDescriptor: outFD, captureLimit: nil)
                     recordAndCompleteIfReady { $0.stdout = data }
                 }
                 Task.detached {
-                    let data = Self.readToEnd(fileDescriptor: errFD)
+                    let data = Self.readToEnd(
+                        fileDescriptor: errFD,
+                        captureLimit: stderrCaptureLimit
+                    )
                     recordAndCompleteIfReady { $0.stderr = data }
                 }
 
@@ -257,6 +277,11 @@ public struct CommandRunner: CommandRunning, Sendable {
                         ))
                     return
                 }
+                let processGroupID = process.processIdentifier
+                // Close the launch/cancellation race before the shell wrapper
+                // executes `set -m`. EACCES means it already execed; the wrapper
+                // then establishes the same group id.
+                _ = Darwin.setpgid(processGroupID, processGroupID)
 
                 // Close the parent's write ends so the readers see EOF once the child (and any
                 // descendants that inherited them) close their copies.
@@ -269,11 +294,14 @@ public struct CommandRunner: CommandRunning, Sendable {
                         stderr: nil,
                         exitStatus: nil,
                         timedOut: false,
-                        executionError: "cancelled"
+                        executionError: nil,
+                        cancelled: true
                     )
-                    if claimImmediate(cancelled), process.isRunning {
-                        process.terminate()
-                        Self.scheduleSigkill(process)
+                    if claimImmediate(cancelled) {
+                        Self.terminateOwnedProcessTree(
+                            process,
+                            processGroupID: processGroupID
+                        )
                     }
                 }
 
@@ -292,9 +320,11 @@ public struct CommandRunner: CommandRunning, Sendable {
                         let timedOut = CommandResult(
                             stdout: nil, stderr: nil, exitStatus: nil, timedOut: true, executionError: nil
                         )
-                        if claimImmediate(timedOut), process.isRunning {
-                            process.terminate()
-                            Self.scheduleSigkill(process)
+                        if claimImmediate(timedOut) {
+                            Self.terminateOwnedProcessTree(
+                                process,
+                                processGroupID: processGroupID
+                            )
                         }
                         timer.cancel()
                     }
@@ -329,22 +359,37 @@ public struct CommandRunner: CommandRunning, Sendable {
         var deadlineTimer: CommandTimer?
     }
 
-    private static func scheduleSigkill(_ process: Process) {
+    private static func terminateOwnedProcessTree(
+        _ process: Process,
+        processGroupID: pid_t
+    ) {
+        if Darwin.kill(-processGroupID, SIGTERM) != 0, process.isRunning {
+            process.terminate()
+        }
+        scheduleSigkill(process, processGroupID: processGroupID)
+    }
+
+    private static func scheduleSigkill(
+        _ process: Process,
+        processGroupID: pid_t
+    ) {
         let timer = CommandTimer(queue: timerQueue)
         timer.schedule(deadline: .now() + sigkillGraceSeconds)
         timer.setEventHandler {
-            // Only SIGKILL if the Process is still running. If it already exited during
-            // the grace window, sending to the bare pid could hit an unrelated process
-            // that reused it; Foundation's `isRunning` confirms the pid is still ours.
-            if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
+            if Darwin.kill(-processGroupID, 0) == 0 || errno == EPERM {
+                _ = Darwin.kill(-processGroupID, SIGKILL)
+            } else if process.isRunning {
+                _ = Darwin.kill(process.processIdentifier, SIGKILL)
             }
             timer.cancel()
         }
         timer.resume()
     }
 
-    private static func readToEnd(fileDescriptor: Int32) -> Data {
+    private static func readToEnd(
+        fileDescriptor: Int32,
+        captureLimit: Int?
+    ) -> Data {
         var data = Data()
         let chunkSize = 64 * 1024
         var buffer = [UInt8](repeating: 0, count: chunkSize)
@@ -354,7 +399,12 @@ public struct CommandRunner: CommandRunning, Sendable {
                 return Darwin.read(fileDescriptor, base, chunkSize)
             }
             if bytesRead > 0 {
-                data.append(contentsOf: buffer[0..<bytesRead])
+                let bytesToCapture = captureLimit.map {
+                    min(bytesRead, max(0, $0 - data.count))
+                } ?? bytesRead
+                if bytesToCapture > 0 {
+                    data.append(contentsOf: buffer[0..<bytesToCapture])
+                }
             } else if bytesRead == 0 {
                 break
             } else if errno == EINTR {
