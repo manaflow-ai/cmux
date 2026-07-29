@@ -1269,6 +1269,85 @@ import Testing
         })
     }
 
+    @Test func repeatedDrainReservationReusesOneTransportCloseOperation()
+        async throws {
+        let router = LivenessHostRouter()
+        let closeGate = LivenessTransportCloseGate()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox(),
+                closeGate: closeGate
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "reused-drain",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-reused-drain",
+            macDisplayName: "Drain Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                params: [:]
+            )
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: ticket.macDeviceID,
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let shell = MobileShellComposite(runtime: runtime, isSignedIn: true)
+        shell.secondaryMacSubscriptions[ticket.macDeviceID] = subscription
+        shell.macSwitchAttemptID = UUID()
+
+        #expect(shell.beginSecondaryMacDrainReservation(
+            subscription,
+            macDeviceID: ticket.macDeviceID
+        ))
+        await closeGate.waitUntilCloseStarted()
+        let first = try #require(subscription.transportDrainOperation)
+        let retry = shell.secondaryMacTransportDrainOperation(
+            subscription,
+            macDeviceID: ticket.macDeviceID
+        )
+
+        #expect(first === retry)
+        #expect(shell.secondaryMacDrainReservations[ticket.macDeviceID]
+            === subscription)
+        let firstTimedWait = await first.wait(nanoseconds: 1_000_000)
+        #expect(!firstTimedWait)
+        #expect(first.pendingWaiterCount == 0)
+        let retryTimedWait = await retry.wait(nanoseconds: 1_000_000)
+        #expect(!retryTimedWait)
+        #expect(retry.pendingWaiterCount == 0)
+
+        await closeGate.release()
+        #expect(try await pollUntil {
+            subscription.hasCompletedTransportDrain
+        })
+        shell.macSwitchAttemptID = nil
+        shell.finishCompletedSecondaryMacDrainReservations()
+        #expect(shell.secondaryMacDrainReservations[ticket.macDeviceID] == nil)
+    }
+
     @Test func retryStateCoalescesPoolFailuresAndCapsBackoff() {
         var state = MobileControlPoolRetryState()
 
@@ -3561,6 +3640,119 @@ import Testing
             ),
         ])
         #expect(shell.connections["mac-late"]?.client === client)
+    }
+
+    @Test func rejectedAnonymousIdentityPreservesAuthenticatedControlOwner()
+        async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "anonymous-authority-rejection",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-claimed",
+            displayName: "Claimed Mac",
+            routes: [route],
+            instanceTag: "authenticated-owner",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let anonymousTicket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let claimedTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-claimed",
+            macDisplayName: "Claimed Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let anonymousClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: anonymousTicket,
+            allowsStackAuthFallback: true
+        )
+        let controlClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: claimedTicket,
+            allowsStackAuthFallback: true
+        )
+        _ = try await controlClient.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                params: [:]
+            )
+        )
+        let control = SecondaryMacSubscription(
+            macDeviceID: "mac-claimed",
+            client: controlClient,
+            route: route,
+            ticket: claimedTicket,
+            storedInstanceTag: "authenticated-owner",
+            authenticatedInstanceTag: "authenticated-owner",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        shell.remoteClient = anonymousClient
+        shell.activeTicket = anonymousTicket
+        shell.activeRoute = route
+        shell.secondaryMacSubscriptions["mac-claimed"] = control
+
+        await shell.applyHostReportedIdentityForTesting(
+            deviceID: "mac-claimed",
+            displayName: "Untrusted Alias",
+            instanceTag: nil
+        )
+
+        #expect(shell.foregroundMacDeviceIDForTesting() == nil)
+        #expect(shell.remoteClient == nil)
+        #expect(shell.activeTicket == nil)
+        #expect(shell.secondaryMacSubscriptions["mac-claimed"] === control)
+        #expect(shell.connections["mac-claimed"] == nil)
+        _ = try await controlClient.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                params: [:]
+            )
+        )
+        shell.secondaryMacSubscriptions["mac-claimed"] = nil
+        control.cancel()
     }
 
     @Test func anonymousSwitchClearsPreviousFocusedIdentity() async throws {

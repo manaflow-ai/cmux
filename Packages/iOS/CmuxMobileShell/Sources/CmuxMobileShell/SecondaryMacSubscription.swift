@@ -40,6 +40,80 @@ enum SecondaryMacPostDrainAction {
     case retry
 }
 
+/// One physical close shared by every waiter on a retired control connection.
+/// A timed-out Mac switch may retry the same reservation, but it must never
+/// start another transport close or completion watcher for that peer.
+@MainActor
+final class SecondaryMacTransportDrainOperation {
+    private struct Waiter {
+        let continuation: CheckedContinuation<Bool, Never>
+        let timeoutTask: Task<Void, Never>
+    }
+
+    let task: Task<Void, Never>
+    var completionTask: Task<Void, Never>?
+    private var hasCompleted = false
+    private var waiters: [UUID: Waiter] = [:]
+
+    init(task: Task<Void, Never>) {
+        self.task = task
+    }
+
+    var pendingWaiterCount: Int { waiters.count }
+
+    func wait(nanoseconds: UInt64) async -> Bool {
+        guard !hasCompleted else { return true }
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !hasCompleted else {
+                    continuation.resume(returning: true)
+                    return
+                }
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                let timeoutTask = Task { @MainActor [weak self] in
+                    do {
+                        try await Task.sleep(nanoseconds: nanoseconds)
+                    } catch {
+                        return
+                    }
+                    self?.resolveWaiter(waiterID, value: false)
+                }
+                waiters[waiterID] = Waiter(
+                    continuation: continuation,
+                    timeoutTask: timeoutTask
+                )
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.resolveWaiter(waiterID, value: false)
+            }
+        }
+    }
+
+    func finish() {
+        guard !hasCompleted else { return }
+        hasCompleted = true
+        let pending = waiters.values
+        waiters = [:]
+        for waiter in pending {
+            waiter.timeoutTask.cancel()
+            waiter.continuation.resume(returning: true)
+        }
+    }
+
+    private func resolveWaiter(_ waiterID: UUID, value: Bool) {
+        guard let waiter = waiters.removeValue(forKey: waiterID) else {
+            return
+        }
+        waiter.timeoutTask.cancel()
+        waiter.continuation.resume(returning: value)
+    }
+}
+
 /// One non-focused Mac's persistent control connection plus its event consumer.
 @MainActor
 final class SecondaryMacSubscription {
@@ -88,6 +162,10 @@ final class SecondaryMacSubscription {
     /// reservations stay claimed until the active Mac switch either consumes
     /// them in its fresh-dial fallback or ends.
     var hasCompletedTransportDrain = false
+    var transportDrainOperation: SecondaryMacTransportDrainOperation?
+    /// Fresh connect attempts retain the drained target's pool slot until
+    /// their replacement focus either publishes or fails.
+    var transportDrainReservationHolders: Set<UUID> = []
     var postDrainAction: SecondaryMacPostDrainAction = .none
     /// Keepalive ticks skip a newly inserted subscription until its consumer's
     /// first server-side activation has completed.
@@ -129,6 +207,7 @@ final class SecondaryMacSubscription {
         deferredRefreshTask?.cancel()
         deferredRefreshTask = nil
         deferredRefreshOperationID = nil
+        guard transportDrainOperation == nil else { return }
         let client = self.client
         Task { await client.disconnect() }
     }

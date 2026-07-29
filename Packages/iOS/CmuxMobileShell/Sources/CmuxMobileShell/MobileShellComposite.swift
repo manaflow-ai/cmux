@@ -3421,7 +3421,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             authToken: ticket.authToken
             ) {
             resolvedTicket = adopted
-            activeTicket = adopted
         } else {
             // An authenticated status response may refresh metadata only for
             // the Mac this connection already represents. A mismatched reply
@@ -3437,9 +3436,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         guard remoteClient === client else { return }
         let resolvedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let resolvedName, !resolvedName.isEmpty {
-            connectedHostName = resolvedName
-        }
         let resolvedTag = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard macBuildIsCompatible(instanceTag: resolvedTag) else {
             rejectForegroundHostIdentity(client: client, reason: "build_incompatible")
@@ -3452,12 +3448,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             rejectForegroundHostIdentity(client: client, reason: "instance_tag_mismatch")
             return
         }
-        if activeMacInstanceTag == nil, let resolvedTag, !resolvedTag.isEmpty {
-            activeMacInstanceTag = resolvedTag
-        }
-        // Move the foreground aggregate and connection-registry keys from the
-        // anonymous placeholder to the authenticated id.
-        adoptForegroundMacIdentity(reportedID)
         let tagUpdate: PairedMacInstanceTagUpdate
         if resolvedTag?.isEmpty == false {
             tagUpdate = .replace(resolvedTag)
@@ -3472,9 +3462,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             displayNameOverride: resolvedName?.isEmpty == false ? resolvedName : nil,
             ifStillCurrent: { [weak self] in self?.remoteClient === client }
         )
+        guard remoteClient === client else { return }
         if !accepted {
             rejectForegroundHostIdentity(client: client, reason: "stored_instance_authority")
+            return
         }
+        // Publish the authenticated identity only after the paired store has
+        // accepted its instance authority. An anonymous no-tag status must not
+        // displace an already-authenticated warm control owner for this Mac.
+        if ticket.macDeviceID.isEmpty {
+            activeTicket = resolvedTicket
+        }
+        if let resolvedName, !resolvedName.isEmpty {
+            connectedHostName = resolvedName
+        }
+        if activeMacInstanceTag == nil, let resolvedTag, !resolvedTag.isEmpty {
+            activeMacInstanceTag = resolvedTag
+        }
+        adoptForegroundMacIdentity(reportedID)
     }
 
     private func rejectForegroundHostIdentity(
@@ -7101,43 +7106,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let connectionAttemptStartedAt = pairingAttemptStartedAt
         var lastError: (any Error)?
         var displacedControlReservation: SecondaryMacSubscription?
-        var displacedControlDrain: Task<Bool, Never>?
+        let displacedControlReservationHolder = UUID()
         defer {
+            if let displacedControlReservation {
+                displacedControlReservation.transportDrainReservationHolders
+                    .remove(displacedControlReservationHolder)
+            }
             if let displacedControlReservation,
+               displacedControlReservation
+                    .transportDrainReservationHolders.isEmpty,
                secondaryMacDrainReservation(
-                   forMacDeviceID:
-                       displacedControlReservation.macDeviceID
-               ) === displacedControlReservation {
-                if let displacedControlDrain {
-                    // A deadline only bounds the user-visible switch. Preserve
-                    // this retired same-peer owner until its bounded transport
-                    // drain settles. The shared route registry retains each
-                    // late physical cleanup and blocks further admission once
-                    // two remain unresolved.
-                    Task { @MainActor [weak self] in
-                        _ = await displacedControlDrain.value
-                        guard let self,
-                              self.secondaryMacDrainReservation(
-                                  forMacDeviceID:
-                                      displacedControlReservation.macDeviceID
-                              ) === displacedControlReservation else {
-                            return
-                        }
-                        self.finishRetiredSecondaryPromotionCandidate(
-                            displacedControlReservation,
-                            macDeviceID:
-                                displacedControlReservation.macDeviceID,
-                            forceRemovalDuringMacSwitch: true
-                        )
-                    }
-                } else {
-                    finishRetiredSecondaryPromotionCandidate(
-                        displacedControlReservation,
-                        macDeviceID:
-                            displacedControlReservation.macDeviceID,
-                        forceRemovalDuringMacSwitch: true
-                    )
-                }
+                    forMacDeviceID:
+                        displacedControlReservation.macDeviceID
+               ) === displacedControlReservation,
+               displacedControlReservation.hasCompletedTransportDrain {
+                finishRetiredSecondaryPromotionCandidate(
+                    displacedControlReservation,
+                    macDeviceID:
+                        displacedControlReservation.macDeviceID,
+                    forceRemovalDuringMacSwitch: true
+                )
             }
         }
         // A fresh same-peer dial cannot acquire the Iroh session while the
@@ -7164,25 +7152,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             if let displaced {
                 displacedControlReservation = displaced
-                let transportDrain = await Self.raceAgainstDeadline(
+                displaced.transportDrainReservationHolders.insert(
+                    displacedControlReservationHolder
+                )
+                let operation = secondaryMacTransportDrainOperation(
+                    displaced,
+                    macDeviceID: displaced.macDeviceID
+                )
+                let transportDrained = await operation.wait(
                     nanoseconds: connectionHandoffDrainTimeoutNanoseconds
-                ) {
-                    await displaced.client
-                        .disconnectAndWaitForTransportDrain()
-                    return true
-                }
-                displacedControlDrain = transportDrain.abandoned
+                )
                 guard isConnectCurrent() else {
                     return nil
                 }
-                if transportDrain.didTimeOut {
-                    throw MobileShellConnectionError.requestTimedOut
-                }
-                if transportDrain.wasCancelled {
+                if Task.isCancelled {
                     throw CancellationError()
                 }
-                guard transportDrain.value == true else {
-                    throw MobileShellConnectionError.connectionClosed
+                guard transportDrained else {
+                    throw MobileShellConnectionError.requestTimedOut
                 }
             }
         }

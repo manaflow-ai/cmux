@@ -159,35 +159,54 @@ extension MobileShellComposite {
         ) else {
             return
         }
-        let drain = await Self.raceAgainstDeadline(
+        let operation = secondaryMacTransportDrainOperation(
+            subscription,
+            macDeviceID: macDeviceID
+        )
+        if await operation.wait(
             nanoseconds: connectionHandoffDrainTimeoutNanoseconds
         ) {
-            await subscription.client
-                .disconnectAndWaitForTransportDrain()
-            return true
-        }
-        if drain.value == true, !drain.wasCancelled {
             finishRetiredSecondaryPromotionCandidate(
                 subscription,
                 macDeviceID: macDeviceID
             )
-        } else {
-            // Keep the retired client only in the non-public same-peer
-            // reservation map. Complete its cleanup independently if the switch
-            // is cancelled before the fresh fallback reaches this reservation.
-            Task { @MainActor [weak self] in
-                if let abandoned = drain.abandoned {
-                    _ = await abandoned.value
-                } else {
-                    await subscription.client
-                        .disconnectAndWaitForTransportDrain()
-                }
-                self?.finishRetiredSecondaryPromotionCandidate(
-                    subscription,
-                    macDeviceID: macDeviceID
-                )
-            }
         }
+    }
+
+    /// Start or reuse the reservation's exact physical transport close. The
+    /// completion owner is also installed once, so repeated same-Mac switches
+    /// only wait on this operation instead of accumulating cleanup tasks.
+    func secondaryMacTransportDrainOperation(
+        _ subscription: SecondaryMacSubscription,
+        macDeviceID: String
+    ) -> SecondaryMacTransportDrainOperation {
+        if let operation = subscription.transportDrainOperation {
+            return operation
+        }
+        let client = subscription.client
+        let task = Task {
+            await client.disconnectAndWaitForTransportDrain()
+        }
+        let operation = SecondaryMacTransportDrainOperation(task: task)
+        subscription.transportDrainOperation = operation
+        operation.completionTask = Task { @MainActor [
+            weak self,
+            weak subscription,
+            weak operation
+        ] in
+            await task.value
+            guard let self, let subscription, let operation,
+                  subscription.transportDrainOperation === operation else {
+                return
+            }
+            operation.finish()
+            operation.completionTask = nil
+            self.finishRetiredSecondaryPromotionCandidate(
+                subscription,
+                macDeviceID: macDeviceID
+            )
+        }
+        return operation
     }
 
     @discardableResult
@@ -202,6 +221,9 @@ extension MobileShellComposite {
             return false
         }
         subscription.hasCompletedTransportDrain = true
+        guard subscription.transportDrainReservationHolders.isEmpty else {
+            return false
+        }
         guard forceRemovalDuringMacSwitch || macSwitchAttemptID == nil else {
             return false
         }
@@ -248,10 +270,16 @@ extension MobileShellComposite {
         subscription.detachKeepingClient()
         subscription.client.retire()
         subscription.hasCompletedTransportDrain = false
+        subscription.transportDrainOperation = nil
+        subscription.transportDrainReservationHolders = []
         subscription.postDrainAction = postDrainAction
         secondaryMacSubscriptions[macDeviceID] = nil
         secondaryMacDrainReservations[reservationKey] = subscription
         markSecondaryMacUnavailable(macDeviceID)
+        _ = secondaryMacTransportDrainOperation(
+            subscription,
+            macDeviceID: macDeviceID
+        )
         return true
     }
 
@@ -267,31 +295,18 @@ extension MobileShellComposite {
         ) else {
             return
         }
-        let drain = await Self.raceAgainstDeadline(
+        let operation = secondaryMacTransportDrainOperation(
+            subscription,
+            macDeviceID: macDeviceID
+        )
+        if await operation.wait(
             nanoseconds: connectionHandoffDrainTimeoutNanoseconds
         ) {
-            await subscription.client
-                .disconnectAndWaitForTransportDrain()
-            return true
-        }
-        if drain.value == true, !drain.wasCancelled {
             finishRetiredSecondaryPromotionCandidate(
                 subscription,
                 macDeviceID: macDeviceID
             )
             return
-        }
-        Task { @MainActor [weak self] in
-            if let abandoned = drain.abandoned {
-                _ = await abandoned.value
-            } else {
-                await subscription.client
-                    .disconnectAndWaitForTransportDrain()
-            }
-            self?.finishRetiredSecondaryPromotionCandidate(
-                subscription,
-                macDeviceID: macDeviceID
-            )
         }
     }
 
@@ -336,6 +351,8 @@ extension MobileShellComposite {
         subscription.detachKeepingClient()
         subscription.client.retire()
         subscription.hasCompletedTransportDrain = false
+        subscription.transportDrainOperation = nil
+        subscription.transportDrainReservationHolders = []
         subscription.postDrainAction = .refreshPresence
         secondaryMacDrainReservations[reservationKey] = subscription
         if isStillFocused {
@@ -344,31 +361,18 @@ extension MobileShellComposite {
             markSecondaryMacUnavailable(macDeviceID)
         }
 
-        let drain = await Self.raceAgainstDeadline(
+        let operation = secondaryMacTransportDrainOperation(
+            subscription,
+            macDeviceID: macDeviceID
+        )
+        if await operation.wait(
             nanoseconds: connectionHandoffDrainTimeoutNanoseconds
         ) {
-            await subscription.client
-                .disconnectAndWaitForTransportDrain()
-            return true
-        }
-        if drain.value == true, !drain.wasCancelled {
             finishRetiredSecondaryPromotionCandidate(
                 subscription,
                 macDeviceID: macDeviceID
             )
             return
-        }
-        Task { @MainActor [weak self] in
-            if let abandoned = drain.abandoned {
-                _ = await abandoned.value
-            } else {
-                await subscription.client
-                    .disconnectAndWaitForTransportDrain()
-            }
-            self?.finishRetiredSecondaryPromotionCandidate(
-                subscription,
-                macDeviceID: macDeviceID
-            )
         }
     }
 
