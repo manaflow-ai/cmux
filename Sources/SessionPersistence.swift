@@ -1697,7 +1697,7 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
     var isCollapsed: Bool
-    /// The workspace whose close dissolves the group. The loader prefers
+    /// The group's anchor workspace (the group header). The loader prefers
     /// `anchorMemberIndex` (restore-stable) and treats this field as a hint when
     /// duplicate/corrupt snapshots force a workspace to mint a fresh UUID.
     var anchorWorkspaceId: UUID? = nil

@@ -1092,8 +1092,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above the Ghostty renderer's sublayer so a lifted Liquid-Glass button is not
     /// clipped by the terminal render bounds (item 6). Below the zoom HUD (1100).
     private static let bottomChromeZPosition: CGFloat = 1000
-    /// Floats above dock chrome and terminal content while yielding to the zoom HUD.
-    private static let artifactChipZPosition: CGFloat = 1050
+    /// Floats above dock chrome, terminal content, AND the verified-replay
+    /// frozen presentation (zPosition 2000). The freeze copies only renderer
+    /// pixels, so anything below it blinks out for the length of every
+    /// freeze/reveal transaction — one ~40-90ms chip blink per output burst
+    /// while an agent streams. Zoom-HUD conflicts are handled by the
+    /// `zoomOverlayShown` visibility gate, not by z-order.
+    private static let artifactChipZPosition: CGFloat = 2050
 
     /// Whether the always-visible bottom chrome (the docked accessory toolbar and,
     /// when open, the composer band) is currently on screen.
@@ -3648,14 +3653,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         surfaceConfig.font_size = liveFontSize
         surfaceConfig.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
         surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
-        surfaceConfig.io_write_cb = { userdata, buf, len in
-            guard let userdata, let buf, len > 0 else { return }
-            let data = Data(bytes: buf, count: Int(len))
-            let bridge = Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
-            DispatchQueue.main.async {
-                bridge.surfaceView?.handleOutboundBytes(data)
-            }
-        }
+        surfaceConfig.io_write_cb = GhosttySurfaceBridge.ioWriteCallback
         surfaceConfig.io_write_userdata = bridgePointer
         guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
             retainedBridge.release()
@@ -3663,9 +3661,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         guard ghostty_surface_set_render_presented_callback(
             createdSurface,
-            { userdata, token in
-                GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
-            },
+            GhosttySurfaceBridge.renderPresentedCallback,
             bridgePointer
         ) else {
             ghostty_surface_free(createdSurface)

@@ -266,7 +266,7 @@ extension TerminalController {
         return v2MainSync { () -> TerminalArtifactContextResolution in
             guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
                   let resolvedSurfaceID = resolved.surfaceId,
-                  let terminalPanel = resolved.workspace.terminalPanel(for: resolvedSurfaceID) else {
+                  let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: resolvedSurfaceID)?.panel else {
                 return .failure(mobileTerminalArtifactError(.notFound, path: v2RawString(params, "path")))
             }
             let workingDirectory = resolved.workspace.effectivePanelDirectory(
