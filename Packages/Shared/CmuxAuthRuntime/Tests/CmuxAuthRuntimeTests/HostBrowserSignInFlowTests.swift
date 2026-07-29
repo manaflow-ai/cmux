@@ -64,6 +64,33 @@ import Testing
         #expect(calls.first?.refreshToken == "refresh-1")
     }
 
+    @Test func signOutStartsUnconditionalLocalCleanupBeforeServerTeardownFinishes() async {
+        let localCleanupStarted = TestPhaseSignal()
+        let teardownStarted = TestPhaseSignal()
+        let teardownBlocker = TestContinuationBlocker()
+        let harness = HostBrowserSignInFlowHarness(
+            localSignOut: {
+                await localCleanupStarted.markStarted()
+            },
+            onSignedOut: { _, _ in
+                await teardownStarted.markStarted()
+                await teardownBlocker.wait()
+            }
+        )
+        await harness.tokenStore.setTokens(
+            accessToken: "access-1",
+            refreshToken: "refresh-1"
+        )
+
+        let signOut = Task { await harness.flow.signOut() }
+        await teardownStarted.waitUntilStarted()
+        await localCleanupStarted.waitUntilStarted()
+
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        await teardownBlocker.release()
+        await signOut.value
+    }
+
     @Test func browserCallbackSignsInAndSeedsTokens() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)

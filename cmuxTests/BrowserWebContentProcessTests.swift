@@ -40,6 +40,20 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserPanelUsesExplicitWebsiteDataStoreForAuthenticatedHandoffs() {
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            websiteDataStore: websiteDataStore
+        )
+        defer { panel.close() }
+
+        #expect(panel.websiteDataStore === websiteDataStore)
+        #expect(panel.webView.configuration.websiteDataStore === websiteDataStore)
+    }
+
+    @Test
     func configuredBrowserPageInstallsWebAuthnBridge() async throws {
         let configuration = WKWebViewConfiguration()
         BrowserPanel.configureWebViewConfiguration(

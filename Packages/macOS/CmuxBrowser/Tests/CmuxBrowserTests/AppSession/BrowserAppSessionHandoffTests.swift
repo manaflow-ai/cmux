@@ -55,11 +55,47 @@ struct BrowserAppSessionHandoffTests {
         #expect(request.url?.absoluteString == "https://cmux.test/handler/app-session-handoff")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "X-Cmux-App-Session-Handoff") == "1")
+        #expect(request.value(forHTTPHeaderField: "X-Cmux-App-Session-Response") == "cookies")
         #expect(request.value(forHTTPHeaderField: "Referrer-Policy") == nil)
         #expect(body.contains("access_token=native%2Baccess"))
         #expect(body.contains("refresh_token=native%26refresh"))
         #expect(body.contains("after=%2Fdashboard%2Ftestflight%3Fplan%3Dpro%23join"))
         #expect(request.url?.query == nil)
+    }
+
+    @Test("accepts only a complete cookie exchange response")
+    func validatesCookieExchangeResponse() throws {
+        let origin = try #require(URL(string: "https://cmux.test"))
+        let handoff = BrowserAppSessionHandoff(webOrigin: origin)
+        let response = try #require(HTTPURLResponse(
+            url: origin.appendingPathComponent("handler/app-session-handoff"),
+            statusCode: 204,
+            httpVersion: "HTTP/1.1",
+            headerFields: [
+                "X-Cmux-App-Session-Handoff": "ready",
+                "Set-Cookie": "hexclave-access=access; Path=/; Secure; SameSite=Lax, __Host-hexclave-refresh-project-123--default=refresh; Path=/; Secure; SameSite=Lax",
+            ]
+        ))
+
+        let cookies = try #require(handoff.sessionCookies(
+            from: response,
+            projectID: "project-123"
+        ))
+        #expect(cookies.map(\.name).sorted() == [
+            "__Host-hexclave-refresh-project-123--default",
+            "hexclave-access",
+        ])
+
+        let incomplete = try #require(HTTPURLResponse(
+            url: origin,
+            statusCode: 204,
+            httpVersion: "HTTP/1.1",
+            headerFields: [
+                "X-Cmux-App-Session-Handoff": "ready",
+                "Set-Cookie": "hexclave-access=access; Path=/; Secure",
+            ]
+        ))
+        #expect(handoff.sessionCookies(from: incomplete, projectID: "project-123") == nil)
     }
 
     @Test("handoff rejects an empty refresh token")

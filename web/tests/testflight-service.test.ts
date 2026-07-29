@@ -167,6 +167,69 @@ describe("TestFlight ASC service", () => {
     });
   });
 
+  test("removes a legacy Pro tester from the old Founder group when explicitly requested", async () => {
+    mockImplementation(ascFetch, async (path: unknown) => {
+      if (String(path).startsWith("/v1/betaTesters?")) {
+        return betaTesterList("tester_legacy");
+      }
+      if (String(path).includes("/betaGroups?")) {
+        return {
+          data: [
+            {
+              type: "betaGroups",
+              id: "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+            },
+          ],
+        };
+      }
+      return {};
+    });
+
+    await removeTester("legacy@example.com", {
+      removeLegacyFounderMembership: true,
+    });
+
+    expect(ascFetch).toHaveBeenCalledWith(
+      "/v1/betaGroups/3ee84bfa-10ad-4f23-a45c-f9a3b037373e/relationships/betaTesters",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  test("never removes Founder membership when a distinct Pro membership exists", async () => {
+    mockImplementation(ascFetch, async (path: unknown) => {
+      if (String(path).startsWith("/v1/betaTesters?")) {
+        return betaTesterList("tester_founder_and_pro");
+      }
+      if (String(path).includes("/betaGroups?")) {
+        return {
+          data: [
+            {
+              type: "betaGroups",
+              id: "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+            },
+            {
+              type: "betaGroups",
+              id: "34fbede5-3880-4560-b1bb-a45787249780",
+            },
+          ],
+        };
+      }
+      return {};
+    });
+
+    await removeTester("founder-and-pro@example.com", {
+      removeLegacyFounderMembership: true,
+    });
+
+    const deletePaths = (ascFetch as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls
+      .filter(([, init]) => (init as { method?: string } | undefined)?.method === "DELETE")
+      .map(([path]) => String(path));
+    expect(deletePaths).toEqual([
+      "/v1/betaGroups/34fbede5-3880-4560-b1bb-a45787249780/relationships/betaTesters",
+    ]);
+  });
+
   test("looks up tester group status", async () => {
     mockImplementation(ascFetch, async (path: unknown) => {
       if (String(path).startsWith("/v1/betaTesters?")) {

@@ -937,6 +937,25 @@ describe("SEO middleware", () => {
     }
   });
 
+  test("passes the negotiated locale into the unprefixed app Pro welcome route", () => {
+    const negotiated = middleware(
+      requestFor("/app-pro-welcome", { "accept-language": "ja,en;q=0.8" }),
+    );
+    expect(
+      negotiated.headers.get("x-middleware-request-x-next-intl-locale"),
+    ).toBe("ja");
+
+    const cookieOverride = middleware(
+      requestFor("/app-pro-welcome", {
+        cookie: "NEXT_LOCALE=fr",
+        "accept-language": "ja,en;q=0.8",
+      }),
+    );
+    expect(
+      cookieOverride.headers.get("x-middleware-request-x-next-intl-locale"),
+    ).toBe("fr");
+  });
+
   test("does not advertise unsupported locale variants globally", () => {
     const response = middleware(requestFor("/ja/docs/remote-tmux"));
 

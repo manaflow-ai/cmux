@@ -106,6 +106,36 @@ describe("app session handoff", () => {
     expect(setCookie).not.toContain("native-access");
   });
 
+  test("returns cookies without navigating when the native app requests an exchange", async () => {
+    const response = await POST(handoffRequest({
+      refresh_token: "native-refresh",
+      access_token: "native-access",
+      after: "/dashboard/testflight?plan=pro#join",
+    }, {
+      "x-cmux-app-session-response": "cookies",
+    }));
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-cmux-app-session-handoff")).toBe("ready");
+    expect(response.headers.get("set-cookie")).toContain("hexclave-access=");
+  });
+
+  test("fails a native cookie exchange closed instead of opening web sign-in", async () => {
+    getUser.mockResolvedValue(null);
+
+    const response = await POST(handoffRequest({
+      refresh_token: "bad-refresh",
+      after: "/dashboard/testflight",
+    }, {
+      "x-cmux-app-session-response": "cookies",
+    }));
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
   test("accepts refresh-only handoff", async () => {
     const response = await POST(handoffRequest({
       refresh_token: "native-refresh",
