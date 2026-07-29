@@ -11,8 +11,8 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
     public let url: URL?
     /// The browser profile the panel used, if any.
     public let profileID: UUID?
-    /// Whether the panel limits local-file access to the displayed file.
-    public let usesFileOnlyReadAccess: Bool
+    /// The local filesystem scope the restored panel must retain.
+    public let localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy
     /// The pane that originally hosted the panel.
     public let originalPaneId: UUID
     /// The tab index the panel occupied within its pane.
@@ -31,8 +31,8 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
     ///   - workspaceId: The workspace that owned the closed browser panel.
     ///   - url: The page the panel was showing, if any.
     ///   - profileID: The browser profile the panel used, if any.
-    ///   - usesFileOnlyReadAccess: Whether local navigation is restricted to
-    ///     the displayed file. Defaults to `false` for existing Browser tabs.
+    ///   - localFileReadAccessPolicy: The local filesystem scope to restore.
+    ///     Defaults to directory access for existing Browser tabs.
     ///   - originalPaneId: The pane that originally hosted the panel.
     ///   - originalTabIndex: The tab index the panel occupied within its pane.
     ///   - fallbackSplitOrientation: The split orientation to recreate when the
@@ -46,7 +46,7 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
         workspaceId: UUID,
         url: URL?,
         profileID: UUID?,
-        usesFileOnlyReadAccess: Bool = false,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
         originalPaneId: UUID,
         originalTabIndex: Int,
         fallbackSplitOrientation: SplitOrientation?,
@@ -57,7 +57,7 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
         self.workspaceId = workspaceId
         self.url = url
         self.profileID = profileID
-        self.usesFileOnlyReadAccess = usesFileOnlyReadAccess
+        self.localFileReadAccessPolicy = localFileReadAccessPolicy
         self.originalPaneId = originalPaneId
         self.originalTabIndex = originalTabIndex
         self.fallbackSplitOrientation = fallbackSplitOrientation

@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxPanes
 import Foundation
 
@@ -60,7 +61,8 @@ extension Workspace: TerminalLinkOpenContainer {
     }
 
     func openOrFocusTerminalBrowserFileLink(url: URL, sourcePanelId: UUID) -> Bool {
-        let canonicalURL = url.standardizedFileURL.resolvingSymlinksInPath()
+        let canonicalURL = BrowserLocalFileReadAccessPolicy.fileOnly
+            .resolvedNavigationURL(for: url)
         guard let targetIdentity = BrowserLocalFileIdentity(url: canonicalURL) else { return false }
         if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
             $0.localFileReadAccessPolicy == .fileOnly

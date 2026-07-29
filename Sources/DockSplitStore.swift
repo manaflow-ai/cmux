@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxAppKitSupportUI
+import CmuxBrowser
 import CmuxCore
 import CmuxSettings
 import CmuxTerminal

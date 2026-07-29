@@ -4403,7 +4403,7 @@ class TabManager: ObservableObject {
                url: snapshot.url,
                focus: true,
                preferredProfileID: snapshot.profileID,
-               localFileReadAccessPolicy: snapshot.usesFileOnlyReadAccess ? .fileOnly : .containingDirectory
+               localFileReadAccessPolicy: snapshot.localFileReadAccessPolicy
            ) {
             let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
@@ -4423,7 +4423,7 @@ class TabManager: ObservableObject {
                insertFirst: snapshot.fallbackSplitInsertFirst,
                url: snapshot.url,
                preferredProfileID: snapshot.profileID,
-               localFileReadAccessPolicy: snapshot.usesFileOnlyReadAccess ? .fileOnly : .containingDirectory
+               localFileReadAccessPolicy: snapshot.localFileReadAccessPolicy
            )?.id {
             return browserPanelId
         }
@@ -4436,7 +4436,7 @@ class TabManager: ObservableObject {
             url: snapshot.url,
             focus: true,
             preferredProfileID: snapshot.profileID,
-            localFileReadAccessPolicy: snapshot.usesFileOnlyReadAccess ? .fileOnly : .containingDirectory
+            localFileReadAccessPolicy: snapshot.localFileReadAccessPolicy
         )?.id
     }
 

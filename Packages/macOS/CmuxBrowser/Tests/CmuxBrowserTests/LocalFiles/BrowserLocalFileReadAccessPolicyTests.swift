@@ -24,8 +24,9 @@ struct BrowserLocalFileReadAccessPolicyTests {
             BrowserLocalFileReadAccessPolicy.fileOnly.readAccessURL(for: symlink)
         )
 
-        #expect(navigationURL == target.standardizedFileURL)
-        #expect(readAccessURL == target.standardizedFileURL)
+        let canonicalTarget = target.standardizedFileURL.resolvingSymlinksInPath()
+        #expect(navigationURL == canonicalTarget)
+        #expect(readAccessURL == canonicalTarget)
     }
 
     @Test
@@ -36,6 +37,41 @@ struct BrowserLocalFileReadAccessPolicyTests {
         #expect(
             BrowserLocalFileReadAccessPolicy.fileOnly.readAccessURL(
                 for: fixture.targetDirectory
+            ) == nil
+        )
+    }
+
+    @Test
+    func containingDirectoryAcceptsDirectoryURL() throws {
+        let fixture = try LocalFileFixture()
+        defer { fixture.remove() }
+
+        #expect(
+            BrowserLocalFileReadAccessPolicy.containingDirectory.readAccessURL(
+                for: fixture.targetDirectory
+            ) == fixture.targetDirectory
+        )
+    }
+
+    @Test
+    func containingDirectoryUsesParentForMissingFile() throws {
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).html")
+
+        #expect(
+            BrowserLocalFileReadAccessPolicy.containingDirectory.readAccessURL(
+                for: missing
+            ) == missing.deletingLastPathComponent()
+        )
+    }
+
+    @Test
+    func rejectsHostOnlyFileURL() throws {
+        let hostOnly = try #require(URL(string: "file://example.html"))
+
+        #expect(
+            BrowserLocalFileReadAccessPolicy.containingDirectory.readAccessURL(
+                for: hostOnly
             ) == nil
         )
     }

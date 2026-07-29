@@ -720,9 +720,7 @@ func browserNewTabNavigationSeed(
     bypassInsecureHTTPHostOnce: String? = nil
 ) -> BrowserNewTabNavigationSeed? {
     guard let originalURL = request.url else { return nil }
-    let url = originalURL.isFileURL && localFileReadAccessPolicy == .fileOnly
-        ? originalURL.standardizedFileURL.resolvingSymlinksInPath()
-        : originalURL
+    let url = localFileReadAccessPolicy.resolvedNavigationURL(for: originalURL)
     var initialRequest = request
     initialRequest.url = url
     return BrowserNewTabNavigationSeed(
@@ -962,27 +960,6 @@ enum BrowserFileSystemAccessBridge {
     """
 }
 
-func browserReadAccessURL(
-    forLocalFileURL fileURL: URL,
-    fileManager: FileManager = .default,
-    policy: BrowserLocalFileReadAccessPolicy = .containingDirectory
-) -> URL? {
-    guard fileURL.isFileURL, fileURL.path.hasPrefix("/") else { return nil }
-    let path = fileURL.path
-    var isDirectory: ObjCBool = false
-    if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
-        guard policy != .fileOnly else { return nil }
-        return fileURL
-    }
-    if policy == .fileOnly {
-        return fileURL
-    }
-
-    let parent = fileURL.deletingLastPathComponent()
-    guard !parent.path.isEmpty, parent.path.hasPrefix("/") else { return nil }
-    return parent
-}
-
 @MainActor
 @discardableResult
 func browserLoadRequest(
@@ -994,12 +971,14 @@ func browserLoadRequest(
     webView.applyBrowserUserAgentPolicy(for: url)
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
-        guard let readAccessURL = browserReadAccessURL(
-            forLocalFileURL: url,
-            policy: localFileReadAccessPolicy
-        ) else { return nil }
+        guard let readAccessURL = localFileReadAccessPolicy.readAccessURL(for: url) else {
+            return nil
+        }
         webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
-        return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
+        return webView.loadFileURL(
+            localFileReadAccessPolicy.resolvedNavigationURL(for: url),
+            allowingReadAccessTo: readAccessURL
+        )
     }
     webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
     return webView.load(browserPreparedNavigationRequest(request))

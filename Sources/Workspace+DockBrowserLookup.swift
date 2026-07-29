@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxCore
 
 extension Workspace {

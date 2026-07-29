@@ -105,6 +105,20 @@ struct ReopenLastClosedTests {
         let originalFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "reopen-last-closed"
         )
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ReopenLastClosed-\(UUID().uuidString)", isDirectory: true)
+        let olderDirectory = fixtureRoot.appendingPathComponent("older", isDirectory: true)
+        let newerDirectory = fixtureRoot.appendingPathComponent("newer", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        try FileManager.default.createDirectory(
+            at: olderDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: newerDirectory,
+            withIntermediateDirectories: true
+        )
+
         let baselineWindowIds = mainWindowIds(appDelegate: appDelegate)
         ClosedItemHistoryStore.shared.removeAll()
         defer {
@@ -127,19 +141,33 @@ struct ReopenLastClosedTests {
         }
         appDelegate.debugResetShortcutRoutingStateForTesting()
 
-        let olderWindowId = appDelegate.createMainWindow(shouldActivate: false)
-        let newerWindowId = appDelegate.createMainWindow(shouldActivate: false)
+        let olderWindowId = appDelegate.createMainWindow(
+            initialWorkingDirectory: olderDirectory.path,
+            shouldActivate: false
+        )
+        let newerWindowId = appDelegate.createMainWindow(
+            initialWorkingDirectory: newerDirectory.path,
+            shouldActivate: false
+        )
         let olderWindow = try #require(appDelegate.mainWindow(for: olderWindowId))
         let newerWindow = try #require(appDelegate.mainWindow(for: newerWindowId))
         let olderManager = try #require(appDelegate.tabManagerFor(windowId: olderWindowId))
         let newerManager = try #require(appDelegate.tabManagerFor(windowId: newerWindowId))
-        try #require(olderManager.selectedWorkspace).setCustomTitle("Older Window Workspace")
-        try #require(newerManager.selectedWorkspace).setCustomTitle("Newest Window Workspace")
-        _ = newerManager.addWorkspace(
+        let olderWorkspace = try #require(olderManager.selectedWorkspace)
+        let newerWorkspace = try #require(newerManager.selectedWorkspace)
+        let newerSecondWorkspace = newerManager.addWorkspace(
             title: "Newest Window Second Workspace",
             select: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            workspaceDirectoryCustomizationMode: .disabled
         )
+        olderWorkspace.setCustomTitle("Older Window Workspace")
+        newerWorkspace.setCustomTitle("Newest Window Workspace")
+        newerSecondWorkspace.setCustomTitle("Newest Window Second Workspace")
+        #expect(newerManager.tabs.map(\.customTitle) == [
+            "Newest Window Workspace",
+            "Newest Window Second Workspace",
+        ])
 
         let visibleFrame = try #require((newerWindow.screen ?? NSScreen.main)?.visibleFrame)
         let olderFrame = fittedTestFrame(in: visibleFrame, xOffset: 48, yOffset: 56)

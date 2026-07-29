@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxBrowser
 import CmuxFoundation
 import Combine
 import CryptoKit

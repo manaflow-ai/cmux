@@ -8740,7 +8740,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             url: resolvedURL,
             profileID: browserPanel.profileID,
-            usesFileOnlyReadAccess: browserPanel.localFileReadAccessPolicy == .fileOnly,
+            localFileReadAccessPolicy: browserPanel.localFileReadAccessPolicy,
             originalPaneId: pane.id,
             originalTabIndex: tabIndex,
             fallbackSplitOrientation: fallbackPlan?.orientation,

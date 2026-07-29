@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 
 /// Shared HTML-file action used by both Ghostty's direct Command-click
@@ -17,7 +18,8 @@ struct TerminalHTMLFileBrowserAction {
               BrowserAvailabilitySettings.isEnabled(defaults: defaults) else {
             return nil
         }
-        return fileURL.standardizedFileURL.resolvingSymlinksInPath()
+        return BrowserLocalFileReadAccessPolicy.fileOnly
+            .resolvedNavigationURL(for: fileURL)
     }
 
     @discardableResult
