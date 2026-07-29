@@ -6,6 +6,25 @@ use std::time::Duration;
 #[cfg(unix)]
 const FAILED_SPAWN_SESSION_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
+#[cfg(unix)]
+fn signal_owned_child_for_cleanup(session: libc::pid_t) -> std::io::Result<()> {
+    loop {
+        // SAFETY: callers retain the sole unreaped Child handle for `session`,
+        // so the numeric PID cannot be reused before the final wait.
+        if unsafe { libc::kill(session, libc::SIGKILL) } == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.raw_os_error() == Some(libc::ESRCH) {
+            return Ok(());
+        }
+        return Err(error);
+    }
+}
+
 pub(crate) struct SpawnedPtyChild {
     child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
     #[cfg(unix)]
@@ -70,21 +89,7 @@ fn enqueue_failed_spawn_cleanup(
     // The unreaped Child handle reserves this numeric PID, so this raw signal
     // cannot retarget a reused process. Keep the leader waitable while the
     // shared reaper enumerates and removes every other session member.
-    loop {
-        // SAFETY: `session` is the process ID exposed by the solely owned,
-        // unreaped child handle above.
-        if unsafe { libc::kill(session, libc::SIGKILL) } == 0 {
-            break;
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        if error.raw_os_error() == Some(libc::ESRCH) {
-            break;
-        }
-        break;
-    }
+    let _ = signal_owned_child_for_cleanup(session);
 
     let (finished_sender, finished_receiver) = std::sync::mpsc::sync_channel(1);
     let mut finished_sender = Some(finished_sender);
@@ -94,7 +99,10 @@ fn enqueue_failed_spawn_cleanup(
         session,
         FAILED_SPAWN_SESSION_CLEANUP_TIMEOUT,
         move || match crate::process_session::observe_child_without_reaping(session, true)? {
-            crate::process_session::ChildWaitState::Running => Ok(false),
+            crate::process_session::ChildWaitState::Running => {
+                signal_owned_child_for_cleanup(session)?;
+                Ok(false)
+            }
             crate::process_session::ChildWaitState::Waitable => Ok(true),
             crate::process_session::ChildWaitState::OwnershipLost => {
                 Err(std::io::Error::from(std::io::ErrorKind::NotFound))
