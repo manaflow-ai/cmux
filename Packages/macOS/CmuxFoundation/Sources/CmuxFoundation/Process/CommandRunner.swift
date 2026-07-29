@@ -28,7 +28,7 @@ private final class CommandTimer: @unchecked Sendable {
 }
 
 /// Serializes cancellation with suspended process-group launch.
-private final class CommandCancellationLatch: @unchecked Sendable {
+final class CommandCancellationLatch: @unchecked Sendable {
     private struct State: Sendable {
         var isCancelled = false
         var isFinished = false

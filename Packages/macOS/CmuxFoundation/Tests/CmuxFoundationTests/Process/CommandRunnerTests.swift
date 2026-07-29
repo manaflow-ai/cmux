@@ -209,6 +209,35 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 
+    @Test func cancellationDoesNotWaitForLaunchRegistration() {
+        let latch = CommandCancellationLatch()
+        let launchEntered = DispatchSemaphore(value: 0)
+        let releaseLaunch = DispatchSemaphore(value: 0)
+        let launchFinished = DispatchSemaphore(value: 0)
+        let cancellationReturned = DispatchSemaphore(value: 0)
+
+        DispatchQueue.global().async {
+            _ = latch.launch({
+                launchEntered.signal()
+                releaseLaunch.wait()
+                return 4_242
+            }, onCancel: { _ in })
+            launchFinished.signal()
+        }
+        #expect(launchEntered.wait(timeout: .now() + 1) == .success)
+
+        DispatchQueue.global().async {
+            latch.cancel()
+            cancellationReturned.signal()
+        }
+        let returnedPromptly = cancellationReturned.wait(timeout: .now() + 0.1) == .success
+        releaseLaunch.signal()
+        #expect(launchFinished.wait(timeout: .now() + 1) == .success)
+        #expect(cancellationReturned.wait(timeout: .now() + 1) == .success)
+
+        #expect(returnedPromptly)
+    }
+
     @Test func taskCancellationTerminatesDescendantProcessGroup() async throws {
         let pidFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-command-runner-child-\(UUID().uuidString)")
