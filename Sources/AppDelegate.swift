@@ -7010,8 +7010,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarFocus)
+        guard let window,
+              mainWindowVisibilityController.focusForInWindowCommand(
+                  window,
+                  reason: .rightSidebarFocus
+              ) else {
+            return false
         }
         let result = context.keyboardFocusCoordinator.focusRightSidebar(
             mode: requestedMode,
@@ -7107,8 +7111,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .fileSearchFocus)
+        guard let window,
+              mainWindowVisibilityController.focusForInWindowCommand(
+                  window,
+                  reason: .fileSearchFocus
+              ) else {
+            return false
         }
         let result = context.keyboardFocusCoordinator.focusFileSearch()
 #if DEBUG
@@ -7156,8 +7164,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
+        guard let window,
+              mainWindowVisibilityController.focusForInWindowCommand(
+                  window,
+                  reason: .findShortcut
+              ) else {
+            return false
         }
 
         let result: Bool
@@ -7201,8 +7213,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarToggle)
+        guard let window,
+              mainWindowVisibilityController.focusForInWindowCommand(
+                  window,
+                  reason: .rightSidebarToggle
+              ) else {
+            return false
         }
         let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus()
 #if DEBUG
@@ -16378,14 +16394,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func setActiveMainWindow(_ window: NSWindow) {
-        guard let context = contextForMainTerminalWindow(window) else { return }
+        if let context = contextForMainTerminalWindow(window) {
+#if DEBUG
+            let beforeManagerToken = debugManagerToken(tabManager)
+#endif
+            activateMainWindowContext(context)
+#if DEBUG
+            cmuxDebugLog(
+                "mainWindow.active window={\(debugWindowToken(window))} context={\(debugContextToken(context))} beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) \(debugShortcutRouteSnapshot())"
+            )
+#endif
+            return
+        }
+
+        guard let route = focusableRecoverableMainWindowRoute(for: window),
+              let recoveredManager = route.tabManager else {
+            return
+        }
 #if DEBUG
         let beforeManagerToken = debugManagerToken(tabManager)
 #endif
-        activateMainWindowContext(context)
+        recoveredManager.window = window
+        recoveredManager.windowId = route.windowId
+        tabManager = recoveredManager
+        sidebarState = nil
+        sidebarSelectionState = nil
+        fileExplorerState = nil
+        TerminalController.shared.setActiveTabManager(recoveredManager)
 #if DEBUG
         cmuxDebugLog(
-            "mainWindow.active window={\(debugWindowToken(window))} context={\(debugContextToken(context))} beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) \(debugShortcutRouteSnapshot())"
+            "mainWindow.active.recovered window={\(debugWindowToken(window))} "
+                + "windowId=\(String(route.windowId.uuidString.prefix(8))) "
+                + "beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) "
+                + "\(debugShortcutRouteSnapshot())"
         )
 #endif
     }

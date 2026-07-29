@@ -233,14 +233,15 @@ final class MainWindowVisibilityController {
         return true
     }
 
-    func focusForInWindowCommand(_ window: NSWindow, reason: Reason) {
+    @discardableResult
+    func focusForInWindowCommand(_ window: NSWindow, reason: Reason) -> Bool {
         guard windowIsAvailableForMutation(window, reason: reason, operation: "focus.inWindow") else {
-            return
+            return false
         }
         dependencies.setActiveMainWindow(window)
         guard !dependencies.windowOperations.isKeyWindow(window) else {
             log("focus.inWindow.key", reason: reason, windows: [window])
-            return
+            return true
         }
         if dependencies.isApplicationHidden() {
             trace("focus.inWindow.unhide.begin", reason: reason, windows: [window])
@@ -262,6 +263,7 @@ final class MainWindowVisibilityController {
         dependencies.windowOperations.makeKeyAndOrderFront(window)
         trace("focus.inWindow.orderFront.end", reason: reason, windows: [window])
         log("focus.inWindow", reason: reason, windows: [window])
+        return true
     }
 
     func captureHiddenWindowRestoreTargets(windows: [NSWindow], reason: Reason = .globalHotkey) {
@@ -324,6 +326,10 @@ final class MainWindowVisibilityController {
             reason: reason,
             operation: "show"
         )
+        guard !allWindows.isEmpty else {
+            log("show.empty", reason: reason, windows: [])
+            return nil
+        }
         let visibleOrMiniaturizedTargets = allWindows.filter { window in
             dependencies.windowOperations.isVisible(window) || dependencies.windowOperations.isMiniaturized(window)
         }
