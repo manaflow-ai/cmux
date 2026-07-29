@@ -12067,7 +12067,8 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.code, "selector.wrong_parent");
-        assert!(error.details["selected_parent"].as_str().unwrap().starts_with("ws_"));
+        assert!(error.details["expected_parent"].as_str().unwrap().starts_with("ws_"));
+        assert!(error.details["actual_parent"].as_str().unwrap().starts_with("ws_"));
         let encoded = serde_json::to_string(&error).unwrap();
         for private in ["workspace_key", "surface", "numeric_id", "short_id", "\"slot\""] {
             assert!(!encoded.contains(private));
