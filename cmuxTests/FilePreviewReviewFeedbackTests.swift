@@ -462,9 +462,7 @@ struct FilePreviewReviewFeedbackTests {
         let documentHeight = textView.bounds.height
         #expect(
             documentHeight > 100_000,
-            "Test precondition failed: a \(lineCount)-line document laid out to only "
-                + "\(documentHeight)pt, so hit-tests would not reach the bottom. The timing "
-                + "assertion below would be meaningless."
+            "Test precondition failed: a \(lineCount)-line document laid out to only \(documentHeight)pt, so hit-tests would not reach the bottom and the timing assertion would be meaningless."
         )
 
         let bottomY = max(documentHeight - 5, 1)
@@ -478,9 +476,7 @@ struct FilePreviewReviewFeedbackTests {
         // The 1.0s ceiling sits far from both, so it is a clean, non-flaky regression signal.
         #expect(
             elapsed < 1.0,
-            "Selection hit-testing near the bottom of a \(lineCount)-line file took \(elapsed)s. "
-                + "File Preview likely regressed to TextKit 2 O(N) selection navigation (see "
-                + "manaflow-ai/cmux#4576)."
+            "Selection hit-testing near the bottom of a \(lineCount)-line file took \(elapsed)s. File Preview likely regressed to TextKit 2 O(N) selection navigation (see https://github.com/manaflow-ai/cmux/issues/4576)."
         )
     }
 
