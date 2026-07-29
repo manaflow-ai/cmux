@@ -59,12 +59,16 @@ enum ConnectionStatusDisplayState: Equatable {
     case unavailable
     case connected
 
+    /// `workspaceStatus` is the per-Mac status the pill and legacy overlay
+    /// already display. The foreground transport (`connectionState`) is
+    /// deliberately NOT an input: it describes only the foreground RPC
+    /// connection, and a selected workspace on a healthy secondary Mac would
+    /// falsely read as disconnected (see `workspaceListConnectionStatus`).
     static func derive(
         isSignedIn: Bool,
         requiresReauth: Bool,
         recoveryFailed: Bool,
         isRecovering: Bool,
-        connectionState: MobileConnectionState,
         workspaceStatus: MobileMacConnectionStatus
     ) -> Self {
         guard isSignedIn else {
@@ -78,9 +82,6 @@ enum ConnectionStatusDisplayState: Equatable {
         }
         if isRecovering {
             return .reconnecting
-        }
-        guard connectionState == .connected else {
-            return .unavailable
         }
         switch workspaceStatus {
         case .unavailable:

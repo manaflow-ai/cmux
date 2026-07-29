@@ -12,7 +12,6 @@ struct ConnectionStatusToastsTests {
             requiresReauth: false,
             recoveryFailed: true,
             isRecovering: true,
-            connectionState: .disconnected,
             workspaceStatus: .unavailable
         ) == .suppressed)
         #expect(ConnectionStatusDisplayState.derive(
@@ -20,7 +19,6 @@ struct ConnectionStatusToastsTests {
             requiresReauth: true,
             recoveryFailed: true,
             isRecovering: true,
-            connectionState: .connected,
             workspaceStatus: .connected
         ) == .suppressed)
         #expect(ConnectionStatusDisplayState.derive(
@@ -28,33 +26,25 @@ struct ConnectionStatusToastsTests {
             requiresReauth: false,
             recoveryFailed: true,
             isRecovering: true,
-            connectionState: .connected,
             workspaceStatus: .connected
         ) == .failed)
-        // A same-client probe recovers while transport and workspace status
-        // both stay connected; the recovery flag must still win.
+        // A same-client probe recovers while the workspace status stays
+        // connected; the recovery flag must still win.
         #expect(ConnectionStatusDisplayState.derive(
             isSignedIn: true,
             requiresReauth: false,
             recoveryFailed: false,
             isRecovering: true,
-            connectionState: .connected,
             workspaceStatus: .connected
         ) == .reconnecting)
+        // The per-Mac workspace status is the display truth on its own; the
+        // foreground transport is deliberately not an input, so a healthy
+        // secondary-Mac workspace never reads as disconnected.
         #expect(ConnectionStatusDisplayState.derive(
             isSignedIn: true,
             requiresReauth: false,
             recoveryFailed: false,
             isRecovering: false,
-            connectionState: .disconnected,
-            workspaceStatus: .connected
-        ) == .unavailable)
-        #expect(ConnectionStatusDisplayState.derive(
-            isSignedIn: true,
-            requiresReauth: false,
-            recoveryFailed: false,
-            isRecovering: false,
-            connectionState: .connected,
             workspaceStatus: .reconnecting
         ) == .reconnecting)
         #expect(ConnectionStatusDisplayState.derive(
@@ -62,7 +52,6 @@ struct ConnectionStatusToastsTests {
             requiresReauth: false,
             recoveryFailed: false,
             isRecovering: false,
-            connectionState: .connected,
             workspaceStatus: .unavailable
         ) == .unavailable)
         #expect(ConnectionStatusDisplayState.derive(
@@ -70,7 +59,6 @@ struct ConnectionStatusToastsTests {
             requiresReauth: false,
             recoveryFailed: false,
             isRecovering: false,
-            connectionState: .connected,
             workspaceStatus: .connected
         ) == .connected)
     }

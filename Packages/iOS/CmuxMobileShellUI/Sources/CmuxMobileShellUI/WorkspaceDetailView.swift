@@ -268,6 +268,11 @@ struct WorkspaceDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
+        // With the fullscreen overlay gone, the disconnected terminal stays
+        // visible; block interaction so keystrokes aren't silently dropped by
+        // the disconnected drain path. The pill and toast overlays attach
+        // after this modifier and stay tappable.
+        .allowsHitTesting(!toasts.isEnabled || connectionStatus == .connected)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topLeading) {
             MobileMacConnectionStatusPill(

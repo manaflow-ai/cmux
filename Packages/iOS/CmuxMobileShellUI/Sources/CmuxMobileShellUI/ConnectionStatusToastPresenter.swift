@@ -50,7 +50,6 @@ struct ConnectionStatusToastPresenter: ViewModifier {
                 requiresReauth: store.connectionRequiresReauth,
                 recoveryFailed: store.connectionRecoveryFailed,
                 isRecovering: store.isRecoveringConnection,
-                connectionState: store.connectionState,
                 workspaceStatus: store.selectedWorkspace?.macConnectionStatus
                     ?? store.macConnectionStatus
             )
