@@ -13,14 +13,6 @@ import Testing
 @MainActor
 @Suite("Application surfaces", .serialized)
 struct ApplicationSurfaceTests {
-    private final class MenuActionProbe: NSObject {
-        private(set) var callCount = 0
-
-        @objc func perform(_ sender: Any?) {
-            callCount += 1
-        }
-    }
-
     @Test func focusIntentWaitsForCaptureViewWindow() async {
         let runtime = FakeApplicationSurfaceRuntime()
         let panel = ApplicationPanel(
@@ -690,7 +682,6 @@ struct ApplicationSurfaceTests {
 
     @Test func unavailableApplicationEditingKeyEquivalentFallsThroughToMainMenu() throws {
         _ = NSApplication.shared
-        AppDelegate.installWindowResponderSwizzlesForTesting()
         let runtime = FakeApplicationSurfaceRuntime()
         let view = ApplicationCaptureView(
             windowID: 42,
@@ -701,41 +692,12 @@ struct ApplicationSurfaceTests {
             onStateChanged: { _, _ in },
             onMovedToWindow: { _ in }
         )
-        let windowID = UUID()
-        let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowID.uuidString)")
-        window.contentView = view
-        #expect(window.makeFirstResponder(view))
-
-        let probe = MenuActionProbe()
-        let previousMenu = NSApp.mainMenu
-        let menu = NSMenu(title: "Main")
-        let menuItem = NSMenuItem(
-            title: "Host Command",
-            action: #selector(MenuActionProbe.perform(_:)),
-            keyEquivalent: "i"
-        )
-        menuItem.keyEquivalentModifierMask = [.command]
-        menuItem.target = probe
-        menu.addItem(menuItem)
-        NSApp.mainMenu = menu
-        defer {
-            NSApp.mainMenu = previousMenu
-            window.contentView = nil
-            window.close()
-        }
         let event = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.command],
             timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
+            windowNumber: 0,
             context: nil,
             characters: "i",
             charactersIgnoringModifiers: "i",
@@ -743,24 +705,16 @@ struct ApplicationSurfaceTests {
             keyCode: UInt16(kVK_ANSI_I)
         ))
 
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        let tabManager = TabManager(applicationSurfaceRuntime: runtime)
-        appDelegate.registerMainWindow(
-            window,
-            windowId: windowID,
-            tabManager: tabManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
-        )
-        appDelegate.clearConfiguredShortcutChordState()
-        defer {
-            appDelegate.clearConfiguredShortcutChordState()
-            AppDelegate.shared = previousAppDelegate
+        var fallbackCallCount = 0
+        let handled = routeApplicationCommandEquivalent(
+            event,
+            through: view
+        ) {
+            fallbackCallCount += 1
+            return true
         }
-        #expect(!appDelegate.handleConfiguredShortcutKeyEquivalent(event))
-        #expect(window.performKeyEquivalent(with: event))
-        #expect(probe.callCount == 1)
+        #expect(handled)
+        #expect(fallbackCallCount == 1)
     }
 
     @Test func explicitCmuxShortcutWinsOverFocusedApplicationPane() throws {

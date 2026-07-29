@@ -1016,3 +1016,15 @@ final class ApplicationCaptureView: NSView {
     }
 
 }
+
+@MainActor
+func routeApplicationCommandEquivalent(
+    _ event: NSEvent,
+    through captureView: ApplicationCaptureView,
+    fallback: () -> Bool
+) -> Bool {
+    if captureView.performKeyEquivalent(with: event) {
+        return true
+    }
+    return fallback()
+}
