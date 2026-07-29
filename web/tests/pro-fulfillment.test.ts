@@ -120,6 +120,24 @@ describe("cmux Pro checkout fulfillment", () => {
     expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
+  test("acknowledges a checkout without an email instead of retrying forever", async () => {
+    const sendEmail = mock(async () => ({ error: null }));
+    const session = checkoutSession();
+    session.customer_details = null;
+    session.customer = null;
+
+    await expect(
+      sendProSignupWelcome(
+        { session },
+        {
+          sendEmail,
+          fromEmail: () => "pro@cmux.com",
+        },
+      ),
+    ).resolves.toBeUndefined();
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
   test("fails the checkout event when the Pro email provider rejects the send", async () => {
     await expect(
       sendProSignupWelcome(

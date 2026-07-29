@@ -362,4 +362,34 @@ describe("app session handoff", () => {
       "https://cmux.test/dashboard/testflight",
     );
   });
+
+  test("fails closed outside Vercel when running in production", async () => {
+    const mutableEnvironment = process.env as Record<string, string | undefined>;
+    const previousNodeEnv = mutableEnvironment.NODE_ENV;
+    mutableEnvironment.NODE_ENV = "production";
+    try {
+      const selfHostedPost = makeAppSessionHandoffHandler({
+        projectId: "12345678-1234-4123-8123-123456789abc",
+        stackServerApp: { getUser },
+        isVercel: () => false,
+      });
+
+      const response = await selfHostedPost(handoffRequest({
+        refresh_token: "native-refresh",
+        after: "/dashboard/testflight",
+      }, {
+        "x-cmux-app-session-response": "cookies",
+      }));
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("set-cookie")).toBeNull();
+      expect(getUser).not.toHaveBeenCalled();
+    } finally {
+      if (previousNodeEnv === undefined) {
+        delete mutableEnvironment.NODE_ENV;
+      } else {
+        mutableEnvironment.NODE_ENV = previousNodeEnv;
+      }
+    }
+  });
 });
