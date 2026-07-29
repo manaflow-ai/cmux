@@ -380,14 +380,14 @@ export function useCmuxClient() {
       runMutation((client) => client.swapPane({ pane, dir })),
     setSplitRatio: (split: Id, ratio: number) =>
       runMutation((client) => client.setSplitRatio(split, ratio)),
-    setClientSizing: (clientId: Id, enabled: boolean) => runMutation(async (client) => {
-      await client.setClientSizing(clientId, enabled);
+    setClientSizing: (surface: Id, clientId: Id, enabled: boolean) => runMutation(async (client) => {
+      await client.setClientSizing(surface, clientId, enabled);
     }),
-    useOnlyClientSizing: (clientId: Id) => runMutation(async (client) => {
-      await client.useOnlyClientSizing(clientId);
+    useOnlyClientSizing: (surface: Id, clientId: Id) => runMutation(async (client) => {
+      await client.useOnlyClientSizing(surface, clientId);
     }),
-    useAllClientSizing: () => runMutation(async (client) => {
-      await client.useAllClientSizing();
+    useAllClientSizing: (surface: Id) => runMutation(async (client) => {
+      await client.useAllClientSizing(surface);
     }),
     detachClient: (clientId: Id) => runMutation(async (client) => {
       await client.detachClient(clientId);

@@ -3888,10 +3888,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             hiddenDisplayCount,
             "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
         )
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             webView.reattachRenderingStateCount,
             hiddenReattachCount,
-            "Revealing an existing portal-hosted browser should trigger the WebKit reattach path"
+            "A visibility-only reveal refreshes presentation but must not run the enter/exit-window reattach lifecycle, or every tab switch fires page visibilitychange"
         )
     }
 

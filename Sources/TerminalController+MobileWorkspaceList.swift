@@ -232,7 +232,7 @@ extension TerminalController {
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 "current_directory": v2OrNull(terminalDirectory),
                 "is_ready": terminal.surface.surface != nil,
-                "is_focused": terminal.id == workspace.focusedPanelId
+                "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id)
             ]
         }
 
