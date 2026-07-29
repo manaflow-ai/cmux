@@ -532,6 +532,62 @@ struct ApplicationSurfaceTests {
         panel.close()
     }
 
+    @Test func terminalCaptureFailureSurvivesVisibilityChanges() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let token = panel.beginCaptureSession()
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { nil },
+            onStateChanged: { _ in },
+            onMovedToWindow: { _ in }
+        )
+        panel.attach(view, token: token)
+        panel.updateCaptureState(.windowUnavailable, token: token)
+
+        panel.setCaptureVisibleInUI(false, view: view)
+
+        #expect(panel.captureStateDescription == "window_unavailable")
+        panel.close()
+    }
+
+    @Test func captureFailurePreservesLocalizedRuntimeDetailUntilRetry() {
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+        let token = panel.beginCaptureSession()
+
+        panel.updateCaptureState(
+            .failed,
+            failureDetail: "Localized helper failure",
+            token: token
+        )
+
+        #expect(panel.captureFailureCode == "capture_failed")
+        #expect(panel.captureFailureDetail == "Localized helper failure")
+
+        panel.updateCaptureState(.starting, token: token)
+
+        #expect(panel.captureFailureCode == nil)
+        #expect(panel.captureFailureDetail == nil)
+        panel.close()
+    }
+
     @Test func applicationEditingKeyEquivalentReachesPaneBeforeMainMenu() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
