@@ -1016,7 +1016,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
-    private let closeCommittedMainWindows = NSHashTable<NSWindow>.weakObjects()
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -16741,11 +16740,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func markMainWindowCloseCommitted(_ window: NSWindow) {
-        closeCommittedMainWindows.add(window)
+        mainWindowVisibilityController.markCloseCommitted(window)
     }
 
     func isMainWindowCloseCommitted(_ window: NSWindow) -> Bool {
-        closeCommittedMainWindows.contains(window)
+        mainWindowVisibilityController.isCloseCommitted(window)
     }
 
 #if DEBUG
