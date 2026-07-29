@@ -2399,6 +2399,8 @@ struct ResourceStream::Impl {
     std::unique_ptr<Transport> transport;
     ClientOptions options;
     StreamId stream_id;
+    std::string machine_selector;
+    std::string session_selector;
     std::deque<Json> buffered;
     std::optional<StreamEnd> stream_end;
     std::atomic<std::uint64_t> next_request_id{1};
@@ -2447,10 +2449,26 @@ detail::ResourceClientState::open_stream(
     }
     params.insert_or_assign("stream_id", Json(stream_value));
     inject_routing(options, operation, params);
+    const auto machine = params.find("machine");
+    const auto session = params.find("session");
+    if (machine == params.end() || session == params.end()) {
+        return make_error(
+            ErrorCode::decode,
+            "stream route requires machine and session selectors");
+    }
+    auto machine_selector = machine->second.as_string();
+    auto session_selector = session->second.as_string();
+    if (!machine_selector || !session_selector) {
+        return make_error(
+            ErrorCode::decode,
+            "stream route selectors must be strings");
+    }
     auto impl = std::make_unique<ResourceStream::Impl>();
     impl->transport = std::move(transport_result).value();
     impl->options = options;
     impl->stream_id = std::move(parsed_id).value();
+    impl->machine_selector = std::string(machine_selector.value());
+    impl->session_selector = std::string(session_selector.value());
     const auto request_id = impl->request_id("open");
     auto sent = send_envelope(
         *impl->transport,
@@ -2638,8 +2656,11 @@ Result<StreamEnd> ResourceStream::cancel() {
         return make_error(ErrorCode::closed, "stream connection is closed");
     }
     const auto request_id = impl_->request_id("cancel");
-    Json::Object params{{"stream_id", Json(impl_->stream_id.value())}};
-    inject_routing(impl_->options, Operation::stream_cancel, params);
+    Json::Object params{
+        {"machine", Json(impl_->machine_selector)},
+        {"session", Json(impl_->session_selector)},
+        {"stream", Json(impl_->stream_id.value())},
+    };
     auto sent = detail::ResourceClientState::send_envelope(
         *impl_->transport,
         request_id,

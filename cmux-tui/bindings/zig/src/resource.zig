@@ -1608,6 +1608,8 @@ fn ownedErrorFromValue(
 const RawStream = struct {
     client: Client,
     stream_id: StreamId,
+    machine_selector: []u8,
+    session_selector: []u8,
     pending: std.ArrayList(raw.wire.OwnedValue) = .empty,
     end_frame: ?raw.wire.OwnedValue = null,
     end_error: ?OwnedResourceError = null,
@@ -1638,6 +1640,24 @@ const RawStream = struct {
             "stream_id",
             .{ .string = try temp.dupe(u8, id.slice()) },
         );
+        const machine_selector = if (object.get("machine")) |value|
+            switch (value) {
+                .string => |item| item,
+                else => return error.ExpectedString,
+            }
+        else
+            "current";
+        const session_selector = if (object.get("session")) |value|
+            switch (value) {
+                .string => |item| item,
+                else => return error.ExpectedString,
+            }
+        else
+            "current";
+        const owned_machine = try allocator.dupe(u8, machine_selector);
+        errdefer allocator.free(owned_machine);
+        const owned_session = try allocator.dupe(u8, session_selector);
+        errdefer allocator.free(owned_session);
         var opened = try stream_client.callClass(
             .stream_open,
             operation,
@@ -1648,6 +1668,8 @@ const RawStream = struct {
         return .{
             .client = stream_client,
             .stream_id = id,
+            .machine_selector = owned_machine,
+            .session_selector = owned_session,
         };
     }
 
@@ -1659,6 +1681,8 @@ const RawStream = struct {
         self.pending.deinit(self.client.allocator);
         if (self.end_frame) |*frame| frame.deinit();
         if (self.end_error) |*failure| failure.deinit();
+        self.client.allocator.free(self.machine_selector);
+        self.client.allocator.free(self.session_selector);
         self.client.deinit();
         self.* = undefined;
     }
@@ -1825,7 +1849,21 @@ const RawStream = struct {
         defer arena.deinit();
         var params = raw.wire.Object.init(arena.allocator());
         try params.put(
-            "stream_id",
+            "machine",
+            .{ .string = try arena.allocator().dupe(
+                u8,
+                self.machine_selector,
+            ) },
+        );
+        try params.put(
+            "session",
+            .{ .string = try arena.allocator().dupe(
+                u8,
+                self.session_selector,
+            ) },
+        );
+        try params.put(
+            "stream",
             .{ .string = try arena.allocator().dupe(
                 u8,
                 self.stream_id.slice(),
@@ -3214,7 +3252,7 @@ const FakeShared = struct {
                     .object => |item| item,
                     else => return error.ExpectedObject,
                 };
-                const stream_id = try objectString(params, "stream_id");
+                const stream_id = try objectString(params, "stream");
                 const end = try std.fmt.allocPrint(
                     self.allocator,
                     "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"stream_end\",\"stream_id\":\"{s}\"," ++ "\"reason\":\"canceled\",\"cursor\":" ++ "{{\"generation\":\"g\",\"revision\":\"3\"}}}}",
@@ -3657,6 +3695,38 @@ test "typed session stream preserves unknown payload and cancel end order" {
         stream_end.reason,
     );
     try std.testing.expectEqual(@as(u64, 3), stream_end.cursor.?.revision);
+    var requests = std.mem.splitScalar(u8, stream_shared.output.items, '\n');
+    _ = requests.next();
+    const cancel_line = requests.next() orelse
+        return error.MissingCancelRequest;
+    var cancel_request = try raw.wire.parse(
+        std.testing.allocator,
+        cancel_line,
+        .{},
+    );
+    defer cancel_request.deinit();
+    const cancel_object = switch (cancel_request.value) {
+        .object => |value| value,
+        else => return error.ExpectedObject,
+    };
+    const cancel_params = switch (cancel_object.get("params") orelse
+        return error.MissingField) {
+        .object => |value| value,
+        else => return error.ExpectedObject,
+    };
+    try std.testing.expectEqualStrings(
+        "current",
+        try objectString(cancel_params, "machine"),
+    );
+    try std.testing.expectEqualStrings(
+        session_id.slice(),
+        try objectString(cancel_params, "session"),
+    );
+    try std.testing.expectEqualStrings(
+        stream.raw_stream.stream_id.slice(),
+        try objectString(cancel_params, "stream"),
+    );
+    try std.testing.expect(cancel_params.get("stream_id") == null);
 }
 
 test "renderer and provider credentials redact formatting" {

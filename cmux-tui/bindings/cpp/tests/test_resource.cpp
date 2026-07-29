@@ -442,8 +442,10 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
     auto control = std::make_shared<FakeState>();
     auto stream_state = std::make_shared<FakeState>();
     auto client = client_for(control, stream_state);
+    std::atomic<bool> open_route_ok{false};
+    std::atomic<bool> cancel_route_ok{false};
 
-    std::thread server([stream_state] {
+    std::thread server([stream_state, &open_route_ok, &cancel_route_ok] {
         wait_for_writes(stream_state, 1);
         cmux::Json open;
         {
@@ -456,6 +458,11 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
         const auto* params = open.find("params")->as_object().value();
         const auto stream_id =
             std::string(params->at("stream_id").as_string().value());
+        open_route_ok.store(
+            params->at("machine").as_string().value() == "current" &&
+                params->at("session").as_string().value() ==
+                    "session_0123456789abcdef0123456789abcdef",
+            std::memory_order_release);
         enqueue(
             stream_state,
             "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
@@ -475,6 +482,15 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
         }
         const auto cancel_id =
             std::string(cancel.find("id")->as_string().value());
+        const auto* cancel_params =
+            cancel.find("params")->as_object().value();
+        cancel_route_ok.store(
+            cancel_params->at("machine").as_string().value() == "current" &&
+                cancel_params->at("session").as_string().value() ==
+                    "session_0123456789abcdef0123456789abcdef" &&
+                cancel_params->at("stream").as_string().value() == stream_id &&
+                cancel_params->find("stream_id") == cancel_params->end(),
+            std::memory_order_release);
         enqueue(
             stream_state,
             "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
@@ -485,7 +501,10 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
         enqueue(stream_state, response(cancel_id));
     });
 
-    auto stream = client.open_session_events();
+    auto session_id = cmux::SessionId::parse(
+        "session_0123456789abcdef0123456789abcdef");
+    CHECK(session_id);
+    auto stream = client.session(std::move(session_id).value()).events();
     CHECK(stream);
     auto item = stream.value().next();
     CHECK(item);
@@ -499,4 +518,6 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
     CHECK_EQ(ended.value().reason, cmux::StreamEndReason::canceled);
     CHECK(stream.value().closed());
     server.join();
+    CHECK(open_route_ok.load(std::memory_order_acquire));
+    CHECK(cancel_route_ok.load(std::memory_order_acquire));
 }
