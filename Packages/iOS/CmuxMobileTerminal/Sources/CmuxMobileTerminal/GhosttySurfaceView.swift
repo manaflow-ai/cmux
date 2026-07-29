@@ -193,6 +193,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var pendingOutputApply: PendingSurfaceOperation?
     var pendingGeometryApply: PendingSurfaceOperation?
     var pendingVisibleSnapshot: PendingVisibleSnapshot?
+    var pendingVerifiedReplayViewportAnchorCapture: PendingVerifiedReplayViewportAnchorCapture?
+    var pendingVerifiedReplayViewportAnchorRestore: PendingVerifiedReplayViewportAnchorRestore?
     var pendingCopyableTextRead: PendingCopyableTextRead?
     var pendingVerifiedReplayPresentation: PendingVerifiedReplayPresentation?
     /// Quiet-frame countdown for local visible-path detection. Output, geometry,
@@ -212,8 +214,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
+            || pendingVerifiedReplayViewportAnchorCapture != nil
+            || pendingVerifiedReplayViewportAnchorRestore != nil
             || pendingCopyableTextRead != nil || pendingVerifiedReplayPresentation != nil
     }
+    private(set) var userViewportInteractionGeneration: UInt64 = 0
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
@@ -1754,6 +1759,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         pendingScrollLines = 0
+        userViewportInteractionGeneration &+= 1
         if scrollPresentationAuthority.appliesLocally {
             applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
         }
@@ -2199,6 +2205,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             pending.continuation.resume(returning: result)
             completed = true
         }
+        if let pending = pendingVerifiedReplayViewportAnchorCapture {
+            pendingVerifiedReplayViewportAnchorCapture = nil
+            pending.continuation.resume(returning: nil)
+            completed = true
+        }
+        if let pending = pendingVerifiedReplayViewportAnchorRestore {
+            pendingVerifiedReplayViewportAnchorRestore = nil
+            pending.continuation.resume(returning: false)
+            completed = true
+        }
         if let pending = pendingVerifiedReplayPresentation {
             pendingVerifiedReplayPresentation = nil
             pending.continuation.resume(returning: nil)
@@ -2380,6 +2396,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// because it runs after everything already queued, so key-repeat during a
     /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
+        userViewportInteractionGeneration &+= 1
         guard let surface, !scrollToBottomInFlight else { return }
         scrollToBottomInFlight = true
         let generation = surfaceGeneration
@@ -2757,6 +2774,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// only explicit user input does (plus the one-time initial-output scroll
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
+        userViewportInteractionGeneration &+= 1
         resetCursorBlink()
         // A flick still decelerating would fight the snap: deltas already in
         // `pendingScrollLines` flush on the display-link frame AFTER the snap
@@ -3959,6 +3977,22 @@ nonisolated struct PendingVisibleSnapshot {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<(text: String, columns: Int)?, Never>
+}
+
+/// One verified-replay viewport-anchor capture awaiting output-queue completion
+/// or its skip-only display-link deadline.
+nonisolated struct PendingVerifiedReplayViewportAnchorCapture {
+    let id: UInt64
+    let startedAt: CFTimeInterval
+    let continuation: CheckedContinuation<VerifiedReplayCapturedViewportAnchor?, Never>
+}
+
+/// One verified-replay viewport-anchor restore awaiting output-queue completion
+/// or its skip-only display-link deadline.
+nonisolated struct PendingVerifiedReplayViewportAnchorRestore {
+    let id: UInt64
+    let startedAt: CFTimeInterval
+    let continuation: CheckedContinuation<Bool, Never>
 }
 
 /// One "View as Text" read awaiting output-queue completion or deadline.

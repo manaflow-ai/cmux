@@ -6,6 +6,14 @@ import GhosttyKit
 import QuartzCore
 import UIKit
 
+/// A replay viewport anchor paired with the user-interaction state at capture.
+public struct VerifiedReplayCapturedViewportAnchor: Equatable, Sendable {
+    /// The content-relative viewport position captured before replay.
+    public let anchor: VerifiedReplayViewportAnchor
+    /// The user viewport generation that must still match before restoration.
+    public let interactionGeneration: UInt64
+}
+
 @MainActor
 extension GhosttySurfaceView {
     nonisolated static func requiresVerifiedReplayPresentedDrain(
@@ -17,7 +25,7 @@ extension GhosttySurfaceView {
     /// Captures a content-relative viewport anchor on the serial surface queue.
     ///
     /// - Returns: The anchor when the viewport is above bottom; otherwise `nil`.
-    public func captureVerifiedReplayViewportAnchor() async -> VerifiedReplayViewportAnchor? {
+    public func captureVerifiedReplayViewportAnchor() async -> VerifiedReplayCapturedViewportAnchor? {
         guard let surface, !isDismantled else { return nil }
         let operation = VerifiedReplayViewportSurfaceOperation(
             surface: surface,
@@ -25,6 +33,10 @@ extension GhosttySurfaceView {
         )
         let workQueue = outputQueue
         return await withCheckedContinuation { continuation in
+            let interactionGeneration = userViewportInteractionGeneration
+            let operationID = registerPendingVerifiedReplayViewportAnchorCapture(
+                continuation: continuation
+            )
             workQueue.async {
                 var scrollbar = ghostty_surface_scrollbar_s()
                 let anchor: VerifiedReplayViewportAnchor?
@@ -37,15 +49,27 @@ extension GhosttySurfaceView {
                 } else {
                     anchor = nil
                 }
+                let captured = anchor.map {
+                    VerifiedReplayCapturedViewportAnchor(
+                        anchor: $0,
+                        interactionGeneration: interactionGeneration
+                    )
+                }
                 Task { @MainActor [weak self] in
-                    guard let self,
-                          self.surface == operation.surface,
+                    guard let self else { return }
+                    guard self.surface == operation.surface,
                           self.surfaceGeneration == operation.generation,
                           !self.isDismantled else {
-                        continuation.resume(returning: nil)
+                        self.completePendingVerifiedReplayViewportAnchorCapture(
+                            id: operationID,
+                            returning: nil
+                        )
                         return
                     }
-                    continuation.resume(returning: anchor)
+                    self.completePendingVerifiedReplayViewportAnchorCapture(
+                        id: operationID,
+                        returning: captured
+                    )
                 }
             }
         }
@@ -57,15 +81,27 @@ extension GhosttySurfaceView {
     /// - Returns: `true` when Ghostty accepted the revision-matched target row.
     @discardableResult
     public func restoreVerifiedReplayViewportAnchor(
-        _ anchor: VerifiedReplayViewportAnchor
+        _ captured: VerifiedReplayCapturedViewportAnchor
     ) async -> Bool {
+        // A replay may finish after newer scroll or typing intent; restoring
+        // its stale anchor would undo that user-driven viewport position.
+        guard userViewportInteractionGeneration == captured.interactionGeneration else {
+            MobileDebugLog.anchormux(
+                "verified_replay.viewport_restore.skipped reason=user_interaction"
+            )
+            return false
+        }
         guard let surface, !isDismantled else { return false }
+        let anchor = captured.anchor
         let operation = VerifiedReplayViewportSurfaceOperation(
             surface: surface,
             generation: surfaceGeneration
         )
         let workQueue = outputQueue
         return await withCheckedContinuation { continuation in
+            let operationID = registerPendingVerifiedReplayViewportAnchorRestore(
+                continuation: continuation
+            )
             workQueue.async {
                 var postReplay = ghostty_surface_scrollbar_s()
                 let readPostReplay = ghostty_surface_scrollbar(
@@ -93,21 +129,89 @@ extension GhosttySurfaceView {
                     )
                 }
                 Task { @MainActor [weak self] in
-                    guard let self,
-                          self.surface == operation.surface,
+                    guard let self else { return }
+                    guard self.surface == operation.surface,
                           self.surfaceGeneration == operation.generation,
                           !self.isDismantled else {
-                        continuation.resume(returning: false)
+                        self.completePendingVerifiedReplayViewportAnchorRestore(
+                            id: operationID,
+                            returning: false
+                        )
                         return
                     }
                     if restored {
                         self.needsDraw = true
                         self.scheduleVisibleArtifactCountUpdate()
                     }
-                    continuation.resume(returning: restored)
+                    self.completePendingVerifiedReplayViewportAnchorRestore(
+                        id: operationID,
+                        returning: restored
+                    )
                 }
             }
         }
+    }
+
+    private func registerPendingVerifiedReplayViewportAnchorCapture(
+        continuation: CheckedContinuation<VerifiedReplayCapturedViewportAnchor?, Never>
+    ) -> UInt64 {
+        let operationID = makeSurfaceOperationID()
+        if let existing = pendingVerifiedReplayViewportAnchorCapture {
+            pendingVerifiedReplayViewportAnchorCapture = nil
+            existing.continuation.resume(returning: nil)
+        }
+        pendingVerifiedReplayViewportAnchorCapture = PendingVerifiedReplayViewportAnchorCapture(
+            id: operationID,
+            startedAt: CACurrentMediaTime(),
+            continuation: continuation
+        )
+        ensureSurfaceOperationDeadlinePump()
+        return operationID
+    }
+
+    @discardableResult
+    private func completePendingVerifiedReplayViewportAnchorCapture(
+        id: UInt64,
+        returning anchor: VerifiedReplayCapturedViewportAnchor?
+    ) -> Bool {
+        guard let pending = pendingVerifiedReplayViewportAnchorCapture,
+              pending.id == id else {
+            return false
+        }
+        pendingVerifiedReplayViewportAnchorCapture = nil
+        pending.continuation.resume(returning: anchor)
+        return true
+    }
+
+    private func registerPendingVerifiedReplayViewportAnchorRestore(
+        continuation: CheckedContinuation<Bool, Never>
+    ) -> UInt64 {
+        let operationID = makeSurfaceOperationID()
+        if let existing = pendingVerifiedReplayViewportAnchorRestore {
+            pendingVerifiedReplayViewportAnchorRestore = nil
+            existing.continuation.resume(returning: false)
+        }
+        pendingVerifiedReplayViewportAnchorRestore = PendingVerifiedReplayViewportAnchorRestore(
+            id: operationID,
+            startedAt: CACurrentMediaTime(),
+            continuation: continuation
+        )
+        ensureSurfaceOperationDeadlinePump()
+        return operationID
+    }
+
+    @discardableResult
+    private func completePendingVerifiedReplayViewportAnchorRestore(
+        id: UInt64,
+        returning result: Bool
+    ) -> Bool {
+        guard let pending = pendingVerifiedReplayViewportAnchorRestore,
+              pending.id == id else {
+            return false
+        }
+        pendingVerifiedReplayViewportAnchorRestore = nil
+        pending.continuation.resume(returning: result)
+        return true
     }
 
     /// Retains an immutable copy of the last presented pixels and cursor above

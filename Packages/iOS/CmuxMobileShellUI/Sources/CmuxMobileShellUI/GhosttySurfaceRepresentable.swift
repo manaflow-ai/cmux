@@ -200,7 +200,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
-        private var pendingReplayViewportAnchor: VerifiedReplayViewportAnchor?
+        private var pendingReplayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
         /// Serializes the natural-grid viewport reports and their echoes. One
         /// detached Task per report (the previous shape) let Task scheduling
         /// scramble the send order AND let the echo of an old keyboard-up
@@ -499,7 +499,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             let capturedViewportAnchor =
                 await surfaceView.captureVerifiedReplayViewportAnchor()
             guard !Task.isCancelled else { return }
-            let replayViewportAnchor: VerifiedReplayViewportAnchor?
+            let replayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
             if frame.anchor == .screen, frame.activeScreen == .primary {
                 if let capturedViewportAnchor {
                     pendingReplayViewportAnchor = capturedViewportAnchor
@@ -577,7 +577,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private func finishVerifiedReplay(
             transactionID: UInt64,
             observed: MobileTerminalRenderGridFrame?,
-            viewportAnchor: VerifiedReplayViewportAnchor?,
+            viewportAnchor: VerifiedReplayCapturedViewportAnchor?,
             chunk: MobileTerminalOutputChunk,
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
