@@ -265,7 +265,7 @@ struct FileExplorerStoreTests {
             FileExplorerNode(name: "App.swift", path: "/project/Sources/App.swift", isDirectory: false),
         ]
         store.rootPath = "/project"
-        store.rootNodes = [directory]
+        store.setRootNodes([directory])
         store.expand(node: directory)
 
         let coordinator = FileExplorerPanelView.Coordinator(
@@ -297,7 +297,7 @@ struct FileExplorerStoreTests {
             FileExplorerNode(name: "File\($0).swift", path: "/project/File\($0).swift", isDirectory: false)
         }
         store.rootPath = "/project"
-        store.rootNodes = [directory] + siblingFiles
+        store.setRootNodes([directory] + siblingFiles)
 
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
@@ -335,7 +335,7 @@ struct FileExplorerStoreTests {
         let state = FileExplorerState()
         let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
         store.rootPath = "/project"
-        store.rootNodes = [directory]
+        store.setRootNodes([directory])
 
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
@@ -377,7 +377,7 @@ struct FileExplorerStoreTests {
             return node
         }
         store.rootPath = "/project"
-        store.rootNodes = directories
+        store.setRootNodes(directories)
 
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
@@ -423,7 +423,7 @@ struct FileExplorerStoreTests {
             return node
         }
         store.rootPath = "/project"
-        store.rootNodes = directories
+        store.setRootNodes(directories)
 
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
@@ -467,7 +467,7 @@ struct FileExplorerStoreTests {
         }
         let hydratedDirectory = directories.last!
         store.rootPath = "/project"
-        store.rootNodes = directories
+        store.setRootNodes(directories)
 
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
@@ -521,7 +521,7 @@ struct FileExplorerStoreTests {
             node.children = []
         }
         store.rootPath = "/project"
-        store.rootNodes = nodes
+        store.setRootNodes(nodes)
 
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
@@ -562,7 +562,7 @@ struct FileExplorerStoreTests {
             isDirectory: false
         )
         store.rootPath = "/project"
-        store.rootNodes = [oldNode]
+        store.setRootNodes([oldNode])
 
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
@@ -592,7 +592,7 @@ struct FileExplorerStoreTests {
                 isDirectory: false
             ),
         ]
-        store.rootNodes = [newDirectory]
+        store.setRootNodes([newDirectory])
         coordinator.enqueueOutlineChange(
             .expansionChanged(node: newDirectory, isExpanded: true)
         )
@@ -671,13 +671,13 @@ struct FileExplorerStoreTests {
     func largeGitStatusChangeReloadsVisibleRowsInOneBatch() async throws {
         let store = FileExplorerStore()
         store.rootPath = "/project"
-        store.rootNodes = (0..<1_000).map {
+        store.setRootNodes((0..<1_000).map {
             FileExplorerNode(
                 name: "File\($0).swift",
                 path: "/project/File\($0).swift",
                 isDirectory: false
             )
-        }
+        })
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: FileExplorerState(),
@@ -731,13 +731,13 @@ struct FileExplorerStoreTests {
     func replacingStoreRebindsOutlineAndObservers() async throws {
         let oldStore = FileExplorerStore()
         oldStore.rootPath = "/old"
-        oldStore.rootNodes = [
+        oldStore.setRootNodes([
             FileExplorerNode(name: "Old.swift", path: "/old/Old.swift", isDirectory: false),
-        ]
+        ])
         let newStore = FileExplorerStore()
         let newDirectory = FileExplorerNode(name: "New", path: "/new/New", isDirectory: true)
         newStore.rootPath = "/new"
-        newStore.rootNodes = [newDirectory]
+        newStore.setRootNodes([newDirectory])
 
         let coordinator = FileExplorerPanelView.Coordinator(
             store: oldStore,
@@ -846,7 +846,7 @@ struct FileExplorerStoreTests {
             isDirectory: true
         )
         store.rootPath = "/project"
-        store.rootNodes = [directory]
+        store.setRootNodes([directory])
         store.setProviderForTesting(provider, reloadIfAvailable: false)
 
         store.prefetchChildren(for: directory)

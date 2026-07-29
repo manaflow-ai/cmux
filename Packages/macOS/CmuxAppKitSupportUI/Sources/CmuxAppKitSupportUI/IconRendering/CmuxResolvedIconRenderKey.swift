@@ -1,5 +1,16 @@
 import AppKit
 
+private func cmuxResolvedIconColorsMatch(_ lhs: NSColor?, _ rhs: NSColor?) -> Bool {
+    switch (lhs, rhs) {
+    case (.none, .none):
+        return true
+    case let (lhs?, rhs?):
+        return lhs.isEqual(rhs)
+    default:
+        return false
+    }
+}
+
 /// Identity of one icon render request under one effective appearance.
 struct CmuxResolvedIconRenderKey {
     private let source: CmuxResolvedIconSourceKey
@@ -41,7 +52,7 @@ struct CmuxResolvedIconRenderKey {
             symbolWeight == other.symbolWeight &&
             appearanceName == other.appearanceName &&
             appearanceIdentity == other.appearanceIdentity &&
-            Self.colorsMatch(tint, other.tint)
+            cmuxResolvedIconColorsMatch(tint, other.tint)
     }
 
     func shouldSkipBlankRetry(for other: CmuxResolvedIconRenderKey) -> Bool {
@@ -61,14 +72,4 @@ struct CmuxResolvedIconRenderKey {
         )
     }
 
-    private static func colorsMatch(_ lhs: NSColor?, _ rhs: NSColor?) -> Bool {
-        switch (lhs, rhs) {
-        case (.none, .none):
-            return true
-        case let (lhs?, rhs?):
-            return lhs.isEqual(rhs)
-        default:
-            return false
-        }
-    }
 }

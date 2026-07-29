@@ -709,17 +709,7 @@ enum FileExplorerSelectionRestoration {
 /// but are not annotated @MainActor.
 final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
-    @Published var rootNodes: [FileExplorerNode] = [] {
-        didSet {
-            rootNodesRevision &+= 1
-            for node in oldValue where nodesByPath[node.path] === node {
-                nodesByPath.removeValue(forKey: node.path)
-            }
-            for node in rootNodes {
-                nodesByPath[node.path] = node
-            }
-        }
-    }
+    @Published var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
     private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
@@ -752,14 +742,9 @@ final class FileExplorerStore: ObservableObject {
     /// Paths currently being loaded
     private(set) var loadingPaths: Set<String> = []
 
-    private struct LoadOperation {
-        let identifier: UUID
-        let task: Task<Void, Never>
-    }
-
     /// In-flight load tasks keyed by path. The identifier prevents an older
     /// cancelled operation from clearing a replacement registered for the same path.
-    private var loadTasks: [String: LoadOperation] = [:]
+    private var loadTasks: [String: FileExplorerLoadOperation] = [:]
 
     /// Cache of path -> node for quick lookup
     private var nodesByPath: [String: FileExplorerNode] = [:]
@@ -769,80 +754,8 @@ final class FileExplorerStore: ObservableObject {
     private var outlineChangeObservers: [UUID: (FileExplorerOutlineChange) -> Void] = [:]
     private var gitStatusRefreshGeneration = 0
 
-    private enum GitStatusDiff: Sendable {
-        case unchanged
-        case scoped(Set<String>)
-        case allVisible
-    }
-
-    private struct GitStatusRefreshResult: Sendable {
-        let status: [String: GitFileStatus]
-        let diff: GitStatusDiff
-    }
-
-    private struct GitStatusRefreshRequest: Sendable {
-        enum Source: Sendable, Equatable {
-            case local(
-                directory: String
-            )
-            case ssh(
-                directory: String,
-                destination: String,
-                port: Int?,
-                identityFile: String?,
-                options: [String]
-            )
-        }
-
-        let generation: Int
-        let source: Source
-
-    #if compiler(>=6.2)
-        @concurrent
-    #else
-        @Sendable
-    #endif
-        nonisolated func fetch(
-            using provider: GitStatusProvider,
-            previousStatus: [String: GitFileStatus]
-        ) async -> GitStatusRefreshResult {
-            let status: [String: GitFileStatus]
-            switch source {
-            case .local(let directory):
-                status = await provider.fetchStatus(directory: directory)
-            case .ssh(
-                let directory,
-                let destination,
-                let port,
-                let identityFile,
-                let options
-            ):
-                status = await provider.fetchStatusSSH(
-                    directory: directory,
-                    destination: destination,
-                    port: port,
-                    identityFile: identityFile,
-                    sshOptions: options
-                )
-            }
-            return GitStatusRefreshResult(
-                status: status,
-                diff: FileExplorerStore.gitStatusDiff(
-                    previous: previousStatus,
-                    current: status
-                )
-            )
-        }
-    }
-
-    private struct GitStatusRefreshOperation {
-        let identifier: UUID
-        let source: GitStatusRefreshRequest.Source
-        let task: Task<Void, Never>
-    }
-
-    private var gitStatusRefreshOperation: GitStatusRefreshOperation?
-    private var pendingGitStatusRefresh: GitStatusRefreshRequest?
+    private var gitStatusRefreshOperation: FileExplorerGitStatusRefreshOperation?
+    private var pendingGitStatusRefresh: FileExplorerGitStatusRefreshRequest?
 
     /// Prefetch debounce: path -> work item
     private var prefetchWorkItems: [String: DispatchWorkItem] = [:]
@@ -942,7 +855,7 @@ final class FileExplorerStore: ObservableObject {
             )
             return
         }
-        let source: GitStatusRefreshRequest.Source
+        let source: FileExplorerGitStatusRefreshSource
         if let sshProvider = provider as? SSHFileExplorerProvider {
             source = .ssh(
                 directory: rootPath,
@@ -954,7 +867,7 @@ final class FileExplorerStore: ObservableObject {
         } else {
             source = .local(directory: rootPath)
         }
-        let request = GitStatusRefreshRequest(
+        let request = FileExplorerGitStatusRefreshRequest(
             generation: generation,
             source: source
         )
@@ -972,7 +885,7 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
-    private func startGitStatusRefresh(_ request: GitStatusRefreshRequest) {
+    private func startGitStatusRefresh(_ request: FileExplorerGitStatusRefreshRequest) {
         let identifier = UUID()
         let provider = gitStatusProvider
         let previousStatus = gitStatusByPath
@@ -989,7 +902,7 @@ final class FileExplorerStore: ObservableObject {
                 wasCancelled: wasCancelled
             )
         }
-        gitStatusRefreshOperation = GitStatusRefreshOperation(
+        gitStatusRefreshOperation = FileExplorerGitStatusRefreshOperation(
             identifier: identifier,
             source: request.source,
             task: task
@@ -998,8 +911,8 @@ final class FileExplorerStore: ObservableObject {
 
     private func finishGitStatusRefresh(
         identifier: UUID,
-        request: GitStatusRefreshRequest,
-        result: GitStatusRefreshResult,
+        request: FileExplorerGitStatusRefreshRequest,
+        result: FileExplorerGitStatusRefreshResult,
         wasCancelled: Bool
     ) {
         guard gitStatusRefreshOperation?.identifier == identifier else { return }
@@ -1197,7 +1110,7 @@ final class FileExplorerStore: ObservableObject {
                 identifier: identifier
             )
         }
-        loadTasks[path] = LoadOperation(identifier: identifier, task: task)
+        loadTasks[path] = FileExplorerLoadOperation(identifier: identifier, task: task)
     }
 
     @MainActor
@@ -1340,10 +1253,10 @@ final class FileExplorerStore: ObservableObject {
         outlineChange(for: gitStatusDiff(previous: previous, current: current))
     }
 
-    private static func gitStatusDiff(
+    static func gitStatusDiff(
         previous: [String: GitFileStatus],
         current: [String: GitFileStatus]
-    ) -> GitStatusDiff {
+    ) -> FileExplorerGitStatusDiff {
         var changedPaths: Set<String> = []
 
         func recordChange(_ path: String) -> Bool {
@@ -1369,7 +1282,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     private static func outlineChange(
-        for diff: GitStatusDiff
+        for diff: FileExplorerGitStatusDiff
     ) -> FileExplorerOutlineChange? {
         switch diff {
         case .unchanged:
@@ -1390,8 +1303,15 @@ final class FileExplorerStore: ObservableObject {
         publishOutlineChange(change)
     }
 
-    private func setRootNodes(_ nodes: [FileExplorerNode]) {
+    func setRootNodes(_ nodes: [FileExplorerNode]) {
+        rootNodesRevision &+= 1
+        for node in rootNodes where nodesByPath[node.path] === node {
+            nodesByPath.removeValue(forKey: node.path)
+        }
         rootNodes = nodes
+        for node in nodes {
+            nodesByPath[node.path] = node
+        }
     }
 
     private func publishOutlineChange(_ change: FileExplorerOutlineChange) {

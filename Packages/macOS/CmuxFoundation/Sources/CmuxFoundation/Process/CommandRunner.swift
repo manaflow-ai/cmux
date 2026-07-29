@@ -1,157 +1,5 @@
 public import Foundation
 import Darwin
-import os
-
-/// Sendable ownership boundary for Dispatch's thread-safe timer source.
-private final class CommandTimer: @unchecked Sendable {
-    private let source: any DispatchSourceTimer
-
-    init(queue: DispatchQueue) {
-        source = DispatchSource.makeTimerSource(queue: queue)
-    }
-
-    func schedule(deadline: DispatchTime) {
-        source.schedule(deadline: deadline)
-    }
-
-    func setEventHandler(_ handler: @escaping @Sendable () -> Void) {
-        source.setEventHandler(handler: handler)
-    }
-
-    func cancel() {
-        source.cancel()
-    }
-
-    func resume() {
-        source.resume()
-    }
-}
-
-/// Sendable ownership boundary for a nonblocking child-exit dispatch source.
-private final class CommandProcessExitSource: @unchecked Sendable {
-    private let source: any DispatchSourceProcess
-
-    init(processIdentifier: pid_t, queue: DispatchQueue) {
-        source = DispatchSource.makeProcessSource(
-            identifier: processIdentifier,
-            eventMask: .exit,
-            queue: queue
-        )
-    }
-
-    func setEventHandler(_ handler: @escaping @Sendable () -> Void) {
-        source.setEventHandler(handler: handler)
-    }
-
-    func cancel() {
-        source.cancel()
-    }
-
-    func resume() {
-        source.resume()
-    }
-}
-
-/// Serializes cancellation with suspended process-group launch.
-final class CommandCancellationLatch: @unchecked Sendable {
-    private struct State: Sendable {
-        var isCancelled = false
-        var isFinished = false
-        var notification: (@Sendable () -> Void)?
-        var action: (@Sendable () -> Void)?
-    }
-
-    private let state = OSAllocatedUnfairLock(initialState: State())
-
-    /// Installs the result-side cancellation notification before launch.
-    /// Cancellation that arrived first invokes it immediately.
-    func notifyOnCancel(_ notification: @escaping @Sendable () -> Void) {
-        let notifyNow = state.withLock { state -> Bool in
-            guard !state.isFinished else { return false }
-            if state.isCancelled { return true }
-            state.notification = notification
-            return false
-        }
-        if notifyNow {
-            notification()
-        }
-    }
-
-    /// Launches the child suspended without holding the cancellation lock, then
-    /// atomically installs the matching group-termination action. Cancellation
-    /// that arrives during launch wins registration and terminates the child
-    /// before it can be resumed.
-    func launch(
-        _ operation: @Sendable () throws -> pid_t,
-        onCancel: @escaping @Sendable (pid_t) -> Void
-    ) rethrows -> pid_t? {
-        let mayLaunch = state.withLock { state in
-            !state.isFinished && !state.isCancelled
-        }
-        guard mayLaunch else { return nil }
-
-        let processIdentifier: pid_t
-        do {
-            processIdentifier = try operation()
-        } catch {
-            let wasCancelled = state.withLock { state in
-                state.isFinished || state.isCancelled
-            }
-            if wasCancelled { return nil }
-            throw error
-        }
-
-        let cancelLaunchedProcess = state.withLock { state -> Bool in
-            guard !state.isFinished, !state.isCancelled else { return true }
-            state.action = {
-                onCancel(processIdentifier)
-            }
-            return false
-        }
-        guard !cancelLaunchedProcess else {
-            onCancel(processIdentifier)
-            return nil
-        }
-        return processIdentifier
-    }
-
-    /// Resumes a suspended launch while holding the same lock used by
-    /// cancellation. `nil` means cancellation already owns the process.
-    func resume(_ processIdentifier: pid_t) -> Int32? {
-        state.withLock { state in
-            guard !state.isFinished, !state.isCancelled else { return nil }
-            guard Darwin.kill(processIdentifier, SIGCONT) == 0 else {
-                return errno
-            }
-            return 0
-        }
-    }
-
-    func cancel() {
-        let actions = state.withLock { state -> (
-            (@Sendable () -> Void)?,
-            (@Sendable () -> Void)?
-        ) in
-            guard !state.isFinished else { return (nil, nil) }
-            state.isCancelled = true
-            let notification = state.notification
-            state.notification = nil
-            let action = state.action
-            state.action = nil
-            return (notification, action)
-        }
-        actions.0?()
-        actions.1?()
-    }
-
-    func clear() {
-        state.withLock { state in
-            state.isFinished = true
-            state.notification = nil
-            state.action = nil
-        }
-    }
-}
 
 /// Runs external commands in dedicated POSIX process groups, capturing output
 /// and honoring an optional deadline.
@@ -176,29 +24,13 @@ public struct CommandRunner: CommandRunning, Sendable {
         "/opt/local/bin",
     ]
 
-    /// Seconds to wait after `SIGTERM` (on timeout) before sending `SIGKILL`.
-    private static let sigkillGraceSeconds: Double = 0.2
-
-    // Hosts the one-shot deadline/SIGKILL timers. A queue is used only for timer
-    // event delivery, never to serialize mutable state.
-    private static let timerQueue = DispatchQueue(label: "com.cmuxterm.CmuxProcess.timer")
-    private static let processEventQueue = DispatchQueue(
-        label: "com.cmuxterm.CmuxProcess.exit"
-    )
-    // POSIX spawn is synchronous and can enter filesystem lookups. Move it off
-    // the caller so cancellation and the command deadline remain observable.
-    private static let spawnQueue = DispatchQueue(
-        label: "com.cmuxterm.CmuxProcess.spawn",
-        qos: .utility,
-        attributes: .concurrent
-    )
-
     // Environment is Apple-documented value-like once copied; stored as an immutable
     // dictionary so the struct stays Sendable.
     private let environment: [String: String]
     private let bundledBinPath: String?
     private let fallbackSearchDirectories: [String]
     private let standardErrorCaptureLimit: Int?
+    private let processOperations: CommandProcessOperations
 
     /// Creates a command runner.
     /// - Parameters:
@@ -218,6 +50,7 @@ public struct CommandRunner: CommandRunning, Sendable {
         self.bundledBinPath = bundledBinPath
         self.fallbackSearchDirectories = fallbackSearchDirectories
         self.standardErrorCaptureLimit = standardErrorCaptureLimit.map { max(0, $0) }
+        self.processOperations = CommandProcessOperations()
     }
 
     /// Runs `executable` with `arguments` in `directory`, capturing its output.
@@ -276,85 +109,32 @@ public struct CommandRunner: CommandRunning, Sendable {
 
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<CommandResult, Never>) in
-                // The two stdout/stderr readers, the process exit observer, the deadline timer,
-                // and the spawn-failure path race to resume this continuation exactly once.
-                // They run on synchronous, non-async callbacks, so a lock guards the small
-                // shared state (the captured streams, the termination flag, the resumed latch)
-                // and each callback resumes inline. An `actor` here would only force every
-                // callback through `Task`/`await` to guard a few fields. (Per CLAUDE.md's lock
-                // carve-out for synchronous coordination from non-async callbacks.)
-                let state = OSAllocatedUnfairLock(initialState: RunState())
+                let coordinator = CommandRunCoordinator()
 
-                // A stream finished or the process exited: record it, and resume with the
-                // captured output only once stdout, stderr, AND termination have all arrived.
-                // The timeout path never goes through here, so a descendant that inherited a
-                // pipe and holds it open past the deadline can never delay the timeout result.
-                @Sendable func recordAndCompleteIfReady(_ mutate: @Sendable (inout RunState) -> Void) {
-                    let (completion, timerToCancel, exitSourceToCancel, reapProcess): (
-                        (stdout: Data, stderr: Data, exitStatus: Int32?)?,
-                        CommandTimer?,
-                        CommandProcessExitSource?,
-                        (@Sendable () -> Void)?
-                    ) =
-                        state.withLock { s in
-                            mutate(&s)
-                            guard !s.resumed, let out = s.stdout, let err = s.stderr, s.didTerminate else {
-                                return (nil, nil, nil, nil)
-                            }
-                            s.resumed = true
-                            let timer = s.deadlineTimer
-                            s.deadlineTimer = nil
-                            let exitSource = s.processExitSource
-                            s.processExitSource = nil
-                            let reapProcess = s.processReapAction
-                            s.processReapAction = nil
-                            return (
-                                (stdout: out, stderr: err, exitStatus: s.exitStatus),
-                                timer,
-                                exitSource,
-                                reapProcess
-                            )
-                        }
-                    timerToCancel?.cancel()
-                    exitSourceToCancel?.cancel()
-                    if let completion {
-                        reapProcess?()
-                        let completed = CommandResult(
-                            stdout: String(data: completion.stdout, encoding: .utf8),
-                            stderr: String(data: completion.stderr, encoding: .utf8),
-                            exitStatus: completion.exitStatus,
-                            timedOut: false,
-                            executionError: nil
-                        )
-                        cancellation.clear()
-                        continuation.resume(returning: completed)
-                    }
+                @Sendable func finish(
+                    _ completion: CommandRunCoordinator.Completion?
+                ) async {
+                    guard let completion else { return }
+                    completion.timer?.cancel()
+                    completion.exitSource?.cancel()
+                    completion.reapProcess?()
+                    await cancellation.clear()
+                    continuation.resume(returning: completion.result)
                 }
 
-                // Resume immediately with a terminal result (timeout or spawn failure),
-                // independent of the pipe readers. Returns whether this call won the race.
-                @Sendable func claimImmediate(_ result: CommandResult) -> Bool {
-                    let (won, timerToCancel, exitSourceToCancel): (
-                        Bool,
-                        CommandTimer?,
-                        CommandProcessExitSource?
-                    ) =
-                        state.withLock { s in
-                            if s.resumed { return (false, nil, nil) }
-                            s.resumed = true
-                            let timer = s.deadlineTimer
-                            s.deadlineTimer = nil
-                            let exitSource = s.processExitSource
-                            s.processExitSource = nil
-                            s.processReapAction = nil
-                            return (true, timer, exitSource)
-                        }
-                    timerToCancel?.cancel()
-                    exitSourceToCancel?.cancel()
-                    if won {
-                        continuation.resume(returning: result)
+                @Sendable func claimImmediate(
+                    _ result: CommandResult,
+                    clearCancellation: Bool = false
+                ) async -> Bool {
+                    let claim = await coordinator.claimImmediate()
+                    claim.timer?.cancel()
+                    claim.exitSource?.cancel()
+                    guard claim.won else { return false }
+                    if clearCancellation {
+                        await cancellation.clear()
                     }
-                    return won
+                    continuation.resume(returning: result)
+                    return true
                 }
 
                 @Sendable func closeParentPipeHandles() {
@@ -374,16 +154,19 @@ public struct CommandRunner: CommandRunning, Sendable {
                     // does not also strand two blocking read workers.
                     Task.detached {
                         defer { _ = Darwin.close(outFD) }
-                        let data = Self.readToEnd(fileDescriptor: outFD, captureLimit: nil)
-                        recordAndCompleteIfReady { $0.stdout = data }
+                        let data = processOperations.readOutputToEnd(
+                            fileDescriptor: outFD,
+                            captureLimit: nil
+                        )
+                        await finish(await coordinator.recordStdout(data))
                     }
                     Task.detached {
                         defer { _ = Darwin.close(errFD) }
-                        let data = Self.readToEnd(
+                        let data = processOperations.readOutputToEnd(
                             fileDescriptor: errFD,
                             captureLimit: stderrCaptureLimit
                         )
-                        recordAndCompleteIfReady { $0.stderr = data }
+                        await finish(await coordinator.recordStderr(data))
                     }
                 }
 
@@ -396,85 +179,99 @@ public struct CommandRunner: CommandRunning, Sendable {
                     cancelled: true
                 )
 
-                cancellation.notifyOnCancel {
-                    _ = claimImmediate(cancelledResult)
-                }
-
-                // Arm the whole-command deadline before dispatching POSIX spawn.
-                // If spawn stalls in filesystem resolution, the continuation
-                // still completes and the latch terminates any PID registered later.
-                if let timeout {
-                    let timer = CommandTimer(queue: Self.timerQueue)
-                    timer.schedule(deadline: .now() + max(0, timeout))
-                    timer.setEventHandler {
-                        let timedOut = CommandResult(
-                            stdout: nil, stderr: nil, exitStatus: nil, timedOut: true, executionError: nil
-                        )
-                        if claimImmediate(timedOut) {
-                            cancellation.cancel()
-                        }
-                        timer.cancel()
-                    }
-                    timer.resume()
-                    let alreadyResumed = state.withLock { s -> Bool in
-                        if s.resumed { return true }
-                        s.deadlineTimer = timer
-                        return false
-                    }
-                    if alreadyResumed {
-                        timer.cancel()
-                    }
-                }
-
                 let stdoutReadDescriptor = stdoutReadHandle.fileDescriptor
                 let stderrReadDescriptor = stderrReadHandle.fileDescriptor
                 let stdoutWriteDescriptor = stdoutWriteHandle.fileDescriptor
                 let stderrWriteDescriptor = stderrWriteHandle.fileDescriptor
 
-                Self.spawnQueue.async {
+                Task {
                     defer { closeParentPipeHandles() }
+
+                    await cancellation.notifyOnCancel {
+                        Task {
+                            _ = await claimImmediate(cancelledResult)
+                        }
+                    }
+
+                    // Arm the whole-command deadline before POSIX spawn. If
+                    // spawn stalls in filesystem resolution, cancellation still
+                    // completes the caller and owns any PID registered later.
+                    if let timeout {
+                        let timer = processOperations.makeDeadlineTimer()
+                        timer.schedule(deadline: .now() + max(0, timeout))
+                        timer.setEventHandler {
+                            Task {
+                                let timedOut = CommandResult(
+                                    stdout: nil,
+                                    stderr: nil,
+                                    exitStatus: nil,
+                                    timedOut: true,
+                                    executionError: nil
+                                )
+                                if await claimImmediate(timedOut) {
+                                    await cancellation.cancel()
+                                }
+                                timer.cancel()
+                            }
+                        }
+                        if await coordinator.installDeadlineTimer(timer) {
+                            timer.resume()
+                        } else {
+                            timer.cancel()
+                        }
+                    }
+
+                    guard await cancellation.mayLaunch() else {
+                        closeDetachedReadDescriptors()
+                        _ = await claimImmediate(cancelledResult)
+                        return
+                    }
 
                     let processGroupID: pid_t
                     do {
-                        guard let launchedProcessIdentifier = try cancellation.launch({
-                            try Self.spawnCommand(
-                                executablePath: commandPath,
-                                arguments: commandArguments,
-                                environment: environment,
-                                directory: directory,
-                                stdoutFileDescriptor: stdoutWriteDescriptor,
-                                stderrFileDescriptor: stderrWriteDescriptor,
-                                fileDescriptorsToClose: [
-                                    stdoutReadDescriptor,
-                                    stdoutWriteDescriptor,
-                                    stderrReadDescriptor,
-                                    stderrWriteDescriptor,
-                                ]
-                            )
-                        }, onCancel: { processIdentifier in
-                            Self.terminateOwnedProcessTree(
-                                processGroupID: processIdentifier
-                            )
-                        }) else {
-                            closeDetachedReadDescriptors()
-                            _ = claimImmediate(cancelledResult)
-                            return
-                        }
-                        processGroupID = launchedProcessIdentifier
+                        processGroupID = try await processOperations.spawn(
+                            executablePath: commandPath,
+                            arguments: commandArguments,
+                            environment: environment,
+                            directory: directory,
+                            stdoutFileDescriptor: stdoutWriteDescriptor,
+                            stderrFileDescriptor: stderrWriteDescriptor,
+                            fileDescriptorsToClose: [
+                                stdoutReadDescriptor,
+                                stdoutWriteDescriptor,
+                                stderrReadDescriptor,
+                                stderrWriteDescriptor,
+                            ]
+                        )
                     } catch {
                         closeDetachedReadDescriptors()
-                        let message = String(describing: error)
-                        if claimImmediate(
-                            CommandResult(
-                                stdout: nil,
-                                stderr: nil,
-                                exitStatus: nil,
-                                timedOut: false,
-                                executionError: message
+                        if await cancellation.mayLaunch() {
+                            _ = await claimImmediate(
+                                CommandResult(
+                                    stdout: nil,
+                                    stderr: nil,
+                                    exitStatus: nil,
+                                    timedOut: false,
+                                    executionError: String(describing: error)
+                                ),
+                                clearCancellation: true
                             )
-                        ) {
-                            cancellation.clear()
+                        } else {
+                            _ = await claimImmediate(cancelledResult)
                         }
+                        return
+                    }
+
+                    guard await cancellation.register(
+                        processIdentifier: processGroupID,
+                        onCancel: { processIdentifier in
+                            processOperations.terminateOwnedProcessTree(
+                                processGroupID: processIdentifier
+                            )
+                        }
+                    ) else {
+                        closeDetachedReadDescriptors()
+                        _ = await claimImmediate(cancelledResult)
                         return
                     }
 
@@ -484,9 +281,8 @@ public struct CommandRunner: CommandRunning, Sendable {
                     // for the child's lifetime. waitid is nonblocking here because
                     // the source fires only after exit, and WNOWAIT keeps the group
                     // leader owned until stream capture or escalation completes.
-                    let exitSource = CommandProcessExitSource(
-                        processIdentifier: processGroupID,
-                        queue: Self.processEventQueue
+                    let exitSource = processOperations.makeExitSource(
+                        processIdentifier: processGroupID
                     )
                     exitSource.setEventHandler {
                         var exitInfo = siginfo_t()
@@ -502,45 +298,50 @@ public struct CommandRunner: CommandRunning, Sendable {
 
                         if waitResult == 0, exitInfo.si_pid == processGroupID {
                             let observedExitStatus = exitInfo.si_status
-                            recordAndCompleteIfReady {
-                                $0.didTerminate = true
-                                $0.exitStatus = observedExitStatus
+                            Task {
+                                await finish(
+                                    await coordinator.recordExit(
+                                        status: observedExitStatus
+                                    )
+                                )
                             }
                         } else if waitResult == -1 {
                             let code = POSIXErrorCode(rawValue: errno) ?? .EIO
-                            if claimImmediate(
-                                CommandResult(
-                                    stdout: nil,
-                                    stderr: nil,
-                                    exitStatus: nil,
-                                    timedOut: false,
-                                    executionError: POSIXError(code).localizedDescription
-                                )
-                            ) {
-                                cancellation.cancel()
+                            Task {
+                                if await claimImmediate(
+                                    CommandResult(
+                                        stdout: nil,
+                                        stderr: nil,
+                                        exitStatus: nil,
+                                        timedOut: false,
+                                        executionError: POSIXError(code).localizedDescription
+                                    )
+                                ) {
+                                    await cancellation.cancel()
+                                }
                             }
                         }
                     }
+
+                    guard await coordinator.installExitSource(
+                        exitSource,
+                        reapProcess: {
+                            processOperations.reap(
+                                processIdentifier: processGroupID
+                            )
+                        }
+                    ) else {
+                        exitSource.cancel()
+                        return
+                    }
                     exitSource.resume()
 
-                    let alreadyResumed = state.withLock { s -> Bool in
-                        if s.resumed { return true }
-                        s.processExitSource = exitSource
-                        s.processReapAction = {
-                            Self.reapProcess(processIdentifier: processGroupID)
-                        }
-                        return false
-                    }
-                    if alreadyResumed {
-                        exitSource.cancel()
-                    }
-
-                    guard let resumeStatus = cancellation.resume(processGroupID) else {
+                    guard let resumeStatus = await cancellation.resume(processGroupID) else {
                         return
                     }
                     guard resumeStatus == 0 else {
                         let code = POSIXErrorCode(rawValue: resumeStatus) ?? .EIO
-                        _ = claimImmediate(
+                        _ = await claimImmediate(
                             CommandResult(
                                 stdout: nil,
                                 stderr: nil,
@@ -549,209 +350,16 @@ public struct CommandRunner: CommandRunning, Sendable {
                                 executionError: POSIXError(code).localizedDescription
                             )
                         )
-                        cancellation.cancel()
+                        await cancellation.cancel()
                         return
                     }
                 }
             }
         } onCancel: {
-            cancellation.cancel()
-        }
-    }
-
-    /// Mutable state shared across the stdout/stderr readers, process exit observer, deadline
-    /// timer, and spawn-failure path while one `run` resolves; guarded by a lock.
-    private struct RunState: Sendable {
-        var stdout: Data?
-        var stderr: Data?
-        var didTerminate = false
-        var exitStatus: Int32?
-        var resumed = false
-        // The command deadline timer, cancelled when the continuation resumes (any path).
-        var deadlineTimer: CommandTimer?
-        // Exit notification is event-driven; it never occupies a worker while
-        // the child is running.
-        var processExitSource: CommandProcessExitSource?
-        // Normal completion reaps only after exit and both captured streams arrive.
-        // Timeout/cancellation clears this and transfers reaping to SIGKILL escalation.
-        var processReapAction: (@Sendable () -> Void)?
-    }
-
-    private static func terminateOwnedProcessTree(
-        processGroupID: pid_t
-    ) {
-        if Darwin.killpg(processGroupID, SIGTERM) != 0, errno != ESRCH {
-            _ = Darwin.kill(processGroupID, SIGTERM)
-        }
-        scheduleSigkill(processGroupID: processGroupID)
-    }
-
-    private static func scheduleSigkill(
-        processGroupID: pid_t
-    ) {
-        let timer = CommandTimer(queue: timerQueue)
-        timer.schedule(deadline: .now() + sigkillGraceSeconds)
-        timer.setEventHandler {
-            _ = Darwin.killpg(processGroupID, SIGKILL)
-            DispatchQueue.global(qos: .utility).async {
-                reapProcess(processIdentifier: processGroupID)
-            }
-            timer.cancel()
-        }
-        timer.resume()
-    }
-
-    private static func reapProcess(processIdentifier: pid_t) {
-        var rawStatus: Int32 = 0
-        var waitResult: pid_t
-        repeat {
-            waitResult = Darwin.waitpid(processIdentifier, &rawStatus, 0)
-        } while waitResult == -1 && errno == EINTR
-    }
-
-    private static func spawnCommand(
-        executablePath: String,
-        arguments: [String],
-        environment: [String: String],
-        directory: String,
-        stdoutFileDescriptor: Int32,
-        stderrFileDescriptor: Int32,
-        fileDescriptorsToClose: [Int32]
-    ) throws -> pid_t {
-        var fileActions: posix_spawn_file_actions_t?
-        try throwIfPOSIXError(posix_spawn_file_actions_init(&fileActions))
-        defer { posix_spawn_file_actions_destroy(&fileActions) }
-
-        try "/dev/null".withCString { path in
-            try throwIfPOSIXError(
-                posix_spawn_file_actions_addopen(
-                    &fileActions,
-                    STDIN_FILENO,
-                    path,
-                    O_RDONLY,
-                    0
-                )
-            )
-        }
-        try directory.withCString { path in
-            try throwIfPOSIXError(
-                posix_spawn_file_actions_addchdir_np(&fileActions, path)
-            )
-        }
-        try throwIfPOSIXError(
-            posix_spawn_file_actions_adddup2(
-                &fileActions,
-                stdoutFileDescriptor,
-                STDOUT_FILENO
-            )
-        )
-        try throwIfPOSIXError(
-            posix_spawn_file_actions_adddup2(
-                &fileActions,
-                stderrFileDescriptor,
-                STDERR_FILENO
-            )
-        )
-        for descriptor in Set(fileDescriptorsToClose) where descriptor > STDERR_FILENO {
-            try throwIfPOSIXError(
-                posix_spawn_file_actions_addclose(&fileActions, descriptor)
-            )
-        }
-
-        var attributes: posix_spawnattr_t?
-        try throwIfPOSIXError(posix_spawnattr_init(&attributes))
-        defer { posix_spawnattr_destroy(&attributes) }
-        let flags = Int16(
-            POSIX_SPAWN_CLOEXEC_DEFAULT
-                | POSIX_SPAWN_SETPGROUP
-                | POSIX_SPAWN_START_SUSPENDED
-        )
-        try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0))
-        try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags))
-
-        let argumentStrings = [executablePath] + arguments
-        let environmentStrings = environment
-            .map { "\($0.key)=\($0.value)" }
-            .sorted()
-        var processIdentifier: pid_t = 0
-        let spawnStatus = try withMutableCStringArray(argumentStrings) { argumentPointers in
-            try withMutableCStringArray(environmentStrings) { environmentPointers in
-                executablePath.withCString { executablePointer in
-                    posix_spawn(
-                        &processIdentifier,
-                        executablePointer,
-                        &fileActions,
-                        &attributes,
-                        argumentPointers,
-                        environmentPointers
-                    )
-                }
+            Task {
+                await cancellation.cancel()
             }
         }
-        try throwIfPOSIXError(spawnStatus)
-        guard processIdentifier > 1 else { throw POSIXError(.ECHILD) }
-        return processIdentifier
-    }
-
-    private static func throwIfPOSIXError(_ status: Int32) throws {
-        guard status == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: status) ?? .EIO)
-        }
-    }
-
-    private static func withMutableCStringArray<Result>(
-        _ strings: [String],
-        _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> Result
-    ) throws -> Result {
-        guard strings.allSatisfy({ !$0.utf8.contains(0) }) else {
-            throw POSIXError(.EINVAL)
-        }
-        var pointers = try strings.map { string -> UnsafeMutablePointer<CChar>? in
-            guard let pointer = strdup(string) else { throw POSIXError(.ENOMEM) }
-            return pointer
-        }
-        pointers.append(nil)
-        defer {
-            for pointer in pointers.dropLast() {
-                free(pointer)
-            }
-        }
-        return try pointers.withUnsafeMutableBufferPointer { buffer in
-            guard let baseAddress = buffer.baseAddress else {
-                throw POSIXError(.EINVAL)
-            }
-            return try body(baseAddress)
-        }
-    }
-
-    private static func readToEnd(
-        fileDescriptor: Int32,
-        captureLimit: Int?
-    ) -> Data {
-        var data = Data()
-        let chunkSize = 64 * 1024
-        var buffer = [UInt8](repeating: 0, count: chunkSize)
-        while true {
-            let bytesRead = buffer.withUnsafeMutableBytes { pointer -> Int in
-                guard let base = pointer.baseAddress else { return 0 }
-                return Darwin.read(fileDescriptor, base, chunkSize)
-            }
-            if bytesRead > 0 {
-                let bytesToCapture = captureLimit.map {
-                    min(bytesRead, max(0, $0 - data.count))
-                } ?? bytesRead
-                if bytesToCapture > 0 {
-                    data.append(contentsOf: buffer[0..<bytesToCapture])
-                }
-            } else if bytesRead == 0 {
-                break
-            } else if errno == EINTR {
-                continue
-            } else {
-                break
-            }
-        }
-        return data
     }
 
     /// Resolves `executable` to an absolute path, searching `PATH`, the bundled

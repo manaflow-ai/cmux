@@ -4,7 +4,7 @@ import Testing
 
 @testable import CmuxFoundation
 
-@Suite struct CommandRunnerTests {
+@Suite(.serialized) struct CommandRunnerTests {
     private let runner = CommandRunner()
     private let tempDir = FileManager.default.temporaryDirectory.path
 
@@ -209,62 +209,75 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 
-    @Test func cancellationDoesNotWaitForLaunchRegistration() {
+    @Test func cancellationDoesNotWaitForLaunchRegistration() async throws {
         let latch = CommandCancellationLatch()
-        let launchEntered = DispatchSemaphore(value: 0)
-        let releaseLaunch = DispatchSemaphore(value: 0)
-        let launchFinished = DispatchSemaphore(value: 0)
-        let cancellationReturned = DispatchSemaphore(value: 0)
+        let launchEntered = AsyncStream<Void>.makeStream()
+        let releaseLaunch = AsyncStream<Void>.makeStream()
 
-        Thread.detachNewThread {
-            _ = latch.launch({
-                launchEntered.signal()
-                releaseLaunch.wait()
-                return 4_242
-            }, onCancel: { _ in })
-            launchFinished.signal()
+        let launch = Task {
+            launchEntered.continuation.yield()
+            for await _ in releaseLaunch.stream {
+                break
+            }
+            return await latch.register(
+                processIdentifier: 4_242,
+                onCancel: { _ in }
+            )
         }
-        #expect(launchEntered.wait(timeout: .now() + 5) == .success)
-
-        Thread.detachNewThread {
-            latch.cancel()
-            cancellationReturned.signal()
-        }
-        let returnedPromptly = cancellationReturned.wait(timeout: .now() + 0.1) == .success
-        releaseLaunch.signal()
-        #expect(launchFinished.wait(timeout: .now() + 5) == .success)
-        if !returnedPromptly {
-            #expect(cancellationReturned.wait(timeout: .now() + 5) == .success)
+        try await expectCompletes(within: 5) {
+            for await _ in launchEntered.stream {
+                return
+            }
         }
 
-        #expect(returnedPromptly)
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+        await latch.cancel()
+        let elapsed = DispatchTime.now().uptimeNanoseconds - startedAt
+        releaseLaunch.continuation.yield()
+        releaseLaunch.continuation.finish()
+
+        #expect(elapsed < 100_000_000)
+        let registered = await launch.value
+        #expect(!registered)
     }
 
-    @Test func cancellationNotifiesWhileLaunchIsStillBlocked() {
+    @Test func cancellationNotifiesWhileLaunchIsStillBlocked() async throws {
         let latch = CommandCancellationLatch()
-        let launchEntered = DispatchSemaphore(value: 0)
-        let releaseLaunch = DispatchSemaphore(value: 0)
-        let launchFinished = DispatchSemaphore(value: 0)
-        let cancellationNotified = DispatchSemaphore(value: 0)
-        latch.notifyOnCancel {
-            cancellationNotified.signal()
+        let launchEntered = AsyncStream<Void>.makeStream()
+        let releaseLaunch = AsyncStream<Void>.makeStream()
+        let cancellationNotified = AsyncStream<Void>.makeStream()
+        await latch.notifyOnCancel {
+            cancellationNotified.continuation.yield()
+            cancellationNotified.continuation.finish()
         }
 
-        Thread.detachNewThread {
-            _ = latch.launch({
-                launchEntered.signal()
-                releaseLaunch.wait()
-                return 4_243
-            }, onCancel: { _ in })
-            launchFinished.signal()
+        let launch = Task {
+            launchEntered.continuation.yield()
+            for await _ in releaseLaunch.stream {
+                break
+            }
+            return await latch.register(
+                processIdentifier: 4_243,
+                onCancel: { _ in }
+            )
         }
-        #expect(launchEntered.wait(timeout: .now() + 5) == .success)
+        try await expectCompletes(within: 5) {
+            for await _ in launchEntered.stream {
+                return
+            }
+        }
 
-        latch.cancel()
-        #expect(cancellationNotified.wait(timeout: .now() + 0.1) == .success)
+        await latch.cancel()
+        try await expectCompletes(within: 1) {
+            for await _ in cancellationNotified.stream {
+                return
+            }
+        }
 
-        releaseLaunch.signal()
-        #expect(launchFinished.wait(timeout: .now() + 5) == .success)
+        releaseLaunch.continuation.yield()
+        releaseLaunch.continuation.finish()
+        let registered = await launch.value
+        #expect(!registered)
     }
 
     @Test func taskCancellationTerminatesDescendantProcessGroup() async throws {
