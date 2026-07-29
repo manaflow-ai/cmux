@@ -105,6 +105,27 @@ extension AgentNotificationRegressionTests {
         #expect(workspace.localAgentDeliveryTTYDevices.isEmpty)
     }
 
+    @Test("Live PID routing includes a terminal after it moves into a Dock")
+    func liveTTYBindingsIncludeDockOwnedTerminal() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let dockOwnerId = UUID()
+        let dock = DockSplitStore(workspaceId: dockOwnerId, baseDirectoryProvider: { nil })
+        fixture.source.surfaceTTYNames[fixture.panelId] = "/dev/null"
+
+        let transfer = try #require(fixture.source.detachSurface(panelId: fixture.panelId))
+        let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(dock.attachDetachedSurface(transfer, inPane: rootPane, focus: false) == fixture.panelId)
+        #expect(fixture.source.localAgentDeliveryTTYDevices.allSatisfy { $0.surfaceId != fixture.panelId })
+
+        let binding = try #require(
+            fixture.appDelegate.liveAgentDeliveryTTYBindings().first {
+                $0.workspaceId == dockOwnerId && $0.surfaceId == fixture.panelId
+            }
+        )
+        #expect(binding.ttyDevice > 0)
+    }
+
     @Test("A stale source clear preserves a destination-confined stored notification")
     func staleSourceClearPreservesDestinationConfinedStoredNotification() throws {
         let fixture = try makeFixture()

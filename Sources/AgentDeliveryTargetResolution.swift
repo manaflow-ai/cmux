@@ -109,6 +109,32 @@ extension Workspace {
 }
 
 @MainActor
+extension DockSplitStore {
+    /// Host-local TTY bindings for terminals currently owned by this Dock.
+    ///
+    /// A surface transfer removes the panel from its Workspace registry, so
+    /// live PID attribution must inspect Dock ownership separately. Prefer the
+    /// terminal's current Ghostty PTY and fall back to the TTY preserved with
+    /// the transfer while the live surface is being reattached.
+    var localAgentDeliveryTTYDevices: [(surfaceId: UUID, ttyDevice: Int64)] {
+        panels.compactMap { panelId, panel in
+            guard let terminal = panel as? TerminalPanel,
+                  detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal != true else {
+                return nil
+            }
+            let liveDevice = terminal.surface.controllingTTYName().flatMap {
+                CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: $0)
+            }
+            let preservedDevice = detachedSurfaceTransfersByPanelId[panelId]?.ttyName.flatMap {
+                CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: $0)
+            }
+            guard let ttyDevice = liveDevice ?? preservedDevice else { return nil }
+            return (panelId, ttyDevice)
+        }
+    }
+}
+
+@MainActor
 extension AppDelegate {
     /// The live pane that owns the given agent process right now: the
     /// process's controlling tty matched against every surface's pty device
@@ -127,15 +153,10 @@ extension AppDelegate {
             // TTY device ids are indexed when each surface reports or moves,
             // so hook delivery only walks in-memory bindings on MainActor. It
             // never stats every live surface while UI work is serialized.
-            var bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = []
-            for manager in agentDeliveryTabManagers() {
-                for workspace in manager.tabs {
-                    for binding in workspace.localAgentDeliveryTTYDevices {
-                        bindings.append((workspace.id, binding.surfaceId, binding.ttyDevice))
-                    }
-                }
-            }
-            ttyTarget = agentDeliveryTargetMatchingTTYDevice(ttyDevice, surfaceTTYDevices: bindings)
+            ttyTarget = agentDeliveryTargetMatchingTTYDevice(
+                ttyDevice,
+                surfaceTTYDevices: liveAgentDeliveryTTYBindings()
+            )
         }
         if resolution == .controllingTTY {
             return ttyTarget
@@ -166,6 +187,26 @@ extension AppDelegate {
             envTarget: envTarget,
             resolution: resolution
         )
+    }
+
+    /// Current local terminal ownership across both workspace splits and Docks.
+    /// Internal so behavior tests can guard the cross-container ownership
+    /// boundary without needing to manufacture a process on Ghostty's PTY.
+    func liveAgentDeliveryTTYBindings() -> [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] {
+        var bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = []
+        for manager in agentDeliveryTabManagers() {
+            for workspace in manager.tabs {
+                for binding in workspace.localAgentDeliveryTTYDevices {
+                    bindings.append((workspace.id, binding.surfaceId, binding.ttyDevice))
+                }
+            }
+        }
+        for dock in DockSplitStore.liveStores {
+            for binding in dock.localAgentDeliveryTTYDevices {
+                bindings.append((dock.workspaceId, binding.surfaceId, binding.ttyDevice))
+            }
+        }
+        return bindings
     }
 
     /// Delivery-time target for an agent event addressed to

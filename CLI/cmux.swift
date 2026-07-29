@@ -157,6 +157,14 @@ struct ClaudeHookSessionRecord: Codable {
     var terminalPromptTurnIds: [String]?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
+    /// Immutable age anchor for a demoted record awaiting external cleanup.
+    /// Optional for compatibility with stores written before cleanup retries
+    /// became durable.
+    var supersededCleanupEnqueuedAt: TimeInterval? = nil
+    /// Retry ordering metadata. Attempts must not rewrite `updatedAt`, because
+    /// that timestamp is also the normal session-state expiry anchor.
+    var supersededCleanupLastAttemptAt: TimeInterval? = nil
+    var supersededCleanupAttemptCount: Int? = nil
     // Auto-naming engine state (all optional so stores written before the
     // feature decode unchanged). The durable baseline advances only after a
     // confirmed title apply; the in-flight marker dedupes concurrent Stops.
@@ -1567,7 +1575,7 @@ final class ClaudeHookSessionStore {
             record.updatedAt >= cutoff
         }
         state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter { _, record in
-            record.updatedAt >= cutoff
+            (record.supersededCleanupEnqueuedAt ?? record.updatedAt) >= cutoff
         }
         state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { workspaceId, active in
             guard active.updatedAt >= cutoff, let record = state.sessions[active.sessionId] else { return false }

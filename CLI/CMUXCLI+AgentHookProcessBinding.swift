@@ -120,6 +120,14 @@ extension CMUXCLI {
             ) else {
                 continue
             }
+            if record.surfaceId == owner.surfaceId {
+                // Registering the replacement structured PID on this panel has
+                // already evicted the superseded key. Sending clear_agent_pid
+                // for that now-missing key would still clear the panel's base
+                // OMP lifecycle, erasing the replacement session.
+                clearedRecords.append(record)
+                continue
+            }
             let pidKey = "\(statusKey).\(record.sessionId)"
             do {
                 _ = try sendV1Command(
