@@ -22,7 +22,10 @@ extension RemoteSessionCoordinator {
         forwardSpec: String,
         relayPort: Int
     ) -> ReverseRelayControlMasterStartOutcome {
-        let effectiveSSHOptions = reverseRelayControlMasterSSHOptions
+        guard let effectiveSSHOptions =
+            resolvedReverseRelayControlMasterSSHOptionsLocked() else {
+            return .unavailable
+        }
         guard let arguments = configuration.reverseRelayControlMasterArguments(
             controlCommand: "forward",
             forwardSpec: forwardSpec,
@@ -71,7 +74,10 @@ extension RemoteSessionCoordinator {
     func stopReverseRelayViaControlMasterLocked() {
         guard let forwardSpec = reverseRelayControlMasterForwardSpec else { return }
         reverseRelayControlMasterForwardSpec = nil
-        let effectiveSSHOptions = reverseRelayControlMasterSSHOptions
+        guard let effectiveSSHOptions =
+            reverseRelayResolvedControlMasterSSHOptions else {
+            return
+        }
         guard let arguments = configuration.reverseRelayControlMasterArguments(
             controlCommand: "cancel",
             forwardSpec: forwardSpec,
@@ -80,6 +86,84 @@ extension RemoteSessionCoordinator {
             return
         }
         _ = try? sshExec(arguments: arguments, timeout: 4)
+    }
+
+    /// Resolves cmux's `%C` template before adopting a shared master.
+    ///
+    /// The exact socket path is both the command target and the reset-event
+    /// identity. If OpenSSH cannot produce that identity, relay startup falls
+    /// back to its standalone transport without touching the unresolved
+    /// master.
+    private func resolvedReverseRelayControlMasterSSHOptionsLocked() -> [String]? {
+        if reverseRelayControlMasterResolutionAttempted {
+            return reverseRelayResolvedControlMasterSSHOptions
+        }
+        reverseRelayControlMasterResolutionAttempted = true
+
+        let effectiveOptions = reverseRelayControlMasterSSHOptions
+        let sharingOptions = SSHConnectionSharingOptions()
+        let resolver = NativeSSHControlPathResolver(
+            sharingOptions: sharingOptions
+        )
+        guard let ownedPath = sharingOptions.cmuxOwnedControlPath(
+            in: effectiveOptions
+        ) else {
+            reverseRelayResolvedControlMasterSSHOptions = effectiveOptions
+            return effectiveOptions
+        }
+
+        let resolvedPath: String?
+        if ownedPath.contains("%") {
+            do {
+                let result = try sshExec(
+                    arguments: resolver.resolutionArguments(
+                        configuration: configuration,
+                        effectiveOptions: effectiveOptions
+                    ),
+                    timeout: 5
+                )
+                guard result.status == 0 else {
+                    return nil
+                }
+                resolvedPath = resolver.resolvedControlPath(
+                    effectiveOptions: effectiveOptions,
+                    sshConfigOutput: result.stdout
+                )
+            } catch {
+                debugLog(
+                    "remote.relay.controlmaster.resolveFailed " +
+                    "\(error.localizedDescription) \(debugConfigSummary())"
+                )
+                return nil
+            }
+        } else {
+            resolvedPath = ownedPath
+        }
+        guard let resolvedPath else {
+            debugLog(
+                "remote.relay.controlmaster.resolveFailed " +
+                "missing-owned-path \(debugConfigSummary())"
+            )
+            return nil
+        }
+
+        let resolvedOptions = resolver.replacingControlPath(
+            in: effectiveOptions,
+            with: resolvedPath
+        )
+        guard let observation = connectionBroker.observeControlMasterResets(
+            controlPath: resolvedPath,
+            handler: { [weak self] in
+                self?.queue.async { [weak self] in
+                    self?.sharedControlMasterDidResetLocked()
+                }
+            }
+        ) else {
+            return nil
+        }
+        conflictedControlMasterResetObservation = observation
+        reverseRelayResolvedControlMasterSSHOptions = resolvedOptions
+        return resolvedOptions
     }
 
     /// Invalidates a relay installed on a shared master that another owner

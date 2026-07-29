@@ -17,19 +17,6 @@ struct NativeSSHControlMasterResetKey: Hashable, Sendable {
     let effectiveOptions: [String]
     let ownerWorkspaceID: UUID?
 
-    var impactScope: NativeSSHControlMasterResetImpactScope {
-        if controlPath.contains("%") {
-            return .unresolvedTemplate(
-                controlPath: controlPath,
-                destination: destination ?? "",
-                port: port,
-                identityFile: identityFile,
-                effectiveOptions: effectiveOptions
-            )
-        }
-        return .resolvedPath(controlPath)
-    }
-
     init?(
         configuration: WorkspaceRemoteConfiguration,
         sharingOptions: SSHConnectionSharingOptions
@@ -65,21 +52,4 @@ struct NativeSSHControlMasterResetKey: Hashable, Sendable {
             self.ownerWorkspaceID = nil
         }
     }
-}
-
-/// Scope potentially disrupted by a successful `ssh -O exit`.
-///
-/// A resolved path is exact. An unresolved template uses the complete explicit
-/// connection identity while excluding workspace ownership, so identical
-/// sibling configurations receive the event without cascading resets to
-/// unrelated hosts that share cmux's default `%C` template.
-enum NativeSSHControlMasterResetImpactScope: Hashable, Sendable {
-    case resolvedPath(String)
-    case unresolvedTemplate(
-        controlPath: String,
-        destination: String,
-        port: Int?,
-        identityFile: String?,
-        effectiveOptions: [String]
-    )
 }

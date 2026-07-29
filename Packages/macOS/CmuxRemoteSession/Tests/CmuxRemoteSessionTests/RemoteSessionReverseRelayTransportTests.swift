@@ -30,7 +30,7 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(forwardRequest.arguments.contains("BatchMode=yes"))
         #expect(
             forwardRequest.arguments.contains(
-                "ControlPath=\(SSHConnectionSharingOptions().defaultControlPath)"
+                "ControlPath=\(ResolvedControlPathFixture.path)"
             )
         )
         #expect(launcher.launchCount == 0)
@@ -44,7 +44,7 @@ struct RemoteSessionReverseRelayTransportTests {
         }))
         #expect(
             cancelRequest.arguments.contains(
-                "ControlPath=\(SSHConnectionSharingOptions().defaultControlPath)"
+                "ControlPath=\(ResolvedControlPathFixture.path)"
             )
         )
         #expect(
@@ -88,6 +88,45 @@ struct RemoteSessionReverseRelayTransportTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
+    @Test("An unresolved cmux ControlPath fails closed to standalone")
+    func unresolvedOwnedControlPathUsesStandaloneFallback() async throws {
+        let runner = RecordingProcessRunner { request in
+            if request.arguments.first == "-G" {
+                return RemoteCommandResult(
+                    status: 255,
+                    stdout: "",
+                    stderr: "could not resolve configuration"
+                )
+            }
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+        let launcher = RecordingReverseRelayLauncher()
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
+            runner: runner,
+            reverseRelayLauncher: launcher,
+            providesResolvedControlPath: false
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+
+        var launches = launcher.launches.makeAsyncIterator()
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
+        }
+
+        let launch = try #require(await launches.next())
+        #expect(launch.arguments.starts(with: ["-N", "-T", "-S", "none"]))
+        #expect(runner.requests.contains(where: {
+            $0.arguments.first == "-G"
+        }))
+        #expect(!runner.requests.contains(where: {
+            Self.isControlCommand("forward", in: $0.arguments)
+        }))
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     @Test("A bind conflict exits a cmux-owned master")
     func ownedConflictExitsMaster() async throws {
         let clock = ManualBrokerClock()
@@ -128,7 +167,7 @@ struct RemoteSessionReverseRelayTransportTests {
         }))
         #expect(
             exitRequest.arguments.contains(
-                "ControlPath=\(SSHConnectionSharingOptions().defaultControlPath)"
+                "ControlPath=\(ResolvedControlPathFixture.path)"
             )
         )
         #expect(launcher.launchCount == 0)

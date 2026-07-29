@@ -181,19 +181,20 @@ public final class NativeSSHConnectionBroker {
         await conflictedMasterResetCoordinator.reset(for: configuration)
     }
 
-    /// Observes resets that can invalidate this configuration's relay forward.
+    /// Observes resets that invalidate an exact cmux-owned control socket.
     nonisolated func observeControlMasterResets(
-        for configuration: WorkspaceRemoteConfiguration,
+        controlPath: String,
         handler: @escaping @Sendable () -> Void
     ) -> NativeSSHControlMasterResetObservation? {
-        guard let scope = NativeSSHControlMasterResetKey(
-            configuration: configuration,
-            sharingOptions: sharingOptions
-        )?.impactScope else {
+        guard !controlPath.contains("%"),
+              sharingOptions.cmuxOwnedControlPath(in: [
+                "ControlMaster=auto",
+                "ControlPath=\(controlPath)",
+              ]) == controlPath else {
             return nil
         }
         return conflictedMasterResetEventHub.observe(
-            scope: scope,
+            controlPath: controlPath,
             handler: handler
         )
     }

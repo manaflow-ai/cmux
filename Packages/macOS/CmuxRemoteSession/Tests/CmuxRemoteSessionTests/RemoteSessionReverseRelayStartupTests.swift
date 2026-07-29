@@ -172,7 +172,8 @@ struct RemoteSessionReverseRelayStartupTests {
         reverseRelayLauncher: any RemoteReverseRelayLaunching = RemoteReverseRelayLauncher(),
         relayPort: Int = 64_044,
         sshOptions: [String]? = nil,
-        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
+        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
+        providesResolvedControlPath: Bool = true
     ) throws -> (coordinator: RemoteSessionCoordinator, scratchDirectory: URL) {
         let scratchDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -198,12 +199,18 @@ struct RemoteSessionReverseRelayStartupTests {
             preserveAfterTerminalExit: false,
             persistentDaemonSlot: nil
         )
+        let effectiveRunner: any RemoteSessionProcessRunning
+        if providesResolvedControlPath {
+            effectiveRunner = ResolvedControlPathProcessRunner(base: runner)
+        } else {
+            effectiveRunner = runner
+        }
         let connectionBroker = NativeSSHConnectionBroker(
             sharingOptions: SSHConnectionSharingOptions(),
             clock: RecordingImmediateClock(),
             jitterMilliseconds: { 200 },
             cleanupLauncher: { _ in },
-            conflictedMasterResetRunner: runner
+            conflictedMasterResetRunner: effectiveRunner
         )
         let configuration = connectionBroker.retainWorkspace(rawConfiguration)
         let coordinator = RemoteSessionCoordinator(
@@ -214,7 +221,7 @@ struct RemoteSessionReverseRelayStartupTests {
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: scratchDirectory
             ),
-            processRunner: runner,
+            processRunner: effectiveRunner,
             reverseRelayLauncher: reverseRelayLauncher,
             reachabilityProbe: SSHOverrideNoopReachabilityProbe(),
             relayCommandRewriter: SSHOverridePassthroughRelayCommandRewriter(),

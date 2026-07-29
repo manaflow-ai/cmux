@@ -30,16 +30,23 @@ public struct NativeSSHControlMasterCleanupRequest: Sendable {
 
 extension NativeSSHControlMasterCleanupRequest {
     static let retryExitStatus: Int32 = 75
+    static let resetSkippedExitStatus: Int32 = 76
 
     var processInvocation: (executableURL: URL, arguments: [String]) {
+        processInvocation(noOpExitStatus: 0)
+    }
+
+    func processInvocation(
+        noOpExitStatus: Int32
+    ) -> (executableURL: URL, arguments: [String]) {
         guard let authenticationLockPath else {
             return (URL(fileURLWithPath: "/usr/bin/ssh"), arguments)
         }
         let inFlightPath = authenticationLockPath + ".inflight"
         let script = """
         umask 077
-        : >> "$1" || exit 0
-        zmodload zsh/system || exit 0
+        : >> "$1" || exit \(noOpExitStatus)
+        zmodload zsh/system || exit \(noOpExitStatus)
         zsystem flock -t 4 -e -f cmux_ssh_auth_lock_fd "$1" || exit \(Self.retryExitStatus)
         cmux_auth_pid="$(/bin/cat -- "$2" 2>/dev/null || true)"
         case "$cmux_auth_pid" in

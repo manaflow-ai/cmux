@@ -19,6 +19,7 @@ enum NativeSSHControlMasterResetOutcome: Sendable, Equatable {
 final class NativeSSHControlMasterResetCoordinator {
     private struct InFlightReset {
         let id: UUID
+        let authorizationKey: NativeSSHControlMasterResetKey
         let task: Task<NativeSSHControlMasterResetOutcome, Never>
     }
 
@@ -30,7 +31,7 @@ final class NativeSSHControlMasterResetCoordinator {
         UUID: [NativeSSHControlMasterResetKey: WorkspaceRemoteConfiguration]
     ] = [:]
     private var inFlightResets: [
-        NativeSSHControlMasterResetKey: InFlightReset
+        String: InFlightReset
     ] = [:]
 
     nonisolated init(
@@ -72,7 +73,10 @@ final class NativeSSHControlMasterResetCoordinator {
         }
         let remainsOwned = leases.values.contains { $0[key] != nil }
         if !remainsOwned {
-            inFlightResets[key]?.task.cancel()
+            for reset in inFlightResets.values
+                where reset.authorizationKey == key {
+                reset.task.cancel()
+            }
         }
     }
 
@@ -85,24 +89,62 @@ final class NativeSSHControlMasterResetCoordinator {
                 configuration: configuration,
                 sharingOptions: sharingOptions
               ),
-              leases[ownerWorkspaceID]?[key]?.sshControlMasterLeaseGeneration == generation else {
+              ownsLease(
+                ownerWorkspaceID: ownerWorkspaceID,
+                generation: generation,
+                key: key
+              ) else {
             return .ignored("workspace no longer owns this cmux SSH master")
-        }
-        if let inFlight = inFlightResets[key] {
-            return await inFlight.task.value
         }
 
         let effectiveOptions = sharingOptions.mergingDefaults(
             into: configuration.sshOptions
         )
+        let pathResolver = NativeSSHControlPathResolver(
+            sharingOptions: sharingOptions
+        )
+        let resolvedControlPath: String?
+        if let exactPath = pathResolver.resolvedControlPath(
+            effectiveOptions: effectiveOptions
+        ) {
+            resolvedControlPath = exactPath
+        } else {
+            resolvedControlPath = await Self.resolveControlPath(
+                configuration: configuration,
+                effectiveOptions: effectiveOptions,
+                resolver: pathResolver,
+                processRunner: processRunner
+            )
+        }
+        guard !Task.isCancelled else {
+            return .deferred("control-master reset cancelled")
+        }
+        guard let resolvedControlPath else {
+            return .ignored("could not resolve the cmux SSH master socket")
+        }
+        guard ownsLease(
+            ownerWorkspaceID: ownerWorkspaceID,
+            generation: generation,
+            key: key
+        ) else {
+            return .ignored("workspace no longer owns this cmux SSH master")
+        }
+        if let inFlight = inFlightResets[resolvedControlPath] {
+            return await inFlight.task.value
+        }
+
+        let resolvedOptions = pathResolver.replacingControlPath(
+            in: effectiveOptions,
+            with: resolvedControlPath
+        )
         let arguments = RemoteControlMasterCleanup().cleanupArguments(
             configuration: configuration,
-            sshOptionsOverride: effectiveOptions
+            sshOptionsOverride: resolvedOptions
         )
         let authenticationLockPath = sharingOptions.foregroundAuthenticationLockPath(
             destination: configuration.destination,
             port: configuration.port,
-            options: effectiveOptions
+            options: resolvedOptions
         )
         let request = NativeSSHControlMasterCleanupRequest(
             arguments: arguments,
@@ -113,7 +155,6 @@ final class NativeSSHControlMasterResetCoordinator {
         let processRunner = self.processRunner
         let clock = self.clock
         let eventHub = self.eventHub
-        let impactScope = key.impactScope
         let task = Task {
             let outcome = await Self.runReset(
                 request: request,
@@ -121,16 +162,70 @@ final class NativeSSHControlMasterResetCoordinator {
                 clock: clock
             )
             if case .reset = outcome {
-                eventHub.emit(scope: impactScope)
+                eventHub.emit(controlPath: resolvedControlPath)
             }
             return outcome
         }
-        inFlightResets[key] = InFlightReset(id: resetID, task: task)
+        inFlightResets[resolvedControlPath] = InFlightReset(
+            id: resetID,
+            authorizationKey: key,
+            task: task
+        )
         let outcome = await task.value
-        if inFlightResets[key]?.id == resetID {
-            inFlightResets.removeValue(forKey: key)
+        if inFlightResets[resolvedControlPath]?.id == resetID {
+            inFlightResets.removeValue(forKey: resolvedControlPath)
         }
         return outcome
+    }
+
+    private func ownsLease(
+        ownerWorkspaceID: UUID,
+        generation: UUID,
+        key: NativeSSHControlMasterResetKey
+    ) -> Bool {
+        leases[ownerWorkspaceID]?[key]?.sshControlMasterLeaseGeneration == generation
+    }
+
+    private nonisolated static func resolveControlPath(
+        configuration: WorkspaceRemoteConfiguration,
+        effectiveOptions: [String],
+        resolver: NativeSSHControlPathResolver,
+        processRunner: any RemoteSessionProcessRunning
+    ) async -> String? {
+        let cancellation = RemoteProcessCancellationOperation()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    let request = RemoteProcessRequest(
+                        executable: "/usr/bin/ssh",
+                        arguments: resolver.resolutionArguments(
+                            configuration: configuration,
+                            effectiveOptions: effectiveOptions
+                        ),
+                        environment: configuration.sshProcessEnvironment,
+                        timeout: 5
+                    )
+                    do {
+                        let result = try processRunner.run(
+                            request,
+                            operation: cancellation
+                        )
+                        guard result.status == 0 else {
+                            continuation.resume(returning: nil)
+                            return
+                        }
+                        continuation.resume(returning: resolver.resolvedControlPath(
+                            effectiveOptions: effectiveOptions,
+                            sshConfigOutput: result.stdout
+                        ))
+                    } catch {
+                        continuation.resume(returning: nil)
+                    }
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
+        }
     }
 
     private nonisolated static func runReset(
@@ -177,7 +272,10 @@ final class NativeSSHControlMasterResetCoordinator {
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
-                    let invocation = request.processInvocation
+                    let invocation = request.processInvocation(
+                        noOpExitStatus:
+                            NativeSSHControlMasterCleanupRequest.resetSkippedExitStatus
+                    )
                     let processRequest = RemoteProcessRequest(
                         executable: invocation.executableURL.path,
                         arguments: invocation.arguments,
@@ -195,8 +293,10 @@ final class NativeSSHControlMasterResetCoordinator {
                         ) ?? "ssh exited \(result.status)"
                         if result.status == 0 {
                             continuation.resume(returning: .reset)
-                        } else if result.status ==
-                            NativeSSHControlMasterCleanupRequest.retryExitStatus {
+                        } else if [
+                            NativeSSHControlMasterCleanupRequest.retryExitStatus,
+                            NativeSSHControlMasterCleanupRequest.resetSkippedExitStatus,
+                        ].contains(result.status) {
                             continuation.resume(returning: .retry(detail))
                         } else {
                             continuation.resume(returning: .ignored(detail))

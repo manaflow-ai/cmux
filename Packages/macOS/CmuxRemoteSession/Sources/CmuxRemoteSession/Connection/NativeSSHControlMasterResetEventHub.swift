@@ -6,28 +6,28 @@ final class NativeSSHControlMasterResetEventHub: @unchecked Sendable {
     private let lock = NSLock()
     private var observers: [
         UUID: (
-            scope: NativeSSHControlMasterResetImpactScope,
+            controlPath: String,
             handler: @Sendable () -> Void
         )
     ] = [:]
 
     func observe(
-        scope: NativeSSHControlMasterResetImpactScope,
+        controlPath: String,
         handler: @escaping @Sendable () -> Void
     ) -> NativeSSHControlMasterResetObservation {
         let id = UUID()
         lock.withLock {
-            observers[id] = (scope: scope, handler: handler)
+            observers[id] = (controlPath: controlPath, handler: handler)
         }
         return NativeSSHControlMasterResetObservation { [weak self] in
             self?.removeObserver(id)
         }
     }
 
-    func emit(scope: NativeSSHControlMasterResetImpactScope) {
+    func emit(controlPath: String) {
         let handlers = lock.withLock {
             observers.values.compactMap { observer in
-                observer.scope == scope ? observer.handler : nil
+                observer.controlPath == controlPath ? observer.handler : nil
             }
         }
         for handler in handlers {

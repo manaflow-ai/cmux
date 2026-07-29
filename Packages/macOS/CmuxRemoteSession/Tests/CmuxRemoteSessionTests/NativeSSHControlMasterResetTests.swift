@@ -9,10 +9,19 @@ import Testing
 @Suite("Native SSH conflicted-master reset")
 struct NativeSSHControlMasterResetTests {
     private let sharingOptions = SSHConnectionSharingOptions(userID: 501)
+    private let firstResolvedPath =
+        "/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567"
+    private let secondResolvedPath =
+        "/tmp/cmux-ssh-501-89abcdef0123456789abcdef0123456789abcdef"
     private let resolvedOptions = [
         "ControlMaster=auto",
         "ControlPersist=600",
         "ControlPath=/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567",
+    ]
+    private let unresolvedOptions = [
+        "ControlMaster=auto",
+        "ControlPersist=600",
+        "ControlPath=/tmp/cmux-ssh-501-%C",
     ]
 
     @Test("A successful global exit notifies every shared-master owner")
@@ -24,18 +33,18 @@ struct NativeSSHControlMasterResetTests {
             destination: "first-alias",
             options: resolvedOptions
         ))
-        let second = broker.retainWorkspace(configuration(
+        _ = broker.retainWorkspace(configuration(
             owner: UUID(),
             destination: "second-alias",
             options: resolvedOptions
         ))
         let firstObservation = try #require(
-            broker.observeControlMasterResets(for: first) {
+            broker.observeControlMasterResets(controlPath: firstResolvedPath) {
                 recorder.record()
             }
         )
         let secondObservation = try #require(
-            broker.observeControlMasterResets(for: second) {
+            broker.observeControlMasterResets(controlPath: firstResolvedPath) {
                 recorder.record()
             }
         )
@@ -70,32 +79,32 @@ struct NativeSSHControlMasterResetTests {
         #expect(runner.requestCount == 3)
     }
 
-    @Test("An unresolved reset does not invalidate a different host")
-    func unresolvedResetDoesNotNotifyDifferentHost() async throws {
+    @Test("Expanded paths keep unrelated hosts isolated")
+    func expandedPathsDoNotNotifyDifferentHost() async throws {
         let firstRecorder = ResetEventRecorder()
         let secondRecorder = ResetEventRecorder()
-        let broker = makeBroker(processRunner: RecordingProcessRunner())
-        let unresolvedOptions = [
-            "ControlMaster=auto",
-            "ControlPath=/tmp/cmux-ssh-501-%C",
-        ]
+        let runner = ResolvingResetRunner(pathsByDestination: [
+            "first.example.test": firstResolvedPath,
+            "second.example.test": secondResolvedPath,
+        ])
+        let broker = makeBroker(processRunner: runner)
         let first = broker.retainWorkspace(configuration(
             owner: UUID(),
             destination: "first.example.test",
             options: unresolvedOptions
         ))
-        let second = broker.retainWorkspace(configuration(
+        _ = broker.retainWorkspace(configuration(
             owner: UUID(),
             destination: "second.example.test",
             options: unresolvedOptions
         ))
         let firstObservation = try #require(
-            broker.observeControlMasterResets(for: first) {
+            broker.observeControlMasterResets(controlPath: firstResolvedPath) {
                 firstRecorder.record()
             }
         )
         let secondObservation = try #require(
-            broker.observeControlMasterResets(for: second) {
+            broker.observeControlMasterResets(controlPath: secondResolvedPath) {
                 secondRecorder.record()
             }
         )
@@ -103,12 +112,192 @@ struct NativeSSHControlMasterResetTests {
         #expect(await broker.resetConflictedControlMaster(for: first) == .reset)
         #expect(firstRecorder.count == 1)
         #expect(secondRecorder.count == 0)
+        #expect(runner.exitRequests.count == 1)
+        #expect(runner.exitRequests[0].arguments.contains(
+            "ControlPath=\(firstResolvedPath)"
+        ))
+        #expect(!runner.exitRequests[0].arguments.contains(
+            "ControlPath=/tmp/cmux-ssh-501-%C"
+        ))
         _ = firstObservation
         _ = secondObservation
     }
 
-    @Test("Unresolved templates never coalesce distinct effective identities")
-    func unresolvedTemplatesUseConservativeKeys() throws {
+    @Test("Different aliases resolving to one socket share reset fanout")
+    func aliasesResolvingToSamePathShareFanout() async throws {
+        let recorder = ResetEventRecorder()
+        let runner = ResolvingResetRunner(pathsByDestination: [
+            "first-alias": firstResolvedPath,
+            "second-alias": firstResolvedPath,
+        ])
+        let broker = makeBroker(processRunner: runner)
+        let first = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            destination: "first-alias",
+            options: unresolvedOptions
+        ))
+        _ = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            destination: "second-alias",
+            options: unresolvedOptions
+        ))
+        let firstObservation = try #require(
+            broker.observeControlMasterResets(controlPath: firstResolvedPath) {
+                recorder.record()
+            }
+        )
+        let secondObservation = try #require(
+            broker.observeControlMasterResets(controlPath: firstResolvedPath) {
+                recorder.record()
+            }
+        )
+
+        #expect(await broker.resetConflictedControlMaster(for: first) == .reset)
+        #expect(recorder.count == 2)
+        #expect(runner.exitRequests.count == 1)
+        _ = firstObservation
+        _ = secondObservation
+    }
+
+    @Test("Concurrent aliases coalesce only after exact path resolution")
+    func concurrentAliasesCoalesceByResolvedPath() async {
+        let runner = BlockingResolvingResetRunner(
+            resolvedPath: firstResolvedPath
+        )
+        let broker = makeBroker(processRunner: runner)
+        let first = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            destination: "first-alias",
+            options: unresolvedOptions
+        ))
+        let second = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            destination: "second-alias",
+            options: unresolvedOptions
+        ))
+
+        let firstReset = Task { @MainActor in
+            await broker.resetConflictedControlMaster(for: first)
+        }
+        let secondReset = Task { @MainActor in
+            await broker.resetConflictedControlMaster(for: second)
+        }
+        var resolutions = runner.resolutions.makeAsyncIterator()
+        #expect(await resolutions.next() != nil)
+        #expect(await resolutions.next() != nil)
+        var exits = runner.exits.makeAsyncIterator()
+        #expect(await exits.next() != nil)
+        runner.finishExit()
+
+        #expect(await firstReset.value == .reset)
+        #expect(await secondReset.value == .reset)
+        #expect(runner.exitCount == 1)
+    }
+
+    @Test("ControlPath resolution failure never exits a master")
+    func resolutionFailureFailsClosed() async {
+        let runner = RecordingProcessRunner { request in
+            if request.arguments.contains("-G") {
+                return RemoteCommandResult(
+                    status: 255,
+                    stdout: "",
+                    stderr: "configuration resolution failed"
+                )
+            }
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+        let broker = makeBroker(processRunner: runner)
+        let lease = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            options: unresolvedOptions
+        ))
+
+        let outcome = await broker.resetConflictedControlMaster(for: lease)
+
+        guard case .ignored = outcome else {
+            Issue.record("Expected resolution failure to be ignored")
+            return
+        }
+        #expect(!runner.requests.contains(where: {
+            $0.arguments.contains("-O") && $0.arguments.contains("exit")
+        }))
+    }
+
+    @Test("A reset-wrapper no-op remains deferred and emits no reset")
+    func resetWrapperNoOpDoesNotCountAsReset() async throws {
+        let clock = ManualBrokerClock()
+        let runner = FixedStatusResetRunner(
+            status: NativeSSHControlMasterCleanupRequest.resetSkippedExitStatus
+        )
+        let recorder = ResetEventRecorder()
+        let broker = makeBroker(clock: clock, processRunner: runner)
+        let lease = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            options: resolvedOptions
+        ))
+        let observation = try #require(
+            broker.observeControlMasterResets(controlPath: firstResolvedPath) {
+                recorder.record()
+            }
+        )
+
+        let reset = Task { @MainActor in
+            await broker.resetConflictedControlMaster(for: lease)
+        }
+        #expect(await clock.nextRequestedDelay() == 2_000)
+        await clock.resumeNextSleep()
+        #expect(await clock.nextRequestedDelay() == 2_000)
+        await clock.resumeNextSleep()
+
+        guard case .deferred = await reset.value else {
+            Issue.record("Expected skipped reset attempts to remain deferred")
+            return
+        }
+        #expect(runner.requestCount == 3)
+        #expect(recorder.count == 0)
+        _ = observation
+    }
+
+    @Test("Cleanup wrapper distinguishes ordinary and reset-only no-ops")
+    func cleanupWrapperUsesResetOnlySkippedStatus() throws {
+        let request = NativeSSHControlMasterCleanupRequest(
+            arguments: ["-V"],
+            environment: nil,
+            authenticationLockPath: "/dev/null/cmux-test.lock"
+        )
+        let normalInvocation = request.processInvocation
+        let resetInvocation = request.processInvocation(
+            noOpExitStatus:
+                NativeSSHControlMasterCleanupRequest.resetSkippedExitStatus
+        )
+        let runner = RemoteSessionProcessRunner()
+
+        let normal = try runner.run(
+            RemoteProcessRequest(
+                executable: normalInvocation.executableURL.path,
+                arguments: normalInvocation.arguments,
+                timeout: 2
+            ),
+            operation: nil
+        )
+        let reset = try runner.run(
+            RemoteProcessRequest(
+                executable: resetInvocation.executableURL.path,
+                arguments: resetInvocation.arguments,
+                timeout: 2
+            ),
+            operation: nil
+        )
+
+        #expect(normal.status == 0)
+        #expect(
+            reset.status ==
+                NativeSSHControlMasterCleanupRequest.resetSkippedExitStatus
+        )
+    }
+
+    @Test("Unresolved authorization keys remain owner-scoped")
+    func unresolvedTemplatesUseConservativeAuthorizationKeys() throws {
         let first = configuration(
             owner: UUID(),
             destination: "shared-alias",
@@ -150,9 +339,7 @@ struct NativeSSHControlMasterResetTests {
         ))
 
         #expect(firstKey != secondKey)
-        #expect(firstKey.impactScope != secondKey.impactScope)
         #expect(firstKey != matchingSiblingKey)
-        #expect(firstKey.impactScope == matchingSiblingKey.impactScope)
     }
 
     private func makeBroker(
@@ -188,57 +375,5 @@ struct NativeSSHControlMasterResetTests {
             preserveAfterTerminalExit: true,
             persistentDaemonSlot: "ssh-test"
         )
-    }
-}
-
-private final class ResetEventRecorder: @unchecked Sendable {
-    // lint:allow lock - event callbacks increment one test counter.
-    private let lock = NSLock()
-    private var value = 0
-
-    var count: Int {
-        lock.withLock { value }
-    }
-
-    func record() {
-        lock.withLock {
-            value += 1
-        }
-    }
-}
-
-private final class RetryThenSuccessResetRunner:
-    RemoteSessionProcessRunning,
-    @unchecked Sendable
-{
-    // lint:allow lock - process calls consume one scripted test counter.
-    private let lock = NSLock()
-    private let retryCount: Int
-    private var count = 0
-
-    init(retryCount: Int) {
-        self.retryCount = retryCount
-    }
-
-    var requestCount: Int {
-        lock.withLock { count }
-    }
-
-    func run(
-        _ request: RemoteProcessRequest,
-        operation: (any RemoteTransferCancelling)?
-    ) throws -> RemoteCommandResult {
-        let attempt = lock.withLock {
-            count += 1
-            return count
-        }
-        if attempt <= retryCount {
-            return RemoteCommandResult(
-                status: NativeSSHControlMasterCleanupRequest.retryExitStatus,
-                stdout: "",
-                stderr: "foreground authentication still active"
-            )
-        }
-        return RemoteCommandResult(status: 0, stdout: "", stderr: "")
     }
 }
