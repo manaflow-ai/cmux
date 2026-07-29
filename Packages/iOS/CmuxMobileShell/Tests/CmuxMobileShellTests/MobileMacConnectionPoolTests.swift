@@ -679,6 +679,77 @@ import Testing
         #expect(!candidates.contains { $0.macDeviceID == "mac-0" })
     }
 
+    @Test func taggedHostPortAliasOfFocusDoesNotConsumePoolSlot() throws {
+        let store = MobileShellComposite(isSignedIn: false)
+        let focusedRoute = try CmxAttachRoute(
+            id: "focused-route",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 50_400)
+        )
+        func pairedMac(
+            id: String,
+            tag: String,
+            route: CmxAttachRoute,
+            lastSeenAt: Date
+        ) -> MobilePairedMac {
+            MobilePairedMac(
+                macDeviceID: id,
+                displayName: id,
+                routes: [route],
+                createdAt: .distantPast,
+                lastSeenAt: lastSeenAt,
+                isActive: false,
+                stackUserID: "user-1",
+                teamID: "team-1",
+                instanceTag: tag
+            )
+        }
+        var focused = pairedMac(
+            id: "focused-old-id",
+            tag: "focused-tag",
+            route: focusedRoute,
+            lastSeenAt: Date(timeIntervalSince1970: 1)
+        )
+        var renamedAlias = pairedMac(
+            id: "focused-renamed-id",
+            tag: "focused-tag",
+            route: focusedRoute,
+            lastSeenAt: Date(timeIntervalSince1970: 10_000)
+        )
+        focused.displayName = "Focused Mac"
+        renamedAlias.displayName = "Focused Mac"
+        let otherMacs = try (0 ..<
+            MobileShellComposite.maximumWarmControlConnectionCount
+        ).map { index in
+            pairedMac(
+                id: "other-\(index)",
+                tag: "other-tag-\(index)",
+                route: try CmxAttachRoute(
+                    id: "other-route-\(index)",
+                    kind: .debugLoopback,
+                    endpoint: .hostPort(
+                        host: "127.0.0.1",
+                        port: 50_500 + index
+                    )
+                ),
+                lastSeenAt: Date(timeIntervalSince1970: Double(index))
+            )
+        }
+        store.foregroundMacDeviceID = focused.macDeviceID
+        store.activeRoute = focusedRoute
+
+        let candidates = store.secondaryAggregationCandidateMacs(
+            from: [focused, renamedAlias] + otherMacs
+        )
+
+        #expect(candidates.count == otherMacs.count)
+        #expect(!candidates.contains {
+            $0.macDeviceID == renamedAlias.macDeviceID
+        })
+        #expect(Set(candidates.map(\.macDeviceID))
+            == Set(otherMacs.map(\.macDeviceID)))
+    }
+
     @Test func controlPublicationAtomicallyEnforcesResourceCap() throws {
         let registry = MobileMacConnectionRegistry()
         let runtime = LivenessTestRuntime(

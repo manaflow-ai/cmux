@@ -4544,15 +4544,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
-        let aliasIDsByMacID = macDeviceIDAliasesByPairedMacID(
-            in: visibleLoadedMacs,
-            supportedKinds: supportedRouteKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        )
-        let foregroundMacDeviceIDs = foregroundMacDeviceID.map {
-            aliasIDsByMacID[$0] ?? [$0]
-        } ?? []
-        let foregroundIDSet = Set(foregroundMacDeviceIDs.map(cmxCanonicalDeviceID))
+        let foregroundIDSet: Set<String>
+        if let foregroundMacDeviceID {
+            let canonicalID = cmxCanonicalDeviceID(foregroundMacDeviceID)
+            foregroundIDSet = physicalAliasIDsByCanonicalID[canonicalID]
+                ?? Set([canonicalID])
+        } else {
+            foregroundIDSet = []
+        }
         var foregroundIrohEndpointIDs = Set<String>()
         if case let .peer(identity, _)? = activeRoute?.endpoint {
             foregroundIrohEndpointIDs.insert(identity.endpointID)
