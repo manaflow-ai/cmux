@@ -256944,6 +256944,440 @@
         }
       }
     },
+    "cli.worktree.error.aborted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Aborted; no changes were made." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "中止しました。変更は行われていません。" } }
+      }
+    },
+    "cli.worktree.error.ambiguousName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Worktree name '%@' is ambiguous; pass its full path." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークツリー名「%@」は曖昧です。完全なパスを指定してください。" } }
+      }
+    },
+    "cli.worktree.error.changedSinceConfirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Worktree %@ changed while awaiting confirmation; run the command again to review the new state." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "確認待ちの間にワークツリー %@ が変更されました。コマンドを再実行して新しい状態を確認してください。" } }
+      }
+    },
+    "cli.worktree.error.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Confirmation required; pass --yes to proceed without a prompt." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "確認が必要です。プロンプトなしで実行するには --yes を指定してください。" } }
+      }
+    },
+    "cli.worktree.error.createIdentityRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux worktree create requires --name, --branch, or --path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux worktree create には --name、--branch、または --path が必要です" } }
+      }
+    },
+    "cli.worktree.error.duplicateOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Duplicate option %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オプション %@ が重複しています" } }
+      }
+    },
+    "cli.worktree.error.jsonEncoding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not encode worktree JSON output" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークツリーの JSON 出力をエンコードできませんでした" } }
+      }
+    },
+    "cli.worktree.error.noMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No worktree matches '%@'." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「%@」に一致するワークツリーがありません。" } }
+      }
+    },
+    "cli.worktree.error.optionRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ requires a value" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ には値が必要です" } }
+      }
+    },
+    "cli.worktree.error.prunePlanChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The prune plan changed while awaiting confirmation; run the command again to review the new plan." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "確認待ちの間に prune の実行計画が変更されました。コマンドを再実行して新しい計画を確認してください。" } }
+      }
+    },
+    "cli.worktree.error.removeUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux worktree remove <path-or-name> [--force] [--keep-branch] [--yes]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux worktree remove <パスまたは名前> [--force] [--keep-branch] [--yes]" } }
+      }
+    },
+    "cli.worktree.error.statusUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux worktree status <path-or-name>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux worktree status <パスまたは名前>" } }
+      }
+    },
+    "cli.worktree.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unexpected worktree argument '%@'. Usage: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "予期しないワークツリー引数「%@」です。使用法: %@" } }
+      }
+    },
+    "cli.worktree.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown worktree subcommand '%@'. Run 'cmux worktree --help'." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な worktree サブコマンド「%@」です。'cmux worktree --help' を実行してください。" } }
+      }
+    },
+    "cli.worktree.output.detailUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "no details available" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "詳細はありません" } }
+      }
+    },
+    "cli.worktree.output.noStaleRecords": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No stale worktree records." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "古いワークツリーレコードはありません。" } }
+      }
+    },
+    "cli.worktree.output.preservedBranch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preserved branch %@: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブランチ %@ を保持しました: %@" } }
+      }
+    },
+    "cli.worktree.output.prunedStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pruned stale worktree records." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "古いワークツリーレコードを削除しました。" } }
+      }
+    },
+    "cli.worktree.output.removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Removed %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を削除しました" } }
+      }
+    },
+    "cli.worktree.preview.deleteBranchIfMerged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Will delete branch %@ if it is fully merged." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブランチ %@ が完全にマージ済みであれば削除します。" } }
+      }
+    },
+    "cli.worktree.preview.forceDiscard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Uncommitted changes will be discarded (--force)." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未コミットの変更は破棄されます（--force）。" } }
+      }
+    },
+    "cli.worktree.preview.keepBranch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Will keep branch %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブランチ %@ は保持します。" } }
+      }
+    },
+    "cli.worktree.preview.prune": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Will prune these stale worktree records:" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次の古いワークツリーレコードを削除します:" } }
+      }
+    },
+    "cli.worktree.preview.pruneStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "If removal must recover from stale administrative data, Git will also prune these stale worktree records:" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "削除が古い管理データからの復旧を必要とする場合、Git は次の古いワークツリーレコードも削除します:" } }
+      }
+    },
+    "cli.worktree.preview.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Will remove worktree %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークツリー %@ を削除します。" } }
+      }
+    },
+    "cli.worktree.prompt.proceed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Proceed? [y/N] " } },
+        "ja": { "stringUnit": { "state": "translated", "value": "続行しますか？ [y/N] " } }
+      }
+    },
+    "cli.worktree.serviceError.commandFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Command failed (status %@): %@\n%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コマンドに失敗しました（ステータス %@）: %@\n%@" } }
+      }
+    },
+    "cli.worktree.serviceError.commandTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Command timed out after %llds: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コマンドが %lld 秒後にタイムアウトしました: %@" } }
+      }
+    },
+    "cli.worktree.serviceError.dirtyWorktree": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refusing to remove dirty worktree '%@' (%lld changed path(s)); pass --force to discard them." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更のあるワークツリー「%@」（変更されたパス: %lld 件）は削除できません。破棄するには --force を指定してください。" } }
+      }
+    },
+    "cli.worktree.serviceError.hostMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Worktree belongs to host '%@', not '%@'." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークツリーはホスト「%@」に属しており、「%@」には属していません。" } }
+      }
+    },
+    "cli.worktree.serviceError.hostUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Execution host '%@' is unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行ホスト「%@」は利用できません。" } }
+      }
+    },
+    "cli.worktree.serviceError.invalidBranch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid branch '%@': %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブランチ「%@」は無効です: %@" } }
+      }
+    },
+    "cli.worktree.serviceError.invalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Worktree name '%@' does not contain a Unicode letter or number." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークツリー名「%@」には Unicode の文字または数字が含まれていません。" } }
+      }
+    },
+    "cli.worktree.serviceError.invalidPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid worktree path '%@'; path traversal is not allowed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークツリーパス「%@」は無効です。パストラバーサルは許可されていません。" } }
+      }
+    },
+    "cli.worktree.serviceError.lockedWorktree": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refusing to remove locked worktree '%@'." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ロックされたワークツリー「%@」は削除できません。" } }
+      }
+    },
+    "cli.worktree.serviceError.lockedWorktreeReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refusing to remove locked worktree '%@': %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ロックされたワークツリー「%@」は削除できません: %@" } }
+      }
+    },
+    "cli.worktree.serviceError.mainRemovalRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refusing to remove the main worktree at '%@'." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メインワークツリー「%@」は削除できません。" } }
+      }
+    },
+    "cli.worktree.serviceError.orphanedGitDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Git reports '%@' is not a working tree; prune its orphaned administrative entry instead. %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Git は「%@」を作業ツリーとして認識していません。代わりに孤立した管理エントリを prune してください。%@" } }
+      }
+    },
+    "cli.worktree.serviceError.statusUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "利用不可" } }
+      }
+    },
+    "cli.worktree.serviceError.submoduleInitializationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Worktree was created at '%@', but submodule initialization failed: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークツリーは「%@」に作成されましたが、サブモジュールの初期化に失敗しました: %@" } }
+      }
+    },
+    "cli.worktree.serviceError.worktreeNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Git does not report a worktree at '%@'." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Git は「%@」のワークツリーを報告していません。" } }
+      }
+    },
+    "cli.worktree.state.bare": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "bare" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ベア" } }
+      }
+    },
+    "cli.worktree.state.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "detached" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デタッチ" } }
+      }
+    },
+    "cli.worktree.state.locked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "locked" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ロック済み" } }
+      }
+    },
+    "cli.worktree.state.lockedReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "locked: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ロック済み: %@" } }
+      }
+    },
+    "cli.worktree.state.prunable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "prunable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "prune 可能" } }
+      }
+    },
+    "cli.worktree.state.prunableReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "prunable: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "prune 可能: %@" } }
+      }
+    },
+    "cli.worktree.state.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "unknown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明" } }
+      }
+    },
+    "cli.worktree.status.branch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "branch: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブランチ: %@" } }
+      }
+    },
+    "cli.worktree.status.dirtyFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "dirty files: %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更されたファイル: %lld" } }
+      }
+    },
+    "cli.worktree.status.operation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "operation: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "操作: %@" } }
+      }
+    },
+    "cli.worktree.status.path": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "path: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "パス: %@" } }
+      }
+    },
+    "cli.worktree.status.upstream": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "upstream: %@ (ahead %lld, behind %lld)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アップストリーム: %@（%lld 進み、%lld 遅れ）" } }
+      }
+    },
+    "cli.worktree.status.upstreamGone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "upstream: %@ (gone)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アップストリーム: %@（消失）" } }
+      }
+    },
+    "cli.worktree.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux worktree <list|create|remove|prune|status> [options]\n\nManage plain Git worktrees without requiring a running cmux app.\n\nSubcommands:\n  list [--repo <path>] [--json]\n  create [--repo <path>] [--name <name>] [--base <ref>] [--branch <branch>] [--path <path>] [--no-submodules] [--json]\n  remove <path-or-name> [--force] [--keep-branch] [--yes] [--json]\n  prune [--repo <path>] [--dry-run] [--yes] [--json]\n  status <path-or-name> [--json]\n\nDefaults:\n  --repo    Current directory's Git repository root.\n  --base    HEAD.\n  --path    ~/.cmux/worktrees/<repo-name>/<name>.\n\nCreate requires at least one of --name, --branch, or --path. Names and\nbranch seeds are sanitized deterministically; no generated names are used.\nRemove and prune preview their plan and prompt for confirmation; pass\n--yes to proceed without a prompt." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux worktree <list|create|remove|prune|status> [オプション]\n\n実行中の cmux アプリを必要とせず、通常の Git ワークツリーを管理します。\n\nサブコマンド:\n  list [--repo <パス>] [--json]\n  create [--repo <パス>] [--name <名前>] [--base <参照>] [--branch <ブランチ>] [--path <パス>] [--no-submodules] [--json]\n  remove <パスまたは名前> [--force] [--keep-branch] [--yes] [--json]\n  prune [--repo <パス>] [--dry-run] [--yes] [--json]\n  status <パスまたは名前> [--json]\n\n既定値:\n  --repo    現在のディレクトリの Git リポジトリルート。\n  --base    HEAD。\n  --path    ~/.cmux/worktrees/<リポジトリ名>/<名前>。\n\n作成には --name、--branch、--path のいずれかが必要です。名前と\nブランチの元文字列は決定的にサニタイズされ、自動生成名は使用されません。\nremove と prune は実行計画を表示して確認を求めます。プロンプトなしで\n実行するには --yes を指定してください。" } }
+      }
+    },
+    "cli.worktree.warning.branchBase": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Warning: Could not record branch lineage: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "警告: ブランチの系統を記録できませんでした: %@" } }
+      }
+    },
+    "cli.worktree.warning.pushAutoSetupRemote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Warning: Could not enable automatic upstream setup: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "警告: アップストリームの自動設定を有効にできませんでした: %@" } }
+      }
+    },
+    "cli.worktree.branchPreservation.requested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "requested by caller" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "呼び出し元の指定" } }
+      }
+    },
+    "cli.worktree.branchPreservation.deleteRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "git branch -d refused deletion" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "git branch -d が削除を拒否しました" } }
+      }
+    },
+    "cli.worktree.branchPreservation.deleteRefusedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "git branch -d refused deletion: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "git branch -d が削除を拒否しました: %@" } }
+      }
+    },
+    "cli.worktree.branchPreservation.compareAndSwapRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "branch moved; compare-and-swap deletion refused" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブランチが移動したため、比較交換による削除を拒否しました" } }
+      }
+    },
+    "cli.worktree.branchPreservation.compareAndSwapRefusedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "branch moved; compare-and-swap deletion refused: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブランチが移動したため、比較交換による削除を拒否しました: %@" } }
+      }
+    },
     "settings.search.alias.section.networking": {
       "extractionState": "manual",
       "localizations": {
