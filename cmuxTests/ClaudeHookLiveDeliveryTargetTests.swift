@@ -218,13 +218,12 @@ struct ClaudeHookLiveDeliveryTargetTests {
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/claude"
         environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
 
-        let transfer = Harness.establishClearTransfer(
-            context: context,
+        try Harness.establishClearTransfer(
+            executablePath: context.cliPath,
+            cwd: context.root,
             environment: environment,
             sourceSessionId: "\(sessionId)-source"
         )
-        assertSuccessfulHook(transfer.start)
-        assertSuccessfulHook(transfer.end)
         let result = Harness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "session-start"],

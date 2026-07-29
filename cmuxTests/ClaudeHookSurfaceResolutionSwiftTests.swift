@@ -41,10 +41,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
 
-        establishClearTransfer(
-            context: context,
+        try ClaudeHookLiveDeliveryHarness.establishClearTransfer(
+            executablePath: context.cliPath,
+            cwd: context.root,
             environment: environment,
-            sourceSessionId: "\(sessionId)-source"
+            sourceSessionId: "\(sessionId)-source",
+            timeout: 5
         )
         let result = runProcess(
             executablePath: context.cliPath,
@@ -118,10 +120,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
 
-        establishClearTransfer(
-            context: context,
+        try ClaudeHookLiveDeliveryHarness.establishClearTransfer(
+            executablePath: context.cliPath,
+            cwd: context.root,
             environment: environment,
-            sourceSessionId: "\(sessionId)-source"
+            sourceSessionId: "\(sessionId)-source",
+            timeout: 5
         )
         let result = runProcess(
             executablePath: context.cliPath,
@@ -200,10 +204,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
 
-        establishClearTransfer(
-            context: context,
+        try ClaudeHookLiveDeliveryHarness.establishClearTransfer(
+            executablePath: context.cliPath,
+            cwd: context.root,
             environment: environment,
-            sourceSessionId: "\(sessionId)-source"
+            sourceSessionId: "\(sessionId)-source",
+            timeout: 5
         )
         let result = runProcess(
             executablePath: context.cliPath,
@@ -285,10 +291,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
 
-        establishClearTransfer(
-            context: context,
+        try ClaudeHookLiveDeliveryHarness.establishClearTransfer(
+            executablePath: context.cliPath,
+            cwd: context.root,
             environment: environment,
-            sourceSessionId: "\(sessionId)-source"
+            sourceSessionId: "\(sessionId)-source",
+            timeout: 5
         )
         let result = runProcess(
             executablePath: context.cliPath,
@@ -362,10 +370,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
 
-        establishClearTransfer(
-            context: context,
+        try ClaudeHookLiveDeliveryHarness.establishClearTransfer(
+            executablePath: context.cliPath,
+            cwd: context.root,
             environment: environment,
-            sourceSessionId: "\(sessionId)-source"
+            sourceSessionId: "\(sessionId)-source",
+            timeout: 5
         )
         let result = runProcess(
             executablePath: context.cliPath,
@@ -736,29 +746,6 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         ]
         let storeData = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try storeData.write(to: storeURL)
-    }
-
-    private func establishClearTransfer(
-        context: ClaudeHookContext,
-        environment: [String: String],
-        sourceSessionId: String
-    ) {
-        let start = runProcess(
-            executablePath: context.cliPath,
-            arguments: ["hooks", "claude", "session-start"],
-            environment: environment,
-            standardInput: #"{"session_id":"\#(sourceSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
-        )
-        assertSuccessfulHook(start)
-        let end = runProcess(
-            executablePath: context.cliPath,
-            arguments: ["hooks", "claude", "session-end"],
-            environment: environment,
-            standardInput: #"{"session_id":"\#(sourceSessionId)","reason":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
-            timeout: 5
-        )
-        assertSuccessfulHook(end)
     }
 
     private func assertPromptSubmitRoutes(
