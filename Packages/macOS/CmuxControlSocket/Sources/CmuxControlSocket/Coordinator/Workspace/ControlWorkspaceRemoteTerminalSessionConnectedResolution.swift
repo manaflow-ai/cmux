@@ -1,7 +1,7 @@
 public import Foundation
 
-/// The outcome of `workspace.remote.terminal_session_connected`, after the
-/// coordinator has validated the workspace, surface, and optional relay port.
+/// The outcome of a remote terminal launching/readiness mutation after the
+/// coordinator has validated its workspace and surface identities.
 public enum ControlWorkspaceRemoteTerminalSessionConnectedResolution: Sendable, Equatable {
     /// No tracked remote terminal matches the requested workspace and surface.
     case notFound

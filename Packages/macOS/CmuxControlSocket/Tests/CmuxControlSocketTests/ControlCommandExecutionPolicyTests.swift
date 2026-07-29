@@ -156,6 +156,11 @@ struct ControlCommandExecutionPolicyTests {
     @Test func remoteTerminalReadinessRunsOffMainAndIsNotMainThreadCallable() {
         #expect(
             ControlCommandExecutionPolicy(
+                forMethod: "workspace.remote.terminal_session_launching"
+            ) == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            ControlCommandExecutionPolicy(
                 forMethod: "workspace.remote.terminal_session_connected"
             ) == .socketWorker(mainThreadCallable: false)
         )

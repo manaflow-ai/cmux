@@ -283,6 +283,18 @@ public protocol ControlWorkspaceContext: AnyObject {
         lifecycleID: String
     ) -> ControlRemotePTYLifecycleOwner?
 
+    /// Records the start of one SSH wrapper attempt for
+    /// `workspace.remote.terminal_session_launching`.
+    ///
+    /// A later attempt supersedes an earlier attempt for the same terminal
+    /// lifecycle, so delayed readiness from the earlier attempt is rejected.
+    func controlWorkspaceRemoteTerminalSessionLaunching(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
+
     /// Records an authoritative terminal handshake for
     /// `workspace.remote.terminal_session_connected`.
     ///
@@ -300,6 +312,7 @@ public protocol ControlWorkspaceContext: AnyObject {
         workspaceID: UUID,
         surfaceID: UUID,
         authority: ControlWorkspaceRemoteTerminalAuthority,
+        attemptID: UUID?,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
 

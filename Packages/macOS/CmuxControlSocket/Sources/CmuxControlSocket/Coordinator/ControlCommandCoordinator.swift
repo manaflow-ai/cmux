@@ -129,6 +129,11 @@ public final class ControlCommandCoordinator {
             return workspaceList(request.params, context: context)
         case "workspace.current":
             return workspaceCurrent(request.params, context: context)
+        case "workspace.remote.terminal_session_launching":
+            return workspaceRemoteTerminalSessionLaunching(
+                request.params,
+                context: context
+            )
         case "workspace.remote.terminal_session_connected":
             return workspaceRemoteTerminalSessionConnected(
                 request.params,

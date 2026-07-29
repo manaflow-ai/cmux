@@ -131,6 +131,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // command must never make the main actor wait behind tunnel work.
         // Parsing and authentication run here; the final workspace/Dock
         // mutation takes one synchronous controlResolveOnMain hop.
+        "workspace.remote.terminal_session_launching",
         "workspace.remote.terminal_session_connected",
         "remote.tmux.sessions",
         "remote.tmux.attach",

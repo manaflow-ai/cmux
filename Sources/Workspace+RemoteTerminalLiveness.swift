@@ -38,6 +38,7 @@ struct WorkspaceRemoteTerminalSessionState: Equatable {
 struct PendingWorkspaceRemoteTerminalConnection {
     let authority: WorkspaceRemoteTerminalAuthority
     let terminalLifecycleID: UUID?
+    let attemptID: UUID?
     let commitLease: (any ControlRemotePTYLifecycleCommitLease)?
 }
 
@@ -80,12 +81,38 @@ extension Workspace {
             remoteTerminalSessionStatesBySurfaceId.removeValue(forKey: surfaceId)
             return
         }
+        let terminalLifecycleID = (panels[surfaceId] as? TerminalPanel)?
+            .surface.terminalLifecycleId
+        if let terminalLifecycleID,
+           endedRemoteTerminalLifecycleIDsBySurfaceId[surfaceId] == terminalLifecycleID {
+            return
+        }
+        if terminalLifecycleID != nil {
+            endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: surfaceId)
+        }
         remoteTerminalSessionStatesBySurfaceId[surfaceId] = WorkspaceRemoteTerminalSessionState(
             phase: .launching,
             authority: authority,
-            terminalLifecycleID: (panels[surfaceId] as? TerminalPanel)?
-                .surface.terminalLifecycleId
+            terminalLifecycleID: terminalLifecycleID
         )
+    }
+
+    @discardableResult
+    func markRemoteTerminalSessionLaunching(
+        surfaceId: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> Bool {
+        guard let terminalPanel = panels[surfaceId] as? TerminalPanel,
+              terminalPanel.surface.terminalLifecycleId == terminalLifecycleID,
+              endedRemoteTerminalLifecycleIDsBySurfaceId[surfaceId] != terminalLifecycleID else {
+            return false
+        }
+        endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: surfaceId)
+        remoteTerminalAttemptIDsBySurfaceId[surfaceId] = attemptID
+        markRemoteTerminalSessionLaunching(surfaceId: surfaceId)
+        applyRemoteTerminalLaunchingPresentation()
+        return true
     }
 
     @discardableResult
@@ -108,6 +135,7 @@ extension Workspace {
         authority: WorkspaceRemoteTerminalAuthority,
         allowUntracked: Bool = false,
         terminalLifecycleID: UUID? = nil,
+        attemptID: UUID? = nil,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)? = nil
     ) -> Bool {
         if let terminalLifecycleID {
@@ -120,7 +148,8 @@ extension Workspace {
             surfaceId: surfaceId,
             authority: authority,
             allowUntracked: allowUntracked,
-            terminalLifecycleID: terminalLifecycleID
+            terminalLifecycleID: terminalLifecycleID,
+            attemptID: attemptID
         ) else {
             return false
         }
@@ -129,14 +158,41 @@ extension Workspace {
             surfaceId: surfaceId,
             authority: authority,
             terminalLifecycleID: terminalLifecycleID,
+            attemptID: attemptID,
             commitLease: commitLease
         )
+    }
+
+    func markDockRemoteTerminalSessionLaunching(
+        surfaceId: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID,
+        dock: DockSplitStore
+    ) -> Bool {
+        guard dock.ownsRemoteTerminalTransfer(
+                  panelId: surfaceId,
+                  presentationWorkspaceID: id
+              ),
+              endedRemoteTerminalLifecycleIDsBySurfaceId[surfaceId] !=
+                terminalLifecycleID,
+              dock.markRemoteTerminalSessionLaunching(
+                  panelId: surfaceId,
+                  terminalLifecycleID: terminalLifecycleID,
+                  attemptID: attemptID
+              ) else {
+            return false
+        }
+        endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: surfaceId)
+        remoteTerminalAttemptIDsBySurfaceId[surfaceId] = attemptID
+        applyRemoteTerminalLaunchingPresentation()
+        return true
     }
 
     func markDockRemoteTerminalSessionConnected(
         surfaceId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
         terminalLifecycleID: UUID? = nil,
+        attemptID: UUID? = nil,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)? = nil,
         dock: DockSplitStore
     ) -> Bool {
@@ -148,7 +204,8 @@ extension Workspace {
                   surfaceId: surfaceId,
                   authority: authority,
                   allowUntracked: true,
-                  terminalLifecycleID: terminalLifecycleID
+                  terminalLifecycleID: terminalLifecycleID,
+                  attemptID: attemptID
               ) else {
             return false
         }
@@ -157,12 +214,14 @@ extension Workspace {
             surfaceId: surfaceId,
             authority: authority,
             terminalLifecycleID: terminalLifecycleID,
+            attemptID: attemptID,
             commitLease: commitLease,
             beforeWorkspaceMutation: {
                 dock.markRemoteTerminalSessionConnected(
                     panelId: surfaceId,
                     authority: authority,
-                    terminalLifecycleID: terminalLifecycleID
+                    terminalLifecycleID: terminalLifecycleID,
+                    attemptID: attemptID
                 )
             }
         )
@@ -203,8 +262,18 @@ extension Workspace {
         surfaceId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
         allowUntracked: Bool,
-        terminalLifecycleID: UUID?
+        terminalLifecycleID: UUID?,
+        attemptID: UUID?
     ) -> WorkspaceRemoteTerminalConnectionTarget? {
+        if let terminalLifecycleID,
+           endedRemoteTerminalLifecycleIDsBySurfaceId[surfaceId] ==
+            terminalLifecycleID {
+            return nil
+        }
+        if let attemptID,
+           remoteTerminalAttemptIDsBySurfaceId[surfaceId] != attemptID {
+            return nil
+        }
         if let endedState = remoteTerminalSessionStatesBySurfaceId[surfaceId],
            endedState.phase == .ended {
             guard let terminalLifecycleID,
@@ -234,6 +303,7 @@ extension Workspace {
         surfaceId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
         terminalLifecycleID: UUID?,
+        attemptID: UUID?,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)?,
         beforeWorkspaceMutation: @MainActor @Sendable () -> Bool = { true }
     ) -> Bool {
@@ -245,6 +315,7 @@ extension Workspace {
                     PendingWorkspaceRemoteTerminalConnection(
                         authority: authority,
                         terminalLifecycleID: terminalLifecycleID,
+                        attemptID: attemptID,
                         commitLease: commitLease
                     )
             case .configured(let isTracked):
@@ -280,6 +351,22 @@ extension Workspace {
         postRemoteConnectionPresentationDidChange()
     }
 
+    private func applyRemoteTerminalLaunchingPresentation() {
+        guard remoteConfiguration != nil,
+              !hasAuthoritativelyConnectedRemoteTerminal(
+                  in: DockSplitStore.liveStores
+              ) else {
+            return
+        }
+        remoteConnectionState =
+            remoteConnectionState == .connected || remoteConnectionState == .reconnecting
+            ? .reconnecting
+            : .connecting
+        remoteConnectionDetail = nil
+        applyBrowserRemoteWorkspaceStatusToPanels()
+        postRemoteConnectionPresentationDidChange()
+    }
+
     func applyPendingRemoteTerminalConnections() {
         let pendingConnections = pendingRemoteTerminalConnectionsBySurfaceId
         pendingRemoteTerminalConnectionsBySurfaceId.removeAll()
@@ -288,6 +375,7 @@ extension Workspace {
                 surfaceId: surfaceId,
                 authority: connection.authority,
                 terminalLifecycleID: connection.terminalLifecycleID,
+                attemptID: connection.attemptID,
                 commitLease: connection.commitLease
             )
         }
@@ -296,12 +384,14 @@ extension Workspace {
     func clearRemoteTerminalSessionPhase(surfaceId: UUID) {
         remoteTerminalSessionStatesBySurfaceId.removeValue(forKey: surfaceId)
         pendingRemoteTerminalConnectionsBySurfaceId.removeValue(forKey: surfaceId)
+        remoteTerminalAttemptIDsBySurfaceId.removeValue(forKey: surfaceId)
     }
 
     func restoreRemoteTerminalSessionPhase(
         _ phase: WorkspaceRemoteTerminalSessionPhase?,
         authority: WorkspaceRemoteTerminalAuthority?,
         terminalLifecycleID: UUID?,
+        attemptID: UUID?,
         surfaceId: UUID
     ) {
         guard let phase,
@@ -317,6 +407,9 @@ extension Workspace {
                 authority: authority,
                 terminalLifecycleID: terminalLifecycleID
             )
+        if let attemptID {
+            remoteTerminalAttemptIDsBySurfaceId[surfaceId] = attemptID
+        }
         if phase == .connected {
             applyRemoteTerminalConnectedPresentation()
         }

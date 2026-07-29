@@ -13,7 +13,8 @@ extension DockSplitStore {
     func markRemoteTerminalSessionConnected(
         panelId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
-        terminalLifecycleID: UUID? = nil
+        terminalLifecycleID: UUID? = nil,
+        attemptID: UUID? = nil
     ) -> Bool {
         guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
               transfer.isRemoteTerminal,
@@ -31,10 +32,40 @@ extension DockSplitStore {
                 return false
             }
         }
+        if let attemptID,
+           transfer.remoteTerminalAttemptID != attemptID {
+            return false
+        }
         transfer.remoteTerminalSessionPhase = .connected
         transfer.remoteTerminalAuthority = authority
         transfer.remoteTerminalLifecycleID =
             terminalLifecycleID ?? transfer.remoteTerminalLifecycleID
+        transfer.remoteTerminalAttemptID =
+            attemptID ?? transfer.remoteTerminalAttemptID
+        detachedSurfaceTransfersByPanelId[panelId] = transfer
+        return true
+    }
+
+    func markRemoteTerminalSessionLaunching(
+        panelId: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> Bool {
+        guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
+              transfer.isRemoteTerminal,
+              matchesTerminalLifecycle(
+                  panelId: panelId,
+                  terminalLifecycleID: terminalLifecycleID
+              ) else {
+            return false
+        }
+        if transfer.remoteTerminalSessionPhase == .ended,
+           transfer.remoteTerminalLifecycleID == terminalLifecycleID {
+            return false
+        }
+        transfer.remoteTerminalSessionPhase = .launching
+        transfer.remoteTerminalLifecycleID = terminalLifecycleID
+        transfer.remoteTerminalAttemptID = attemptID
         detachedSurfaceTransfersByPanelId[panelId] = transfer
         return true
     }
@@ -43,7 +74,8 @@ extension DockSplitStore {
         panelId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
         presentationWorkspaceID: UUID,
-        terminalLifecycleID: UUID?
+        terminalLifecycleID: UUID?,
+        attemptID: UUID? = nil
     ) -> Bool {
         guard ownsRemoteTerminalTransfer(
                   panelId: panelId,
@@ -57,7 +89,8 @@ extension DockSplitStore {
         return markRemoteTerminalSessionConnected(
             panelId: panelId,
             authority: authority,
-            terminalLifecycleID: terminalLifecycleID
+            terminalLifecycleID: terminalLifecycleID,
+            attemptID: attemptID
         )
     }
 
@@ -118,6 +151,7 @@ extension DockSplitStore {
         transfer.remoteTerminalAuthority = authority
         transfer.remoteTerminalLifecycleID =
             terminalLifecycleID ?? transfer.remoteTerminalLifecycleID
+        transfer.remoteTerminalAttemptID = nil
         detachedSurfaceTransfersByPanelId[panelId] = transfer
         return true
     }

@@ -304,7 +304,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             command.contains("-o RemoteCommand=none -T cmux-remotecommand-host true"),
             "Restore foreground auth must override a host-configured RemoteCommand before running its command-line `true`; command: \(command)"
         )
-        XCTAssertEqual(command.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, command)
+        XCTAssertEqual(
+            command.components(separatedBy: "/usr/bin/uuidgen").count - 1,
+            2,
+            "The restored wrapper needs one persistent lifecycle UUID and one per-attempt readiness UUID: \(command)"
+        )
         XCTAssertFalse(command.contains("-$$"), command)
         XCTAssertTrue(command.contains("--lifecycle-id \"$cmux_ssh_attach_lifecycle_id\""), command)
         XCTAssertTrue(command.contains("ssh-session-end --lifecycle-only"), command)

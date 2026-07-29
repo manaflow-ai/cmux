@@ -218,11 +218,46 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(context.terminalSessionEndCall?.lifecycleOnly == true)
     }
 
+    @Test func terminalSessionLaunchingForwardsAttemptGeneration() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let terminalLifecycleID = UUID()
+        let attemptID = UUID()
+        context.terminalSessionConnectedResolution = .resolved(
+            windowID: nil,
+            workspaceID: workspaceID,
+            remoteStatus: .object(["connected": .bool(false)])
+        )
+
+        guard case .ok = coordinator.handleSocketWorkerV2(
+            request("workspace.remote.terminal_session_launching", [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "terminal_lifecycle_id": .string(terminalLifecycleID.uuidString),
+                "attempt_id": .string(attemptID.uuidString),
+            ]),
+            context: context
+        ) else {
+            Issue.record("unexpected terminal_session_launching result")
+            return
+        }
+
+        #expect(context.terminalSessionLaunchingCall?.workspaceID == workspaceID)
+        #expect(context.terminalSessionLaunchingCall?.surfaceID == surfaceID)
+        #expect(
+            context.terminalSessionLaunchingCall?.terminalLifecycleID ==
+                terminalLifecycleID
+        )
+        #expect(context.terminalSessionLaunchingCall?.attemptID == attemptID)
+    }
+
     @Test func terminalSessionConnectedForwardsAuthoritativeTerminalLiveness() throws {
         let (coordinator, context) = coordinator()
         let workspaceID = UUID()
         let surfaceID = UUID()
         let terminalLifecycleID = UUID()
+        let attemptID = UUID()
         context.terminalSessionConnectedResolution = .resolved(
             windowID: nil,
             workspaceID: workspaceID,
@@ -235,6 +270,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
             "surface_id": .string(surfaceID.uuidString),
             "relay_port": .int(64007),
             "terminal_lifecycle_id": .string(terminalLifecycleID.uuidString),
+            "attempt_id": .string(attemptID.uuidString),
             ]),
             context: context
         ) else {
@@ -244,6 +280,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
 
         #expect(context.terminalSessionConnectedCall?.workspaceID == workspaceID)
         #expect(context.terminalSessionConnectedCall?.surfaceID == surfaceID)
+        #expect(context.terminalSessionConnectedCall?.attemptID == attemptID)
         #expect(
             context.terminalSessionConnectedCall?.authority ==
                 .relayPort(64007, terminalLifecycleID: terminalLifecycleID)

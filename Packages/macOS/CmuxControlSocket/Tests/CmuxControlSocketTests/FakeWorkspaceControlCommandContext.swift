@@ -19,6 +19,12 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     )?
     var terminalSessionEndResolution: ControlWorkspaceRemoteTerminalSessionEndResolution = .notFound
     var terminalSessionConnectedResolution: ControlWorkspaceRemoteTerminalSessionConnectedResolution = .notFound
+    var terminalSessionLaunchingCall: (
+        workspaceID: UUID,
+        surfaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    )?
     var terminalSessionEndCall: (
         workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
         terminalLifecycleID: UUID?, sessionID: String?,
@@ -27,7 +33,8 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     var terminalSessionConnectedCall: (
         workspaceID: UUID,
         surfaceID: UUID,
-        authority: ControlWorkspaceRemoteTerminalAuthority
+        authority: ControlWorkspaceRemoteTerminalAuthority,
+        attemptID: UUID?
     )?
 
     init(
@@ -115,16 +122,32 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         return terminalSessionEndResolution
     }
 
+    func controlWorkspaceRemoteTerminalSessionLaunching(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
+        terminalSessionLaunchingCall = (
+            workspaceID,
+            surfaceID,
+            terminalLifecycleID,
+            attemptID
+        )
+        return terminalSessionConnectedResolution
+    }
+
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID: UUID,
         surfaceID: UUID,
         authority: ControlWorkspaceRemoteTerminalAuthority,
+        attemptID: UUID?,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
         if let commitLease, !commitLease.commitIfCurrent({ true }) {
             return .notFound
         }
-        terminalSessionConnectedCall = (workspaceID, surfaceID, authority)
+        terminalSessionConnectedCall = (workspaceID, surfaceID, authority, attemptID)
         return terminalSessionConnectedResolution
     }
 

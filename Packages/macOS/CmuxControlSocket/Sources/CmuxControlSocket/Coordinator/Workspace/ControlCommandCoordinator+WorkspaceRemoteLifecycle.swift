@@ -1,6 +1,66 @@
 internal import Foundation
 
 extension ControlCommandCoordinator {
+    /// `workspace.remote.terminal_session_launching` — record the start of one
+    /// SSH wrapper attempt before it can publish readiness.
+    nonisolated func workspaceRemoteTerminalSessionLaunching(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let workspaceID = string(params, "workspace_id").flatMap(UUID.init(uuidString:)) else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let surfaceID = string(params, "surface_id").flatMap(UUID.init(uuidString:)) else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let terminalLifecycleID = string(
+            params,
+            "terminal_lifecycle_id"
+        ).flatMap(UUID.init(uuidString:)) else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid terminal_lifecycle_id",
+                data: nil
+            )
+        }
+        guard let attemptID = string(params, "attempt_id").flatMap(UUID.init(uuidString:)) else {
+            return .err(code: "invalid_params", message: "Missing or invalid attempt_id", data: nil)
+        }
+        guard let context else {
+            return .err(code: "unavailable", message: "Workspace context not available", data: nil)
+        }
+
+        return context.controlResolveOnMain { seam in
+            let resolution = seam.controlWorkspaceRemoteTerminalSessionLaunching(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                terminalLifecycleID: terminalLifecycleID,
+                attemptID: attemptID
+            )
+            switch resolution {
+            case .notFound:
+                return .err(code: "not_found", message: "Workspace not found", data: .object([
+                    "workspace_id": .string(workspaceID.uuidString),
+                    "workspace_ref": self.ref(.workspace, workspaceID),
+                    "surface_id": .string(surfaceID.uuidString),
+                    "surface_ref": self.ref(.surface, surfaceID),
+                    "attempt_id": .string(attemptID.uuidString),
+                ]))
+            case .resolved(let windowID, let resolvedWorkspaceID, let remoteStatus):
+                return .ok(.object([
+                    "window_id": self.orNull(windowID?.uuidString),
+                    "window_ref": self.ref(.window, windowID),
+                    "workspace_id": self.orNull(resolvedWorkspaceID?.uuidString),
+                    "workspace_ref": self.ref(.workspace, resolvedWorkspaceID),
+                    "surface_id": .string(surfaceID.uuidString),
+                    "surface_ref": self.ref(.surface, surfaceID),
+                    "attempt_id": .string(attemptID.uuidString),
+                    "remote": remoteStatus,
+                ]))
+            }
+        }
+    }
+
     /// `workspace.remote.terminal_session_connected` — record the terminal's
     /// successful SSH/PTY handshake independently of auxiliary proxy state.
     ///
@@ -23,6 +83,10 @@ extension ControlCommandCoordinator {
             params,
             "terminal_lifecycle_id"
         ).flatMap(UUID.init(uuidString:))
+        let attemptID = optionalTrimmedRawString(
+            params,
+            "attempt_id"
+        ).flatMap(UUID.init(uuidString:))
         let sessionID = optionalTrimmedRawString(params, "session_id")
         let lifecycleID = optionalTrimmedRawString(params, "lifecycle_id")
         let invalidRelayPort = relayPort.map { $0 <= 0 || $0 > 65535 } ?? false
@@ -31,6 +95,7 @@ extension ControlCommandCoordinator {
         if invalidRelayPort ||
             (params["relay_port"] != nil && relayPort == nil) ||
             (params["terminal_lifecycle_id"] != nil && terminalLifecycleID == nil) ||
+            (params["attempt_id"] != nil && attemptID == nil) ||
             terminalLifecycleID == nil ||
             (sessionID == nil) != (lifecycleID == nil) ||
             hasRelayAuthority == hasPersistentAuthority {
@@ -79,6 +144,7 @@ extension ControlCommandCoordinator {
                         workspaceID: workspaceID,
                         surfaceID: surfaceID,
                         authority: authority,
+                        attemptID: attemptID,
                         commitLease: nil
                     )
                 case .persistentTransport:
@@ -87,6 +153,7 @@ extension ControlCommandCoordinator {
                             workspaceID: workspaceID,
                             surfaceID: surfaceID,
                             authority: authority,
+                            attemptID: attemptID,
                             commitLease: persistentOwner.commitLease
                         )
                     } else {

@@ -727,10 +727,80 @@ extension TerminalController: ControlWorkspaceContext {
         }
     }
 
+    func controlWorkspaceRemoteTerminalSessionLaunching(
+        workspaceID workspaceId: UUID,
+        surfaceID surfaceId: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
+        let app = AppDelegate.shared
+        let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
+        let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
+        if let dock = DockSplitStore.liveStore(containingPanel: surfaceId) {
+            guard let app,
+                  let dockOwner = controlRemoteTerminalDockOwner(
+                      app: app,
+                      dock: dock,
+                      requestedWorkspaceID: workspaceId
+                  ) else {
+                return .notFound
+            }
+            let didLaunch: Bool
+            if let workspace = dockOwner.workspace {
+                didLaunch = workspace.markDockRemoteTerminalSessionLaunching(
+                    surfaceId: surfaceId,
+                    terminalLifecycleID: terminalLifecycleID,
+                    attemptID: attemptID,
+                    dock: dock
+                )
+            } else {
+                didLaunch =
+                    dock.ownsRemoteTerminalTransfer(
+                        panelId: surfaceId,
+                        presentationWorkspaceID: workspaceId
+                    ) &&
+                    dock.markRemoteTerminalSessionLaunching(
+                        panelId: surfaceId,
+                        terminalLifecycleID: terminalLifecycleID,
+                        attemptID: attemptID
+                    )
+            }
+            guard didLaunch else { return .notFound }
+            let windowId = app.windowId(for: dockOwner.tabManager)
+            return .resolved(
+                windowID: windowId,
+                workspaceID: dockOwner.workspace?.id,
+                remoteStatus: dockOwner.workspace.flatMap {
+                    JSONValue(foundationObject: $0.remoteStatusPayload())
+                } ?? .object([:])
+            )
+        }
+        let located = app?.workspaceContainingPanel(
+            panelId: surfaceId,
+            preferredWorkspaceId: workspaceId
+        )
+        guard let owner = located?.tabManager ?? fallbackOwner,
+              let workspace = located?.workspace ?? fallbackWorkspace,
+              workspace.markRemoteTerminalSessionLaunching(
+                  surfaceId: surfaceId,
+                  terminalLifecycleID: terminalLifecycleID,
+                  attemptID: attemptID
+              ) else {
+            return .notFound
+        }
+        let windowId = AppDelegate.shared?.windowId(for: owner)
+        return .resolved(
+            windowID: windowId,
+            workspaceID: workspace.id,
+            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+        )
+    }
+
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
         authority: ControlWorkspaceRemoteTerminalAuthority,
+        attemptID: UUID? = nil,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)? = nil
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
         let (terminalAuthority, terminalLifecycleID) = switch authority {
@@ -764,6 +834,7 @@ extension TerminalController: ControlWorkspaceContext {
                     surfaceId: surfaceId,
                     authority: terminalAuthority,
                     terminalLifecycleID: terminalLifecycleID,
+                    attemptID: attemptID,
                     commitLease: commitLease,
                     dock: dock
                 )
@@ -774,7 +845,8 @@ extension TerminalController: ControlWorkspaceContext {
                             panelId: surfaceId,
                             authority: terminalAuthority,
                             presentationWorkspaceID: workspaceId,
-                            terminalLifecycleID: terminalLifecycleID
+                            terminalLifecycleID: terminalLifecycleID,
+                            attemptID: attemptID
                         )
                     }
                 } else {
@@ -782,7 +854,8 @@ extension TerminalController: ControlWorkspaceContext {
                         panelId: surfaceId,
                         authority: terminalAuthority,
                         presentationWorkspaceID: workspaceId,
-                        terminalLifecycleID: terminalLifecycleID
+                        terminalLifecycleID: terminalLifecycleID,
+                        attemptID: attemptID
                     )
                 }
             }
@@ -806,6 +879,7 @@ extension TerminalController: ControlWorkspaceContext {
                   surfaceId: surfaceId,
                   authority: terminalAuthority,
                   terminalLifecycleID: terminalLifecycleID,
+                  attemptID: attemptID,
                   commitLease: commitLease
               ) else {
             return .notFound
