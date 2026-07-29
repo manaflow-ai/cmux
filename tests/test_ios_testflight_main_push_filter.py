@@ -440,6 +440,25 @@ def test_truncated_schedule_comparison_fails_open() -> None:
     }
 
 
+def test_schedule_comparison_failure_fails_open() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        compare_api_failure=True,
+    )
+
+    assert result["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
+    }
+    assert result["warnings"] == [
+        "could not compare against last upload: transient compare failure"
+    ]
+
+
 def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
     first_run = run_decision_scenario(
         event_name="schedule",
@@ -567,6 +586,37 @@ def test_scheduled_run_waits_before_upload_job_exists() -> None:
         "last_uploaded_sha": "base-sha",
         "variant": "internal",
     }
+
+
+def test_ordering_retries_transient_api_failures() -> None:
+    for failed_api in ("runs", "jobs"):
+        result = run_decision_scenario(
+            event_name="schedule",
+            schedule=IOS_SCHEDULES[0],
+            prior_sha="base-sha",
+            head_sha="head-sha",
+            changed_files=("ios/cmux/App.swift",),
+            blocking_prior_run=True,
+            upload_job_starts_late=True,
+            ordering_api_failure=failed_api,
+        )
+
+        assert result["waitCalls"] == [60_000, 60_000]
+        assert result["workflowRunCalls"] == 4
+        assert result["uploadJobStatuses"] == [
+            "in_progress",
+            "completed",
+            "completed",
+        ]
+        assert result["warnings"] == [
+            "could not inspect earlier TestFlight runs; retrying: "
+            f"transient {failed_api} failure"
+        ]
+        assert result["outputs"] == {
+            "should_build": "true",
+            "last_uploaded_sha": "base-sha",
+            "variant": "internal",
+        }
 
 
 def test_ordering_includes_manual_current_and_prior_runs() -> None:
@@ -705,11 +755,13 @@ if __name__ == "__main__":
     test_scheduled_uploads_filter_for_ios_affecting_main_changes()
     test_schedule_decision_executes_ios_path_filter()
     test_truncated_schedule_comparison_fails_open()
+    test_schedule_comparison_failure_fails_open()
     test_schedule_decision_routes_demo_cron_to_demo_history()
     test_demo_history_skips_newer_internal_artifact()
     test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
     test_scheduled_run_waits_for_an_earlier_upload()
     test_scheduled_run_waits_before_upload_job_exists()
+    test_ordering_retries_transient_api_failures()
     test_ordering_includes_manual_current_and_prior_runs()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
