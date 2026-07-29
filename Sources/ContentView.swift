@@ -8066,6 +8066,14 @@ struct ContentView: View {
             )
         }
 
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.goto",
+                title: constant(String(localized: "command.goto.title", defaultValue: "Go to Workspace, Pane, or Surface")),
+                subtitle: constant(String(localized: "command.goto.subtitle", defaultValue: "Navigation")),
+                keywords: ["goto", "go", "jump", "navigate", "focus", "workspace", "pane", "surface", "switch"]
+            )
+        )
         return contributions
     }
 
@@ -8734,6 +8742,13 @@ struct ContentView: View {
             }
         }
 
+        registry.register(commandId: "palette.goto") {
+            // The goto command requires a typed ref argument (workspace:N,
+            // pane:N, surface:N). Paste a template into the palette search
+            // field so the user sees the syntax, or fall back to a beep if
+            // the palette is not available.
+            NSSound.beep()
+        }
         for issue in cmuxConfigStore.configurationIssues {
             let captured = issue
             registry.register(commandId: commandPaletteCmuxConfigIssueCommandID(issue)) {

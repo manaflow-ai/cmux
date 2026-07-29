@@ -5642,6 +5642,9 @@ struct CMUXCLI {
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        case "goto":
+            try runGoto(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         default:
             throw unknownCommandError(command)
         }
@@ -8091,6 +8094,159 @@ struct CMUXCLI {
         }
         let payload = try client.sendV2(method: "workspace.select", params: params)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+    }
+
+    // MARK: - goto
+
+    enum GotoTargetKind {
+        case workspace(String)
+        case pane(String)
+        case surface(String)
+        case uuid(String)
+    }
+
+    static func parseGotoTarget(_ raw: String) throws -> GotoTargetKind {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw CLIError(message: "goto: empty target")
+        }
+
+        // Typed ref: workspace:N, pane:N, surface:N
+        let pieces = trimmed.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        if pieces.count == 2 {
+            let kind = String(pieces[0]).lowercased()
+            let suffix = String(pieces[1])
+            if Int(suffix) != nil {
+                switch kind {
+                case "workspace": return .workspace(trimmed)
+                case "pane": return .pane(trimmed)
+                case "surface": return .surface(trimmed)
+                default: break
+                }
+            }
+        }
+
+        // UUID
+        if UUID(uuidString: trimmed) != nil {
+            return .uuid(trimmed)
+        }
+
+        // Bare numeric: ambiguous
+        if Int(trimmed) != nil {
+            throw CLIError(message: "goto: bare number '\(trimmed)' is ambiguous — prefix with workspace:, pane:, or surface:")
+        }
+
+        throw CLIError(message: "goto: invalid target '\(trimmed)' — expected workspace:<n>, pane:<n>, surface:<n>, or a UUID")
+    }
+
+    private func gotoResolveUUID(
+        _ uuid: String,
+        client: SocketClient
+    ) throws -> GotoTargetKind {
+        // Search windows, workspaces, panes, surfaces across all windows.
+        let windowList = try client.sendV2(method: "window.list")
+        let windows = windowList["windows"] as? [[String: Any]] ?? []
+        for window in windows {
+            if (window["id"] as? String) == uuid {
+                // UUID is a window — focus the window itself. Treat as workspace
+                // (select the current workspace in that window to bring it forward).
+                return .workspace(uuid)
+            }
+        }
+
+        for window in windows {
+            guard let windowId = window["id"] as? String else { continue }
+            let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowId])
+            let workspaces = listed["workspaces"] as? [[String: Any]] ?? []
+            for ws in workspaces {
+                if (ws["id"] as? String) == uuid { return .workspace(uuid) }
+            }
+        }
+
+        // Check panes and surfaces across all workspaces in all windows
+        for window in windows {
+            guard let windowId = window["id"] as? String else { continue }
+            let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowId])
+            let workspaces = listed["workspaces"] as? [[String: Any]] ?? []
+            for ws in workspaces {
+                guard let wsId = ws["id"] as? String else { continue }
+                let paneResult = try client.sendV2(method: "pane.list", params: [
+                    "workspace_id": wsId,
+                    "window_id": windowId,
+                ])
+                let panes = paneResult["panes"] as? [[String: Any]] ?? []
+                for pane in panes {
+                    if (pane["id"] as? String) == uuid { return .pane(uuid) }
+                }
+
+                let surfaceResult = try client.sendV2(method: "surface.list", params: [
+                    "workspace_id": wsId,
+                    "window_id": windowId,
+                ])
+                let surfaces = surfaceResult["surfaces"] as? [[String: Any]] ?? []
+                for surface in surfaces {
+                    if (surface["id"] as? String) == uuid { return .surface(uuid) }
+                }
+            }
+        }
+
+        throw CLIError(message: "goto: UUID not found — \(uuid)")
+    }
+
+    private func runGoto(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        // Accept positional or --target flag
+        let targetRaw = optionValue(commandArgs, name: "--target")
+            ?? commandArgs.first(where: { !$0.hasPrefix("--") })
+
+        guard let targetRaw else {
+            throw CLIError(message: "goto requires a target: workspace:<n>, pane:<n>, surface:<n>, or UUID")
+        }
+
+        var parsed = try Self.parseGotoTarget(targetRaw)
+
+        // Resolve UUID to a concrete kind
+        if case .uuid(let uuid) = parsed {
+            parsed = try gotoResolveUUID(uuid, client: client)
+        }
+
+        let payload: [String: Any]
+        switch parsed {
+        case .workspace(let handle):
+            let wsId = try normalizeWorkspaceHandle(handle, client: client)
+            guard let wsId else {
+                throw CLIError(message: "goto: workspace not found — \(handle)")
+            }
+            payload = try client.sendV2(method: "workspace.select", params: ["workspace_id": wsId])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat,
+                           fallbackText: "OK workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? handle)")
+
+        case .pane(let handle):
+            let paneId = try normalizePaneHandle(handle, client: client)
+            guard let paneId else {
+                throw CLIError(message: "goto: pane not found — \(handle)")
+            }
+            payload = try client.sendV2(method: "pane.focus", params: ["pane_id": paneId])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat,
+                           fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane", "workspace"]))
+
+        case .surface(let handle):
+            let sfId = try normalizeSurfaceHandle(handle, client: client)
+            guard let sfId else {
+                throw CLIError(message: "goto: surface not found — \(handle)")
+            }
+            payload = try client.sendV2(method: "surface.focus", params: ["surface_id": sfId])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat,
+                           fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
+
+        case .uuid:
+            // Already resolved above
+            fatalError("unreachable: uuid should have been resolved")
+        }
     }
 
     private func runWorkspaceRenameCommand(
@@ -16206,6 +16362,29 @@ struct CMUXCLI {
               cmux memory --groups 20
               cmux --json memory --all
             """)
+        case "goto":
+            return """
+            Usage: cmux goto <target>
+
+            Jump to a workspace, pane, or surface by typed ref or UUID.
+            Focuses the owning window, selects the workspace, and activates
+            the target atomically. Cross-window targets bring the correct
+            window to front.
+
+            Target formats:
+              workspace:<n>      Select workspace by short ref
+              pane:<n>           Focus pane (selects owning workspace)
+              surface:<n>        Focus surface/tab (selects owning workspace + pane)
+              <UUID>             Resolve entity type automatically
+
+            Bare numbers without a type prefix are rejected as ambiguous.
+
+            Example:
+              cmux goto workspace:7
+              cmux goto pane:34
+              cmux goto surface:243
+              cmux goto 8A3F2B1C-...  (UUID auto-detected)
+            """
         case "focus-pane":
             return """
             Usage: cmux focus-pane [--pane <id|ref|index> | <id|ref|index>] [flags]
@@ -35539,6 +35718,7 @@ export default CMUXSessionRestore;
           current-window
           new-window
           focus-window --window <id>
+          goto <workspace:N|pane:N|surface:N|UUID>
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
