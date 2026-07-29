@@ -270,6 +270,7 @@ final class ClaudeHookSessionStore {
 
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+    private static let maxClearBackgroundWorkTransferAgeSeconds: TimeInterval = 60
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
@@ -1768,9 +1769,10 @@ final class ClaudeHookSessionStore {
         state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
             active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
         }
+        let clearTransferCutoff = now - Self.maxClearBackgroundWorkTransferAgeSeconds
         state.clearBackgroundWorkTransfersBySurface =
             state.clearBackgroundWorkTransfersBySurface.filter { _, transfer in
-                transfer.updatedAt >= cutoff
+                transfer.updatedAt >= clearTransferCutoff
             }
     }
 
