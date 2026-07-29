@@ -54,6 +54,41 @@ final class RetryThenSuccessResetRunner:
     }
 }
 
+final class ThrowThenSuccessResetRunner:
+    RemoteSessionProcessRunning,
+    @unchecked Sendable
+{
+    // lint:allow lock - process calls consume one scripted test counter.
+    private let lock = NSLock()
+    private let throwCount: Int
+    private var count = 0
+
+    init(throwCount: Int) {
+        self.throwCount = throwCount
+    }
+
+    var requestCount: Int {
+        lock.withLock { count }
+    }
+
+    func run(
+        _ request: RemoteProcessRequest,
+        operation: (any RemoteTransferCancelling)?
+    ) throws -> RemoteCommandResult {
+        let attempt = lock.withLock {
+            count += 1
+            return count
+        }
+        if attempt <= throwCount {
+            throw NSError(
+                domain: "NativeSSHControlMasterResetTests",
+                code: attempt
+            )
+        }
+        return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+    }
+}
+
 final class FixedStatusResetRunner:
     RemoteSessionProcessRunning,
     @unchecked Sendable

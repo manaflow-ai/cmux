@@ -79,6 +79,28 @@ struct NativeSSHControlMasterResetTests {
         #expect(runner.requestCount == 3)
     }
 
+    @Test("Transient reset runner errors retry before resetting")
+    func transientRunnerErrorsRetry() async {
+        let clock = ManualBrokerClock()
+        let runner = ThrowThenSuccessResetRunner(throwCount: 2)
+        let broker = makeBroker(clock: clock, processRunner: runner)
+        let lease = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            options: resolvedOptions
+        ))
+
+        let reset = Task { @MainActor in
+            await broker.resetConflictedControlMaster(for: lease)
+        }
+        #expect(await clock.nextRequestedDelay() == 2_000)
+        await clock.resumeNextSleep()
+        #expect(await clock.nextRequestedDelay() == 2_000)
+        await clock.resumeNextSleep()
+
+        #expect(await reset.value == .reset)
+        #expect(runner.requestCount == 3)
+    }
+
     @Test("Expanded paths keep unrelated hosts isolated")
     func expandedPathsDoNotNotifyDifferentHost() async throws {
         let firstRecorder = ResetEventRecorder()
@@ -119,6 +141,23 @@ struct NativeSSHControlMasterResetTests {
         #expect(!runner.exitRequests[0].arguments.contains(
             "ControlPath=/tmp/cmux-ssh-501-%C"
         ))
+        let unresolvedLock = try #require(
+            sharingOptions.foregroundAuthenticationLockPath(
+                destination: "first.example.test",
+                port: nil,
+                options: unresolvedOptions
+            )
+        )
+        let resolvedLock = try #require(
+            sharingOptions.foregroundAuthenticationLockPath(
+                destination: "first.example.test",
+                port: nil,
+                options: resolvedOptions
+            )
+        )
+        #expect(unresolvedLock != resolvedLock)
+        #expect(runner.exitRequests[0].arguments.contains(unresolvedLock))
+        #expect(!runner.exitRequests[0].arguments.contains(resolvedLock))
         _ = firstObservation
         _ = secondObservation
     }

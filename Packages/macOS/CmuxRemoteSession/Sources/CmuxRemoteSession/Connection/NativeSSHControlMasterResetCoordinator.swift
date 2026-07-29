@@ -109,12 +109,20 @@ final class NativeSSHControlMasterResetCoordinator {
         ) {
             resolvedControlPath = exactPath
         } else {
-            resolvedControlPath = await Self.resolveControlPath(
+            let resolution = await Self.resolveControlPath(
                 configuration: configuration,
                 effectiveOptions: effectiveOptions,
                 resolver: pathResolver,
                 processRunner: processRunner
             )
+            switch resolution {
+            case .resolved(let path):
+                resolvedControlPath = path
+            case .unavailable:
+                return .ignored("could not resolve the cmux SSH master socket")
+            case .retry(let detail):
+                return .deferred(detail)
+            }
         }
         guard !Task.isCancelled else {
             return .deferred("control-master reset cancelled")
@@ -144,7 +152,7 @@ final class NativeSSHControlMasterResetCoordinator {
         let authenticationLockPath = sharingOptions.foregroundAuthenticationLockPath(
             destination: configuration.destination,
             port: configuration.port,
-            options: resolvedOptions
+            options: effectiveOptions
         )
         let request = NativeSSHControlMasterCleanupRequest(
             arguments: arguments,
@@ -191,7 +199,7 @@ final class NativeSSHControlMasterResetCoordinator {
         effectiveOptions: [String],
         resolver: NativeSSHControlPathResolver,
         processRunner: any RemoteSessionProcessRunning
-    ) async -> String? {
+    ) async -> ControlPathResolutionOutcome {
         let cancellation = RemoteProcessCancellationOperation()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -211,15 +219,21 @@ final class NativeSSHControlMasterResetCoordinator {
                             operation: cancellation
                         )
                         guard result.status == 0 else {
-                            continuation.resume(returning: nil)
+                            continuation.resume(returning: .unavailable)
                             return
                         }
-                        continuation.resume(returning: resolver.resolvedControlPath(
+                        if let path = resolver.resolvedControlPath(
                             effectiveOptions: effectiveOptions,
                             sshConfigOutput: result.stdout
-                        ))
+                        ) {
+                            continuation.resume(returning: .resolved(path))
+                        } else {
+                            continuation.resume(returning: .unavailable)
+                        }
                     } catch {
-                        continuation.resume(returning: nil)
+                        continuation.resume(returning: .retry(
+                            error.localizedDescription
+                        ))
                     }
                 }
             }
@@ -302,7 +316,7 @@ final class NativeSSHControlMasterResetCoordinator {
                             continuation.resume(returning: .ignored(detail))
                         }
                     } catch {
-                        continuation.resume(returning: .ignored(error.localizedDescription))
+                        continuation.resume(returning: .retry(error.localizedDescription))
                     }
                 }
             }
@@ -333,4 +347,10 @@ private enum ResetAttemptOutcome: Sendable {
     case reset
     case retry(String)
     case ignored(String)
+}
+
+private enum ControlPathResolutionOutcome: Sendable {
+    case resolved(String)
+    case unavailable
+    case retry(String)
 }
