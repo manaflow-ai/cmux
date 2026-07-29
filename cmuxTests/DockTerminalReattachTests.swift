@@ -345,11 +345,16 @@ extension DockSocketLifecycleTests {
             autoResume: true,
             updatedAt: 1_777_777_777
         )
+        let completedGeneration = RestoredAgentCompletedGeneration(
+            completedAt: 1_777_777_777,
+            processIdentities: []
+        )
         let detached = detachedTerminalTransfer(
             panel: panel,
             sourceWorkspaceId: sourceWorkspaceId,
             restorableAgent: staleAgent,
-            restorableAgentResumeState: .autoResumeCommandRunning,
+            restorableAgentResumeState: .completedAgentExit,
+            restoredAgentCompletedGeneration: completedGeneration,
             restoredResumeSessionWorkingDirectory: "/tmp/cmux-omp-stale",
             resumeBinding: staleBinding,
             agentSessionRetryCompletedAttempts: 2
@@ -380,6 +385,205 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restorableAgentResumeState == nil)
         #expect(roundTripped.restoredAgentCompletedGeneration == nil)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
+        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
+    }
+
+    @Test("Replacement and clear cannot restore an older cached Dock session")
+    @MainActor
+    func replacementThenClearDoesNotRestoreOlderCachedDockSession() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let oldSessionId = "omp-cached-old-\(UUID().uuidString)"
+        let newSessionId = "omp-current-new-\(UUID().uuidString)"
+        let directory = "/tmp/cmux-omp-replaced-then-cleared"
+        let oldAgent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: oldSessionId,
+            workingDirectory: directory,
+            launchCommand: nil
+        )
+        let oldBinding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(oldSessionId)'",
+            cwd: directory,
+            checkpointId: oldSessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_777_777_777
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: oldAgent,
+            restorableAgentResumeState: .observedAgentCommandRunning,
+            restoredResumeSessionWorkingDirectory: directory,
+            resumeBinding: oldBinding,
+            agentSessionRetryCompletedAttempts: 2
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        let newBinding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(newSessionId)'",
+            cwd: directory,
+            checkpointId: newSessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        #expect(store.setSurfaceResumeBinding(newBinding, panelId: panel.id))
+        #expect(store.clearSurfaceResumeBinding(panelId: panel.id))
+
+        let persistedPanel = try #require(
+            store.sessionSnapshot(includeScrollback: false).panels.first {
+                $0.id == panel.id
+            }
+        )
+        #expect(persistedPanel.terminal?.agent == nil)
+        #expect(persistedPanel.terminal?.resumeBinding == nil)
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restorableAgentResumeState == nil)
+        #expect(roundTripped.restoredAgentCompletedGeneration == nil)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
+        #expect(roundTripped.resumeBinding == nil)
+        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
+    }
+
+    @Test("Replacement and clear cannot restore snapshot-only Dock state")
+    @MainActor
+    func replacementThenClearDoesNotRestoreSnapshotOnlyDockState() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let oldSessionId = "omp-snapshot-old-\(UUID().uuidString)"
+        let newSessionId = "omp-binding-new-\(UUID().uuidString)"
+        let directory = "/tmp/cmux-omp-snapshot-replaced"
+        let oldAgent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: oldSessionId,
+            workingDirectory: directory,
+            launchCommand: nil
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: oldAgent,
+            restorableAgentResumeState: .observedAgentCommandRunning,
+            restoredResumeSessionWorkingDirectory: directory,
+            agentSessionRetryCompletedAttempts: 2
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        let newBinding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(newSessionId)'",
+            cwd: directory,
+            checkpointId: newSessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        #expect(store.setSurfaceResumeBinding(newBinding, panelId: panel.id))
+        #expect(store.clearSurfaceResumeBinding(panelId: panel.id))
+
+        let persistedPanel = try #require(
+            store.sessionSnapshot(includeScrollback: false).panels.first {
+                $0.id == panel.id
+            }
+        )
+        #expect(persistedPanel.terminal?.agent == nil)
+        #expect(persistedPanel.terminal?.resumeBinding == nil)
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restorableAgentResumeState == nil)
+        #expect(roundTripped.restoredAgentCompletedGeneration == nil)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
+        #expect(roundTripped.resumeBinding == nil)
+        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
+    }
+
+    @Test("Matching hook clear invalidates snapshot-only Dock state")
+    @MainActor
+    func matchingHookClearInvalidatesSnapshotOnlyDockState() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "omp-snapshot-matching-\(UUID().uuidString)"
+        let directory = "/tmp/cmux-omp-snapshot-matching"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: sessionId,
+            workingDirectory: directory,
+            launchCommand: nil
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: agent,
+            restorableAgentResumeState: .observedAgentCommandRunning,
+            restoredResumeSessionWorkingDirectory: directory,
+            agentSessionRetryCompletedAttempts: 2
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(sessionId)'",
+            cwd: directory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        #expect(store.setSurfaceResumeBinding(binding, panelId: panel.id))
+        #expect(store.clearSurfaceResumeBinding(panelId: panel.id))
+
+        let persistedPanel = try #require(
+            store.sessionSnapshot(includeScrollback: false).panels.first {
+                $0.id == panel.id
+            }
+        )
+        #expect(persistedPanel.terminal?.agent == nil)
+        #expect(persistedPanel.terminal?.resumeBinding == nil)
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restorableAgentResumeState == nil)
+        #expect(roundTripped.restoredAgentCompletedGeneration == nil)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
+        #expect(roundTripped.resumeBinding == nil)
         #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
@@ -482,12 +686,18 @@ extension DockSocketLifecycleTests {
             scope: .global,
             baseDirectoryProvider: { root.path }
         )
-        let untrustedRemotePanel = TerminalPanel(
+        let remotePanel = TerminalPanel(
             workspaceId: sourceWorkspaceId,
             workingDirectory: root.path,
             runtimeSpawnPolicy: .pacedSessionRestore
         )
-        let untrustedRemoteStore = DockSplitStore(
+        let remoteStore = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        let directorylessPanel = DockTransferTestPanel()
+        let directorylessStore = DockSplitStore(
             workspaceId: UUID(),
             scope: .global,
             baseDirectoryProvider: { nil }
@@ -495,7 +705,8 @@ extension DockSocketLifecycleTests {
         defer {
             TerminalMutationBus.shared.drainForTesting()
             store.closeAllPanels()
-            untrustedRemoteStore.closeAllPanels()
+            remoteStore.closeAllPanels()
+            directorylessStore.closeAllPanels()
             try? FileManager.default.removeItem(at: root)
         }
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
@@ -514,29 +725,63 @@ extension DockSocketLifecycleTests {
         TerminalMutationBus.shared.drainForTesting()
         #expect(store.agentRuntimeByPanelId[panel.id]?.agentLifecycleStates["local-agent"] == .idle)
 
-        let untrustedRemoteRootPane = try #require(
-            untrustedRemoteStore.bonsplitController.allPaneIds.first
+        let remoteRootPane = try #require(
+            remoteStore.bonsplitController.allPaneIds.first
         )
-        let untrustedRemoteTransfer = detachedTerminalTransfer(
-            panel: untrustedRemotePanel,
+        let remoteTransfer = detachedTerminalTransfer(
+            panel: remotePanel,
             sourceWorkspaceId: sourceWorkspaceId,
             directory: root.path,
-            directoryIsTrustedRemoteReport: false,
+            directoryIsTrustedRemoteReport: true,
             isRemoteTerminal: true
         )
         #expect(
-            untrustedRemoteStore.attachDetachedSurface(
-                untrustedRemoteTransfer,
-                inPane: untrustedRemoteRootPane,
+            remoteStore.attachDetachedSurface(
+                remoteTransfer,
+                inPane: remoteRootPane,
                 focus: false
-            ) == untrustedRemotePanel.id
+            ) == remotePanel.id
         )
-        let untrustedRemoteResponse = TerminalController.shared.handleSocketLine(
+        let remoteResponse = TerminalController.shared.handleSocketLine(
             "set_agent_lifecycle local-agent idle "
-                + "--tab=\(untrustedRemoteStore.workspaceId.uuidString) "
-                + "--panel=\(untrustedRemotePanel.id.uuidString)"
+                + "--tab=\(remoteStore.workspaceId.uuidString) "
+                + "--panel=\(remotePanel.id.uuidString)"
         )
-        #expect(untrustedRemoteResponse.contains("Unsupported agent lifecycle key"))
+        #expect(remoteResponse.contains("Unsupported agent lifecycle key"))
+
+        let remoteScope = ControlSidebarPanelOwner
+            .dock(remoteStore)
+            .agentLifecycleRegistryScope(panelId: remotePanel.id)
+        let emptyHome = root.appendingPathComponent("empty-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: emptyHome, withIntermediateDirectories: true)
+        let remoteRegistry = remoteScope.loadRegistry(
+            homeDirectory: emptyHome.path,
+            environment: ["PWD": root.path]
+        )
+        #expect(remoteRegistry.registration(id: "local-agent") == nil)
+
+        let directorylessRootPane = try #require(
+            directorylessStore.bonsplitController.allPaneIds.first
+        )
+        let directorylessTransfer = detachedTerminalTransfer(
+            panel: directorylessPanel,
+            sourceWorkspaceId: sourceWorkspaceId
+        )
+        #expect(
+            directorylessStore.attachDetachedSurface(
+                directorylessTransfer,
+                inPane: directorylessRootPane,
+                focus: false
+            ) == directorylessPanel.id
+        )
+        let directorylessScope = ControlSidebarPanelOwner
+            .dock(directorylessStore)
+            .agentLifecycleRegistryScope(panelId: directorylessPanel.id)
+        let directorylessRegistry = directorylessScope.loadRegistry(
+            homeDirectory: emptyHome.path,
+            environment: ["PWD": root.path]
+        )
+        #expect(directorylessRegistry.registration(id: "local-agent") == nil)
     }
 
     @Test("Dock detach preserves binding-only resume state")
@@ -633,6 +878,198 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
+    @Test("Session-ending Dock clear marks completion before a prompt event")
+    @MainActor
+    func sessionEndingDockClearMarksCompletionBeforePrompt() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "omp-ended-before-prompt-\(UUID().uuidString)"
+        let directory = "/tmp/cmux-omp-ended-before-prompt"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: sessionId,
+            workingDirectory: directory,
+            launchCommand: nil
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(sessionId)'",
+            cwd: directory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: agent,
+            restorableAgentResumeState: .observedAgentCommandRunning,
+            restoredResumeSessionWorkingDirectory: directory,
+            resumeBinding: binding,
+            agentSessionRetryCompletedAttempts: 2
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+        #expect(store.clearSurfaceResumeBinding(
+            panelId: panel.id,
+            agentSessionEnded: true
+        ))
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restorableAgentResumeState == .completedAgentExit)
+        #expect(roundTripped.restoredAgentCompletedGeneration != nil)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
+        #expect(roundTripped.resumeBinding == nil)
+        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
+    }
+
+    @Test("Process-detected tmux binding preserves the managed Dock agent")
+    @MainActor
+    func processDetectedTmuxBindingPreservesManagedDockAgent() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "omp-inside-tmux-\(UUID().uuidString)"
+        let directory = "/tmp/cmux-omp-inside-tmux"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: sessionId,
+            workingDirectory: directory,
+            launchCommand: nil
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(sessionId)'",
+            cwd: directory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: agent,
+            restorableAgentResumeState: .observedAgentCommandRunning,
+            restoredResumeSessionWorkingDirectory: directory,
+            resumeBinding: binding,
+            agentSessionRetryCompletedAttempts: 2
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+        store.surfaceResumeBindingsByPanelId[panel.id] = SurfaceResumeBindingSnapshot(
+            name: "tmux",
+            kind: "tmux",
+            command: "tmux attach-session -t cmux",
+            cwd: directory,
+            checkpointId: "cmux",
+            source: "process-detected",
+            autoResume: true,
+            updatedAt: 1_999_999_999
+        )
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.restorableAgent?.sessionId == sessionId)
+        #expect(roundTripped.restorableAgentResumeState == .observedAgentCommandRunning)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == directory)
+        #expect(roundTripped.resumeBinding?.source == "process-detected")
+        #expect(roundTripped.agentSessionRetryCompletedAttempts == 2)
+    }
+
+    @Test("Session-ending hook clear survives a process-detected tmux binding")
+    @MainActor
+    func sessionEndingHookClearSurvivesProcessDetectedTmuxBinding() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "omp-ended-inside-tmux-\(UUID().uuidString)"
+        let directory = "/tmp/cmux-omp-ended-inside-tmux"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: sessionId,
+            workingDirectory: directory,
+            launchCommand: nil
+        )
+        let managedBinding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(sessionId)'",
+            cwd: directory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: agent,
+            restorableAgentResumeState: .observedAgentCommandRunning,
+            restoredResumeSessionWorkingDirectory: directory,
+            resumeBinding: managedBinding,
+            agentSessionRetryCompletedAttempts: 2
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+        #expect(store.setSurfaceResumeBinding(managedBinding, panelId: panel.id))
+
+        let tmuxBinding = SurfaceResumeBindingSnapshot(
+            name: "tmux",
+            kind: "tmux",
+            command: "tmux attach-session -t cmux",
+            cwd: directory,
+            checkpointId: "cmux",
+            source: "process-detected",
+            autoResume: true,
+            updatedAt: 1_999_999_999
+        )
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            .init(workspaceId: sourceWorkspaceId, panelId: panel.id): tmuxBinding,
+        ])
+        let tmuxSnapshot = store.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        #expect(
+            tmuxSnapshot.panels.first { $0.id == panel.id }?
+                .terminal?.resumeBinding?.source == "process-detected"
+        )
+        #expect(store.surfaceResumeBinding(panelId: panel.id)?.source == "process-detected")
+
+        #expect(store.clearSurfaceResumeBinding(
+            panelId: panel.id,
+            agentSessionEnded: true
+        ))
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restorableAgentResumeState == .completedAgentExit)
+        #expect(roundTripped.restoredAgentCompletedGeneration != nil)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
+        #expect(roundTripped.resumeBinding?.source == "process-detected")
+        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
+    }
+
     @Test("Cleared Dock binding cannot fall back to the cached transfer")
     @MainActor
     func clearedDockBindingDoesNotReturnFromCachedTransfer() throws {
@@ -655,9 +1092,16 @@ extension DockSocketLifecycleTests {
             autoResume: true,
             updatedAt: 1_888_888_888
         )
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: sessionId,
+            workingDirectory: "/tmp/cmux-omp-cleared-binding",
+            launchCommand: nil
+        )
         let detached = detachedTerminalTransfer(
             panel: panel,
             sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: agent,
             restorableAgentResumeState: .awaitingAutoResumeCommand,
             restoredResumeSessionWorkingDirectory: "/tmp/cmux-omp-cleared-binding",
             resumeBinding: binding,
@@ -667,10 +1111,88 @@ extension DockSocketLifecycleTests {
         #expect(store.clearSurfaceResumeBinding(panelId: panel.id))
 
         let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.restorableAgent == nil)
         #expect(roundTripped.resumeBinding == nil)
         #expect(roundTripped.restorableAgentResumeState == nil)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
+    }
+
+    @Test("Cleared binding cannot transfer state from a session-restored Dock panel")
+    @MainActor
+    func clearedBindingDoesNotTransferSessionRestoredDockState() throws {
+        let defaultsName = "DockTerminalReattachTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(false, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let savedPanelId = UUID()
+        let sessionId = "omp-restored-binding-\(UUID().uuidString)"
+        let directory = "/tmp/cmux-omp-restored-binding"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: sessionId,
+            workingDirectory: directory,
+            launchCommand: nil
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(sessionId)'",
+            cwd: directory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        let panelSnapshot = SessionPanelSnapshot(
+            id: savedPanelId,
+            type: .terminal,
+            title: "Restored OMP",
+            customTitle: nil,
+            directory: directory,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                agent: agent,
+                resumeBinding: binding,
+                wasAgentRunning: false
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { store.closeAllPanels() }
+        let restoredIds = store.restoreSessionSnapshot(SessionSplitContainerSnapshot(
+            focusedPanelId: savedPanelId,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [savedPanelId],
+                selectedPanelId: savedPanelId
+            )),
+            panels: [panelSnapshot]
+        ))
+        let panelId = try #require(restoredIds[savedPanelId])
+        #expect(store.detachedSurfaceTransfersByPanelId[panelId] == nil)
+        store.restoredResumeSessionWorkingDirectoriesByPanelId[panelId] = directory
+        #expect(store.clearSurfaceResumeBinding(panelId: panelId))
+
+        let detached = try #require(store.detachSurface(panelId: panelId))
+        #expect(detached.restorableAgent == nil)
+        #expect(detached.restorableAgentResumeState == nil)
+        #expect(detached.restoredAgentCompletedGeneration == nil)
+        #expect(detached.restoredResumeSessionWorkingDirectory == nil)
+        #expect(detached.resumeBinding == nil)
     }
 
     @Test("Dock detach drops agent metadata whose recorded processes all exited")

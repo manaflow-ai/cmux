@@ -9,6 +9,34 @@ import Testing
 
 @Suite("Agent session retry coordinator", .serialized)
 struct AgentSessionRetryCoordinatorTests {
+    @Test("Managed session identity requires kind and checkpoint")
+    func managedSessionIdentityRequiresKindAndCheckpoint() {
+        let complete = managedBinding(sessionId: "complete")
+        let missingCheckpoint = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude",
+            checkpointId: nil,
+            source: "agent-hook"
+        )
+        let anotherMissingCheckpoint = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude",
+            checkpointId: nil,
+            source: "agent-hook"
+        )
+        let missingKind = SurfaceResumeBindingSnapshot(
+            kind: nil,
+            command: "claude --resume complete",
+            checkpointId: "complete",
+            source: "agent-hook"
+        )
+
+        #expect(complete.hasCompleteManagedSessionIdentity)
+        #expect(!missingCheckpoint.hasCompleteManagedSessionIdentity)
+        #expect(!missingCheckpoint.isSameManagedSession(as: anotherMissingCheckpoint))
+        #expect(!missingKind.isSameManagedSession(as: complete))
+    }
+
     @MainActor
     @Test("managed session teardown and idle retain the retry candidate until exit classification")
     func managedSessionTeardownRetainsCandidate() throws {
