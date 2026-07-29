@@ -3,6 +3,7 @@ import SwiftUI
 struct ApplicationPanelView: View {
     let panel: ApplicationPanel
     let isVisibleInUI: Bool
+    let allowsPointerInput: Bool
     let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
 
@@ -131,7 +132,8 @@ struct ApplicationPanelView: View {
             panel: panel,
             windowID: target.windowID,
             processID: target.processID,
-            isVisibleInUI: isVisibleInUI
+            isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: allowsPointerInput
         )
         .id(panel.captureGeneration)
         .overlay {

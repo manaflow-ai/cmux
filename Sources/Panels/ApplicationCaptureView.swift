@@ -106,6 +106,7 @@ final class ApplicationCaptureView: NSView {
     private var inputReleaseGeneration = UUID()
     private var captureDesired = false
     private var hostWindowVisible = false
+    private var hasInputOwnership = false
     private var targetUnavailable = false
     private var pendingScrollX = 0.0
     private var pendingScrollY = 0.0
@@ -120,7 +121,7 @@ final class ApplicationCaptureView: NSView {
     var isReleasingForwardedInput: Bool { inputReleaseTask != nil }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        PaneFirstClickFocusSettings.isEnabled()
+        hasInputOwnership && PaneFirstClickFocusSettings.isEnabled()
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -251,6 +252,14 @@ final class ApplicationCaptureView: NSView {
     func setCaptureActive(_ active: Bool) {
         captureDesired = active
         reconcileCaptureActivity()
+    }
+
+    func setInputOwnership(_ ownsInput: Bool) {
+        guard hasInputOwnership != ownsInput else { return }
+        hasInputOwnership = ownsInput
+        if !ownsInput {
+            releaseForwardedInputs()
+        }
     }
 
     func startCapture() {
@@ -476,6 +485,7 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard hasInputOwnership else { return }
         onPointerDown()
         window?.makeFirstResponder(self)
         enqueueMouse(event, kind: .leftMouseDown)
@@ -486,6 +496,7 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        guard hasInputOwnership else { return }
         onPointerDown()
         window?.makeFirstResponder(self)
         enqueueMouse(event, kind: .rightMouseDown)
@@ -556,6 +567,7 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func flagsChanged(with event: NSEvent) {
+        guard hasInputOwnership else { return }
         guard let keyDown = Self.modifierKeyIsDown(
             keyCode: event.keyCode,
             modifierFlagsRawValue: event.modifierFlags.rawValue
@@ -654,6 +666,7 @@ final class ApplicationCaptureView: NSView {
 
     private var canForwardInput: Bool {
         Self.inputIsReady(
+            hasInputOwnership: hasInputOwnership,
             shouldCaptureNow: shouldCaptureNow,
             hasSession: session != nil,
             hasLease: lease != nil,
@@ -665,6 +678,7 @@ final class ApplicationCaptureView: NSView {
     }
 
     static func inputIsReady(
+        hasInputOwnership: Bool,
         shouldCaptureNow: Bool,
         hasSession: Bool,
         hasLease: Bool,
@@ -673,7 +687,8 @@ final class ApplicationCaptureView: NSView {
         isReleasingInput: Bool,
         isStopping: Bool
     ) -> Bool {
-        shouldCaptureNow
+        hasInputOwnership
+            && shouldCaptureNow
             && hasSession
             && hasLease
             && attachmentAcknowledged

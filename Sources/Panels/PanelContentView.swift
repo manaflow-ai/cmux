@@ -86,6 +86,7 @@ struct PanelContentView: View {
                 ApplicationPanelView(
                     panel: applicationPanel,
                     isVisibleInUI: isVisibleInUI,
+                    allowsPointerInput: allowsPointerInput,
                     appearance: appearance,
                     onRequestPanelFocus: onRequestPanelFocus
                 )

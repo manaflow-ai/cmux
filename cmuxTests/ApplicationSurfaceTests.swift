@@ -192,12 +192,14 @@ struct ApplicationSurfaceTests {
         ))
     }
 
-    @Test func inputWaitsForAttachmentAndFirstPresentedFrame() {
+    @Test func inputRequiresPaneOwnershipAttachmentAndFirstPresentedFrame() {
         func ready(
+            hasInputOwnership: Bool = true,
             attachmentAcknowledged: Bool,
             firstFramePresented: Bool
         ) -> Bool {
             ApplicationCaptureView.inputIsReady(
+                hasInputOwnership: hasInputOwnership,
                 shouldCaptureNow: true,
                 hasSession: true,
                 hasLease: true,
@@ -208,6 +210,11 @@ struct ApplicationSurfaceTests {
             )
         }
 
+        #expect(!ready(
+            hasInputOwnership: false,
+            attachmentAcknowledged: true,
+            firstFramePresented: true
+        ))
         #expect(!ready(
             attachmentAcknowledged: false,
             firstFramePresented: false
@@ -224,6 +231,25 @@ struct ApplicationSurfaceTests {
             attachmentAcknowledged: true,
             firstFramePresented: true
         ))
+    }
+
+    @Test func losingPaneInputOwnershipReleasesForwardedInput() async {
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime(),
+            leaseProvider: { nil },
+            onStateChanged: { _, _ in },
+            onMovedToWindow: { _ in }
+        )
+
+        view.setInputOwnership(true)
+        view.setInputOwnership(false)
+
+        #expect(view.isReleasingForwardedInput)
+        await view.waitUntilForwardedInputReleased()
+        #expect(!view.isReleasingForwardedInput)
     }
 
     @Test func frameTransportFailuresResolveThroughTheAppStringCatalog() {
@@ -340,7 +366,7 @@ struct ApplicationSurfaceTests {
         ) == true)
     }
 
-    @Test func applicationCaptureHonorsInactiveWindowFirstClickSetting() {
+    @Test func applicationCaptureHonorsInactiveWindowFirstClickSetting() async {
         let key = PaneFirstClickFocusSettings.enabledKey
         let previousValue = UserDefaults.standard.object(forKey: key)
         defer {
@@ -360,10 +386,15 @@ struct ApplicationSurfaceTests {
             onMovedToWindow: { _ in }
         )
 
+        view.setInputOwnership(true)
         UserDefaults.standard.set(true, forKey: key)
         #expect(view.acceptsFirstMouse(for: nil))
         UserDefaults.standard.set(false, forKey: key)
         #expect(!view.acceptsFirstMouse(for: nil))
+        UserDefaults.standard.set(true, forKey: key)
+        view.setInputOwnership(false)
+        #expect(!view.acceptsFirstMouse(for: nil))
+        await view.waitUntilForwardedInputReleased()
     }
 
     @Test func inputPumpRejectsNonMotionEventsBeyondItsBound() async {
@@ -1334,6 +1365,7 @@ struct ApplicationSurfaceTests {
         ))
 
         #expect(workspace.focusedPanelId == previousPanelID)
+        view.setInputOwnership(true)
         view.mouseDown(with: event)
         #expect(workspace.focusedPanelId == panel.id)
         panel.close()
