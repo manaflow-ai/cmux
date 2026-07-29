@@ -50,14 +50,15 @@ extension MobileCoreRPCSession {
                     task,
                     timeoutNanoseconds: cleanupTimeoutNanoseconds
                 )
-                let didClose = await cleaner.closeCandidate(
+                let close = await cleaner.closeCandidate(
                     candidate,
                     timeoutNanoseconds: lateCloseTimeoutNanoseconds
                 )
-                if didClose {
+                if close.completedWithinDeadline {
                     await cleaner.clearFinishedConnectGate()
                 } else {
                     await cleaner.clearTimedOutAbandonedCleanupGate()
+                    _ = await close.task.result
                 }
             } catch MobileShellConnectionError.requestTimedOut {
                 if tracksRouteGate {
@@ -81,6 +82,11 @@ extension MobileCoreRPCSession {
 }
 
 private struct MobileRPCAbandonedConnectCleaner: Sendable {
+    struct CandidateClose: Sendable {
+        let completedWithinDeadline: Bool
+        let task: Task<Void, any Error>
+    }
+
     let registry: MobileRPCConnectAttemptRegistry
     let lease: MobileRPCConnectAttemptLease?
     let tracksRouteGate: Bool
@@ -95,29 +101,47 @@ private struct MobileRPCAbandonedConnectCleaner: Sendable {
                 task,
                 timeoutNanoseconds: timeoutNanoseconds
             )
-            let didClose = await closeCandidate(
+            let close = await closeCandidate(
                 candidate,
                 timeoutNanoseconds: timeoutNanoseconds
             )
-            if didClose {
+            if close.completedWithinDeadline {
                 await clearFinishedConnectGate()
             } else {
                 await clearTimedOutAbandonedCleanupGate()
+                _ = await close.task.result
             }
         } catch {
+            // Both bounded registry gates have expired. Keep this tracked
+            // watcher alive until the cancellation-ignoring connect actually
+            // settles, then close any late candidate to physical completion.
+            do {
+                let candidate = try await task.value
+                await candidate.close()
+            } catch {
+            }
         }
     }
 
-    func closeCandidate(_ candidate: any CmxByteTransport, timeoutNanoseconds: UInt64) async -> Bool {
+    func closeCandidate(
+        _ candidate: any CmxByteTransport,
+        timeoutNanoseconds: UInt64
+    ) async -> CandidateClose {
         let closeTask = Task<Void, any Error> {
             await candidate.close()
         }
         do {
             try await RPCTaskTimeout().value(closeTask, timeoutNanoseconds: timeoutNanoseconds)
-            return true
+            return CandidateClose(
+                completedWithinDeadline: true,
+                task: closeTask
+            )
         } catch {
             closeTask.cancel()
-            return false
+            return CandidateClose(
+                completedWithinDeadline: false,
+                task: closeTask
+            )
         }
     }
 

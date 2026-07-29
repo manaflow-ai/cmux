@@ -80,7 +80,9 @@ import Testing
             runtime: runtime,
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: true
+            allowsStackAuthFallback: true,
+            abandonedConnectCleanupTimeoutNanoseconds: 1_000_000,
+            lateAbandonedConnectCloseTimeoutNanoseconds: 1_000_000
         )
         let request = Task {
             try? await client.sendRequest(
@@ -98,7 +100,7 @@ import Testing
             await completion.finish()
         }
         #expect(await transport.waitUntilCloseCount(1))
-        for _ in 0 ..< 5 { await Task.yield() }
+        try await Task.sleep(nanoseconds: 10_000_000)
         #expect(!(await completion.isFinished))
 
         await transport.releaseConnects()

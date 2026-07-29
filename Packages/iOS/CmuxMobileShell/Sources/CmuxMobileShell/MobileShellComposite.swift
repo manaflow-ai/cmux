@@ -7019,22 +7019,50 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let connectionAttemptStartedAt = pairingAttemptStartedAt
         var lastError: (any Error)?
         var displacedControlReservation: SecondaryMacSubscription?
+        var displacedControlDrain: Task<Bool, Never>?
         defer {
             if let displacedControlReservation,
                secondaryMacSubscriptions[
                    displacedControlReservation.macDeviceID
                ] === displacedControlReservation {
-                displacedControlReservation.detachKeepingClient()
-                secondaryMacSubscriptions[
-                    displacedControlReservation.macDeviceID
-                ] = nil
-                markSecondaryMacUnavailable(
-                    displacedControlReservation.macDeviceID
-                )
-                scheduleSecondaryPresenceAggregation(
-                    forMacDeviceID:
+                if let displacedControlDrain {
+                    // A deadline only bounds the user-visible switch. Preserve
+                    // this retired same-peer owner until the actual transport
+                    // drain settles, so neither aggregation nor a later switch
+                    // can overlap it.
+                    Task { @MainActor [weak self] in
+                        _ = await displacedControlDrain.value
+                        guard let self,
+                              self.secondaryMacSubscriptions[
+                                  displacedControlReservation.macDeviceID
+                              ] === displacedControlReservation else {
+                            return
+                        }
+                        displacedControlReservation.detachKeepingClient()
+                        self.secondaryMacSubscriptions[
+                            displacedControlReservation.macDeviceID
+                        ] = nil
+                        self.markSecondaryMacUnavailable(
+                            displacedControlReservation.macDeviceID
+                        )
+                        self.scheduleSecondaryPresenceAggregation(
+                            forMacDeviceID:
+                                displacedControlReservation.macDeviceID
+                        )
+                    }
+                } else {
+                    displacedControlReservation.detachKeepingClient()
+                    secondaryMacSubscriptions[
                         displacedControlReservation.macDeviceID
-                )
+                    ] = nil
+                    markSecondaryMacUnavailable(
+                        displacedControlReservation.macDeviceID
+                    )
+                    scheduleSecondaryPresenceAggregation(
+                        forMacDeviceID:
+                            displacedControlReservation.macDeviceID
+                    )
+                }
             }
         }
         // A fresh same-peer dial cannot acquire the Iroh session while the
@@ -7056,6 +7084,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     .disconnectAndWaitForTransportDrain()
                 return true
             }
+            displacedControlDrain = transportDrain.abandoned
             guard transportDrain.value == true,
                   !transportDrain.wasCancelled,
                   isConnectCurrent() else {
