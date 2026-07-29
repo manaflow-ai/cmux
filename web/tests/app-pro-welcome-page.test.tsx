@@ -5,10 +5,14 @@ import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
+let activeLocale = "en";
 
 // bun's mock.module replaces these modules process-wide. Keep the shared
 // export set complete so this file cannot break an unrelated suite.
 mock.module("next/navigation", () => createNextNavigationMock(redirect));
+mock.module("next-intl/server", () => ({
+  getLocale: async () => activeLocale,
+}));
 
 const { default: AppProWelcomePage } = await import("../app/app-pro-welcome/page");
 
@@ -51,5 +55,21 @@ describe("app pro welcome page", () => {
     expect(html).not.toContain('href="/dashboard/subrouter"');
     expect(html).not.toContain('href="/dashboard/ai-accounts"');
     expect(html).toContain('data-app-pro-welcome-appearance="dark"');
+  });
+
+  test("uses the active web locale for the Pro welcome", async () => {
+    activeLocale = "fr";
+    try {
+      const element = await AppProWelcomePage({
+        searchParams: Promise.resolve({ cmux_app: "1" }),
+      });
+      const html = renderToStaticMarkup(element);
+
+      expect(html).toContain("Bienvenue dans cmux Pro");
+      expect(html).toContain("L’accès au cloud arrive bientôt");
+      expect(html).toContain("Rejoindre la bêta iOS");
+    } finally {
+      activeLocale = "en";
+    }
   });
 });

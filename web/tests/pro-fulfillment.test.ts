@@ -73,6 +73,26 @@ describe("cmux Pro checkout fulfillment", () => {
     );
   });
 
+  test("uses a supported checkout locale for the Pro email", async () => {
+    const sendEmail = mock(async () => ({ error: null }));
+    const session = checkoutSession();
+    session.locale = "fr";
+
+    await sendProSignupWelcome(
+      { session, stackUserId: "user_1" },
+      {
+        sendEmail,
+        fromEmail: () => "pro@cmux.com",
+      },
+    );
+
+    const [payload] = (sendEmail as unknown as {
+      mock: { calls: [[Record<string, unknown>]] };
+    }).mock.calls[0];
+    expect(payload.subject).toBe("Bienvenue dans cmux Pro 🎉");
+    expect(payload.text).toContain("L’accès au cloud arrive bientôt");
+  });
+
   test("escapes the customer name in the HTML email", () => {
     const email = buildProWelcomeEmail({
       from: "cmux Pro <pro@cmux.com>",
