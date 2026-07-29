@@ -217,7 +217,7 @@ public struct CommandRunner: CommandRunning, Sendable {
                         if await coordinator.installDeadlineTimer(timer) {
                             timer.resume()
                         } else {
-                            timer.cancel()
+                            timer.cancelBeforeActivation()
                         }
                     }
 
@@ -331,7 +331,7 @@ public struct CommandRunner: CommandRunning, Sendable {
                             )
                         }
                     ) else {
-                        exitSource.cancel()
+                        exitSource.cancelBeforeActivation()
                         return
                     }
                     exitSource.resume()

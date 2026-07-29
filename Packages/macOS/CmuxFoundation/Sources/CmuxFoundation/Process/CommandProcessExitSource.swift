@@ -20,6 +20,11 @@ final class CommandProcessExitSource: @unchecked Sendable {
         source.cancel()
     }
 
+    func cancelBeforeActivation() {
+        source.resume()
+        source.cancel()
+    }
+
     func resume() {
         source.resume()
     }
