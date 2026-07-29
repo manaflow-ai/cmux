@@ -775,11 +775,16 @@ final class ClaudeHookSessionStore {
                     )
                 let transferredPendingWork = consumeClearBackgroundWorkTransfer(
                     from: &state,
-                    workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     incomingPID: pid
                 )
-                inheritedPendingBackgroundWork = activeOwnerHasPendingWork || transferredPendingWork
+                if let transferredPendingWork, !transferredPendingWork {
+                    // A transfer owned by another process generation must stay
+                    // pending for its matching clear start.
+                    return nil
+                }
+                inheritedPendingBackgroundWork =
+                    activeOwnerHasPendingWork || transferredPendingWork == true
             }
             let effectiveAgentLifecycle =
                 inheritedPendingBackgroundWork ? .running : agentLifecycle
@@ -1567,27 +1572,25 @@ final class ClaudeHookSessionStore {
 
     private func consumeClearBackgroundWorkTransfer(
         from state: inout ClaudeHookSessionStoreFile,
-        workspaceId: String,
         surfaceId: String,
         incomingPID: Int?
-    ) -> Bool {
+    ) -> Bool? {
         guard let normalizedSurfaceId = normalizeOptional(surfaceId),
-              let transfer = state.clearBackgroundWorkTransfersBySurface.removeValue(
-                  forKey: normalizedSurfaceId
-              ) else {
-            return false
+              let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId] else {
+            return nil
         }
-        if let transferWorkspaceId = normalizeOptional(transfer.workspaceId),
-           let normalizedWorkspaceId = normalizeOptional(workspaceId),
-           transferWorkspaceId != normalizedWorkspaceId {
-            return false
-        }
-        return processGenerationMatches(
+        // Surface identity survives workspace moves, so the stored workspace is
+        // routing history rather than part of the handoff's ownership key.
+        guard processGenerationMatches(
             recordedPID: transfer.pid,
             recordedStartSeconds: transfer.pidStartSeconds,
             recordedStartMicroseconds: transfer.pidStartMicroseconds,
             incomingPID: incomingPID
-        )
+        ) else {
+            return false
+        }
+        state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
+        return true
     }
 
     private func processGenerationMatches(
@@ -24499,9 +24502,15 @@ struct CMUXCLI {
                 surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             )
-            let shouldEstablishActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
+            let shouldEstablishActiveSession =
+                !isForkSessionLaunch
+                && (
+                    isClearSessionStart
+                        ? resolvedSurface.isAuthoritative
+                        : canReplaceStoppedSession
+                )
             let pendingBackgroundWorkBoundary: ClaudeHookSessionStore.PendingBackgroundWorkBoundary
-            if isClearSessionStart {
+            if isClearSessionStart, shouldEstablishActiveSession {
                 pendingBackgroundWorkBoundary = .inheritAcrossClear
             } else if shouldEstablishActiveSession {
                 pendingBackgroundWorkBoundary = .discardTransfer
@@ -24572,6 +24581,9 @@ struct CMUXCLI {
                 shouldRegisterPID = false
             } else if didEstablishActiveSession {
                 shouldRegisterPID = true
+            } else if isClearSessionStart {
+                // A guessed pane cannot own a clear boundary or its PID routing.
+                shouldRegisterPID = false
             } else if !shouldEstablishActiveSession {
                 shouldRegisterPID = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
