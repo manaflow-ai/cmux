@@ -81,6 +81,33 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
+    func statusQueryPreservesExplorerSymlinkNamespace() async throws {
+        let containerURL = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: containerURL) }
+
+        let repoURL = containerURL.appendingPathComponent("repo", isDirectory: true)
+        let aliasURL = containerURL.appendingPathComponent("repo-alias", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: aliasURL, withDestinationURL: repoURL)
+        try Self.initializeRepo(at: repoURL)
+
+        let realExplorerURL = repoURL.appendingPathComponent("work", isDirectory: true)
+        let aliasExplorerURL = aliasURL.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: realExplorerURL, withIntermediateDirectories: true)
+        let realTrackedURL = realExplorerURL.appendingPathComponent("tracked.txt")
+        let aliasTrackedURL = aliasExplorerURL.appendingPathComponent("tracked.txt")
+        try "one\n".write(to: realTrackedURL, atomically: true, encoding: .utf8)
+        try Self.runGit(["add", "."], in: repoURL)
+        try Self.runGit(["commit", "-m", "initial"], in: repoURL)
+        try "modified contents\n".write(to: realTrackedURL, atomically: true, encoding: .utf8)
+
+        let status = await GitStatusProvider().fetchStatus(directory: aliasExplorerURL.path)
+
+        #expect(status[aliasTrackedURL.path] == .some(.modified))
+        #expect(status[realTrackedURL.path] == nil)
+    }
+
+    @Test
     func statusQueryMapsTypeChangedAndUnmergedEntries() async throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
