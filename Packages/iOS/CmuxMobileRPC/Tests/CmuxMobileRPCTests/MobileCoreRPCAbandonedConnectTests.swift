@@ -334,7 +334,7 @@ import Testing
         #expect(await transport.waitUntilCloseCount(2))
     }
 
-    @Test func abandonedConnectCleanupKeepsRouteReservedUntilPhysicalClose()
+    @Test func abandonedConnectCleanupAllowsOneRecoveryThenHardGates()
         async throws {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = "debugLoopback|test|127.0.0.1:59135"
@@ -355,26 +355,33 @@ import Testing
         )
         await transport.waitUntilCloseStarted()
 
-        var blockedRetryObserved = false
+        var recoveryLease: MobileRPCConnectAttemptLease?
         for _ in 0..<20 {
-            if await registry.beginConnect(key: key) == nil {
-                blockedRetryObserved = true
+            if let lease = await registry.beginConnect(key: key) {
+                recoveryLease = lease
                 break
             }
             try await Task.sleep(nanoseconds: 1_000_000)
         }
-        #expect(blockedRetryObserved)
-
-        try await Task.sleep(nanoseconds: 10_000_000)
+        let retryLease = try #require(recoveryLease)
+        await registry.markAbandoned(lease: retryLease)
+        await registry.clearTimedOutAbandonedCleanup(lease: retryLease)
         #expect(await registry.beginConnect(key: key) == nil)
-        #expect(await session.abandonedConnectionCleanupTasks.count == 1)
+        var sessionCleanupDrained = false
+        for _ in 0..<20 {
+            if await session.abandonedConnectionCleanupTasks.isEmpty {
+                sessionCleanupDrained = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(sessionCleanupDrained)
 
         await transport.releaseClose()
         await session.waitForTransportDrain()
         #expect(await session.abandonedConnectionCleanupTasks.isEmpty)
-        let retryLease = await registry.beginConnect(key: key)
-        #expect(retryLease != nil)
         await registry.clearFinishedConnect(lease: retryLease)
+        #expect(await registry.beginConnect(key: key) != nil)
     }
 
     @Test func abandonedConnectGateCapsTimedOutCleanupRetries() async {
@@ -397,8 +404,9 @@ import Testing
         #expect(await registry.beginConnect(key: key) != nil)
     }
 
-    @Test func abandonedConnectHardGateExpiresAfterBoundedReset() async throws {
-        let registry = MobileRPCConnectAttemptRegistry(hardGateResetNanoseconds: 0)
+    @Test func abandonedConnectHardGatePersistsUntilPhysicalCompletion()
+        async throws {
+        let registry = MobileRPCConnectAttemptRegistry()
         let key = "debugLoopback|test|127.0.0.1:59133"
 
         let firstLease = await registry.beginConnect(key: key)
@@ -410,6 +418,8 @@ import Testing
         #expect(secondLease != nil)
         await registry.markAbandoned(lease: secondLease)
         await registry.clearTimedOutAbandonedCleanup(lease: secondLease)
+        #expect(await registry.beginConnect(key: key) == nil)
+        await registry.clearFinishedConnect(lease: secondLease)
         #expect(await registry.beginConnect(key: key) != nil)
     }
 

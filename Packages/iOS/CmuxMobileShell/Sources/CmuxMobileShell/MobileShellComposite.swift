@@ -4028,7 +4028,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static func secondaryControlAttemptIsTransient(
         _ error: any Error
     ) -> Bool {
+        if error is CancellationError || error is DecodingError {
+            return false
+        }
+        if let transportError = error as? CmxNetworkByteTransportError {
+            switch transportError {
+            case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
+                 .unsupportedRouteKind, .unsupportedEndpoint,
+                 .authorizationIntentRequired, .unsupportedAuthorizationMode,
+                 .tailscaleAuthorizationUnavailable:
+                return false
+            case .notConnected, .alreadyClosed, .receiveAlreadyInProgress,
+                 .sendAlreadyInProgress, .connectionTimedOut, .connectionFailed,
+                 .receiveFailed, .sendFailed:
+                return true
+            }
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .cancelled, .badURL, .unsupportedURL, .cannotDecodeContentData,
+                 .cannotDecodeRawData, .cannotParseResponse:
+                return false
+            default:
+                return true
+            }
+        }
         guard let connectionError = error as? MobileShellConnectionError else {
+            // Transport implementations may expose other retryable system
+            // errors. Unknown failures remain recoverable, while all local
+            // authority and protocol failures are classified above.
             return true
         }
         switch connectionError {
@@ -4041,11 +4069,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let normalizedCode = code?.lowercased()
             let permanentCodes: Set<String> = [
                 "account_mismatch",
+                "build_incompatible",
                 "forbidden",
+                "invalid_ticket",
                 "invalid_params",
                 "method_not_found",
+                "ticket_expired",
                 "unauthorized",
                 "unknown_method",
+                "unsupported_version",
                 "unsupported_method",
             ]
             // Unknown server failures and explicit timeout/busy/unavailable
@@ -4550,14 +4582,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         instanceTag: String?
     ) -> Bool {
         guard presence != nil else { return true }
-        // Presence is snapshot-first. Before that snapshot, and when this
-        // logical Mac is represented by an unseen stored alias, absence is
-        // unknown rather than confirmed offline. Keep unknown candidates under
-        // the fixed pool cap; only an explicit offline summary excludes them.
+        // Presence is snapshot-first. Before that snapshot absence is unknown,
+        // so keep candidates under the fixed pool cap. Afterward the snapshot
+        // is authoritative and an absent logical Mac is offline.
+        guard presenceMap.hasReceivedSnapshot else { return true }
         return presenceSummary(
             for: macDeviceID,
             instanceTag: instanceTag
-        )?.online ?? true
+        )?.online == true
     }
 
     /// Open a persistent read-only connection to `mac`, seed its workspace state,
@@ -7046,9 +7078,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                ) === displacedControlReservation {
                 if let displacedControlDrain {
                     // A deadline only bounds the user-visible switch. Preserve
-                    // this retired same-peer owner until the actual transport
-                    // drain settles, so neither aggregation nor a later switch
-                    // can overlap it.
+                    // this retired same-peer owner until its bounded transport
+                    // drain settles. The shared route registry continues any
+                    // late cleanup and hard-gates a twice-wedged route.
                     Task { @MainActor [weak self] in
                         _ = await displacedControlDrain.value
                         guard let self,
@@ -7371,6 +7403,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         foregroundMacDeviceID = resolvedForegroundMacID
                     }
                     supportedHostCapabilities = authenticatedCapabilities
+                    // Publish transport selection with the authenticated
+                    // capability snapshot before exposing `.connected`.
+                    // The listener reuses this same status below, but starts in
+                    // a task; leaving `.rawBytes` until that task runs creates a
+                    // transient capability/state contradiction.
+                    terminalOutputTransport =
+                        Self.resolvedTerminalOutputTransport(
+                            capabilities: authenticatedCapabilities,
+                            terminalFidelity: status.terminalFidelity
+                        )
                     applyRemoteWorkspaceList(
                         response,
                         preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget,
@@ -7808,10 +7850,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Their current scoped pairing is the only available eligibility
         // authority. Production compositions with presence remain online-only.
         guard presence != nil else { return true }
+        guard presenceMap.hasReceivedSnapshot else { return true }
         return presenceSummary(
             for: stored.macDeviceID,
             instanceTag: stored.instanceTag
-        )?.online ?? true
+        )?.online == true
     }
 
     static func warmControlPoolHasCapacity(

@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
+import CmuxMobileTransport
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -41,6 +42,38 @@ import Testing
                 "method_not_found",
                 "unsupported"
             )
+        ))
+        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+            MobileShellConnectionError.rpcError(
+                "build_incompatible",
+                "upgrade required"
+            )
+        ))
+    }
+
+    @Test func malformedTicketsAndRoutesDoNotRetryForever() {
+        let decodingError = DecodingError.dataCorrupted(.init(
+            codingPath: [],
+            debugDescription: "invalid ticket"
+        ))
+
+        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+            decodingError
+        ))
+        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+            CmxNetworkByteTransportError.unsupportedRouteKind(.websocket)
+        ))
+        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+            CancellationError()
+        ))
+    }
+
+    @Test func networkTransportFailuresRemainRetryable() {
+        #expect(MobileShellComposite.secondaryControlAttemptIsTransient(
+            CmxNetworkByteTransportError.connectionTimedOut
+        ))
+        #expect(MobileShellComposite.secondaryControlAttemptIsTransient(
+            URLError(.networkConnectionLost)
         ))
     }
 
@@ -93,6 +126,29 @@ import Testing
         )
 
         #expect(candidates.map(\.macDeviceID) == ["mac-before-snapshot"])
+    }
+
+    @Test func authoritativeEmptyPresenceExcludesUnknownMacs() throws {
+        let shell = MobileShellComposite(
+            isSignedIn: false,
+            presence: IdlePresence()
+        )
+        let mac = try Self.pairedMac(
+            id: "mac-absent-after-snapshot",
+            instanceTag: "tag-absent-after-snapshot"
+        )
+        shell.applyPresenceUpdate(
+            Self.snapshot([]),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+
+        let candidates = shell.secondaryAggregationCandidateMacs(from: [mac])
+
+        #expect(candidates.isEmpty)
     }
 
     @Test func onlineAliasKeepsLogicalMacInPool() async throws {

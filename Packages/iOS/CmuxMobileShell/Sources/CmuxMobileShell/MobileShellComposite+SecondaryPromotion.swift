@@ -541,6 +541,14 @@ extension MobileShellComposite {
         connectedHostName = placeholderHostName(for: sub.ticket, firstRoute: sub.route)
         foregroundMacDeviceID = macID
         supportedHostCapabilities = sub.supportedHostCapabilities
+        // Promotion has already authenticated this capability snapshot on the
+        // control connection. Publish its terminal mode synchronously so input
+        // can use the warm connection immediately while the render listener
+        // attaches and refreshes status.
+        terminalOutputTransport = Self.resolvedTerminalOutputTransport(
+            capabilities: sub.supportedHostCapabilities,
+            terminalFidelity: nil
+        )
         let promotedConnection = MacConnection(
             macDeviceID: macID,
             ticket: sub.ticket,

@@ -261,9 +261,11 @@ actor MobileCoreRPCSession {
         isTearingDown = false
     }
 
-    /// Wait until every physical transport detached by teardown has completed
-    /// `close()`. Ordinary reconnects intentionally do not block on this, but a
-    /// same-peer ownership handoff must observe the release before redialing.
+    /// Wait until every installed transport detached by teardown has completed
+    /// `close()` and every abandoned dial has either closed or transferred its
+    /// late cleanup to the shared route registry. Ordinary reconnects do not
+    /// block on this bounded drain, but a same-peer ownership handoff observes
+    /// it before redialing.
     func waitForTransportDrain() async {
         while transportCloseTask != nil
             || !abandonedConnectionCleanupTasks.isEmpty {
@@ -289,10 +291,11 @@ actor MobileCoreRPCSession {
         }
         if let transport { return transport }
         // A cancellation-ignoring connect or close still owns this client's
-        // production route until physical cleanup finishes. Do not let
-        // repeated requests append more retained cleanup graphs behind that
-        // unresolved owner. Direct untracked sessions have no shared route
-        // authority and retain their cooperative-cancellation retry semantics.
+        // production route until cleanup closes it or transfers its late
+        // watcher to the shared route registry. Do not let repeated requests
+        // append more retained cleanup graphs before that bounded handoff.
+        // Direct untracked sessions have no shared route authority and retain
+        // their cooperative-cancellation retry semantics.
         if connectAttemptKey != nil,
            !abandonedConnectionCleanupTasks.isEmpty {
             throw MobileShellConnectionError.requestTimedOut
@@ -584,7 +587,6 @@ actor MobileCoreRPCSession {
         }
         connectionTask = nil
         task.cancel()
-        await connectAttemptRegistry.markAbandoned(lease: lease)
         startAbandonedConnectionCleanup(
             task: task,
             lease: lease,
@@ -613,7 +615,6 @@ actor MobileCoreRPCSession {
         }
         connectionTask = nil
         task.cancel()
-        await connectAttemptRegistry.markAbandoned(lease: lease)
         startAbandonedConnectionCleanup(
             task: task,
             lease: lease,

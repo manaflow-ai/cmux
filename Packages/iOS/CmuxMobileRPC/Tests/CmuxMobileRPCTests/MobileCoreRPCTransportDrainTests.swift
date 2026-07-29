@@ -55,7 +55,7 @@ import Testing
         _ = await request.result
     }
 
-    @Test func disconnectDrainWaitsForAbandonedConnectingCandidate()
+    @Test func disconnectDrainReleasesAfterBoundedAbandonedCleanup()
         async throws {
         let transport = CancellationIgnoringConnectTransport()
         let route = try hostPortRoute(
@@ -101,11 +101,11 @@ import Testing
         }
         #expect(await transport.waitUntilCloseCount(1))
         try await Task.sleep(nanoseconds: 10_000_000)
-        #expect(!(await completion.isFinished))
+        #expect(await completion.isFinished)
 
         await transport.releaseConnects()
         await drain.value
-        #expect(await transport.closeCount() >= 2)
+        #expect(await transport.waitUntilCloseCount(2))
         request.cancel()
         _ = await request.result
     }

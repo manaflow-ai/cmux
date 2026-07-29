@@ -124,8 +124,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     }
 
     /// Retire this client and await both its installed transport close and any
-    /// transport factory admission that raced retirement. Same-peer ownership
-    /// transfers use this stronger boundary before allocating a replacement.
+    /// transport factory admission that raced retirement. A cancellation-
+    /// ignoring abandoned dial is handed to the shared route registry after a
+    /// bounded cleanup interval; the registry permits one recovery dial, then
+    /// hard-gates that route if the recovery also wedges. Same-peer ownership
+    /// transfers use this stronger bounded boundary before allocating a
+    /// replacement.
     public func disconnectAndWaitForTransportDrain() async {
         retire()
         await session.tearDown(error: .connectionClosed)

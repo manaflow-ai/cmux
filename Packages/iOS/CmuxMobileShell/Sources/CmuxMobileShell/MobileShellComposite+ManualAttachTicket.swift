@@ -143,7 +143,16 @@ extension MobileShellComposite {
             throw error
         }
         await client.disconnect()
-        let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
-        return try response.ticket.constrainingRoutes(to: [route], fallbackDisplayName: displayName)
+        do {
+            let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
+            return try response.ticket.constrainingRoutes(
+                to: [route],
+                fallbackDisplayName: displayName
+            )
+        } catch {
+            // The peer answered successfully, but its ticket is malformed or
+            // incompatible. Retrying the same authority cannot repair that.
+            throw MobileShellConnectionError.invalidResponse
+        }
     }
 }

@@ -7,24 +7,20 @@ import Foundation
 /// reserve a route before connect starts, then release that exact reservation
 /// when connect succeeds, fails, or its abandoned task cleanup finishes.
 /// If cleanup gives up its retained task handle at the bounded cleanup deadline,
-/// the registry allows only one bounded retry for that route; a second
-/// still-stuck cleanup gates the route briefly, then clears on the next begin
-/// attempt after the reset window. That keeps repeated scans from piling up
-/// unclosed transports without making a stuck task permanently poison a route.
+/// the registry allows one recovery attempt for that route. A second unresolved
+/// cleanup hard-gates the route until its physical watcher finishes or this
+/// process restarts. That keeps repeated scans from piling up unclosed
+/// transports without making the first stuck task permanently poison a route.
 public actor MobileRPCConnectAttemptRegistry {
     private static let maximumAbandonedAttemptsBeforeHardGate = 2
 
-    private let hardGateResetNanoseconds: UInt64
     private var routeStates: [String: MobileRPCConnectRouteState] = [:]
 
     /// Creates an empty registry.
-    public init(hardGateResetNanoseconds: UInt64 = 30_000_000_000) {
-        self.hardGateResetNanoseconds = hardGateResetNanoseconds
-    }
+    public init() {}
 
     func beginConnect(key: String?) -> MobileRPCConnectAttemptLease? {
         guard let key else { return .untracked }
-        expireHardGateIfNeeded(key: key)
         let abandonedAttempts: Int
         switch routeStates[key] {
         case nil:
@@ -50,7 +46,7 @@ public actor MobileRPCConnectAttemptRegistry {
         switch routeStates[key] {
         case .active(let id, _) where id == lease.id,
              .released(let id, _) where id == lease.id,
-             .hardGated(let id, _, _) where id == lease.id:
+             .hardGated(let id, _) where id == lease.id:
             routeStates[key] = nil
         case nil, .active, .released, .hardGated:
             return
@@ -63,8 +59,7 @@ public actor MobileRPCConnectAttemptRegistry {
         guard count < Self.maximumAbandonedAttemptsBeforeHardGate else {
             routeStates[key] = .hardGated(
                 id: lease.id,
-                abandonedAttempts: count,
-                expiresAt: DispatchTime.now().uptimeNanoseconds &+ hardGateResetNanoseconds
+                abandonedAttempts: count
             )
             return
         }
@@ -73,11 +68,5 @@ public actor MobileRPCConnectAttemptRegistry {
 
     func recordSuccessfulConnect(lease: MobileRPCConnectAttemptLease?) {
         clearFinishedConnect(lease: lease)
-    }
-
-    private func expireHardGateIfNeeded(key: String) {
-        guard case .hardGated(_, _, let expiry) = routeStates[key] else { return }
-        guard DispatchTime.now().uptimeNanoseconds >= expiry else { return }
-        routeStates[key] = nil
     }
 }
