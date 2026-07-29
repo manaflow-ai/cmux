@@ -3,6 +3,32 @@ import CmuxBrowser
 import Foundation
 import WebKit
 
+struct BrowserAppSessionNavigation {
+    let request: URLRequest
+    let websiteDataStore: WKWebsiteDataStore
+    let generation: UInt64
+}
+
+enum BrowserAppSessionRequestOutcome {
+    case navigation(BrowserAppSessionNavigation)
+    case notAuthenticated
+    case failed
+
+    var shouldBeginSignIn: Bool {
+        if case .notAuthenticated = self { return true }
+        return false
+    }
+
+    var shouldRetry: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+
+    static func exchangeFailure(statusCode: Int) -> Self {
+        statusCode == 401 ? .notAuthenticated : .failed
+    }
+}
+
 /// Exchanges the native Stack session for browser cookies without allowing
 /// WebKit navigation to own the exchange lifecycle.
 @MainActor
@@ -13,13 +39,7 @@ final class BrowserAppSessionController {
     private let session: URLSession
     private var generation: UInt64 = 0
     private var acceptsHandoffs = true
-    private var activeTasks: [
-        UUID: Task<(
-            request: URLRequest,
-            websiteDataStore: WKWebsiteDataStore,
-            generation: UInt64
-        )?, Never>
-    ] = [:]
+    private var activeTasks: [UUID: Task<BrowserAppSessionRequestOutcome, Never>] = [:]
     private var handoffStores: [ObjectIdentifier: WKWebsiteDataStore] = [:]
 
     init(
@@ -42,21 +62,13 @@ final class BrowserAppSessionController {
     func request(
         destinationURL: URL,
         websiteDataStore: WKWebsiteDataStore
-    ) async -> (
-        request: URLRequest,
-        websiteDataStore: WKWebsiteDataStore,
-        generation: UInt64
-    )? {
-        guard acceptsHandoffs else { return nil }
+    ) async -> BrowserAppSessionRequestOutcome {
+        guard acceptsHandoffs else { return .failed }
         let requestGeneration = generation
         handoffStores[ObjectIdentifier(websiteDataStore)] = websiteDataStore
         let operationID = UUID()
-        let task: Task<(
-            request: URLRequest,
-            websiteDataStore: WKWebsiteDataStore,
-            generation: UInt64
-        )?, Never> = Task { @MainActor [weak self] in
-            guard let self else { return nil }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return BrowserAppSessionRequestOutcome.failed }
             return await performHandoff(
                 destinationURL: destinationURL,
                 websiteDataStore: websiteDataStore,
@@ -64,9 +76,9 @@ final class BrowserAppSessionController {
             )
         }
         activeTasks[operationID] = task
-        let navigation = await task.value
+        let outcome = await task.value
         activeTasks.removeValue(forKey: operationID)
-        return navigation
+        return outcome
     }
 
     func isCurrent(generation requestGeneration: UInt64) -> Bool {
@@ -110,12 +122,8 @@ final class BrowserAppSessionController {
         destinationURL: URL,
         websiteDataStore: WKWebsiteDataStore,
         requestGeneration: UInt64
-    ) async -> (
-        request: URLRequest,
-        websiteDataStore: WKWebsiteDataStore,
-        generation: UInt64
-    )? {
-        let tokens: BrowserAppSessionTokens?
+    ) async -> BrowserAppSessionRequestOutcome {
+        let tokens: BrowserAppSessionTokens
         if let current = try? await coordinator.currentTokens() {
             tokens = BrowserAppSessionTokens(
                 accessToken: current.accessToken,
@@ -128,16 +136,15 @@ final class BrowserAppSessionController {
                 refreshToken: refreshToken
             )
         } else {
-            tokens = nil
+            return coordinator.isAuthenticated ? .failed : .notAuthenticated
         }
 
         guard handoffIsCurrent(requestGeneration),
-              let tokens,
               let exchangeRequest = handoff.request(
                   destinationURL: destinationURL,
                   tokens: tokens
               ) else {
-            return nil
+            return .failed
         }
 
         let response: URLResponse
@@ -145,29 +152,34 @@ final class BrowserAppSessionController {
             let result = try await session.data(for: exchangeRequest)
             response = result.1
         } catch {
-            return nil
+            return .failed
         }
         guard handoffIsCurrent(requestGeneration),
-              let httpResponse = response as? HTTPURLResponse,
-              let cookies = handoff.sessionCookies(
-                  from: httpResponse,
-                  projectID: projectID
-              ) else {
-            return nil
+              let httpResponse = response as? HTTPURLResponse else {
+            return .failed
+        }
+        if httpResponse.statusCode != 204 {
+            return .exchangeFailure(statusCode: httpResponse.statusCode)
+        }
+        guard let cookies = handoff.sessionCookies(
+            from: httpResponse,
+            projectID: projectID
+        ) else {
+            return .failed
         }
 
         await clearCmuxWebSession(in: websiteDataStore)
-        guard handoffIsCurrent(requestGeneration) else { return nil }
+        guard handoffIsCurrent(requestGeneration) else { return .failed }
         for cookie in cookies {
             await set(cookie, in: websiteDataStore.httpCookieStore)
-            guard handoffIsCurrent(requestGeneration) else { return nil }
+            guard handoffIsCurrent(requestGeneration) else { return .failed }
         }
 
-        return (
-            URLRequest(url: destinationURL),
-            websiteDataStore,
-            requestGeneration
-        )
+        return .navigation(BrowserAppSessionNavigation(
+            request: URLRequest(url: destinationURL),
+            websiteDataStore: websiteDataStore,
+            generation: requestGeneration
+        ))
     }
 
     private func handoffIsCurrent(_ requestGeneration: UInt64) -> Bool {

@@ -80,10 +80,11 @@ function requestsCookieExchange(request: NextRequest): boolean {
 function handoffFailure(
   request: NextRequest,
   afterPath: string,
+  status = 401,
 ): NextResponse {
   if (requestsCookieExchange(request)) {
     return new NextResponse(null, {
-      status: 401,
+      status,
       headers: { "Cache-Control": "no-store" },
     });
   }
@@ -248,13 +249,10 @@ export function makeAppSessionHandoffHandler(
 
     const app = dependencies.stackServerApp;
     const projectId = dependencies.projectId;
-    if (
-      !app
-      || !projectId
-      || isRateLimited(request)
-      || await isDurablyRateLimited(request, dependencies)
-    ) {
-      return handoffFailure(request, afterPath);
+    if (!app || !projectId) return handoffFailure(request, afterPath, 503);
+    if (isRateLimited(request)) return handoffFailure(request, afterPath, 429);
+    if (await isDurablyRateLimited(request, dependencies)) {
+      return handoffFailure(request, afterPath, 429);
     }
 
     const refreshToken = form.get("refresh_token")?.trim();
@@ -275,7 +273,7 @@ export function makeAppSessionHandoffHandler(
       });
       const tokens = await session.getTokens();
       if (!tokens.refreshToken || !tokens.accessToken) {
-        return handoffFailure(request, afterPath);
+        return handoffFailure(request, afterPath, 502);
       }
 
       const cookieExchange = requestsCookieExchange(request);
@@ -296,7 +294,7 @@ export function makeAppSessionHandoffHandler(
       }
       return response;
     } catch {
-      return handoffFailure(request, afterPath);
+      return handoffFailure(request, afterPath, 503);
     }
   };
 }

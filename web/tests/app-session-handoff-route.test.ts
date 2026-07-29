@@ -236,6 +236,23 @@ describe("app session handoff", () => {
     expect(getUser).not.toHaveBeenCalled();
   });
 
+  test("distinguishes native rate limiting from missing authentication", async () => {
+    durableRateLimited = true;
+
+    const response = await POST(handoffRequest({
+      refresh_token: "native-refresh",
+      after: "/dashboard/testflight",
+    }, {
+      "x-cmux-app-session-response": "cookies",
+      "x-forwarded-for": "203.0.113.21",
+    }));
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(getUser).not.toHaveBeenCalled();
+  });
+
   test("does not let User-Agent changes bypass the local safety limit", async () => {
     for (let index = 0; index < 60; index += 1) {
       const response = await POST(handoffRequest({

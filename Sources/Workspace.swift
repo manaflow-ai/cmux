@@ -3778,13 +3778,25 @@ final class Workspace: Identifiable, ObservableObject {
                 return
             }
             guard let auth = AppDelegate.shared?.auth else { return }
-            guard let navigation = await auth.browserAppSession.request(
+            var outcome = await auth.browserAppSession.request(
                 destinationURL: destinationURL,
                 websiteDataStore: sourcePanel.websiteDataStore
-            ) else {
+            )
+            if outcome.shouldRetry {
+                guard let retrySource = self.panels[sourcePanel.id] as? BrowserPanel,
+                      retrySource === sourcePanel else {
+                    return
+                }
+                outcome = await auth.browserAppSession.request(
+                    destinationURL: destinationURL,
+                    websiteDataStore: retrySource.websiteDataStore
+                )
+            }
+            if outcome.shouldBeginSignIn {
                 auth.browserSignIn.beginSignIn()
                 return
             }
+            guard case let .navigation(navigation) = outcome else { return }
 
             guard let currentSource = self.panels[sourcePanel.id] as? BrowserPanel,
                   currentSource === sourcePanel,

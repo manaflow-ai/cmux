@@ -62,6 +62,9 @@ struct BrowserWebContentProcessTests {
         #expect(!notAuthenticated.shouldRetry)
         #expect(!failed.shouldBeginSignIn)
         #expect(failed.shouldRetry)
+        #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 401).shouldBeginSignIn)
+        #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 429).shouldRetry)
+        #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 503).shouldRetry)
     }
 
     @Test
