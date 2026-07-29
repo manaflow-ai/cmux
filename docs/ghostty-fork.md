@@ -233,6 +233,31 @@ The base `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
+### Bounded app mailbox turns
+
+- Commits:
+  - `6a8cdbc7a` (test: reproduce app mailbox drain starvation)
+  - `2258bea96` (fix: bound app mailbox drain turns)
+- File:
+  - `src/App.zig`
+- Summary:
+  - Limits one app-thread mailbox turn to the queue depth observed when the
+    turn begins, so concurrent renderer and terminal producers cannot keep a
+    runtime's main thread inside `App.drainMailbox` indefinitely.
+  - Preserves FIFO ordering and the existing bounded-queue backpressure while
+    explicitly waking another app tick when messages remain, including after
+    an early quit or message-handler failure.
+  - Covers the exact producer-refill mechanism with a deterministic test that
+    injects more app messages while the starting batch is being handled.
+  - Conflict note: future app-loop changes must preserve the finite
+    start-of-turn snapshot and an explicit continuation for messages left
+    behind. Do not restore a producer-refillable drain-until-empty loop.
+
+The issue-branch `2258bea96` universal ReleaseFast GhosttyKit archive is
+published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2258bea96ddc005156beceb741b7dabb283ec615-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
 ### PTY reader and child lifecycle teardown
 
 - Commits:
