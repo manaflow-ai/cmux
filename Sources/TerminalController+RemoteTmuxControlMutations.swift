@@ -112,7 +112,11 @@ extension TerminalController {
             remotePTYSessionID: inputs.remotePTYSessionID
         ) + inputs.clientUnsupportedRemoteTmuxOptions
         guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
-        guard controlWorkspaceMutationTargetIsAvailable(tabManager) else {
+        guard v2PrepareWorkspaceMutation(
+            tabManager,
+            workspace: workspace,
+            requestedFocus: inputs.requestedFocus
+        ) else {
             return .tabManagerUnavailable
         }
         let shouldFocus = v2FocusAllowed(requested: inputs.requestedFocus)
@@ -122,10 +126,6 @@ extension TerminalController {
             focusIntent: focusIntent
         ) else {
             return .createFailed
-        }
-        if shouldFocus,
-           !controlPrepareWorkspaceFocus(tabManager, workspace: workspace) {
-            return .tabManagerUnavailable
         }
         return .routedToRemote(
             windowID: v2ResolveWindowId(tabManager: tabManager),
@@ -163,7 +163,11 @@ extension TerminalController {
             remotePTYSessionID: inputs.remotePTYSessionID
         )
         guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
-        guard controlWorkspaceMutationTargetIsAvailable(tabManager) else {
+        guard v2PrepareWorkspaceMutation(
+            tabManager,
+            workspace: workspace,
+            requestedFocus: inputs.requestedFocus
+        ) else {
             return .tabManagerUnavailable
         }
         let shouldFocus = v2FocusAllowed(requested: inputs.requestedFocus)
@@ -173,10 +177,6 @@ extension TerminalController {
             focus: shouldFocus
         ) ?? false
         guard routed else { return .createFailed }
-        if shouldFocus,
-           !controlPrepareWorkspaceFocus(tabManager, workspace: workspace) {
-            return .tabManagerUnavailable
-        }
         return .routedToRemote(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: workspace.id,
