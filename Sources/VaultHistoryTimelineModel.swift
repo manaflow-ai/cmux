@@ -62,8 +62,14 @@ final class VaultHistoryTimelineModel {
             guard !Task.isCancelled, let self else { return }
             var merged = recorded
             merged.append(contentsOf: self.projection.events(from: sessionEntries))
-            merged.sort { $0.timestamp > $1.timestamp }
+            // Ordering is the grouper's job; sort here only when the cap
+            // forces dropping the oldest events, so the common path pays
+            // for a single sort per refresh.
             if merged.count > Self.maxTimelineEvents {
+                merged.sort {
+                    if $0.timestamp != $1.timestamp { return $0.timestamp > $1.timestamp }
+                    return $0.id > $1.id
+                }
                 merged.removeLast(merged.count - Self.maxTimelineEvents)
             }
             self.mergedEvents = merged

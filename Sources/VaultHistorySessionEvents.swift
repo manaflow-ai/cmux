@@ -6,8 +6,6 @@ import Foundation
 /// on-disk stores, so the timeline derives them instead of double-writing:
 /// whatever the session index covers automatically appears in History.
 struct VaultHistorySessionEventProjection: Sendable {
-    init() {}
-
     func events(from entries: [SessionEntry]) -> [VaultHistoryEvent] {
         entries.map { entry in
             VaultHistoryEvent(
