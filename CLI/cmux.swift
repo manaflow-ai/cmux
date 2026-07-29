@@ -198,6 +198,8 @@ struct ClaudeHookClearBackgroundWorkTransfer: Codable {
     let pidStartSeconds: Int64?
     let pidStartMicroseconds: Int64?
     let updatedAt: TimeInterval
+    /// Creator-owned expiry so another hook process cannot shorten the handoff.
+    let expiresAt: TimeInterval?
 }
 
 struct AgentHookLaunchCommandRecord: Codable {
@@ -268,7 +270,7 @@ final class ClaudeHookSessionStore {
         case unchanged
         case discardTransfer
         case inheritAcrossClear
-        case resumeAfterClear
+        case resumeSessionStart
     }
 
     struct SessionConsumption {
@@ -802,9 +804,9 @@ final class ClaudeHookSessionStore {
                 }
                 inheritedPendingBackgroundWork =
                     activeOwnerHasPendingWork || transferredPendingWork == true
-            case .resumeAfterClear:
+            case .resumeSessionStart:
                 inheritedPendingBackgroundWork = false
-                guard authorizeResumeAfterClear(
+                guard authorizeResumeSessionStart(
                     in: &state,
                     sessionId: normalized,
                     workspaceId: workspaceId,
@@ -1543,18 +1545,32 @@ final class ClaudeHookSessionStore {
         // THIS surface allows its own pane to start a new session even when
         // another pane currently holds the workspace-active slot.
         // https://github.com/manaflow-ai/cmux/issues/5908
-        if let surfaceId,
-           let surfaceActive = state.activeSessionsBySurface[surfaceId] {
-            guard surfaceActive.sessionId != sessionId else {
-                return false
-            }
-            return surfaceActive.allowsNewSessionReplacement == true
-        }
-        guard let active = state.activeSessionsByWorkspace[workspaceId],
-              active.sessionId != sessionId else {
+        guard let active = activeSessionBoundary(
+            in: state,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        ), active.sessionId != sessionId else {
             return false
         }
         return active.allowsNewSessionReplacement == true
+    }
+
+    private func activeSessionBoundary(
+        in state: ClaudeHookSessionStoreFile,
+        workspaceId: String,
+        surfaceId: String?
+    ) -> ClaudeHookActiveSessionRecord? {
+        if let surfaceId {
+            if let surfaceActive = state.activeSessionsBySurface[surfaceId] {
+                return surfaceActive
+            }
+            guard let workspaceActive = state.activeSessionsByWorkspace[workspaceId],
+                  normalizeOptional(state.sessions[workspaceActive.sessionId]?.surfaceId) == surfaceId else {
+                return nil
+            }
+            return workspaceActive
+        }
+        return state.activeSessionsByWorkspace[workspaceId]
     }
 
     private func activeSessionRecord(
@@ -1612,7 +1628,7 @@ final class ClaudeHookSessionStore {
         )
     }
 
-    private func authorizeResumeAfterClear(
+    private func authorizeResumeSessionStart(
         in state: inout ClaudeHookSessionStoreFile,
         sessionId: String,
         workspaceId: String,
@@ -1630,9 +1646,18 @@ final class ClaudeHookSessionStore {
                     surfaceId: normalizedSurfaceId
                 )
             } ?? false
-        guard let normalizedSurfaceId,
-              let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId] else {
-            return canReplaceStoppedOwner
+        guard let normalizedSurfaceId else {
+            return false
+        }
+        let activeOwner = normalizedWorkspaceId.flatMap {
+            activeSessionBoundary(
+                in: state,
+                workspaceId: $0,
+                surfaceId: normalizedSurfaceId
+            )
+        }
+        guard let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId] else {
+            return activeOwner == nil || canReplaceStoppedOwner
         }
 
         let resumesPendingClear = clearBackgroundWorkTransferMatchesSource(
@@ -1644,7 +1669,7 @@ final class ClaudeHookSessionStore {
             return false
         }
         if resumesPendingClear,
-           let activeOwner = state.activeSessionsBySurface[normalizedSurfaceId],
+           let activeOwner,
            activeOwner.sessionId != sessionId,
            activeOwner.allowsNewSessionReplacement != true {
             return false
@@ -1748,6 +1773,7 @@ final class ClaudeHookSessionStore {
                 && activeOwner?.sessionId == record.sessionId
                 && transferSurfaceId != nil
             if preservesPendingBackgroundWork, let transferSurfaceId {
+                let transferCreatedAt = Date.now.timeIntervalSince1970
                 state.clearBackgroundWorkTransfersBySurface[transferSurfaceId] =
                     ClaudeHookClearBackgroundWorkTransfer(
                         sourceSessionId: record.sessionId,
@@ -1755,7 +1781,8 @@ final class ClaudeHookSessionStore {
                         pid: record.pid,
                         pidStartSeconds: record.pidStartSeconds,
                         pidStartMicroseconds: record.pidStartMicroseconds,
-                        updatedAt: Date.now.timeIntervalSince1970
+                        updatedAt: transferCreatedAt,
+                        expiresAt: transferCreatedAt + maxClearBackgroundWorkTransferAgeSeconds
                     )
             }
             state.sessions.removeValue(forKey: record.sessionId)
@@ -1939,7 +1966,10 @@ final class ClaudeHookSessionStore {
         let clearTransferCutoff = now - maxClearBackgroundWorkTransferAgeSeconds
         state.clearBackgroundWorkTransfersBySurface =
             state.clearBackgroundWorkTransfersBySurface.filter { _, transfer in
-                transfer.updatedAt >= clearTransferCutoff
+                if let expiresAt = transfer.expiresAt {
+                    return expiresAt > now
+                }
+                return transfer.updatedAt >= clearTransferCutoff
             }
     }
 
@@ -24611,7 +24641,7 @@ struct CMUXCLI {
             if isClearSessionStart, shouldAttemptActiveSessionBoundary {
                 pendingBackgroundWorkBoundary = .inheritAcrossClear
             } else if isResumeSessionStart, shouldAttemptActiveSessionBoundary {
-                pendingBackgroundWorkBoundary = .resumeAfterClear
+                pendingBackgroundWorkBoundary = .resumeSessionStart
             } else if shouldAttemptActiveSessionBoundary {
                 pendingBackgroundWorkBoundary = .discardTransfer
             } else {
