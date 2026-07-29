@@ -51,7 +51,11 @@ final class BrowserAppSessionController {
         let requestGeneration = generation
         handoffStores[ObjectIdentifier(websiteDataStore)] = websiteDataStore
         let operationID = UUID()
-        let task = Task { @MainActor [weak self] in
+        let task: Task<(
+            request: URLRequest,
+            websiteDataStore: WKWebsiteDataStore,
+            generation: UInt64
+        )?, Never> = Task { @MainActor [weak self] in
             guard let self else { return nil }
             return await performHandoff(
                 destinationURL: destinationURL,
