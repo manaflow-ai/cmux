@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from package_pypi import wheel_bytes
+from package_pypi import TARGETS, wheel_bytes
 
 
 def launcher_command(version: str, argv0: str) -> str:
@@ -61,6 +62,35 @@ class LauncherCommandTests(unittest.TestCase):
             launcher_command("1.2.3", "/Users/test/.local/bin/cmux"),
             "/Users/test/.local/bin/cmux",
         )
+
+
+class DarwinCompatibilityTests(unittest.TestCase):
+    def test_wheels_require_the_exact_signaling_macos_release(self) -> None:
+        tags = {
+            target.rust_target: target.platform_tags
+            for target in TARGETS
+            if target.rust_target.endswith("-apple-darwin")
+        }
+
+        self.assertEqual(
+            tags,
+            {
+                "aarch64-apple-darwin": ("macosx_14_2_arm64",),
+                "x86_64-apple-darwin": ("macosx_14_2_x86_64",),
+            },
+        )
+
+    def test_release_build_and_wheels_share_one_macos_minimum(self) -> None:
+        compatibility_file = Path(__file__).resolve().parents[1] / "macos-deployment-target.txt"
+        self.assertEqual(compatibility_file.read_text().strip(), "14.2")
+
+        workflow = (
+            Path(__file__).resolve().parents[3]
+            / ".github"
+            / "workflows"
+            / "cmux-tui-build-package.yml"
+        ).read_text()
+        self.assertGreaterEqual(workflow.count("dist/macos-deployment-target.txt"), 2)
 
 
 if __name__ == "__main__":
