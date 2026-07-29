@@ -392,6 +392,140 @@ import Testing
         ]?.cancel()
     }
 
+    @Test func physicalAliasReplacementRetiresStaleAggregateSnapshots()
+        async throws {
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "c", count: 64)
+        )
+        let route = try CmxAttachRoute(
+            id: "aggregate-alias-replacement-route",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+        let historicalAlias = MobilePairedMac(
+            macDeviceID: "mac-aggregate-before-rename",
+            displayName: "Old Aggregate Mac",
+            routes: [route],
+            createdAt: .distantPast,
+            lastSeenAt: .distantPast,
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            instanceTag: "old-aggregate-tag"
+        )
+        let currentIdentity = MobilePairedMac(
+            macDeviceID: "mac-aggregate-after-rename",
+            displayName: "New Aggregate Mac",
+            routes: [route],
+            createdAt: Date(),
+            lastSeenAt: Date(),
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            instanceTag: "new-aggregate-tag"
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-1": [historicalAlias],
+            ],
+            blockedTeams: []
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: historicalAlias.macDeviceID,
+            instanceTag: historicalAlias.instanceTag,
+            displayName: historicalAlias.displayName
+        )
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: TransportBox()
+                ),
+                now: { Date() },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        await shell.loadPairedMacs()
+        let scope = MobileShellScopeSnapshot(
+            userID: "user-1",
+            teamID: "team-1",
+            generation: 0
+        )
+        shell.applyPresenceUpdate(
+            Self.snapshot([
+                Self.instance(
+                    deviceID: historicalAlias.macDeviceID,
+                    tag: historicalAlias.instanceTag ?? "",
+                    online: true
+                ),
+            ]),
+            scope: scope
+        )
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions[
+                historicalAlias.macDeviceID
+            ] != nil
+        })
+        shell.workspacesByMac[historicalAlias.macDeviceID] =
+            MacWorkspaceState(
+                macDeviceID: historicalAlias.macDeviceID,
+                displayName: historicalAlias.displayName,
+                status: .connected
+            )
+        shell.notificationFeedKnownRevisionsByMac[
+            historicalAlias.macDeviceID
+        ] = 7
+        shell.notificationFeedSnapshotsByMac[historicalAlias.macDeviceID] =
+            NotificationFeedMacSnapshot(revision: 7, items: [])
+
+        try await pairedStore.upsert(
+            macDeviceID: currentIdentity.macDeviceID,
+            displayName: currentIdentity.displayName,
+            routes: currentIdentity.routes,
+            instanceTag: currentIdentity.instanceTag,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        await router.setHostIdentity(
+            deviceID: currentIdentity.macDeviceID,
+            instanceTag: currentIdentity.instanceTag,
+            displayName: currentIdentity.displayName
+        )
+        await shell.refreshSecondaryMacWorkspaces()
+
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions[
+                historicalAlias.macDeviceID
+            ] == nil
+                && shell.secondaryMacSubscriptions[
+                    currentIdentity.macDeviceID
+                ] != nil
+        })
+        #expect(shell.workspacesByMac[historicalAlias.macDeviceID] == nil)
+        #expect(
+            shell.notificationFeedSnapshotsByMac[
+                historicalAlias.macDeviceID
+            ] == nil
+        )
+        #expect(
+            shell.notificationFeedKnownRevisionsByMac[
+                historicalAlias.macDeviceID
+            ] == nil
+        )
+
+        shell.secondaryMacSubscriptions[
+            currentIdentity.macDeviceID
+        ]?.cancel()
+    }
+
     @Test
     func targetedOfflineAliasRetiresRepresentativeControlConnection()
         async throws {

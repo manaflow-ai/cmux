@@ -4354,6 +4354,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         let wanted = Set(macs.map(\.macDeviceID))
+        let wantedCanonicalIDs = Set(wanted.map(cmxCanonicalDeviceID))
         let visibleMacIDs = Set(visibleLoadedMacs.map(\.macDeviceID))
         let canonicalForegroundMacID = foregroundMacDeviceID.map(cmxCanonicalDeviceID)
         var retiredControlSlot = false
@@ -4369,7 +4370,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             subscription.cancel()
             secondaryMacSubscriptions[macID] = nil
             retiredControlSlot = true
-            if !visibleMacIDs.contains(macID) {
+            let canonicalMacID = cmxCanonicalDeviceID(macID)
+            let physicalAliasCanonicalIDs =
+                storedPairedMacAliasCanonicalIDsByCanonicalID[canonicalMacID]
+                    ?? [canonicalMacID]
+            if !physicalAliasCanonicalIDs.isDisjoint(
+                with: wantedCanonicalIDs
+            ) {
+                // The same physical Mac now has a different authoritative
+                // stored id. Its replacement publishes fresh snapshots under
+                // that id, so retaining this id would duplicate stale rows and
+                // route notification actions to a retired connection owner.
+                workspacesByMac[macID] = nil
+                removeNotificationFeedSnapshot(macDeviceID: macID)
+            } else if !visibleMacIDs.contains(macID) {
                 // Pairing removal and hiding are authoritative deletion events.
                 workspacesByMac[macID] = nil
             } else if canonicalForegroundMacID != cmxCanonicalDeviceID(macID) {
