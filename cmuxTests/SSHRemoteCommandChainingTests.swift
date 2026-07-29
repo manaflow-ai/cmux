@@ -236,4 +236,61 @@ struct SSHRemoteCommandChainingTests {
             }
         }
     }
+
+    @Test
+    func nonPersistentRestorePreservesConfiguredCommandAcrossOpenSSHReparsing() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-restore-quoting-\(UUID().uuidString)", isDirectory: true)
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let resultFile = root.appendingPathComponent("configured-command-result")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        // OpenSSH concatenates argv after the destination into one command
+        // string, which the remote login shell parses again.
+        try """
+        #!/bin/sh
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -o|-p|-i) shift 2 ;;
+            -tt|-t|-T) shift ;;
+            *) shift; break ;;
+          esac
+        done
+        exec /bin/sh -c "$*"
+        """.write(to: fakeSSH, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSSH.path)
+
+        let configuredRemoteCommand = #"printf '%s\n' "command 'ran'" "$PWD" > "$RESULT_FILE""#
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .ssh,
+            configuredRemoteCommand: configuredRemoteCommand,
+            destination: "dev@example.com",
+            sshOptions: ["RemoteCommand=printf current-host-command"]
+        )
+        let restored = try #require(
+            snapshot.workspaceConfiguration(allowPersistentPTYRestore: false)
+        )
+        let startupCommand = try #require(restored.terminalStartupCommand)
+            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "/usr/bin:/bin"
+        environment["RESULT_FILE"] = resultFile.path
+        environment["SHELL"] = "/bin/sh"
+        let result = processSupport.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(
+            try String(contentsOf: resultFile, encoding: .utf8)
+                == "command 'ran'\n\(FileManager.default.currentDirectoryPath)\n"
+        )
+    }
 }
