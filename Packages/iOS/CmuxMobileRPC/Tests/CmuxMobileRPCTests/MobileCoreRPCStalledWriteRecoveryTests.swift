@@ -212,6 +212,92 @@ import Testing
         await stalled.failStalledSend()
     }
 
+    @Test func queuedRequestBehindCancelledStalledWriteRecyclesWithinGrace() async throws {
+        let stalled = StalledWriteTransport()
+        let recovery = ResponseTimeoutSurvivalTransport()
+        let factory = StalledWriteRecoveryTransportFactory(
+            stalled: stalled,
+            recovery: recovery
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59135
+        )
+        let session = MobileCoreRPCSession(
+            cancelledWriteCompletionGraceNanoseconds: 50_000_000,
+            makeTransport: { try factory.makeTransport(for: route) }
+        )
+        let headTask = Task {
+            try await session.send(
+                payload: try inputRequest(id: "cancelled-stalled-head", text: "a"),
+                requestID: "cancelled-stalled-head",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 60 * 1_000_000_000
+            )
+        }
+
+        await stalled.waitUntilSendStarted()
+        let queuedTask = Task {
+            try await session.send(
+                payload: try inputRequest(id: "queued-behind-cancel", text: "b"),
+                requestID: "queued-behind-cancel",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 2_000_000_000
+            )
+        }
+        // The queued request must be registered behind the stalled head write
+        // BEFORE the head is cancelled: it has already passed the send()
+        // recovery gate, so recycling cannot rely on a later send() call.
+        var queuedReachedGate = false
+        for _ in 0..<1000 {
+            if await session.queuedRequestIDs.contains("queued-behind-cancel") {
+                queuedReachedGate = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(queuedReachedGate)
+
+        let startedAt = ContinuousClock.now
+        headTask.cancel()
+        do {
+            _ = try await headTask.value
+            Issue.record("Expected the stalled head request to be cancelled")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+
+        do {
+            _ = try await queuedTask.value
+            Issue.record("Expected the queued request to fail on recycle")
+        } catch MobileShellConnectionError.connectionClosed {
+        } catch {
+            Issue.record("Expected connectionClosed, got \(error)")
+        }
+        let elapsed = startedAt.duration(to: .now)
+
+        // The queued request must fail fast via the grace recycle, not hang
+        // until its own deadline behind the cancellation-ignoring send.
+        #expect(elapsed < .seconds(1))
+        // Bounded poll instead of waitUntilCloseStarted(): if recovery never
+        // recycles, the transport is never closed and an unbounded wait would
+        // hang the suite instead of failing it.
+        var stalledClosed = false
+        for _ in 0..<1000 {
+            if await stalled.closed() {
+                stalledClosed = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(stalledClosed)
+
+        await stalled.failStalledSend()
+        await session.tearDown(error: .connectionClosed)
+    }
+
     @Test func cancelledWriteResolutionHonorsNextRequestDeadline() async throws {
         let stalled = StalledWriteTransport()
         let recovery = ResponseTimeoutSurvivalTransport()
