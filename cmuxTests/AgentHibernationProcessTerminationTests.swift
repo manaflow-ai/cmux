@@ -203,6 +203,55 @@ struct AgentHibernationProcessTerminationTests {
         #expect(result == false)
     }
 
+    @MainActor
+    @Test
+    func signalFailureAfterTeardownCommitStillWaitsForOriginalProcesses() async {
+        let firstIdentity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 1
+        )
+        let secondIdentity = AgentPIDProcessIdentity(
+            pid: 202,
+            startSeconds: 20,
+            startMicroseconds: 2
+        )
+        let terminations = [
+            AgentHibernationController.ScopedProcessTermination(
+                processID: 101,
+                processIdentity: firstIdentity,
+                processGroupID: 1
+            ),
+            AgentHibernationController.ScopedProcessTermination(
+                processID: 202,
+                processIdentity: secondIdentity,
+                processGroupID: 1
+            ),
+        ]
+        let waitRecorder = CompletionRecorder()
+
+        let result = await AgentHibernationController.shared
+            .terminateScopedProcessesForHibernation(
+                terminations,
+                currentProcessID: 999,
+                currentProcessGroupID: 999,
+                processIdentityProvider: { pid in
+                    pid == 101 ? firstIdentity : secondIdentity
+                },
+                processGroupProvider: { _ in 1 },
+                signalErrorProvider: { target, _ in
+                    target == 101 ? nil : EPERM
+                },
+                waitForExit: { observedTerminations in
+                    await waitRecorder.record(observedTerminations == terminations)
+                    return observedTerminations == terminations
+                }
+            )
+
+        #expect(await waitRecorder.value == true)
+        #expect(result)
+    }
+
     @Test
     func aReusedPIDMeansTheOriginalProcessGenerationExited() async {
         let originalIdentity = AgentPIDProcessIdentity(

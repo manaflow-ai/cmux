@@ -114,4 +114,59 @@ struct AgentHibernationTrackingLifecycleTests {
         #expect(controller.lifecycleChangeByPanel[destinationKey] == 2)
         #expect(controller.teardownValidationEpochByPanel[destinationKey] == 5)
     }
+
+    @Test
+    func dockReconcilePrunesTrackingForPermanentlyClosedPanel() throws {
+        let controller = AgentHibernationController.shared
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { store.closeAllPanels() }
+        let paneID = try #require(store.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            store.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        let tabID = try #require(store.surfaceId(forPanelId: panelID))
+        let key = AgentHibernationPanelKey(workspaceId: store.workspaceId, panelId: panelID)
+        controller.activityByPanel[key] = 1
+        controller.terminalInputByPanel[key] = 2
+        controller.lifecycleChangeByPanel[key] = 3
+        controller.teardownValidationEpochByPanel[key] = 4
+
+        store.forceCloseDockTabIds.insert(tabID)
+        defer { store.forceCloseDockTabIds.remove(tabID) }
+        #expect(store.bonsplitController.closeTab(tabID))
+        store.reconcilePanels()
+
+        #expect(store.panels[panelID] == nil)
+        expectTrackingWasDiscarded(for: key, controller: controller)
+    }
+
+    @Test
+    func dockResetPrunesTrackingForEveryPermanentlyClosedPanel() throws {
+        let controller = AgentHibernationController.shared
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let paneID = try #require(store.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            store.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        let key = AgentHibernationPanelKey(workspaceId: store.workspaceId, panelId: panelID)
+        controller.activityByPanel[key] = 1
+        controller.terminalInputByPanel[key] = 2
+        controller.lifecycleChangeByPanel[key] = 3
+        controller.teardownValidationEpochByPanel[key] = 4
+
+        store.removeAllPanels()
+
+        #expect(store.panels.isEmpty)
+        expectTrackingWasDiscarded(for: key, controller: controller)
+    }
+
+    private func expectTrackingWasDiscarded(
+        for key: AgentHibernationPanelKey,
+        controller: AgentHibernationController
+    ) {
+        #expect(controller.activityByPanel[key] == nil)
+        #expect(controller.terminalInputByPanel[key] == nil)
+        #expect(controller.lifecycleChangeByPanel[key] == nil)
+        #expect(controller.teardownValidationEpochByPanel[key] == nil)
+    }
 }
