@@ -10,18 +10,32 @@ import SwiftUI
 @MainActor
 @Observable
 private final class WorkspaceListLayoutPreviewModel {
+    /// The continuous update feed's payload shape
+    /// (`CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES`).
+    enum LiveUpdateMode {
+        /// No feed.
+        case off
+        /// `1`: visible churn — unread toggles plus activity restamps.
+        case visible
+        /// `timestamps`: sub-minute activity restamps only, the shape the Mac
+        /// emits while agents stream (`last_activity_at` is the latest
+        /// notification's `createdAt`). Rows render identically, so a correct
+        /// list does zero work per tick.
+        case timestampsOnly
+    }
+
     var workspaces: [MobileWorkspacePreview]
-    private let liveUpdatesEnabled: Bool
+    private let liveUpdateMode: LiveUpdateMode
 
     /// Creates a preview model with an optional continuous update feed.
-    init(workspaces: [MobileWorkspacePreview], liveUpdatesEnabled: Bool) {
+    init(workspaces: [MobileWorkspacePreview], liveUpdateMode: LiveUpdateMode) {
         self.workspaces = workspaces
-        self.liveUpdatesEnabled = liveUpdatesEnabled
+        self.liveUpdateMode = liveUpdateMode
     }
 
     /// Mutates rotating row payloads until the view-owned task is cancelled.
     func runLiveUpdates() async {
-        guard liveUpdatesEnabled else { return }
+        guard liveUpdateMode != .off else { return }
         var updateLane = 0
         while !Task.isCancelled {
             do {
@@ -30,8 +44,11 @@ private final class WorkspaceListLayoutPreviewModel {
                 return
             }
             for index in workspaces.indices where index % 10 == updateLane {
-                workspaces[index].hasUnread.toggle()
+                if liveUpdateMode == .visible {
+                    workspaces[index].hasUnread.toggle()
+                }
                 workspaces[index].previewAt = Date()
+                workspaces[index].lastActivityAt = Date()
             }
             updateLane = (updateLane + 1) % 10
         }
@@ -94,12 +111,16 @@ public struct WorkspaceListLayoutPreviewView: View {
                 return workspace
             }
             : initialWorkspaces
+        let liveUpdateMode: WorkspaceListLayoutPreviewModel.LiveUpdateMode
+        switch environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES"] {
+        case "1": liveUpdateMode = .visible
+        case "timestamps": liveUpdateMode = .timestampsOnly
+        default: liveUpdateMode = .off
+        }
         _model = State(
             initialValue: WorkspaceListLayoutPreviewModel(
                 workspaces: fixtureWorkspaces,
-                liveUpdatesEnabled: environment[
-                    "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES"
-                ] == "1"
+                liveUpdateMode: liveUpdateMode
             )
         )
     }

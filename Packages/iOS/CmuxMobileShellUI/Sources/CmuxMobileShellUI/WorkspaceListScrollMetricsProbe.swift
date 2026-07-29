@@ -64,6 +64,25 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
         /// what the per-row estimate should have been.
         let realizedHeightCounts: [String: Int]
         let corrections: [Correction]
+        /// Display-link frame pacing sampled during the sweep; nil until the
+        /// sweep produced at least one frame interval.
+        let framePacing: FramePacing?
+    }
+
+    /// Frame-pacing summary of the sweep, in the shape of MetricKit's hitch
+    /// metrics: a hitch frame is one whose interval overran the display's
+    /// expected interval by 50% or more, and hitch time is the overrun beyond
+    /// the expected interval summed across hitch frames.
+    private struct FramePacing: Encodable {
+        let frameCount: Int
+        let expectedFrameMs: Double
+        let averageFrameMs: Double
+        let maxFrameMs: Double
+        let hitchFrameCount: Int
+        let hitchTotalMs: Double
+        /// Hitch milliseconds per second of sweep (Apple's hitch-ratio unit;
+        /// <5 is "good", >10 is user-visible stutter).
+        let hitchMsPerSecond: Double
     }
 
     private static let logger = Logger(subsystem: "dev.cmux.ios", category: "scroll-metrics")
@@ -81,6 +100,13 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
     /// `contentSize.height` sampled once per sweep frame — the value the
     /// scroll indicator actually renders from at draw time.
     private var sampledDrawHeights: [Double] = []
+    /// Interval between consecutive sweep display-link callbacks; a late
+    /// callback means the previous frame overran its budget (a hitch).
+    private var sweepFrameDurations: [Double] = []
+    /// Per-callback expected frame interval (`targetTimestamp - timestamp`),
+    /// robust to ProMotion/simulator rate changes mid-sweep.
+    private var sweepExpectedDurations: [Double] = []
+    private var lastSweepFrameTimestamp: CFTimeInterval?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -97,7 +123,7 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
         displayLink = link
     }
 
-    @objc private func tick() {
+    @objc private func tick(_ link: CADisplayLink) {
         switch phase {
         case .searching(let framesLeft):
             if let scrollView = Self.findListScrollView(in: window) {
@@ -116,6 +142,11 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
             }
             baselineAfterSettle()
         case .sweeping:
+            if let last = lastSweepFrameTimestamp {
+                sweepFrameDurations.append(link.timestamp - last)
+                sweepExpectedDurations.append(link.targetTimestamp - link.timestamp)
+            }
+            lastSweepFrameTimestamp = link.timestamp
             sampledDrawHeights.append(Double(listScrollView?.contentSize.height ?? 0))
             stepSweep()
         case .finished:
@@ -166,6 +197,11 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
             Self.logger.notice(
                 "scroll-metrics: sweep done corrections=\(self.corrections.count) totalAbsCorrection=\(self.totalAbsCorrection, format: .fixed(precision: 1)) initial=\(self.initialContentHeight, format: .fixed(precision: 1)) final=\(Double(self.listScrollView?.contentSize.height ?? 0), format: .fixed(precision: 1))"
             )
+            if let pacing = framePacing {
+                Self.logger.notice(
+                    "scroll-metrics: pacing frames=\(pacing.frameCount) hitchFrames=\(pacing.hitchFrameCount) hitchMs=\(pacing.hitchTotalMs, format: .fixed(precision: 1)) hitchMsPerS=\(pacing.hitchMsPerSecond, format: .fixed(precision: 2)) maxFrameMs=\(pacing.maxFrameMs, format: .fixed(precision: 1))"
+                )
+            }
         }
     }
 
@@ -205,6 +241,34 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
         corrections.reduce(0) { $0 + abs($1.newHeight - $1.oldHeight) }
     }
 
+    private var framePacing: FramePacing? {
+        guard !sweepFrameDurations.isEmpty, !sweepExpectedDurations.isEmpty else { return nil }
+        let expected = sweepExpectedDurations.sorted()[sweepExpectedDurations.count / 2]
+        guard expected > 0 else { return nil }
+        let hitchThreshold = expected * 1.5
+        var hitchFrameCount = 0
+        var hitchTotal: Double = 0
+        var maxDuration: Double = 0
+        var total: Double = 0
+        for duration in sweepFrameDurations {
+            total += duration
+            maxDuration = max(maxDuration, duration)
+            if duration >= hitchThreshold {
+                hitchFrameCount += 1
+                hitchTotal += duration - expected
+            }
+        }
+        return FramePacing(
+            frameCount: sweepFrameDurations.count,
+            expectedFrameMs: expected * 1000,
+            averageFrameMs: total / Double(sweepFrameDurations.count) * 1000,
+            maxFrameMs: maxDuration * 1000,
+            hitchFrameCount: hitchFrameCount,
+            hitchTotalMs: hitchTotal * 1000,
+            hitchMsPerSecond: total > 0 ? (hitchTotal * 1000) / total : 0
+        )
+    }
+
     private func writeReport() {
         guard
             let documents = FileManager.default.urls(
@@ -223,7 +287,8 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
             // written from a KVO callback inside a layout pass, where an extra
             // whole-content layout query is both wasted work and reentrant.
             realizedHeightCounts: finished ? realizedHeightCounts() : [:],
-            corrections: corrections
+            corrections: corrections,
+            framePacing: framePacing
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
