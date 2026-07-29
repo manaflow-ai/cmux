@@ -706,9 +706,8 @@ struct ApplicationSurfaceTests {
         ))
 
         var fallbackCallCount = 0
-        let handled = routeApplicationCommandEquivalent(
-            event,
-            through: view
+        let handled = view.performKeyEquivalent(
+            with: event
         ) {
             fallbackCallCount += 1
             return true

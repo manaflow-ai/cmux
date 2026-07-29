@@ -17456,9 +17456,8 @@ private extension NSWindow {
         if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, browserWebKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
         if let firstResponderApplicationCaptureView,
            shouldRouteApplicationCommandEquivalentThroughContentFirst(event) {
-            return routeApplicationCommandEquivalent(
-                event,
-                through: firstResponderApplicationCaptureView
+            return firstResponderApplicationCaptureView.performKeyEquivalent(
+                with: event
             ) {
                 NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
             }

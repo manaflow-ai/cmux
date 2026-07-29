@@ -532,6 +532,16 @@ final class ApplicationCaptureView: NSView {
         return enqueueKey(event, keyDown: true)
     }
 
+    func performKeyEquivalent(
+        with event: NSEvent,
+        fallback: () -> Bool
+    ) -> Bool {
+        if performKeyEquivalent(with: event) {
+            return true
+        }
+        return fallback()
+    }
+
     override func keyUp(with event: NSEvent) {
         enqueueKey(event, keyDown: false)
     }
@@ -1015,16 +1025,4 @@ final class ApplicationCaptureView: NSView {
         )
     }
 
-}
-
-@MainActor
-func routeApplicationCommandEquivalent(
-    _ event: NSEvent,
-    through captureView: ApplicationCaptureView,
-    fallback: () -> Bool
-) -> Bool {
-    if captureView.performKeyEquivalent(with: event) {
-        return true
-    }
-    return fallback()
 }

@@ -1,5 +1,6 @@
 public import Foundation
 internal import Darwin
+internal import Dispatch
 
 /// A serialized, reusable client connection for newline-delimited Unix-socket
 /// commands.
@@ -24,7 +25,10 @@ public actor PersistentSocketLineConnection {
         worker = PersistentSocketLineConnectionWorker(
             transport: transport,
             maximumResponseByteCount: maximumResponseByteCount,
-            queue: PersistentSocketLineBlockingIOExecutor.shared.makeLane()
+            queue: DispatchQueue(
+                label: "com.cmux.control-socket.persistent-line-io",
+                qos: .userInitiated
+            )
         )
     }
 
