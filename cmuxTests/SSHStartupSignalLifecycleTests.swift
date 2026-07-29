@@ -492,6 +492,173 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testSSHRawRemoteCommandRunsWithoutRemoteReadinessCLI() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-raw-command-no-remote-cli-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let remoteHome = root.appendingPathComponent("remote-home", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let commandLog = root.appendingPathComponent("raw-command.log")
+
+        try fileManager.createDirectory(at: remoteHome, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "cmux_test_remote_command=",
+            "for cmux_test_arg in \"$@\"; do",
+            "  if [ \"$cmux_test_arg\" = '-G' ]; then",
+            "    printf '%s\\n' 'controlpath none'",
+            "    exit 0",
+            "  fi",
+            "  cmux_test_remote_command=\"$cmux_test_arg\"",
+            "done",
+            "PATH=/usr/bin:/bin HOME=\"${CMUX_TEST_REMOTE_HOME}\" /bin/sh -c \"$cmux_test_remote_command\"",
+        ])
+        for executable in [fakeCLI, fakeSSH] {
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: executable.path
+            )
+        }
+
+        let startupCommand = try generatedSSHStartupCommand(
+            remoteCommandArguments: [
+                "touch",
+                "\"$CMUX_TEST_RAW_COMMAND_LOG\"",
+            ]
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] =
+            "33333333-3333-3333-3333-333333333333"
+        environment["CMUX_TEST_REMOTE_HOME"] = remoteHome.path
+        environment["CMUX_TEST_RAW_COMMAND_LOG"] = commandLog.path
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "1"
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            fileManager.fileExists(atPath: commandLog.path),
+            "A missing remote cmux CLI must not prevent the caller's raw SSH command from running"
+        )
+    }
+
+    func testSSHRawRemoteCommandReportsReadinessWithoutGatingUserCommand() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-raw-command-delayed-remote-cli-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let remoteHome = root.appendingPathComponent("remote-home", isDirectory: true)
+        let remoteBin = remoteHome.appendingPathComponent(".cmux/bin", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let stagedRemoteCLI = root.appendingPathComponent("staged-remote-cmux")
+        let remoteCLI = remoteBin.appendingPathComponent("cmux")
+        let eventLog = root.appendingPathComponent("raw-command-events.log")
+
+        try fileManager.createDirectory(at: remoteBin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "exit 0",
+        ])
+        try writeShellFile(at: stagedRemoteCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' readiness >> \"${CMUX_TEST_RAW_EVENT_LOG}\"",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "cmux_test_remote_command=",
+            "for cmux_test_arg in \"$@\"; do",
+            "  if [ \"$cmux_test_arg\" = '-G' ]; then",
+            "    printf '%s\\n' 'controlpath none'",
+            "    exit 0",
+            "  fi",
+            "  cmux_test_remote_command=\"$cmux_test_arg\"",
+            "done",
+            "(",
+            "  /bin/sleep 0.2",
+            "  /bin/cp \"${CMUX_TEST_STAGED_REMOTE_CLI}\" \"${CMUX_TEST_REMOTE_CLI}\"",
+            "  /bin/chmod 700 \"${CMUX_TEST_REMOTE_CLI}\"",
+            ") </dev/null >/dev/null 2>&1 &",
+            "PATH=/usr/bin:/bin HOME=\"${CMUX_TEST_REMOTE_HOME}\" /bin/sh -c \"$cmux_test_remote_command\"",
+        ])
+        for executable in [fakeCLI, fakeSSH, stagedRemoteCLI] {
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: executable.path
+            )
+        }
+
+        let rawCommand = """
+        echo user-start >> "$CMUX_TEST_RAW_EVENT_LOG"
+        /bin/sleep 1
+        echo user-end >> "$CMUX_TEST_RAW_EVENT_LOG"
+        """
+        let startupCommand = try generatedSSHStartupCommand(
+            remoteCommandArguments: [
+                "/bin/sh",
+                "-c",
+                "'\(rawCommand)'",
+            ]
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] =
+            "33333333-3333-3333-3333-333333333333"
+        environment["CMUX_TEST_REMOTE_HOME"] = remoteHome.path
+        environment["CMUX_TEST_STAGED_REMOTE_CLI"] = stagedRemoteCLI.path
+        environment["CMUX_TEST_REMOTE_CLI"] = remoteCLI.path
+        environment["CMUX_TEST_RAW_EVENT_LOG"] = eventLog.path
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "1"
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let events = try String(contentsOf: eventLog, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertEqual(events.first, "user-start", events.joined(separator: "\n"))
+        XCTAssertTrue(events.contains("readiness"), events.joined(separator: "\n"))
+        XCTAssertEqual(events.last, "user-end", events.joined(separator: "\n"))
+    }
+
     func testMoshDoesNotClaimConnectedBeforeTransportStarts() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -1056,7 +1223,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "ControlMaster no",
             "ControlPath /tmp/cmux-ssh-%C",
         ],
-        additionalArguments: [String] = []
+        additionalArguments: [String] = [],
+        remoteCommandArguments: [String] = []
     ) throws -> String {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-pane-close")
@@ -1129,6 +1297,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         arguments += additionalArguments
         arguments.append("cmux-macmini")
+        if !remoteCommandArguments.isEmpty {
+            arguments.append("--")
+            arguments += remoteCommandArguments
+        }
 
         let result = runProcess(
             executablePath: cliPath,
