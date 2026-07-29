@@ -4110,9 +4110,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let visibleMacIDs = Set(visibleLoadedMacs.map(\.macDeviceID))
         let canonicalForegroundMacID = foregroundMacDeviceID.map(cmxCanonicalDeviceID)
         // Tear down subscriptions for Macs that are gone or are now the foreground.
+        // A focused client becomes a registry control owner before its transport
+        // purpose update completes. It remains `remoteClient` until the target
+        // focus publishes, so protect that provisional owner across the await.
         for (macID, subscription) in secondaryMacSubscriptions
             where isRequested(macID)
                 && !wanted.contains(macID)
+                && subscription.client !== remoteClient
                 && !subscription.isTransitioningToFocus {
             subscription.cancel()
             secondaryMacSubscriptions[macID] = nil

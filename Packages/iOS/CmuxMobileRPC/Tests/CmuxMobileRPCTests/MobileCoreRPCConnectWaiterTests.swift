@@ -59,6 +59,53 @@ import Testing
         await session.tearDown(error: .connectionClosed)
     }
 
+    @Test func concurrentPurposeUpdatesCannotCloseTheInstalledCandidate()
+        async throws {
+        let transport = PurposeBarrierConnectTransport()
+        let session = MobileCoreRPCSession(
+            makeTransport: { transport },
+            initialTransportSessionPurpose: .backgroundControl
+        )
+        let first = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "first-purpose-waiter"
+        )
+        let second = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "second-purpose-waiter"
+        )
+        let deadline =
+            DispatchTime.now().uptimeNanoseconds + 60 * 1_000_000_000
+
+        let firstTask = Task {
+            try await session.send(
+                payload: first,
+                requestID: "first-purpose-waiter",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        #expect(await transport.waitUntilConnectStarted())
+        let secondTask = Task {
+            try await session.send(
+                payload: second,
+                requestID: "second-purpose-waiter",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        await transport.releaseConnect()
+
+        _ = try await firstTask.value
+        _ = try await secondTask.value
+        #expect(!(await transport.closed()))
+        #expect(try await Set(transport.sentRequests().compactMap(\.id)) == [
+            "first-purpose-waiter",
+            "second-purpose-waiter",
+        ])
+        await session.tearDown(error: .connectionClosed)
+    }
+
     @Test func connectTimeoutDoesNotCancelOtherWaiters() async throws {
         let transport = ReleasableConnectTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59130)
@@ -348,5 +395,71 @@ private actor ConnectedCandidateBarrier {
         await withCheckedContinuation { continuation in
             waiters.append(continuation)
         }
+    }
+}
+
+private actor PurposeBarrierConnectTransport:
+    CmxByteTransport,
+    CmxByteTransportSessionPurposeUpdating
+{
+    private let base = ReleasableConnectTransport()
+    private var purposeUpdateCount = 0
+    private var postConnectPurposeWaiters:
+        [CheckedContinuation<Void, Never>] = []
+
+    func updateSessionPurpose(_ purpose: CmxTransportSessionPurpose) async {
+        purposeUpdateCount += 1
+        // The connect task applies the initial purpose once. Hold the two
+        // coalesced waiters' post-connect updates until both have crossed the
+        // actor suspension that previously let one close the other's install.
+        guard purposeUpdateCount > 1 else { return }
+        if purposeUpdateCount >= 3 {
+            let waiters = postConnectPurposeWaiters
+            postConnectPurposeWaiters = []
+            for waiter in waiters {
+                waiter.resume()
+            }
+            return
+        }
+        await withCheckedContinuation { continuation in
+            postConnectPurposeWaiters.append(continuation)
+        }
+    }
+
+    func connect() async throws {
+        try await base.connect()
+    }
+
+    func receive() async throws -> Data? {
+        try await base.receive()
+    }
+
+    func send(_ data: Data) async throws {
+        try await base.send(data)
+    }
+
+    func close() async {
+        await base.close()
+        let waiters = postConnectPurposeWaiters
+        postConnectPurposeWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    func releaseConnect() async {
+        await base.releaseConnect()
+    }
+
+    func waitUntilConnectStarted() async -> Bool {
+        await base.waitUntilConnectStarted()
+    }
+
+    func closed() async -> Bool {
+        await base.closed()
+    }
+
+    func sentRequests() async throws -> [RecordedRPCRequest] {
+        try await base.sentRequests()
     }
 }

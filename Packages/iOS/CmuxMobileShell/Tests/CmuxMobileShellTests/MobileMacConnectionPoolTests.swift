@@ -902,6 +902,101 @@ import Testing
         subscription.cancel()
     }
 
+    @Test func aggregationKeepsProvisionalDemotionUntilFocusPublishes()
+        async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "provisional-demotion",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-provisional",
+            displayName: "Provisional Mac",
+            routes: [route],
+            instanceTag: "provisional-tag",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-provisional",
+            macDisplayName: "Provisional Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let focused = MacConnection(
+            macDeviceID: "mac-provisional",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: UUID(),
+            displayName: "Provisional Mac",
+            instanceTag: "provisional-tag",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let provisional = SecondaryMacSubscription(
+            macDeviceID: "mac-provisional",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "provisional-tag",
+            authenticatedInstanceTag: "provisional-tag",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none,
+            displayName: "Provisional Mac"
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        shell.remoteClient = client
+        shell.foregroundMacDeviceID = "mac-provisional"
+        shell.connections["mac-provisional"] = focused
+        #expect(shell.transitionFocusedConnectionToControl(
+            provisional,
+            replacing: focused
+        ))
+
+        await shell.refreshSecondaryMacWorkspaces()
+
+        #expect(shell.secondaryMacSubscriptions["mac-provisional"]
+            === provisional)
+        provisional.detachKeepingClient()
+        shell.secondaryMacSubscriptions["mac-provisional"] = nil
+        await client.disconnect()
+    }
+
     @Test func permanentIdentityMismatchDoesNotSchedulePoolRetry() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

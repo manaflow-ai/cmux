@@ -443,17 +443,38 @@ actor MobileCoreRPCSession {
             throw MobileShellConnectionError.connectionClosed
         }
 
-        if let currentSessionPurpose = transportSessionPurpose,
-           let updating =
+        if let updating =
             candidate as? any CmxByteTransportSessionPurposeUpdating {
-            await updating.updateSessionPurpose(currentSessionPurpose)
-            guard connectionTask?.id == connectionID,
-                  !isTearingDown else {
-                closeUninstalledConnectedCandidate(
-                    candidate,
-                    lease: connectLease
-                )
-                throw MobileShellConnectionError.connectionClosed
+            var appliedPurpose: CmxTransportSessionPurpose?
+            while let currentSessionPurpose = transportSessionPurpose,
+                  currentSessionPurpose != appliedPurpose {
+                await updating.updateSessionPurpose(currentSessionPurpose)
+                appliedPurpose = currentSessionPurpose
+                // Another waiter for this same connection may have installed
+                // the shared candidate while this actor was suspended in the
+                // transport update. Reuse that installed generation instead of
+                // treating the candidate as stale and closing the live session.
+                if let installedTransport = transport {
+                    guard installedConnectionID == connectionID else {
+                        closeUninstalledConnectedCandidate(
+                            candidate,
+                            lease: connectLease
+                        )
+                        throw MobileShellConnectionError.connectionClosed
+                    }
+                    if callerCancelled || Task.isCancelled {
+                        throw CancellationError()
+                    }
+                    return installedTransport
+                }
+                guard connectionTask?.id == connectionID,
+                      !isTearingDown else {
+                    closeUninstalledConnectedCandidate(
+                        candidate,
+                        lease: connectLease
+                    )
+                    throw MobileShellConnectionError.connectionClosed
+                }
             }
         }
 
