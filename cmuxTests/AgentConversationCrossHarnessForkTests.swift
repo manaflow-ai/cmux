@@ -196,9 +196,11 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(workspace.bonsplitController.allPaneIds.count == 2)
         let forkPanelId = try #require(workspace.focusedPanelId)
         let forkPanel = try #require(workspace.terminalPanel(for: forkPanelId))
+        let launcher = try launcherScript(from: forkPanel.surface.initialInput)
+        defer { try? FileManager.default.removeItem(at: launcher.url) }
         #expect(forkPanelId != sourcePanelId)
-        #expect(forkPanel.surface.initialInput?.contains("claude ") == true)
-        #expect(forkPanel.surface.initialInput?.contains("Preserve destination behavior") == true)
+        #expect(launcher.contents.contains("claude "))
+        #expect(launcher.contents.contains("Preserve destination behavior"))
     }
 
     @Test
@@ -222,8 +224,10 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(workspace.bonsplitController.tabs(inPane: sourcePaneId).count == 2)
         let forkPanelId = try #require(workspace.focusedPanelId)
         let forkPanel = try #require(workspace.terminalPanel(for: forkPanelId))
+        let launcher = try launcherScript(from: forkPanel.surface.initialInput)
+        defer { try? FileManager.default.removeItem(at: launcher.url) }
         #expect(forkPanelId != sourcePanelId)
-        #expect(forkPanel.surface.initialInput?.contains("Preserve destination behavior") == true)
+        #expect(launcher.contents.contains("Preserve destination behavior"))
     }
 
     @Test
@@ -247,7 +251,9 @@ struct AgentConversationCrossHarnessForkTests {
         let forkWorkspace = try #require(tabManager.tabs.first { $0.id != sourceWorkspace.id })
         let forkPanelId = try #require(forkWorkspace.focusedPanelId)
         let forkPanel = try #require(forkWorkspace.terminalPanel(for: forkPanelId))
-        #expect(forkPanel.surface.initialInput?.contains("Preserve destination behavior") == true)
+        let launcher = try launcherScript(from: forkPanel.surface.initialInput)
+        defer { try? FileManager.default.removeItem(at: launcher.url) }
+        #expect(launcher.contents.contains("Preserve destination behavior"))
     }
 
     @Test
@@ -409,7 +415,7 @@ struct AgentConversationCrossHarnessForkTests {
             retention: .openingUserAndLatest(3)
         ))
 
-        #expect(turns.map(\.text) == ["rovo-turn-0", "rovo-turn-6", "rovo-turn-7"])
+        #expect(turns.map(\.text) == ["rovo-turn-0\n\nrovo-turn-6", "rovo-turn-7"])
     }
 
     @Test
@@ -577,6 +583,23 @@ struct AgentConversationCrossHarnessForkTests {
         )) ?? []
         return Set(urls.filter { $0.lastPathComponent.hasPrefix(namePrefix) })
     }
+
+    private func launcherScript(
+        from initialInput: String?
+    ) throws -> (url: URL, contents: String) {
+        let input = try #require(initialInput)
+        let prefix = "/bin/zsh '"
+        let suffix = "'\n"
+        guard input.hasPrefix(prefix), input.hasSuffix(suffix) else {
+            throw OpenCodeFixtureError.invalidLauncherInput
+        }
+        let path = String(input.dropFirst(prefix.count).dropLast(suffix.count))
+        let url = URL(fileURLWithPath: path)
+        return (
+            url,
+            try String(contentsOf: url, encoding: .utf8)
+        )
+    }
 }
 
 private struct FailingSourceAdapter: AgentConversationSourceAdapter {
@@ -638,6 +661,7 @@ private actor ReadRecordingSourceAdapter: AgentConversationSourceAdapter {
 }
 
 private enum OpenCodeFixtureError: Error {
+    case invalidLauncherInput
     case sqlite
     case unexpectedRead
 }
