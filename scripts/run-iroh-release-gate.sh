@@ -304,6 +304,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       ./ios/scripts/reload.sh \
         --tag "$TAG" \
         --simulator "$SIMULATOR_NAME" \
+        --simulator-id "$SIMULATOR_ID" \
         --prod-auth \
         --no-launch
   else
@@ -315,6 +316,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       ./ios/scripts/reload.sh \
         --tag "$TAG" \
         --simulator "$SIMULATOR_NAME" \
+        --simulator-id "$SIMULATOR_ID" \
         --no-launch
   fi
 else
