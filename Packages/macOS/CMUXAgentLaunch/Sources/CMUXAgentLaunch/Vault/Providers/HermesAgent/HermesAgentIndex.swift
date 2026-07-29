@@ -124,6 +124,7 @@ public enum HermesAgentIndex {
     ///   - limit: Maximum number of turns to return.
     ///   - latest: Whether the limit selects the newest suffix instead of the oldest prefix.
     ///   - preservingOpeningUser: Whether a latest suffix reserves one slot for the opening user request.
+    ///   - dialogueOnly: Whether the limit counts only user and assistant text, excluding tool rows and tool calls.
     ///   - stateDBPath: Hermes state database to snapshot and query.
     ///   - maximumSnapshotBytes: Optional aggregate byte limit for the database, WAL, and SHM snapshot.
     /// - Returns: At most `limit` turns ordered from oldest to newest.
@@ -133,6 +134,7 @@ public enum HermesAgentIndex {
         limit: Int,
         latest: Bool = false,
         preservingOpeningUser: Bool = false,
+        dialogueOnly: Bool = false,
         stateDBPath: String = Self.defaultStateDBPath(),
         maximumSnapshotBytes: Int? = nil
     ) throws -> [HermesAgentTranscriptTurn] {
@@ -150,10 +152,14 @@ public enum HermesAgentIndex {
         return try withDatabase(snapshot.databaseURL.path) { db in
             func openingUserTurn() throws -> HermesAgentTranscriptTurn? {
                 try Task.checkCancellation()
+                let dialogueFilter = dialogueOnly
+                    ? "AND COALESCE(tool_name, '') = ''"
+                    : ""
                 let sql = """
                     SELECT role, content, tool_name, tool_calls
                     FROM messages
                     WHERE session_id = ? AND role = 'user' AND COALESCE(content, '') <> ''
+                      \(dialogueFilter)
                     ORDER BY timestamp, id
                     LIMIT 1
                     """
@@ -183,7 +189,13 @@ public enum HermesAgentIndex {
                 )
             }
 
-            let turns = try loadTranscript(db: db, sessionId: sessionId, limit: limit, latest: latest)
+            let turns = try loadTranscript(
+                db: db,
+                sessionId: sessionId,
+                limit: limit,
+                latest: latest,
+                dialogueOnly: dialogueOnly
+            )
             guard latest, preservingOpeningUser,
                   let openingUser = try openingUserTurn(),
                   !turns.contains(openingUser) else {
@@ -298,8 +310,16 @@ public enum HermesAgentIndex {
         db: OpaquePointer,
         sessionId: String,
         limit: Int,
-        latest: Bool
+        latest: Bool,
+        dialogueOnly: Bool
     ) throws -> [HermesAgentTranscriptTurn] {
+        let dialogueFilter = dialogueOnly
+            ? """
+              AND role IN ('user', 'assistant')
+              AND COALESCE(tool_name, '') = ''
+              AND COALESCE(content, '') <> ''
+            """
+            : ""
         let sql: String
         if latest {
             sql = """
@@ -308,6 +328,7 @@ public enum HermesAgentIndex {
                   SELECT role, content, tool_name, tool_calls, timestamp, id
                   FROM messages
                   WHERE session_id = ?
+                  \(dialogueFilter)
                   ORDER BY timestamp DESC, id DESC
                   LIMIT \(limit)
                 )
@@ -318,6 +339,7 @@ public enum HermesAgentIndex {
                 SELECT role, content, tool_name, tool_calls
                 FROM messages
                 WHERE session_id = ?
+                \(dialogueFilter)
                 ORDER BY timestamp, id
                 LIMIT \(limit)
                 """
@@ -340,8 +362,8 @@ public enum HermesAgentIndex {
             try Task.checkCancellation()
             let role = sqliteText(stmt, 0) ?? "event"
             let content = decodedContentText(sqliteText(stmt, 1))
-            let toolName = sqliteText(stmt, 2)
-            let toolCalls = decodedContentText(sqliteText(stmt, 3))
+            let toolName = dialogueOnly ? nil : sqliteText(stmt, 2)
+            let toolCalls = dialogueOnly ? nil : decodedContentText(sqliteText(stmt, 3))
             let text = [content, toolCalls]
                 .compactMap { normalized($0) }
                 .joined(separator: "\n\n")

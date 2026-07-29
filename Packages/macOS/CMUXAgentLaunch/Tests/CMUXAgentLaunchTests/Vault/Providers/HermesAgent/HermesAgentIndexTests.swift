@@ -157,6 +157,44 @@ struct HermesAgentIndexTests {
         #expect(turns.map(\.content) == ["opening request", "latest follow-up", "latest answer"])
     }
 
+    @Test("Applies the dialogue limit after excluding trailing tool rows")
+    func appliesDialogueLimitAfterExcludingTrailingToolRows() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        let toolRows = (0..<1_001)
+            .map { index in
+                "('session-a', 'tool', 'tool output \(index)', 'terminal', \(index + 13))"
+            }
+            .joined(separator: ",\n")
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title)
+        VALUES ('session-a', 'cli', 'model-a', 10, 'General');
+        INSERT INTO messages (session_id, role, content, timestamp)
+        VALUES
+          ('session-a', 'user', 'opening request', 11),
+          ('session-a', 'assistant', 'LATEST-HERMES-DIALOGUE', 12);
+        INSERT INTO messages (session_id, role, content, tool_name, timestamp)
+        VALUES
+        \(toolRows);
+        """)
+
+        let turns = try HermesAgentIndex.loadTranscript(
+            sessionId: "session-a",
+            limit: 2,
+            latest: true,
+            preservingOpeningUser: true,
+            dialogueOnly: true,
+            stateDBPath: dbURL.path
+        )
+
+        #expect(turns.map(\.content) == [
+            "opening request",
+            "LATEST-HERMES-DIALOGUE",
+        ])
+    }
+
     @Test("Rejects transcript snapshots above the aggregate byte limit")
     func rejectsTranscriptSnapshotAboveAggregateByteLimit() throws {
         let root = try temporaryDirectory()

@@ -1549,6 +1549,9 @@ enum SessionTranscriptLoader {
                 return true
             }
             try Task.checkCancellation()
+            guard openingUser != nil || turns.isEmpty else {
+                throw SessionTranscriptLoadError.incompleteSource
+            }
         } else if didHitTurnLimit
                     || !metrics.didReachStart
                     || metrics.didSkipOversizedRecord {
@@ -1835,6 +1838,7 @@ enum SessionTranscriptLoader {
                 limit: queryLimit,
                 latest: retention.keepsLatestTurns,
                 preservingOpeningUser: retention.keepsLatestTurns,
+                dialogueOnly: retention.requiresCompleteLatestScan,
                 stateDBPath: stateDatabaseURL?.path ?? HermesAgentIndex.defaultStateDBPath(),
                 maximumSnapshotBytes: retention.requiresCompleteLatestScan
                     ? transferDatabaseSnapshotByteLimit

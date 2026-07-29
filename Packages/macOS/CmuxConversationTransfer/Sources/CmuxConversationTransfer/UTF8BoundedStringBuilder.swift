@@ -27,7 +27,7 @@ struct UTF8BoundedStringBuilder {
             if removesControlCharacters,
                scalar.value != 9,
                scalar.value != 10,
-               scalar.value < 32 || scalar.value == 127 {
+               scalar.value < 32 || (127...159).contains(scalar.value) {
                 continue
             }
             let byteCount = scalar.utf8ByteCount
