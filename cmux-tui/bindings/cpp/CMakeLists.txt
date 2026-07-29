@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(cmux_tui_sdk VERSION 0.4.0 LANGUAGES CXX)
+project(cmux_tui_sdk VERSION 1.0.0 LANGUAGES CXX)
 
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)

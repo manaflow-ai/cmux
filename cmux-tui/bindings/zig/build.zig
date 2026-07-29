@@ -30,7 +30,7 @@ pub fn build(b: *std.Build) void {
     const example = b.addExecutable(.{
         .name = "cmux-tui-watch",
         .root_module = example_module,
-        .version = std.SemanticVersion.parse("0.4.0") catch unreachable,
+        .version = std.SemanticVersion.parse("1.0.0") catch unreachable,
     });
     b.installArtifact(example);
 
