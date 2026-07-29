@@ -37,6 +37,7 @@ actor LivenessHostRouter {
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
+    private var invalidSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
     private var unsubscribeRequestCount = 0
     private var invalidUnsubscribeRequestNumbers: Set<Int> = []
@@ -265,6 +266,11 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers.insert(number)
     }
 
+    /// Return an acknowledgement without the requested stream id.
+    func invalidateSubscribeRequest(number: Int) {
+        invalidSubscribeRequestNumbers.insert(number)
+    }
+
     /// Return a malformed acknowledgement for the Nth unsubscribe request.
     func invalidateUnsubscribeRequest(number: Int) {
         invalidUnsubscribeRequestNumbers.insert(number)
@@ -370,7 +376,9 @@ actor LivenessHostRouter {
             let alreadySubscribed = hasActiveSubscription
             hasActiveSubscription = true
             return try? Self.resultFrame(id: id, result: [
-                "stream_id": "test-stream",
+                "stream_id": invalidSubscribeRequestNumbers.contains(
+                    subscribeRequestCount
+                ) ? "" : (streamID ?? ""),
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": alreadySubscribed,
             ])

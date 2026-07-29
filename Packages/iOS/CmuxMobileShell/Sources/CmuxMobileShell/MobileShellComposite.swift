@@ -4522,10 +4522,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ]
         ) else { return false }
         do {
-            _ = try await client.sendRequest(
+            let responseData = try await client.sendRequest(
                 request,
                 timeoutNanoseconds: runtime?.livenessProbeTimeoutNanoseconds
             )
+            guard let response = try? MobileEventSubscribeResponse.decode(
+                      responseData
+                  ),
+                  response.streamID == streamID else {
+                return false
+            }
             return true
         } catch {
             return false
@@ -6617,8 +6623,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func invalidateFocusedConnectionAfterAbortedHandoff(
         _ connection: MacConnection
     ) {
-        guard connectionGeneration == connection.generation,
-              isFocusedConnectionCurrent(connection),
+        guard isFocusedConnectionCurrent(connection),
               remoteClient === connection.client,
               foregroundMacDeviceID.map({
                   cmxCanonicalDeviceID($0)

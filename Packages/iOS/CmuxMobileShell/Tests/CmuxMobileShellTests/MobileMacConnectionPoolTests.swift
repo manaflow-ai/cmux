@@ -476,6 +476,75 @@ import Testing
             )
         )
         #expect(!response.isEmpty)
+
+        shell.connectionGeneration = UUID()
+        shell.invalidateFocusedConnectionAfterAbortedHandoff(current)
+
+        #expect(shell.connections["mac-a"] == nil)
+        #expect(shell.remoteClient == nil)
+        #expect(shell.foregroundMacDeviceID == nil)
+        #expect(shell.connectionState == .disconnected)
+        await client.disconnect()
+    }
+
+    @Test func malformedControlSubscribeAckTearsDownFalseReadyState() async throws {
+        let router = LivenessHostRouter()
+        await router.invalidateSubscribeRequest(number: 1)
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "invalid-control-ack",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-invalid",
+            macDisplayName: "Invalid Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(runtime: runtime, isSignedIn: true)
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-invalid",
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        shell.workspacesByMac["mac-invalid"] = MacWorkspaceState(
+            macDeviceID: "mac-invalid",
+            displayName: "Invalid Mac",
+            workspaces: [],
+            status: .connected
+        )
+        shell.secondaryMacSubscriptions["mac-invalid"] = subscription
+
+        shell.startSecondaryEventConsumer(
+            subscription,
+            displayName: "Invalid Mac"
+        )
+
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions["mac-invalid"] == nil
+        })
+        #expect(shell.workspacesByMac["mac-invalid"]?.status == .unavailable)
+        #expect(!shell.liveMacConnections.contains {
+            $0.macDeviceID == "mac-invalid"
+        })
         await client.disconnect()
     }
 
