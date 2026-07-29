@@ -348,6 +348,7 @@ extension DockSocketLifecycleTests {
             sourceWorkspaceId: sourceWorkspaceId,
             restorableAgent: staleAgent,
             restorableAgentResumeState: .autoResumeCommandRunning,
+            restoredResumeSessionWorkingDirectory: "/tmp/cmux-omp-stale",
             resumeBinding: staleBinding,
             agentSessionRetryCompletedAttempts: 2
         )
@@ -376,6 +377,7 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restorableAgent == nil)
         #expect(roundTripped.restorableAgentResumeState == nil)
         #expect(roundTripped.restoredAgentCompletedGeneration == nil)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
