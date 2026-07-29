@@ -12,13 +12,15 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `ed67f2b59`, the reviewed head of
-https://github.com/manaflow-ai/ghostty/pull/166, following the merged
-https://github.com/manaflow-ai/ghostty/pull/153 and
-https://github.com/manaflow-ai/ghostty/pull/165. It adds lossless hidden-tab
+The submodule pinned by this branch is `a1e727ad2`, the reviewed head of
+https://github.com/manaflow-ai/ghostty/pull/167, following the merged
+https://github.com/manaflow-ai/ghostty/pull/153,
+https://github.com/manaflow-ai/ghostty/pull/165, and
+https://github.com/manaflow-ai/ghostty/pull/166. It adds lossless hidden-tab
 renderer reclamation, forced renderer rebuild transactions, shared custom
-Metal pipelines, and one observation owner per native tab group. The three
-PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`, and `2fc66ed15`.
+Metal pipelines, bounded compiler-failure restore backoff, and one observation
+owner per native tab group. The four PRs landed in merge commits `1e86b46e2`,
+`4dab6fd6c`, `2fc66ed15`, and `3c1b75d25`.
 
 ### Hidden macOS renderer reclamation
 
@@ -26,6 +28,7 @@ PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`, and `2fc66ed15`.
   - https://github.com/manaflow-ai/ghostty/pull/153
   - https://github.com/manaflow-ai/ghostty/pull/165
   - https://github.com/manaflow-ai/ghostty/pull/166
+  - https://github.com/manaflow-ai/ghostty/pull/167
 - Commits:
   - `1de584d1e` (test: require lossless renderer realization requests)
   - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
@@ -73,6 +76,9 @@ PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`, and `2fc66ed15`.
   - `074c0f7b7` (fix renderer cache and tab callback races)
   - `b88d39586` (test: classify custom shader failures as recoverable)
   - `ed67f2b59` (merge current fork main and preserve the Zig 0.16 port)
+  - `67e76e130` (test: cover failed shader restore backoff)
+  - `9fff00fc4` (fix: back off failed custom shader restores)
+  - `a1e727ad2` (fix: tolerate matching retained shader entries)
 - Files:
   - `include/ghostty.h`
   - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
@@ -115,7 +121,8 @@ PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`, and `2fc66ed15`.
     format while preserving renderer-owned resources and transactional cleanup.
   - Shares custom shader pipelines by device, pixel format, and source across
     renderer handoffs, retains one idle custom configuration, evicts older
-    configurations, and retries recoverable compiler failures.
+    configurations, and retains one identical compiler-failure fallback for a
+    source-keyed, non-sliding 30-second retry window after its renderer idles.
   - Elects one native-tab observation owner per tab group and binds queued
     callbacks to the group that emitted them, avoiding quadratic callbacks and
     stale callbacks that could orphan observation ownership.
@@ -125,13 +132,17 @@ PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`, and `2fc66ed15`.
     realization publication, forced rebuild transactions, bounded recovery,
     compositor-owned IOSurface lifetimes, loop-owned retry timers,
     generation-checked retry delivery, atomic request claiming, bounded shared
-    custom-pipeline retention, single-owner tab observation, conservative tab
-    selection, and off-main teardown without synchronous main-queue waits.
+    custom-pipeline retention, lifecycle-anchored compiler-failure backoff,
+    single-owner tab observation, conservative tab selection, and off-main
+    teardown without synchronous main-queue waits.
 
-The pinned `ed67f2b59` universal ReleaseFast GhosttyKit archive was built with
-Zig 0.16.0 on macOS 15.6.1 and Xcode 16.4. It is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ed67f2b59af2fa4bc4c26c5760bc3eb993b90402-crashsubdir-cmux-crash-v1
-and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+The pinned `a1e727ad2` universal ReleaseFast GhosttyKit archive was built with
+Zig 0.16.0 on macOS 26.3 and Xcode 26.5. It is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-a1e727ad2bae9ba5fe4a1f57d7de850d872150f0-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. Verification
+used the 82-test custom-shader Zig suite, the xcframework archive validator,
+`lipo -archs`, and `nm -g` for `_ghostty_surface_rebuild_renderer` in every
+slice.
 
 ### `os/open` stderr drain spin and zombie leak
 
