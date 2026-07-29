@@ -111,7 +111,7 @@ pub fn build_trajectory(
                 "userMessage" => {
                     let label = speaker_label(
                         catalog.you(),
-                        item_timestamp(item).or(turn.started_at),
+                        item_timestamp(item).or_else(|| turn_start_timestamp(turn)),
                         now,
                         catalog,
                     );
@@ -127,7 +127,9 @@ pub fn build_trajectory(
                     push_section_break(&mut view);
                     let label = speaker_label(
                         catalog.codex(),
-                        item_timestamp(item).or(turn.completed_at).or(turn.started_at),
+                        item_timestamp(item)
+                            .or(turn.completed_at)
+                            .or_else(|| turn_start_timestamp(turn)),
                         now,
                         catalog,
                     );
@@ -492,6 +494,15 @@ fn item_timestamp(item: &Value) -> Option<i64> {
         .or_else(|| item.get("timestamp"))
         .and_then(Value::as_i64)
         .filter(|timestamp| *timestamp > 0)
+}
+
+fn turn_start_timestamp(turn: &Turn) -> Option<i64> {
+    turn.started_at.filter(|timestamp| *timestamp > 0).or_else(|| {
+        let completed_at = turn.completed_at.filter(|timestamp| *timestamp > 0)?;
+        let duration_ms = turn.duration_ms.filter(|duration| *duration >= 0)?;
+        let duration_seconds = duration_ms.saturating_add(999) / 1_000;
+        Some(completed_at.saturating_sub(duration_seconds)).filter(|timestamp| *timestamp > 0)
+    })
 }
 
 fn speaker_label(label: &str, timestamp: Option<i64>, now: i64, catalog: Catalog) -> String {
