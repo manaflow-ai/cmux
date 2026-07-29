@@ -652,9 +652,13 @@ final class TransportBox: @unchecked Sendable {
 struct LivenessTransportFactory: CmxByteTransportFactory {
     let router: LivenessHostRouter
     let box: TransportBox
+    var closeGate: LivenessTransportCloseGate?
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        let transport = LivenessTransport(router: router)
+        let transport = LivenessTransport(
+            router: router,
+            closeGate: closeGate
+        )
         box.set(transport)
         return transport
     }
@@ -662,12 +666,17 @@ struct LivenessTransportFactory: CmxByteTransportFactory {
 
 actor LivenessTransport: CmxByteTransport {
     private let router: LivenessHostRouter
+    private let closeGate: LivenessTransportCloseGate?
     private var pendingFrames: [Data] = []
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var isClosed = false
 
-    init(router: LivenessHostRouter) {
+    init(
+        router: LivenessHostRouter,
+        closeGate: LivenessTransportCloseGate? = nil
+    ) {
         self.router = router
+        self.closeGate = closeGate
     }
 
     func connect() async throws {}
@@ -727,6 +736,7 @@ actor LivenessTransport: CmxByteTransport {
     }
 
     func close() async {
+        await closeGate?.waitForRelease()
         isClosed = true
         let waiters = receiveWaiters
         receiveWaiters = []
@@ -748,6 +758,40 @@ actor LivenessTransport: CmxByteTransport {
         }
         let waiter = receiveWaiters.removeFirst()
         waiter.resume(returning: frame)
+    }
+}
+
+actor LivenessTransportCloseGate {
+    private var closeStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var released = false
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitForRelease() async {
+        closeStarted = true
+        for waiter in startWaiters {
+            waiter.resume()
+        }
+        startWaiters = []
+        guard !released else { return }
+        await withCheckedContinuation {
+            releaseWaiters.append($0)
+        }
+    }
+
+    func waitUntilCloseStarted() async {
+        if closeStarted { return }
+        await withCheckedContinuation {
+            startWaiters.append($0)
+        }
+    }
+
+    func release() {
+        released = true
+        for waiter in releaseWaiters {
+            waiter.resume()
+        }
+        releaseWaiters = []
     }
 }
 

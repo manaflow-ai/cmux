@@ -391,6 +391,81 @@ import Testing
         #expect(await pairedStore.currentLoadAllCount() == 0)
     }
 
+    @Test func targetedDialRevalidatesStoreAuthorityBeforePublishing()
+        async throws {
+        let route = try CmxAttachRoute(
+            id: "targeted-authority",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let storedA = MobilePairedMac(
+            macDeviceID: "mac-targeted",
+            displayName: "Targeted Mac",
+            routes: [route],
+            createdAt: .distantPast,
+            lastSeenAt: .distantPast,
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            instanceTag: "tag-a"
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["team-1": [storedA]],
+            blockedTeams: []
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-targeted",
+            instanceTag: "tag-a",
+            displayName: "Targeted Mac"
+        )
+        await router.delayHostStatusRequest(number: 1)
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        await shell.loadPairedMacs()
+        await pairedStore.resetLoadAllCount()
+
+        let refresh = Task { @MainActor in
+            await shell.refreshSecondaryMacWorkspaces(
+                onlyMacDeviceIDs: ["mac-targeted"]
+            )
+        }
+        #expect(await router.waitForCount(
+            of: "mobile.host.status",
+            atLeast: 1
+        ))
+        try await pairedStore.upsert(
+            macDeviceID: "mac-targeted",
+            displayName: "Replacement Mac",
+            routes: [route],
+            instanceTag: "tag-b",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        await router.releaseAllHeld()
+        await refresh.value
+
+        #expect(shell.secondaryMacSubscriptions["mac-targeted"] == nil)
+        #expect(!shell.liveMacConnections.contains {
+            $0.macDeviceID == "mac-targeted"
+        })
+        #expect(await pairedStore.currentLoadAllCount() == 1)
+    }
+
     @Test func incrementalOfflineEdgeBackfillsFreedControlSlot() throws {
         let router = LivenessHostRouter()
         let runtime = LivenessTestRuntime(

@@ -965,6 +965,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored
     private var secondaryMacEstablishmentFlights:
         [String: SecondaryMacEstablishmentFlight] = [:]
+    /// Retired control clients whose physical transport is still draining.
+    /// These entries block another same-Mac dial without appearing in the live
+    /// registry or remaining available to workspace and notification actions.
+    @ObservationIgnored var secondaryMacDrainReservations:
+        [String: SecondaryMacSubscription] = [:]
     /// Scope-bound index backing targeted presence reconciliation. Route writes
     /// refresh this cache before enqueueing their presence edge, so one Mac's
     /// heartbeat can inspect that Mac plus the bounded live pool without
@@ -4136,7 +4141,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func scheduleSecondaryPresenceAggregation(
+    func scheduleSecondaryPresenceAggregation(
         forMacDeviceID macDeviceID: String
     ) {
         secondaryPresencePendingMacIDs.insert(cmxCanonicalDeviceID(macDeviceID))
@@ -4596,7 +4601,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let macID = mac.macDeviceID
         guard let pairedMacStore,
               !Task.isCancelled,
-              secondaryMacSubscriptions[macID] == nil else {
+              secondaryMacSubscriptions[macID] == nil,
+              secondaryMacDrainReservation(
+                  forMacDeviceID: macID
+              ) == nil else {
             return .superseded
         }
         let handle: SecondaryClientHandle
@@ -4631,6 +4639,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // its state; the loser disconnects its client.
         guard !Task.isCancelled,
               secondaryMacSubscriptions[macID] == nil,
+              secondaryMacDrainReservation(
+                  forMacDeviceID: macID
+              ) == nil,
               secondaryMacSubscriptions.count
                   < Self.maximumWarmControlConnectionCount,
               await isSecondaryMacStillVisible(
@@ -4641,27 +4652,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
             return .superseded
         }
-        let currentMac: MobilePairedMac?
-        switch authorityValidation {
-        case .cached:
-            currentMac = cachedStoredPairedMac(
-                macDeviceID: macID,
-                instanceTag: handle.storedInstanceTag,
-                scope: scope
-            )
-        case .store:
-            currentMac = try? await pairedMacStore.loadAll(
-                stackUserID: scope.userID,
-                teamID: scope.teamID
-            ).first(where: {
-                $0.macDeviceID == macID
-                    && MobileMacInstanceTagAuthority.sameStoredAuthority(
-                        $0.instanceTag,
-                        handle.storedInstanceTag
-                    )
-            })
-        }
-        guard let currentMac,
+        // Targeted presence passes use the scoped cache to select a bounded
+        // candidate set, but a dial crosses several suspension points. Read the
+        // current store immediately before publication so a removed or replaced
+        // app instance cannot become authoritative from the older cache.
+        let currentMac = try? await pairedMacStore.loadAll(
+            stackUserID: scope.userID,
+            teamID: scope.teamID
+        ).first(where: {
+            $0.macDeviceID == macID
+                && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                    $0.instanceTag,
+                    handle.storedInstanceTag
+                )
+        })
+        guard !Task.isCancelled,
+              secondaryMacSubscriptions[macID] == nil,
+              secondaryMacDrainReservation(
+                  forMacDeviceID: macID
+              ) == nil,
+              await isSecondaryMacStillVisible(
+                  macID,
+                  instanceTag: handle.storedInstanceTag,
+                  scope: scope
+              ),
+              let currentMac,
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   currentMac.instanceTag,
                   handle.storedInstanceTag
@@ -5274,7 +5289,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspacesByMac[macID] = state
     }
 
-    private func markSecondaryMacUnavailableIfUnowned(_ macID: String) {
+    func markSecondaryMacUnavailableIfUnowned(_ macID: String) {
         let canonicalMacID = cmxCanonicalDeviceID(macID)
         guard !liveMacConnections.contains(where: {
             cmxCanonicalDeviceID($0.macDeviceID) == canonicalMacID
@@ -5631,6 +5646,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryControlReassertionOwnerIDsByMacID = [:]
         for (_, subscription) in secondaryMacSubscriptions { subscription.cancel() }
         secondaryMacSubscriptions.removeAll()
+        let drainReservations = Array(
+            secondaryMacDrainReservations.values
+        )
+        secondaryMacDrainReservations.removeAll()
+        for subscription in drainReservations {
+            subscription.cancel()
+        }
     }
 
     /// Whether the multi-Mac aggregated workspace list is enabled. Env override,
@@ -7022,9 +7044,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var displacedControlDrain: Task<Bool, Never>?
         defer {
             if let displacedControlReservation,
-               secondaryMacSubscriptions[
-                   displacedControlReservation.macDeviceID
-               ] === displacedControlReservation {
+               secondaryMacDrainReservation(
+                   forMacDeviceID:
+                       displacedControlReservation.macDeviceID
+               ) === displacedControlReservation {
                 if let displacedControlDrain {
                     // A deadline only bounds the user-visible switch. Preserve
                     // this retired same-peer owner until the actual transport
@@ -7033,33 +7056,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     Task { @MainActor [weak self] in
                         _ = await displacedControlDrain.value
                         guard let self,
-                              self.secondaryMacSubscriptions[
-                                  displacedControlReservation.macDeviceID
-                              ] === displacedControlReservation else {
+                              self.secondaryMacDrainReservation(
+                                  forMacDeviceID:
+                                      displacedControlReservation.macDeviceID
+                              ) === displacedControlReservation else {
                             return
                         }
-                        displacedControlReservation.detachKeepingClient()
-                        self.secondaryMacSubscriptions[
-                            displacedControlReservation.macDeviceID
-                        ] = nil
-                        self.markSecondaryMacUnavailable(
-                            displacedControlReservation.macDeviceID
-                        )
-                        self.scheduleSecondaryPresenceAggregation(
-                            forMacDeviceID:
+                        self.finishRetiredSecondaryPromotionCandidate(
+                            displacedControlReservation,
+                            macDeviceID:
                                 displacedControlReservation.macDeviceID
                         )
                     }
                 } else {
-                    displacedControlReservation.detachKeepingClient()
-                    secondaryMacSubscriptions[
-                        displacedControlReservation.macDeviceID
-                    ] = nil
-                    markSecondaryMacUnavailable(
-                        displacedControlReservation.macDeviceID
-                    )
-                    scheduleSecondaryPresenceAggregation(
-                        forMacDeviceID:
+                    finishRetiredSecondaryPromotionCandidate(
+                        displacedControlReservation,
+                        macDeviceID:
                             displacedControlReservation.macDeviceID
                     )
                 }
@@ -7069,26 +7081,39 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // target's warm control client owns it. Reserve and retire that exact
         // registry owner before the first target RPC, keeping its slot occupied
         // until the authenticated client either publishes focus or fails.
-        if let requestedMacDeviceID,
-           let displaced = secondaryMacSubscriptions.first(where: {
-               cmxCanonicalDeviceID($0.key)
-                   == cmxCanonicalDeviceID(requestedMacDeviceID)
-           })?.value {
-            displaced.isTransitioningToFocus = true
-            displacedControlReservation = displaced
-            displaced.detachKeepingClient()
-            let transportDrain = await Self.raceAgainstDeadline(
-                nanoseconds: connectionHandoffDrainTimeoutNanoseconds
-            ) {
-                await displaced.client
-                    .disconnectAndWaitForTransportDrain()
-                return true
+        if let requestedMacDeviceID {
+            let existingDrainReservation = secondaryMacDrainReservation(
+                forMacDeviceID: requestedMacDeviceID
+            )
+            let liveControl = secondaryMacSubscriptions.first(where: {
+                cmxCanonicalDeviceID($0.key)
+                    == cmxCanonicalDeviceID(requestedMacDeviceID)
+            })
+            let displaced = existingDrainReservation ?? liveControl?.value
+            if let liveControl,
+               existingDrainReservation == nil {
+                guard beginSecondaryMacDrainReservation(
+                    liveControl.value,
+                    macDeviceID: liveControl.key
+                ) else {
+                    return nil
+                }
             }
-            displacedControlDrain = transportDrain.abandoned
-            guard transportDrain.value == true,
-                  !transportDrain.wasCancelled,
-                  isConnectCurrent() else {
-                return nil
+            if let displaced {
+                displacedControlReservation = displaced
+                let transportDrain = await Self.raceAgainstDeadline(
+                    nanoseconds: connectionHandoffDrainTimeoutNanoseconds
+                ) {
+                    await displaced.client
+                        .disconnectAndWaitForTransportDrain()
+                    return true
+                }
+                displacedControlDrain = transportDrain.abandoned
+                guard transportDrain.value == true,
+                      !transportDrain.wasCancelled,
+                      isConnectCurrent() else {
+                    return nil
+                }
             }
         }
         routeLoop: for route in supportedRoutes {

@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 import Foundation
 import CmuxMobileShellModel
 import os
@@ -131,12 +132,12 @@ extension MobileShellComposite {
         _ subscription: SecondaryMacSubscription,
         macDeviceID: String
     ) async {
-        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+        guard beginSecondaryMacDrainReservation(
+            subscription,
+            macDeviceID: macDeviceID
+        ) else {
             return
         }
-        subscription.isTransitioningToFocus = true
-        subscription.detachKeepingClient()
-        subscription.client.retire()
         let drain = await Self.raceAgainstDeadline(
             nanoseconds: connectionHandoffDrainTimeoutNanoseconds
         ) {
@@ -150,13 +151,16 @@ extension MobileShellComposite {
                 macDeviceID: macDeviceID
             )
         } else {
-            // Keep the retired entry as a same-peer reservation. The fresh
-            // fallback path will find it and await the same physical drain
-            // before dialing. Complete registry cleanup independently if the
-            // switch itself is cancelled before reaching that fallback.
+            // Keep the retired client only in the non-public same-peer
+            // reservation map. Complete its cleanup independently if the switch
+            // is cancelled before the fresh fallback reaches this reservation.
             Task { @MainActor [weak self] in
-                await subscription.client
-                    .disconnectAndWaitForTransportDrain()
+                if let abandoned = drain.abandoned {
+                    _ = await abandoned.value
+                } else {
+                    await subscription.client
+                        .disconnectAndWaitForTransportDrain()
+                }
                 self?.finishRetiredSecondaryPromotionCandidate(
                     subscription,
                     macDeviceID: macDeviceID
@@ -165,15 +169,49 @@ extension MobileShellComposite {
         }
     }
 
-    private func finishRetiredSecondaryPromotionCandidate(
+    func finishRetiredSecondaryPromotionCandidate(
         _ subscription: SecondaryMacSubscription,
         macDeviceID: String
     ) {
-        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+        let reservationKey = cmxCanonicalDeviceID(macDeviceID)
+        guard secondaryMacDrainReservations[reservationKey]
+                === subscription else {
             return
         }
+        secondaryMacDrainReservations[reservationKey] = nil
+        markSecondaryMacUnavailableIfUnowned(macDeviceID)
+        scheduleSecondaryPresenceAggregation(
+            forMacDeviceID: macDeviceID
+        )
+    }
+
+    func secondaryMacDrainReservation(
+        forMacDeviceID macDeviceID: String
+    ) -> SecondaryMacSubscription? {
+        secondaryMacDrainReservations[
+            cmxCanonicalDeviceID(macDeviceID)
+        ]
+    }
+
+    @discardableResult
+    func beginSecondaryMacDrainReservation(
+        _ subscription: SecondaryMacSubscription,
+        macDeviceID: String
+    ) -> Bool {
+        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+            return false
+        }
+        let reservationKey = cmxCanonicalDeviceID(macDeviceID)
+        guard secondaryMacDrainReservations[reservationKey] == nil else {
+            return false
+        }
+        subscription.isTransitioningToFocus = true
+        subscription.detachKeepingClient()
+        subscription.client.retire()
         secondaryMacSubscriptions[macDeviceID] = nil
+        secondaryMacDrainReservations[reservationKey] = subscription
         markSecondaryMacUnavailable(macDeviceID)
+        return true
     }
 
     /// Reuse a live secondary client only while both pre- and post-probe store

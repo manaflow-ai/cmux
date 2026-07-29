@@ -393,6 +393,99 @@ import Testing
         }
     }
 
+    @Test func timedOutPromotionDrainIsNotPublishedOrActionable()
+        async throws {
+        let router = LivenessHostRouter()
+        let closeGate = LivenessTransportCloseGate()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox(),
+                closeGate: closeGate
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "promotion-drain-reservation",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "mac-b",
+            macDisplayName: "Studio B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                params: [:]
+            )
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionHandoffDrainTimeoutNanoseconds: 1_000_000
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "feature-b",
+            authenticatedInstanceTag: "feature-b",
+            supportedHostCapabilities: ["notification.feed.v1"],
+            actionCapabilities: .none,
+            displayName: "Studio B"
+        )
+        let workspaceID = MobileWorkspacePreview.ID(
+            rawValue: "live-workspace"
+        )
+        shell.workspacesByMac["mac-b"] = MacWorkspaceState(
+            macDeviceID: "mac-b",
+            displayName: "Studio B",
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: workspaceID,
+                    macDeviceID: "mac-b",
+                    name: "Target Workspace",
+                    terminals: []
+                ),
+            ],
+            status: .connected
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = subscription
+
+        await shell.retireSecondaryPromotionCandidate(
+            subscription,
+            macDeviceID: "mac-b"
+        )
+        await closeGate.waitUntilCloseStarted()
+
+        #expect(shell.secondaryMacSubscriptions["mac-b"] == nil)
+        #expect(shell.secondaryMacDrainReservations["mac-b"]
+            === subscription)
+        #expect(!shell.liveMacConnections.contains {
+            $0.macDeviceID == "mac-b"
+        })
+        #expect(shell.workspacesByMac["mac-b"]?.status == .unavailable)
+        #expect(shell.workspaceMutationTarget(for: workspaceID).client == nil)
+
+        await closeGate.release()
+        #expect(try await pollUntil {
+            shell.secondaryMacDrainReservations["mac-b"] == nil
+        })
+        await client.disconnect()
+    }
+
     @Test(arguments: PromotionWorkspaceRace.allCases)
     func promotionDoesNotOverwriteNewerForegroundWorkspaceState(
         race: PromotionWorkspaceRace
