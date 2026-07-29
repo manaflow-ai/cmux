@@ -9178,6 +9178,10 @@ struct CMUXCLI {
         vmIDForSplitAttach: String? = nil
     ) throws {
         var sshOptions = inputSSHOptions
+        sshOptions.sshExecutablePath = resolveExecutableInSearchPath(
+            "ssh",
+            searchPath: ProcessInfo.processInfo.environment["PATH"]
+        ) ?? "/usr/bin/ssh"
         let sharingOptions = SSHConnectionSharingOptions()
         let usesImplicitManagedInteractiveShell =
             !sshOptions.skipDaemonBootstrap &&
@@ -9190,7 +9194,7 @@ struct CMUXCLI {
         // must not hang every managed SSH launch indefinitely.
         let configurationTimeout: TimeInterval = usesImplicitManagedInteractiveShell ? 15 : 2
         let configurationResult = resolvedSSHConfigurationResult(
-            for: inputSSHOptions,
+            for: sshOptions,
             timeout: configurationTimeout
         )
         let resolvedUserSSHConfiguration =
@@ -10245,7 +10249,7 @@ struct CMUXCLI {
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
         )
-        var parts: [String] = ["ssh"]
+        var parts: [String] = [options.sshExecutablePath]
         if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
             parts += ["-o", "ConnectTimeout=6"]
         }

@@ -121,7 +121,11 @@ struct SSHDeepSleepReattachTests {
     @Test func confirmedSSHPTYExitRestartsWithInheritedCustomIdentity() throws {
         let workspace = Workspace()
         let foregroundAuthToken = "foreground-auth-restored-session"
-        let configuration = Self.persistentConfiguration(foregroundAuthToken: foregroundAuthToken)
+        let configuredRemoteCommand = #"cd "/srv/project dir" && exec fish"#
+        let configuration = Self.persistentConfiguration(
+            foregroundAuthToken: foregroundAuthToken,
+            configuredRemoteCommand: configuredRemoteCommand
+        )
         let initialPanel = try #require(workspace.focusedTerminalPanel)
         workspace.configureRemoteConnection(configuration, autoConnect: false)
         let customSessionID = "ssh-restored-custom-session"
@@ -158,6 +162,11 @@ struct SSHDeepSleepReattachTests {
         #expect(command.contains("workspace.remote.foreground_auth_ready"))
         #expect(command.contains(foregroundAuthToken))
         #expect(command.contains("ssh-session-end"))
+        let expectedRestartCommand = SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
+            relayPort: 64007,
+            configuredRemoteCommand: configuredRemoteCommand
+        )
+        #expect(command.contains(Data(expectedRestartCommand.utf8).base64EncodedString()))
         #expect(restarted.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
         #expect(!workspace.endedPersistentRemotePTYAttachSurfaceIds.contains(panel.id))
@@ -422,7 +431,8 @@ struct SSHDeepSleepReattachTests {
     }
 
     private static func persistentConfiguration(
-        foregroundAuthToken: String? = nil
+        foregroundAuthToken: String? = nil,
+        configuredRemoteCommand: String? = nil
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini", port: nil, identityFile: nil, sshOptions: [],
@@ -431,6 +441,7 @@ struct SSHDeepSleepReattachTests {
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(requireExisting: false),
+            configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             preserveAfterTerminalExit: true, persistentDaemonSlot: "ssh-test"
         )

@@ -26,10 +26,10 @@ extension CMUXCLI {
     /// for invocations that pass their own command; the interactive session
     /// hop keeps its explicit `-o RemoteCommand=<bootstrap>`.
     internal func sshArgumentsOverridingHostRemoteCommand(_ arguments: [String]) -> [String] {
-        guard arguments.first == "ssh" else {
-            return SSHHostConfiguredRemoteCommand().overrideArguments + arguments
+        guard let executable = arguments.first else {
+            return SSHHostConfiguredRemoteCommand().overrideArguments
         }
-        return [arguments[0]] + SSHHostConfiguredRemoteCommand().overrideArguments + arguments.dropFirst()
+        return [executable] + SSHHostConfiguredRemoteCommand().overrideArguments + arguments.dropFirst()
     }
 
     internal func openSSHLocalCommandValue(shellScript: String?) -> String? {

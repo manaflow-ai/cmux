@@ -36,8 +36,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let surfaceID = "22222222-2222-2222-2222-222222222222"
         let sessionID = "ssh-\(workspaceID)-\(surfaceID)"
+        let harness = try makeRemoteCommandHostHarness(prefix: "cmux-ssh-rc-default")
 
         defer {
+            harness.cleanup()
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
@@ -73,6 +75,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         var captureEnvironment = ProcessInfo.processInfo.environment
         captureEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        captureEnvironment["PATH"] = "\(harness.binDirectory.path):\(captureEnvironment["PATH"] ?? "/usr/bin:/bin")"
+        captureEnvironment["CMUX_FAKE_SSH_EVENTS"] = harness.eventsFile.path
         captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
@@ -80,7 +84,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["ssh", "--no-focus", "cmux-remotecommand-host"],
             environment: captureEnvironment,
-            timeout: 5
+            timeout: 20
         )
         wait(for: [captureHandled], timeout: 5)
         XCTAssertFalse(captureResult.timedOut, captureResult.stderr)
@@ -91,7 +95,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             requests.first { $0["method"] as? String == "workspace.create" }?["params"] as? [String: Any]
         )
         let startupCommand = try XCTUnwrap(createParams["initial_command"] as? String)
-
         // Phase 2: the attach leg of the startup script connects back for the
         // remote PTY bridge once foreground auth has succeeded.
         let bridge = try bindLoopbackTCP()
@@ -142,9 +145,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
-        let harness = try makeRemoteCommandHostHarness(prefix: "cmux-ssh-rc-default")
-        defer { harness.cleanup() }
-
         let startupResult = runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
@@ -167,6 +167,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         let events = harness.recordedSSHEvents()
+        XCTAssertTrue(
+            events.contains("invocation kind=config override=absent"),
+            "The PATH-selected SSH executable must resolve configuration and run the startup hops; events: \(events)"
+        )
         XCTAssertTrue(
             events.contains("invocation kind=command override=none"),
             "The foreground auth hop must pass -o RemoteCommand=none so a host-configured RemoteCommand cannot conflict with its command-line command; events: \(events)"
@@ -195,8 +199,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("ssh-rc-boot")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let harness = try makeRemoteCommandHostHarness(prefix: "cmux-ssh-rc-bootstrap")
 
         defer {
+            harness.cleanup()
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
@@ -228,6 +234,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         var captureEnvironment = ProcessInfo.processInfo.environment
         captureEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        captureEnvironment["PATH"] = "\(harness.binDirectory.path):\(captureEnvironment["PATH"] ?? "/usr/bin:/bin")"
+        captureEnvironment["CMUX_FAKE_SSH_EVENTS"] = harness.eventsFile.path
         captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
@@ -242,7 +250,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "cmux-remotecommand-host",
             ],
             environment: captureEnvironment,
-            timeout: 5
+            timeout: 20
         )
         wait(for: [captureHandled], timeout: 5)
         XCTAssertFalse(captureResult.timedOut, captureResult.stderr)
@@ -265,9 +273,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             for fallback restores: \(forwardedOptions)
             """
         )
-
-        let harness = try makeRemoteCommandHostHarness(prefix: "cmux-ssh-rc-bootstrap")
-        defer { harness.cleanup() }
 
         let startupResult = runProcess(
             executablePath: "/bin/sh",
@@ -292,6 +297,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(startupResult.status, 0, startupResult.stderr)
 
         let events = harness.recordedSSHEvents()
+        XCTAssertTrue(
+            events.contains("invocation kind=config override=custom"),
+            "The PATH-selected SSH executable must resolve configuration and run the startup hops; events: \(events)"
+        )
         XCTAssertTrue(
             events.contains("invocation kind=command override=none"),
             "The bootstrap installer hop must pass -o RemoteCommand=none; events: \(events)"
@@ -360,7 +369,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             surfaceID: String
         ) -> [String: String] {
             var environment = ProcessInfo.processInfo.environment
-            environment["PATH"] = "\(binDirectory.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+            // Deliberately remove the fake SSH directory after configuration
+            // resolution. The generated startup command must retain the same
+            // absolute executable instead of resolving bare `ssh` again.
+            environment["PATH"] = "/usr/bin:/bin"
             environment["CMUX_BUNDLED_CLI_PATH"] = binDirectory.appendingPathComponent("cmux").path
             environment["CMUX_SOCKET_PATH"] = socketPath
             environment["CMUX_WORKSPACE_ID"] = workspaceID
@@ -410,13 +422,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         #!/bin/sh
         events="${CMUX_FAKE_SSH_EVENTS:?}"
         override=absent
+        remotecommand_value=
         remotecommand_options=0
         mode=session
         while [ $# -gt 0 ]; do
           case "$1" in
             -o)
               case "$2" in
-                RemoteCommand=*|remotecommand=*) remotecommand_options=$((remotecommand_options + 1)) ;;
+                RemoteCommand=*|remotecommand=*)
+                  remotecommand_options=$((remotecommand_options + 1))
+                  remotecommand_value="${2#*=}"
+                  ;;
               esac
               if [ "$override" = absent ]; then
                 case "$2" in
@@ -427,7 +443,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
               shift 2 ;;
             -o*)
               case "${1#-o}" in
-                RemoteCommand=*|remotecommand=*) remotecommand_options=$((remotecommand_options + 1)) ;;
+                RemoteCommand=*|remotecommand=*)
+                  remotecommand_options=$((remotecommand_options + 1))
+                  remotecommand_value="${1#*=}"
+                  ;;
               esac
               if [ "$override" = absent ]; then
                 case "${1#-o}" in
@@ -447,6 +466,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         if [ "$mode" = config ]; then
           printf 'invocation kind=config override=%s\\n' "$override" >> "$events"
           printf 'controlpath none\\n'
+          case "$override" in
+            custom) printf 'remotecommand %s\\n' "$remotecommand_value" ;;
+            none) printf 'remotecommand none\\n' ;;
+            *) printf 'remotecommand sudo su -\\n' ;;
+          esac
+          printf 'requesttty yes\\n'
           exit 0
         fi
         if [ "$mode" = controlop ]; then
