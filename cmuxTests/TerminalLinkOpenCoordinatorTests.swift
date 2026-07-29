@@ -275,7 +275,13 @@ struct TerminalLinkOpenCoordinatorTests {
         let terminalPanelId = try #require(
             store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
         )
+        let terminal = try #require(store.panels[terminalPanelId] as? TerminalPanel)
+        terminal.surface.recordReportedWorkingDirectory(
+            FileManager.default.temporaryDirectory.path
+        )
 
+        _ = store.terminalLinkHoverWorkingDirectory(for: terminalPanelId)
+        #expect(liveDirectoryQueries == 0)
         #expect(store.terminalLinkWorkingDirectory(for: terminalPanelId) == liveDirectory.path)
         #expect(liveDirectoryQueries == 1)
     }

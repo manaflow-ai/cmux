@@ -8,6 +8,7 @@ protocol TerminalLinkOpenContainer: AnyObject {
 
     func terminalLinkContainsPanel(_ sourcePanelId: UUID) -> Bool
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String?
+    func terminalLinkHoverWorkingDirectory(for sourcePanelId: UUID) -> String?
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool
     func terminalLinkSnapshotTerminalPanel(for sourcePanelId: UUID) -> TerminalPanel?
 
@@ -23,4 +24,10 @@ protocol TerminalLinkOpenContainer: AnyObject {
 
     @discardableResult
     func openOrFocusTerminalBrowserFileLink(url: URL, sourcePanelId: UUID) -> Bool
+}
+
+extension TerminalLinkOpenContainer {
+    func terminalLinkHoverWorkingDirectory(for sourcePanelId: UUID) -> String? {
+        terminalLinkWorkingDirectory(for: sourcePanelId)
+    }
 }

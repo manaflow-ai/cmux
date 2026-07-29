@@ -294,7 +294,7 @@ struct DockWorkingDirectoryInheritanceTests {
             store.restoredAgentLifecycle.resumeStatesByPanelId[sourcePanelId] = .autoResumeCommandRunning
             store.restoredResumeSessionWorkingDirectoriesByPanelId[sourcePanelId] = sourceDirectory.path
 
-            #expect(store.terminalLinkWorkingDirectory(for: sourcePanelId) == sourceDirectory.path)
+            #expect(store.terminalLinkHoverWorkingDirectory(for: sourcePanelId) == sourceDirectory.path)
             #expect(liveDirectoryQueries == 0)
         }
     }

@@ -204,6 +204,9 @@ extension Workspace {
             surface.name = customName
             surface.url = browser.currentURL?.absoluteString
             surface.focus = focus
+            if browser.localFileReadAccessPolicy == .fileOnly {
+                surface.localFileReadAccessPolicy = .fileOnly
+            }
             return surface
         case let project as ProjectPanel:
             var surface = CmuxSurfaceDefinition(type: .project)

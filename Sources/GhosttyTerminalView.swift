@@ -6112,7 +6112,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         resolveWordUnderCursorPath(at: point)?.path
     }
 
-    private func resolveWordUnderCursorPath(at point: NSPoint? = nil) -> WordPathResolution? {
+    private func resolveWordUnderCursorPath(
+        at point: NSPoint? = nil,
+        usesHoverWorkingDirectory: Bool = false
+    ) -> WordPathResolution? {
         guard let surface = surface else { return nil }
 
         guard let termSurface = terminalSurface,
@@ -6121,7 +6124,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return nil
         }
 
-        guard let cwd = container.terminalLinkWorkingDirectory(for: termSurface.id) else {
+        let cwd = usesHoverWorkingDirectory
+            ? container.terminalLinkHoverWorkingDirectory(for: termSurface.id)
+            : container.terminalLinkWorkingDirectory(for: termSurface.id)
+        guard let cwd else {
             return nil
         }
 
@@ -6304,13 +6310,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cachedWordPathHoverKey = nil
             cachedWordPathHoverResolution = nil
             hasCachedWordPathHoverResolution = false
-            return resolveWordUnderCursorPath(at: point)
+            return resolveWordUnderCursorPath(at: point, usesHoverWorkingDirectory: true)
         }
         if hasCachedWordPathHoverResolution, cachedWordPathHoverKey == key {
             return cachedWordPathHoverResolution
         }
 
-        let resolution = resolveWordUnderCursorPath(at: point)
+        let resolution = resolveWordUnderCursorPath(at: point, usesHoverWorkingDirectory: true)
         cachedWordPathHoverKey = key
         cachedWordPathHoverResolution = resolution
         hasCachedWordPathHoverResolution = true
