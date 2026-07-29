@@ -149,10 +149,13 @@ Resolve and launch a real executable directly. Common Git installations include:
 - `/Library/Developer/CommandLineTools/usr/bin/git`
 - `/Applications/Xcode.app/Contents/Developer/usr/bin/git`
 
-These locations vary by machine and Xcode installation. Let the containing app
-resolve or let the user choose the tool, store the resulting URL, and report a
-clear error if it is no longer executable. A directly launched tool still
-inherits the extension's sandbox and file access.
+These locations vary by machine and Xcode installation. Resolve a known,
+supported installation path in the containing app or let the user configure
+one; a file-selection or bookmark grant authorizes data access, not an arbitrary
+executable. Store the resulting URL and report a clear error if it is no longer
+executable. For a predictable distribution path, embed and sign a helper with
+the extension. A directly launched tool still inherits the extension's sandbox
+and file access.
 
 ### Set a readable working directory
 
@@ -190,16 +193,20 @@ covers user-selected URLs, persistent security-scoped bookmarks, and passing
 bookmarks between processes.
 
 Privacy controls such as Files and Folders still apply to locations including
-Desktop, Documents, and Downloads. A grant to CMUX or to the containing app does
-not automatically authorize the separately signed appex, and extensions should
-handle denial without assuming that macOS will present a consent prompt.
+Desktop, Documents, and Downloads. [Apple documents embedded
+extensions](https://support.apple.com/guide/security/supporting-extensions-secabd3504cd/web)
+as sharing their containing app's privacy-control grants, but CMUX is the
+activating host, not the app that contains a third-party sidebar. That is
+separate from App Sandbox repository access: use explicit selection and
+bookmarks, and handle denial without assuming that extension activation will
+present a consent prompt.
 
 Full Disk Access is a user-granted System Settings permission intended for
-workflows that genuinely need access across the disk. It must be granted to the
-process that reads the files; for an ExtensionKit sidebar, that may require
-selecting the embedded `.appex` because a grant to the containing app does not
-transfer. Do not make it the normal setup path for a sidebar that reads selected
-repositories; prefer explicit selection and bookmarks.
+workflows that genuinely need access across the disk. If a broad-disk workflow
+still receives a denial during development, System Settings may require
+selecting the embedded `.appex` explicitly. Do not make it the normal setup path
+for a sidebar that reads selected repositories; prefer explicit selection and
+bookmarks.
 
 If you test privacy grants during development, sign the appex with a stable
 Apple Development or self-signed identity. An ad-hoc signature's designated

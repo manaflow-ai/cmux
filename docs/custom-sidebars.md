@@ -7,8 +7,8 @@ state, and can run cmux commands on tap. This guide is the authoring contract
 for you or a coding agent.
 
 This guide covers interpreted custom sidebars, which cannot import frameworks
-or start child processes. For unrestricted Swift in a compiled ExtensionKit
-sidebar, start with the
+or start child processes. For compiled Swift in an ExtensionKit sidebar, start
+with the
 [sample app](../Examples/SampleSidebarExtensionApp/README.md) and the
 [CmuxExtensionKit authoring guide](../Packages/macOS/CmuxExtensionKit/README.md).
 Compiled extensions run inside the macOS App Sandbox; if yours launches `git`
