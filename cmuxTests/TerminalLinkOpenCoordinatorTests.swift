@@ -205,6 +205,28 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(externallyOpened.isEmpty)
     }
 
+    @Test("Dock terminal word fallback snapshots its Dock panel")
+    @MainActor
+    func dockWordFallbackUsesDockTerminalSnapshot() throws {
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        let terminal = try #require(store.panels[terminalPanelId] as? TerminalPanel)
+
+        #expect(
+            terminal.hostedView.surfaceView.debugWordPathSnapshotTerminalPanelID()
+                == terminalPanelId
+        )
+    }
+
     @Test("Deferred HTML routing revalidates remote state")
     @MainActor
     func deferredHTMLRouteRejectsRemoteTerminal() throws {
