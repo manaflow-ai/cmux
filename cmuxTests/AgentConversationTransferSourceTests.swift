@@ -101,6 +101,83 @@ struct AgentConversationTransferSourceTests {
         )
     }
 
+    @Test
+    func inferredOpenCodeSessionIdentityIsNotTransferable() throws {
+        let home = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detectedSnapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "heuristic-latest-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                processDetectedLauncher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: [
+                    "/opt/homebrew/bin/opencode",
+                    "--session",
+                    "parent-session",
+                    "--fork",
+                ],
+                workingDirectory: nil,
+                environment: ["HOME": home.path]
+            )
+        )
+        func loadedSnapshot(
+            source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource
+        ) throws -> SessionRestorableAgentSnapshot {
+            let index = RestorableAgentSessionIndex.load(
+                homeDirectory: home.path,
+                fileManager: .default,
+                registry: CmuxVaultAgentRegistry(registrations: []),
+                detectedSnapshots: [
+                    key: (
+                        snapshot: detectedSnapshot,
+                        updatedAt: 123,
+                        processIDs: [4_321],
+                        agentProcessIDs: [4_321],
+                        sessionIDSource: source
+                    ),
+                ],
+                processArgumentsProvider: { _ in nil },
+                processPresenceProvider: { _ in .absent },
+                processIdentityProvider: { _ in nil }
+            )
+            return try #require(index.snapshot(
+                workspaceId: workspaceId,
+                panelId: panelId
+            ))
+        }
+
+        let inferredSnapshot = try loadedSnapshot(source: .inferredLatestSessionFile)
+        let explicitSnapshot = try loadedSnapshot(source: .explicit)
+        #expect(
+            inferredSnapshot.sessionIDProvenance == .inferredLatestSessionFile
+        )
+        #expect(!AgentConversationSource(
+            snapshot: inferredSnapshot
+        ).hasDeterministicTranscriptSource)
+        #expect(explicitSnapshot.sessionIDProvenance == .authoritative)
+        #expect(AgentConversationSource(
+            snapshot: explicitSnapshot
+        ).hasDeterministicTranscriptSource)
+
+        let workspace = Workspace()
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(
+            inferredSnapshot,
+            panelId: focusedPanelId
+        )
+        #expect(workspace.agentConversationForkSelection(
+            forPanelId: focusedPanelId,
+            request: .init(targetHarness: .claude, destination: .right)
+        ) == nil)
+    }
+
     @Test(arguments: ["hermes", "hermes-agent"])
     func processDetectedHermesCapturesHomeWithoutReplayingIt(
         launcher: String

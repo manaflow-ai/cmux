@@ -394,6 +394,21 @@ struct ForkParentFallbackGeneralizationTests {
             latestSessionIdForSolePanel: "child",
             sameWorkingDirectoryPanelCount: 2
         ) == nil)
+        let inferred = RestorableAgentSessionIndex.openCodeSessionIDResolutionForProcess(
+            arguments: ["opencode", "--session", "parent", "--fork"],
+            latestSessionIdForSolePanel: "child",
+            sameWorkingDirectoryPanelCount: 1
+        )
+        #expect(inferred?.sessionId == "child")
+        #expect(inferred?.source == .inferredLatestSessionFile)
+
+        let explicit = RestorableAgentSessionIndex.openCodeSessionIDResolutionForProcess(
+            arguments: ["opencode", "--session", "child", "--fork=parent"],
+            latestSessionIdForSolePanel: nil,
+            sameWorkingDirectoryPanelCount: 2
+        )
+        #expect(explicit?.sessionId == "child")
+        #expect(explicit?.source == .explicit)
     }
 
     @Test func opencodeProcessDetectedEntryWinsOverSamePaneCodexFallback() throws {
