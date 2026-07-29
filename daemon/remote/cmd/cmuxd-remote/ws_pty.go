@@ -98,17 +98,18 @@ var (
 )
 
 const (
-	defaultPTYCols                   = 80
-	defaultPTYRows                   = 24
-	maxPTYDimension                  = 65535
-	defaultWebSocketScrollbackCap    = 1 << 20
-	defaultWebSocketReplayChunkBytes = 48 * 1024
-	defaultWebSocketWriteQueueCap    = 256
-	defaultPTYInputQueueCap          = 256
-	defaultPTYInputChunkBytes        = 16 * 1024
-	defaultWebSocketWriteTimeout     = 10 * time.Second
-	defaultWebSocketSessionIdleTTL   = 24 * time.Hour
-	standardExecutablePath           = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+	defaultPTYCols                           = 80
+	defaultPTYRows                           = 24
+	maxPTYDimension                          = 65535
+	defaultWebSocketScrollbackCap            = 1 << 20
+	defaultWebSocketReplayChunkBytes         = 48 * 1024
+	defaultWebSocketWriteQueueCap            = 256
+	defaultPTYInputQueueCap                  = 256
+	defaultPTYInputChunkBytes                = 16 * 1024
+	defaultWebSocketWriteTimeout             = 10 * time.Second
+	defaultWebSocketSessionIdleTTL           = 24 * time.Hour
+	maxConcurrentPTYSessionStartOwnersPerHub = 16
+	standardExecutablePath                   = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 )
 
 type wsPTYOutgoingFrame struct {
@@ -210,14 +211,17 @@ type wsPTYHub struct {
 	// startup run without mu. Callers for the same key join that start; callers
 	// for healthy or unrelated sessions never wait behind it.
 	startingSessions map[wsPTYSessionKey]*wsPTYSessionStart
-	closed           bool
-	closedCh         chan struct{}
-	nextAttachmentID uint64
-	nextAnonymousID  uint64
-	shell            string
-	stderr           io.Writer
-	scrollbackLimit  int
-	sessionIdleTTL   time.Duration
+	// PTY startup is not context-cancellable once inside the operating system,
+	// so bound the number of start owners that can survive client teardown.
+	sessionStartSlots chan struct{}
+	closed            bool
+	closedCh          chan struct{}
+	nextAttachmentID  uint64
+	nextAnonymousID   uint64
+	shell             string
+	stderr            io.Writer
+	scrollbackLimit   int
+	sessionIdleTTL    time.Duration
 	// openPTY allocates a PTY master/slave pair. It defaults to creack/pty.Open
 	// (which opens /dev/ptmx) and exists as a field so tests can simulate a
 	// hardened devpts where allocation is denied.
@@ -238,14 +242,15 @@ func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
 		idleTTL = defaultWebSocketSessionIdleTTL
 	}
 	return &wsPTYHub{
-		sessions:         map[wsPTYSessionKey]*wsPTYSession{},
-		startingSessions: map[wsPTYSessionKey]*wsPTYSessionStart{},
-		closedCh:         make(chan struct{}),
-		shell:            strings.TrimSpace(cfg.Shell),
-		stderr:           stderr,
-		scrollbackLimit:  limit,
-		sessionIdleTTL:   idleTTL,
-		openPTY:          pty.Open,
+		sessions:          map[wsPTYSessionKey]*wsPTYSession{},
+		startingSessions:  map[wsPTYSessionKey]*wsPTYSessionStart{},
+		sessionStartSlots: make(chan struct{}, maxConcurrentPTYSessionStartOwnersPerHub),
+		closedCh:          make(chan struct{}),
+		shell:             strings.TrimSpace(cfg.Shell),
+		stderr:            stderr,
+		scrollbackLimit:   limit,
+		sessionIdleTTL:    idleTTL,
+		openPTY:           pty.Open,
 	}
 }
 
@@ -623,6 +628,7 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		return
 	}
 
+	connectionCtx, cancelConnection := context.WithCancel(r.Context())
 	server := &rpcServer{
 		nextStreamID:  1,
 		nextSessionID: 1,
@@ -634,19 +640,25 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		frameWriter: &wsRPCFrameWriter{
 			conn:    conn,
 			writeMu: writeMu,
-			ctx:     r.Context(),
+			ctx:     connectionCtx,
 		},
 	}
+	dispatcher := newRPCRequestDispatcher(connectionCtx, cancelConnection, nil, server)
 	unregisterCLI := func() {}
 	if cfg.CLIBridge != nil {
 		unregisterCLI = cfg.CLIBridge.register(server)
 	}
 	defer unregisterCLI()
 	defer server.closeAll()
+	defer cancelConnection()
 
 	for {
-		msgType, payload, err := conn.Read(r.Context())
+		msgType, payload, err := conn.Read(connectionCtx)
 		if err != nil {
+			if dispatcher.takeAsyncError() != nil {
+				_ = conn.Close(websocket.StatusInternalError, "write failed")
+				return
+			}
 			_ = conn.Close(websocket.StatusNormalClosure, "closed")
 			return
 		}
@@ -675,7 +687,7 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 			continue
 		}
 
-		if err := server.handleRequestAndWriteResponse(req); err != nil {
+		if err := dispatcher.dispatch(req); err != nil {
 			_ = conn.Close(websocket.StatusInternalError, "write failed")
 			return
 		}
@@ -877,11 +889,18 @@ func (h *wsPTYHub) prepareAttachment(
 			return nil, nil, nil, fmt.Errorf("persistent PTY session %q is not running", sessionID)
 		}
 
+		select {
+		case h.sessionStartSlots <- struct{}{}:
+		default:
+			h.mu.Unlock()
+			return nil, nil, nil, errors.New("too many PTY sessions are already starting")
+		}
 		start := &wsPTYSessionStart{done: make(chan struct{})}
 		h.startingSessions[sessionKey] = start
 		h.mu.Unlock()
 
 		startedSession, startErr := h.startSession(sessionKey, sessionID, cols, rows, command)
+		<-h.sessionStartSlots
 		discardStartedSession := false
 
 		h.mu.Lock()
@@ -890,6 +909,9 @@ func (h *wsPTYHub) prepareAttachment(
 			switch existingSession := h.sessions[sessionKey]; {
 			case h.closed:
 				startErr = errWSPTYHubClosed
+				discardStartedSession = true
+			case ctx.Err() != nil:
+				startErr = ctx.Err()
 				discardStartedSession = true
 			case existingSession != nil && !existingSession.closed:
 				discardStartedSession = true
@@ -913,6 +935,10 @@ func (h *wsPTYHub) prepareAttachment(
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		h.mu.Unlock()
+		return nil, nil, nil, err
+	}
 	if attachmentID == "" {
 		attachmentID = fmt.Sprintf("att-%d", h.nextAttachmentID)
 		h.nextAttachmentID++

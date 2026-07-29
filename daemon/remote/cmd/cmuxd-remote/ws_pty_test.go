@@ -320,6 +320,80 @@ func TestAttachRPCConcurrentSameSessionStartsOnce(t *testing.T) {
 	}
 }
 
+func TestAttachRPCBoundsStalledSessionStartOwners(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	startEntered := make(chan struct{}, maxConcurrentPTYSessionStartOwnersPerHub)
+	releaseStarts := make(chan struct{})
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			close(releaseStarts)
+		}
+	})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		startEntered <- struct{}{}
+		<-releaseStarts
+		return nil, nil, errors.New("test PTY start released")
+	}
+
+	results := make(chan error, maxConcurrentPTYSessionStartOwnersPerHub)
+	for i := 0; i < maxConcurrentPTYSessionStartOwnersPerHub; i++ {
+		go func(index int) {
+			_, _, _, err := hub.attachRPC(
+				context.Background(),
+				"bounded-start-"+strconv.Itoa(index),
+				"attachment",
+				80,
+				24,
+				"sleep 30",
+				"",
+				false,
+				false,
+			)
+			results <- err
+		}(i)
+	}
+	for i := 0; i < maxConcurrentPTYSessionStartOwnersPerHub; i++ {
+		select {
+		case <-startEntered:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("PTY start %d did not enter allocation", i+1)
+		}
+	}
+
+	excessResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			context.Background(),
+			"bounded-start-excess",
+			"attachment",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		excessResult <- err
+	}()
+	select {
+	case err := <-excessResult:
+		if err == nil || !strings.Contains(err.Error(), "too many PTY sessions") {
+			t.Fatalf("excess PTY start error = %v, want bounded unavailable error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("excess PTY start blocked instead of failing immediately")
+	}
+
+	released = true
+	close(releaseStarts)
+	for i := 0; i < maxConcurrentPTYSessionStartOwnersPerHub; i++ {
+		<-results
+	}
+}
+
 func TestCloseAllDoesNotWaitForStalledSessionStart(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
 	t.Cleanup(hub.closeAll)
@@ -382,6 +456,143 @@ func TestCloseAllDoesNotWaitForStalledSessionStart(t *testing.T) {
 	}
 	if pendingStarts != 0 {
 		t.Fatalf("pending session starts after completion = %d, want 0", pendingStarts)
+	}
+}
+
+func TestWebSocketRPCStalledPTYAttachDoesNotBlockHealthyAttach(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	const healthySessionID = "ws-rpc-healthy"
+	if _, _, _, err := hub.attachRPC(
+		context.Background(),
+		healthySessionID,
+		"seed",
+		80,
+		24,
+		"sleep 30",
+		"seed-token",
+		false,
+		false,
+	); err != nil {
+		t.Fatalf("seed healthy PTY session: %v", err)
+	}
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+	t.Cleanup(func() {
+		select {
+		case <-releaseStart:
+		default:
+			close(releaseStart)
+		}
+	})
+
+	rpcLeasePath := filepath.Join(t.TempDir(), "rpc-lease.json")
+	const authToken = "ws-rpc-token"
+	const authSessionID = "ws-rpc-client"
+	writeTestLease(t, rpcLeasePath, authToken, authSessionID, true, time.Now().Add(time.Minute))
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: filepath.Join(t.TempDir(), "unused-pty-lease.json"),
+		RPCAuthLeaseFile: rpcLeasePath,
+		Shell:            "/bin/sh",
+		PTYHub:           hub,
+	}, io.Discard))
+	t.Cleanup(server.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/rpc"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial WebSocket RPC: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "done") })
+
+	authPayload, err := json.Marshal(wsAuthFrame{
+		Type:      "auth",
+		Token:     authToken,
+		SessionID: authSessionID,
+	})
+	if err != nil {
+		t.Fatalf("marshal WebSocket RPC auth: %v", err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, authPayload); err != nil {
+		t.Fatalf("write WebSocket RPC auth: %v", err)
+	}
+	if _, payload, err := conn.Read(ctx); err != nil {
+		t.Fatalf("read WebSocket RPC ready: %v", err)
+	} else if !strings.Contains(string(payload), `"ready"`) {
+		t.Fatalf("unexpected WebSocket RPC ready frame: %s", payload)
+	}
+
+	writeRequest := func(req rpcRequest) {
+		t.Helper()
+		payload, err := json.Marshal(req)
+		if err != nil {
+			t.Fatalf("marshal WebSocket RPC request: %v", err)
+		}
+		if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
+			t.Fatalf("write WebSocket RPC request: %v", err)
+		}
+	}
+	writeRequest(rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "ws-rpc-stalled",
+			"attachment_id":           "stalled",
+			"client_attachment_token": "stalled-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 30",
+		},
+	})
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stalled WebSocket RPC attach never reached PTY allocation")
+	}
+	writeRequest(rpcRequest{
+		ID:     2,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              healthySessionID,
+			"attachment_id":           "healthy",
+			"client_attachment_token": "healthy-token",
+			"cols":                    80,
+			"rows":                    24,
+			"require_existing":        true,
+		},
+	})
+
+	for {
+		msgType, payload, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("read WebSocket RPC response: %v", err)
+		}
+		if msgType != websocket.MessageText {
+			continue
+		}
+		var frame map[string]any
+		if err := json.Unmarshal(payload, &frame); err != nil {
+			t.Fatalf("decode WebSocket RPC frame %q: %v", payload, err)
+		}
+		if frame["id"] == float64(1) {
+			t.Fatalf("stalled WebSocket RPC attach completed before release: %v", frame)
+		}
+		if frame["id"] == float64(2) {
+			if ok, _ := frame["ok"].(bool); !ok {
+				t.Fatalf("healthy WebSocket RPC attach failed: %v", frame)
+			}
+			return
+		}
 	}
 }
 

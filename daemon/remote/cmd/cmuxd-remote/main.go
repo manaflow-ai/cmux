@@ -100,7 +100,10 @@ type stdioFrameWriter struct {
 }
 
 type rpcServer struct {
-	mu             sync.Mutex
+	mu sync.Mutex
+	// closed prevents an asynchronous attach from becoming owned after the
+	// connection teardown snapshot has already been drained.
+	closed         bool
 	nextStreamID   uint64
 	nextSessionID  uint64
 	streams        map[string]*streamState
@@ -110,6 +113,79 @@ type rpcServer struct {
 	ptyAttachments map[string]*wsPTYAttachment
 	frameWriter    rpcFrameWriter
 	cliBridge      *cloudCLIBridge
+}
+
+type rpcRequestDispatcher struct {
+	ctx              context.Context
+	cancelConnection context.CancelFunc
+	interruptRead    func()
+	server           *rpcServer
+	ptyAttachSlots   chan struct{}
+	asyncErrors      chan error
+}
+
+func newRPCRequestDispatcher(
+	ctx context.Context,
+	cancelConnection context.CancelFunc,
+	interruptRead func(),
+	server *rpcServer,
+) *rpcRequestDispatcher {
+	return &rpcRequestDispatcher{
+		ctx:              ctx,
+		cancelConnection: cancelConnection,
+		interruptRead:    interruptRead,
+		server:           server,
+		ptyAttachSlots:   make(chan struct{}, maxConcurrentPTYAttachRPCsPerConnection),
+		asyncErrors:      make(chan error, 1),
+	}
+}
+
+func (d *rpcRequestDispatcher) dispatch(req rpcRequest) error {
+	// PTY allocation can block inside the operating system. Only pty.attach is
+	// allowed to overtake the otherwise-serialized request stream; both frame
+	// writers serialize the resulting concurrent response writes.
+	if req.Method != "pty.attach" {
+		return d.server.handleRequestAndWriteResponse(req)
+	}
+
+	select {
+	case <-d.ctx.Done():
+		return d.ctx.Err()
+	case d.ptyAttachSlots <- struct{}{}:
+	default:
+		return d.server.frameWriter.writeResponse(rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "unavailable",
+				Message: "too many PTY attach requests are already in progress",
+			},
+		})
+	}
+
+	go func() {
+		defer func() { <-d.ptyAttachSlots }()
+		if err := d.server.handlePTYAttachAndWriteResponse(d.ctx, req); err != nil {
+			select {
+			case d.asyncErrors <- err:
+			default:
+			}
+			d.cancelConnection()
+			if d.interruptRead != nil {
+				d.interruptRead()
+			}
+		}
+	}()
+	return nil
+}
+
+func (d *rpcRequestDispatcher) takeAsyncError() error {
+	select {
+	case err := <-d.asyncErrors:
+		return err
+	default:
+		return nil
+	}
 }
 
 type sessionAttachment struct {
@@ -126,7 +202,10 @@ type sessionState struct {
 	lastKnownRows int
 }
 
-const maxRPCFrameBytes = 4 * 1024 * 1024
+const (
+	maxRPCFrameBytes                        = 4 * 1024 * 1024
+	maxConcurrentPTYAttachRPCsPerConnection = 32
+)
 
 func main() {
 	if shouldRunCLIForInvocation(os.Args[0], os.Args[1:]) {
@@ -306,6 +385,14 @@ func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHu
 		frameWriter:   writer,
 	}
 	defer server.closeAll()
+	connectionCtx, cancelConnection := context.WithCancel(context.Background())
+	defer cancelConnection()
+	interruptRead := func() {
+		if closer, ok := stdin.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
+	dispatcher := newRPCRequestDispatcher(connectionCtx, cancelConnection, interruptRead, server)
 
 	reader := bufio.NewReaderSize(stdin, 64*1024)
 	defer writer.flush()
@@ -313,6 +400,9 @@ func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHu
 	for {
 		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
 		if readErr != nil {
+			if asyncErr := dispatcher.takeAsyncError(); asyncErr != nil {
+				return asyncErr
+			}
 			if errors.Is(readErr, io.EOF) {
 				return nil
 			}
@@ -350,7 +440,7 @@ func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHu
 			continue
 		}
 
-		if err := server.handleRequestAndWriteResponse(req); err != nil {
+		if err := dispatcher.dispatch(req); err != nil {
 			return err
 		}
 	}
@@ -1131,7 +1221,9 @@ func handlePersistentDaemonConnWithAuthTimeout(
 			return
 		}
 	}
-	_ = runRPCServerWithReader(reader, writer, hub, false, requestShutdown)
+	_ = runRPCServerWithReader(reader, writer, hub, false, requestShutdown, func() {
+		_ = conn.Close()
+	})
 }
 
 func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) error {
@@ -1211,6 +1303,7 @@ func runRPCServerWithReader(
 	ptyHub *wsPTYHub,
 	ownsPTYHub bool,
 	requestShutdown func(),
+	interruptRead func(),
 ) error {
 	server := &rpcServer{
 		nextStreamID:  1,
@@ -1222,11 +1315,17 @@ func runRPCServerWithReader(
 		frameWriter:   writer,
 	}
 	defer server.closeAll()
+	connectionCtx, cancelConnection := context.WithCancel(context.Background())
+	defer cancelConnection()
+	dispatcher := newRPCRequestDispatcher(connectionCtx, cancelConnection, interruptRead, server)
 	defer writer.flush()
 
 	for {
 		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
 		if readErr != nil {
+			if asyncErr := dispatcher.takeAsyncError(); asyncErr != nil {
+				return asyncErr
+			}
 			if errors.Is(readErr, io.EOF) {
 				return nil
 			}
@@ -1277,7 +1376,7 @@ func runRPCServerWithReader(
 			return nil
 		}
 
-		if err := server.handleRequestAndWriteResponse(req); err != nil {
+		if err := dispatcher.dispatch(req); err != nil {
 			return err
 		}
 	}
@@ -1530,6 +1629,10 @@ func (s *rpcServer) handleRequestAndWriteResponse(req rpcRequest) error {
 		return s.handleNotificationResponse(req, resp)
 	}
 	return s.frameWriter.writeResponse(resp)
+}
+
+func (s *rpcServer) handlePTYAttachAndWriteResponse(ctx context.Context, req rpcRequest) error {
+	return s.frameWriter.writeResponse(s.handlePTYAttachContext(ctx, req))
 }
 
 func rpcRequestExpectsResponse(req rpcRequest) bool {
@@ -2079,6 +2182,10 @@ func (s *rpcServer) handleSessionStatus(req rpcRequest) rpcResponse {
 }
 
 func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
+	return s.handlePTYAttachContext(context.Background(), req)
+}
+
+func (s *rpcServer) handlePTYAttachContext(ctx context.Context, req rpcRequest) rpcResponse {
 	sessionID, ok := getStringParam(req.Params, "session_id")
 	if !ok || strings.TrimSpace(sessionID) == "" {
 		return rpcResponse{
@@ -2134,7 +2241,7 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 		}
 	}
 	attachment, attachmentCtx, sessionDone, err := hub.attachRPC(
-		context.Background(),
+		ctx,
 		sessionID,
 		attachmentID,
 		cols,
@@ -2154,7 +2261,28 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 			},
 		}
 	}
-	s.trackPTYAttachment(attachment)
+	if err := ctx.Err(); err != nil {
+		hub.dropAttachment(attachment)
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    ptyAttachErrorCode(requireExisting),
+				Message: err.Error(),
+			},
+		}
+	}
+	if !s.trackPTYAttachment(attachment) {
+		hub.dropAttachment(attachment)
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    ptyAttachErrorCode(requireExisting),
+				Message: "RPC connection closed before PTY attachment completed",
+			},
+		}
+	}
 	go s.ptyAttachmentPump(attachmentCtx, attachment, sessionDone)
 
 	return rpcResponse{
@@ -2406,16 +2534,20 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 	}
 }
 
-func (s *rpcServer) trackPTYAttachment(attachment *wsPTYAttachment) {
+func (s *rpcServer) trackPTYAttachment(attachment *wsPTYAttachment) bool {
 	if attachment == nil {
-		return
+		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
 	if s.ptyAttachments == nil {
 		s.ptyAttachments = map[string]*wsPTYAttachment{}
 	}
 	s.ptyAttachments[rpcPTYAttachmentKey(attachment)] = attachment
+	return true
 }
 
 func (s *rpcServer) untrackPTYAttachment(attachment *wsPTYAttachment) {
@@ -2591,6 +2723,7 @@ func (s *rpcServer) dropStream(streamID string) {
 
 func (s *rpcServer) closeAll() {
 	s.mu.Lock()
+	s.closed = true
 	streams := make([]net.Conn, 0, len(s.streams))
 	for id, state := range s.streams {
 		delete(s.streams, id)
