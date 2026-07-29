@@ -1829,10 +1829,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let redetachedTransfer = try XCTUnwrap(workspace.detachSurface(panelId: panelID))
         XCTAssertNotNil(dock.attachDetachedSurface(redetachedTransfer, inPane: dockPane, focus: false))
         XCTAssertTrue(dock.markRemoteTerminalSessionEnded(panelId: panelID, relayPort: config.relayPort))
-        workspace.markRemoteTerminalSessionEnded(
-            surfaceId: panelID,
-            relayPort: config.relayPort,
-            allowUntracked: true
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionEnded(
+                surfaceId: panelID,
+                relayPort: config.relayPort,
+                allowUntracked: true
+            )
         )
 
         let endedTransfer = try XCTUnwrap(dock.detachSurface(panelId: panelID))

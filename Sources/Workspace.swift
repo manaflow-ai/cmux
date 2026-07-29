@@ -6252,9 +6252,14 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: surfaceId)
     }
 
-    func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?, allowUntracked: Bool = false) {
+    @discardableResult
+    func markRemoteTerminalSessionEnded(
+        surfaceId: UUID,
+        relayPort: Int?,
+        allowUntracked: Bool = false
+    ) -> Bool {
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
-            return
+            return true
         }
         guard let configuration = remoteConfiguration,
               remoteTerminalSessionEndMatchesCurrentConfiguration(
@@ -6263,7 +6268,7 @@ final class Workspace: Identifiable, ObservableObject {
                 configuration: configuration,
                 allowUntracked: allowUntracked
               ) else {
-            return
+            return false
         }
         let preservesRemotePTYSession = configuration.preserveAfterTerminalExit
         let previousPresentedDirectory = presentedCurrentDirectory
@@ -6278,7 +6283,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
         if activeRemoteTerminalSurfaceIds.isEmpty {
-            guard !preservesRemotePTYSession else { return }
+            guard !preservesRemotePTYSession else { return true }
             let shouldCleanupControlMaster =
                 configuration.relayPort != nil &&
                 configuration.transport == .ssh &&
@@ -6290,6 +6295,7 @@ final class Workspace: Identifiable, ObservableObject {
                 requestSSHControlMasterCleanupIfNeeded(configuration: configuration)
             }
         }
+        return true
     }
 
     func teardownRemoteConnection() {
