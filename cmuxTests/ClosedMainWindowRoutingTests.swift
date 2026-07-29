@@ -126,6 +126,9 @@ struct ClosedMainWindowRoutingTests {
         let controller = MainWindowController(window: window)
 
         AppDelegate.shared = app
+        controller.onCloseCommitted = { closingWindow in
+            app.markMainWindowCloseCommitted(closingWindow)
+        }
         app.tabManager = manager
         TerminalController.shared.setActiveTabManager(manager)
         app.registerMainWindow(

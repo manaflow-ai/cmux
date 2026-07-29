@@ -4687,7 +4687,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
         let key = ObjectIdentifier(window)
-        clearMainWindowCloseCommitment(window)
+        guard !isMainWindowCloseCommitted(window) else {
+            #if DEBUG
+            cmuxDebugLog(
+                "mainWindow.register.closeCommittedRejected "
+                    + "windowId=\(String(windowId.uuidString.prefix(8))) "
+                    + "window={\(debugWindowToken(window))}"
+            )
+            #endif
+            return
+        }
         forgetRecoverableMainWindowRoute(windowId: windowId)
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
@@ -8933,6 +8942,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Keep a strong reference so the window isn't deallocated.
         let controller = MainWindowController(window: window)
+        controller.onCloseCommitted = { [weak self] closingWindow in
+            self?.markMainWindowCloseCommitted(closingWindow)
+        }
         controller.onFrameRestorationCheckpoint = { [weak self] restoredWindow in
             self?.fitRestoredMainWindowFramesIfNeeded(windows: [restoredWindow])
         }
@@ -16615,10 +16627,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func markMainWindowCloseCommitted(_ window: NSWindow) {
         closeCommittedMainWindows.add(window)
-    }
-
-    func clearMainWindowCloseCommitment(_ window: NSWindow) {
-        closeCommittedMainWindows.remove(window)
     }
 
     func isMainWindowCloseCommitted(_ window: NSWindow) -> Bool {
