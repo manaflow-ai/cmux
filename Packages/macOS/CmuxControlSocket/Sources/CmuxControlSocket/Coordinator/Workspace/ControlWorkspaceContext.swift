@@ -291,8 +291,10 @@ public protocol ControlWorkspaceContext: AnyObject {
     ///   - surfaceID: The connected terminal surface id.
     ///   - authority: The relay or broker transport authority already validated
     ///     on the socket worker.
-    ///   - commitLease: The persistent broker lease to retain if configuration
-    ///     has not reached the workspace yet.
+    ///   - commitLease: The persistent broker lease. The context must hold it
+    ///     only across the bounded model mutation, retain it if configuration
+    ///     has not reached the workspace yet, and perform presentation effects
+    ///     after releasing it.
     /// - Returns: The connected-session resolution.
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID: UUID,

@@ -8,12 +8,9 @@ import Foundation
 extension RemotePTYLifecycleCommitLease: @retroactive ControlRemotePTYLifecycleCommitLease {
     @MainActor
     public func commitIfCurrent(
-        _ operation: @MainActor () -> Void
+        _ operation: @MainActor @Sendable () -> Bool
     ) -> Bool {
-        withCurrentCommit {
-            operation()
-            return true
-        } ?? false
+        withCurrentCommit(operation) ?? false
     }
 }
 
@@ -768,7 +765,7 @@ extension TerminalController: ControlWorkspaceContext {
                   ) else {
                 return .notFound
             }
-            let didConnect: Bool
+            var didConnect = false
             if let workspace = dockOwner.workspace {
                 didConnect = workspace.markDockRemoteTerminalSessionConnected(
                     surfaceId: surfaceId,
@@ -778,14 +775,23 @@ extension TerminalController: ControlWorkspaceContext {
                     dock: dock
                 )
             } else if dock.scope == .global {
-                didConnect = dock.markRemoteTerminalSessionConnected(
-                    panelId: surfaceId,
-                    authority: terminalAuthority,
-                    presentationWorkspaceID: workspaceId,
-                    terminalLifecycleID: terminalLifecycleID
-                )
-            } else {
-                didConnect = false
+                if let commitLease {
+                    didConnect = commitLease.commitIfCurrent {
+                        dock.markRemoteTerminalSessionConnected(
+                            panelId: surfaceId,
+                            authority: terminalAuthority,
+                            presentationWorkspaceID: workspaceId,
+                            terminalLifecycleID: terminalLifecycleID
+                        )
+                    }
+                } else {
+                    didConnect = dock.markRemoteTerminalSessionConnected(
+                        panelId: surfaceId,
+                        authority: terminalAuthority,
+                        presentationWorkspaceID: workspaceId,
+                        terminalLifecycleID: terminalLifecycleID
+                    )
+                }
             }
             guard didConnect else { return .notFound }
             let windowId = app.windowId(for: dockOwner.tabManager)

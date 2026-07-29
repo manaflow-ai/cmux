@@ -25,11 +25,15 @@ private final class ManualRemotePTYLifecycleCommitLease:
     ControlRemotePTYLifecycleCommitLease
 {
     var isCurrent = true
+    var afterOperation: (@MainActor () -> Void)?
 
-    func commitIfCurrent(_ operation: @MainActor () -> Void) -> Bool {
+    func commitIfCurrent(
+        _ operation: @MainActor @Sendable () -> Bool
+    ) -> Bool {
         guard isCurrent else { return false }
-        operation()
-        return true
+        let didApply = operation()
+        afterOperation?()
+        return didApply
     }
 }
 
@@ -1847,6 +1851,42 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
         XCTAssertNil(workspace.remoteTerminalSessionStatesBySurfaceId[panel.id])
         XCTAssertNil(workspace.pendingRemoteTerminalConnectionsBySurfaceId[panel.id])
+    }
+
+    @MainActor
+    func testPersistentReadinessPresentsAfterCommitLeaseIsReleased() throws {
+        let workspace = Workspace()
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let lease = ManualRemotePTYLifecycleCommitLease()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_016,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "bounded-readiness-commit"
+        )
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        lease.afterOperation = {
+            XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        }
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panel.id,
+                authority: .persistentTransport(config.proxyBrokerTransportKey),
+                terminalLifecycleID: panel.surface.terminalLifecycleId,
+                commitLease: lease
+            )
+        )
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
     }
 
     @MainActor

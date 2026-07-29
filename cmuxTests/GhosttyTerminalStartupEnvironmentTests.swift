@@ -57,11 +57,19 @@ struct GhosttyTerminalStartupEnvironmentTests {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil
         )
+        var originalNeedsTeardown = true
+        defer {
+            if originalNeedsTeardown {
+                GhosttyApp.terminalSurfaceRegistry.unregister(original)
+                original.teardownSurface()
+            }
+        }
         let originalLifecycleID = try #require(
             original.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID")
         )
         GhosttyApp.terminalSurfaceRegistry.unregister(original)
         original.teardownSurface()
+        originalNeedsTeardown = false
 
         let replacement = TerminalSurface(
             id: surfaceID,

@@ -118,14 +118,13 @@ extension Workspace {
         ) else {
             return false
         }
-        applyRemoteTerminalSessionConnected(
+        return commitRemoteTerminalSessionConnected(
             target: target,
             surfaceId: surfaceId,
             authority: authority,
             terminalLifecycleID: terminalLifecycleID,
             commitLease: commitLease
         )
-        return true
     }
 
     func markDockRemoteTerminalSessionConnected(
@@ -143,22 +142,23 @@ extension Workspace {
                   surfaceId: surfaceId,
                   authority: authority,
                   allowUntracked: true
-              ),
-              dock.markRemoteTerminalSessionConnected(
-                  panelId: surfaceId,
-                  authority: authority,
-                  terminalLifecycleID: terminalLifecycleID
               ) else {
             return false
         }
-        applyRemoteTerminalSessionConnected(
+        return commitRemoteTerminalSessionConnected(
             target: target,
             surfaceId: surfaceId,
             authority: authority,
             terminalLifecycleID: terminalLifecycleID,
-            commitLease: commitLease
+            commitLease: commitLease,
+            beforeWorkspaceMutation: {
+                dock.markRemoteTerminalSessionConnected(
+                    panelId: surfaceId,
+                    authority: authority,
+                    terminalLifecycleID: terminalLifecycleID
+                )
+            }
         )
-        return true
     }
 
     func markDockRemoteTerminalSessionEnded(
@@ -209,31 +209,50 @@ extension Workspace {
         return .configured(isTracked: isTracked)
     }
 
-    private func applyRemoteTerminalSessionConnected(
+    /// Commits only bounded lifecycle state while the broker lease is held.
+    ///
+    /// Presentation and notification work intentionally runs after the lease
+    /// is released so those callbacks cannot re-enter broker invalidation.
+    private func commitRemoteTerminalSessionConnected(
         target: WorkspaceRemoteTerminalConnectionTarget,
         surfaceId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
         terminalLifecycleID: UUID?,
-        commitLease: (any ControlRemotePTYLifecycleCommitLease)?
-    ) {
-        switch target {
-        case .pending:
-            pendingRemoteTerminalConnectionsBySurfaceId[surfaceId] =
-                PendingWorkspaceRemoteTerminalConnection(
-                    authority: authority,
-                    terminalLifecycleID: terminalLifecycleID,
-                    commitLease: commitLease
-                )
-        case .configured(let isTracked):
-            if isTracked {
-                remoteTerminalSessionStatesBySurfaceId[surfaceId] =
-                    WorkspaceRemoteTerminalSessionState(
-                        phase: .connected,
-                        authority: authority
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)?,
+        beforeWorkspaceMutation: @MainActor @Sendable () -> Bool = { true }
+    ) -> Bool {
+        let applyConnection: @MainActor @Sendable () -> Bool = {
+            guard beforeWorkspaceMutation() else { return false }
+            switch target {
+            case .pending:
+                self.pendingRemoteTerminalConnectionsBySurfaceId[surfaceId] =
+                    PendingWorkspaceRemoteTerminalConnection(
+                        authority: authority,
+                        terminalLifecycleID: terminalLifecycleID,
+                        commitLease: commitLease
                     )
+            case .configured(let isTracked):
+                if isTracked {
+                    self.remoteTerminalSessionStatesBySurfaceId[surfaceId] =
+                        WorkspaceRemoteTerminalSessionState(
+                            phase: .connected,
+                            authority: authority
+                        )
+                }
             }
+            return true
+        }
+        let didMutate: Bool
+        if let commitLease {
+            didMutate = commitLease.commitIfCurrent(applyConnection)
+        } else {
+            didMutate = applyConnection()
+        }
+        guard didMutate else { return false }
+        if case .configured = target {
             applyRemoteTerminalConnectedPresentation()
         }
+        return true
     }
 
     private func applyRemoteTerminalConnectedPresentation() {
@@ -248,19 +267,12 @@ extension Workspace {
         let pendingConnections = pendingRemoteTerminalConnectionsBySurfaceId
         pendingRemoteTerminalConnectionsBySurfaceId.removeAll()
         for (surfaceId, connection) in pendingConnections {
-            let applyConnection = {
-                _ = self.markRemoteTerminalSessionConnected(
-                    surfaceId: surfaceId,
-                    authority: connection.authority,
-                    terminalLifecycleID: connection.terminalLifecycleID,
-                    commitLease: connection.commitLease
-                )
-            }
-            if let commitLease = connection.commitLease {
-                _ = commitLease.commitIfCurrent(applyConnection)
-            } else {
-                applyConnection()
-            }
+            _ = markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                authority: connection.authority,
+                terminalLifecycleID: connection.terminalLifecycleID,
+                commitLease: connection.commitLease
+            )
         }
     }
 

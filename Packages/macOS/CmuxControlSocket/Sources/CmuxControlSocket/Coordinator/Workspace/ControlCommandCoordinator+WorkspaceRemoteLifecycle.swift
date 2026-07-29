@@ -83,17 +83,12 @@ extension ControlCommandCoordinator {
                     )
                 case .persistentTransport:
                     if let persistentOwner {
-                        var committedResolution:
-                            ControlWorkspaceRemoteTerminalSessionConnectedResolution = .notFound
-                        let committed = persistentOwner.commitLease.commitIfCurrent {
-                            committedResolution = seam.controlWorkspaceRemoteTerminalSessionConnected(
-                                workspaceID: workspaceID,
-                                surfaceID: surfaceID,
-                                authority: authority,
-                                commitLease: persistentOwner.commitLease
-                            )
-                        }
-                        resolution = committed ? committedResolution : .notFound
+                        resolution = seam.controlWorkspaceRemoteTerminalSessionConnected(
+                            workspaceID: workspaceID,
+                            surfaceID: surfaceID,
+                            authority: authority,
+                            commitLease: persistentOwner.commitLease
+                        )
                     } else {
                         resolution = .notFound
                     }

@@ -119,8 +119,11 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         workspaceID: UUID,
         surfaceID: UUID,
         authority: ControlWorkspaceRemoteTerminalAuthority,
-        commitLease _: (any ControlRemotePTYLifecycleCommitLease)?
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
+        if let commitLease, !commitLease.commitIfCurrent({ true }) {
+            return .notFound
+        }
         terminalSessionConnectedCall = (workspaceID, surfaceID, authority)
         return terminalSessionConnectedResolution
     }

@@ -16,11 +16,10 @@ private final class FixedRemotePTYLifecycleCommitLease:
 
     @MainActor
     func commitIfCurrent(
-        _ operation: @MainActor () -> Void
+        _ operation: @MainActor @Sendable () -> Bool
     ) -> Bool {
         guard isCurrent else { return false }
-        operation()
-        return true
+        return operation()
     }
 }
 
