@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  parseWireJson,
-  stringifyWireJson,
   type WebSocketConstructor,
   type WebSocketLike,
 } from "cmux/browser";
@@ -30,30 +28,15 @@ class ServerWebSocket implements WebSocketLike {
 
   send(data: string): void {
     this.sent.push(data);
-    const value = parseWireJson(data) as Record<string, unknown>;
+    const value = JSON.parse(data) as Record<string, unknown>;
     if ("auth" in value) return;
-    if (value.cmd === "identify") {
+    if (value.operation === "browser.list") {
       this.message({
+        protocol: "cmux.protocol/1",
+        type: "response",
         id: value.id,
         ok: true,
-        data: {
-          app: "cmux-tui",
-          version: "0.1.2",
-          protocol: 10,
-          session: "websocket-test",
-          pid: 9,
-          daemon_handoff: 1,
-          generation: "g",
-          registry_id: "r",
-          terminal_revision: 0n,
-          workspace_revision: 0n,
-        },
-      });
-    } else if (value.cmd === "list-workspaces") {
-      this.message({
-        id: value.id,
-        ok: true,
-        data: { workspaces: [] },
+        result: [],
       });
     }
   }
@@ -70,7 +53,7 @@ class ServerWebSocket implements WebSocketLike {
   }
 
   private message(value: unknown): void {
-    this.emit("message", { data: stringifyWireJson(value) });
+    this.emit("message", { data: JSON.stringify(value) });
   }
 
   private emit(type: string, event: unknown): void {
@@ -78,12 +61,12 @@ class ServerWebSocket implements WebSocketLike {
   }
 }
 
-test("uses the injected WebSocket constructor through the installed package boundary", async () => {
+test("uses the injected WebSocket through the public resource client", async () => {
   ServerWebSocket.instances.length = 0;
   const controller = createWebSocketBrowserController({
     url: "ws://127.0.0.1:7681",
     WebSocket: ServerWebSocket as unknown as WebSocketConstructor,
-    protocols: "cmux-v1",
+    protocols: "cmux-resource-v1",
     authToken: "test-token",
     controller: { recoveryDelayMs: 0 },
   });
@@ -95,9 +78,9 @@ test("uses the injected WebSocket constructor through the installed package boun
   socket.open();
   assert.deepEqual(await listing, []);
   assert.equal(socket.url, "ws://127.0.0.1:7681");
-  assert.equal(socket.protocols, "cmux-v1");
+  assert.equal(socket.protocols, "cmux-resource-v1");
   assert.equal(socket.sent[0], '{"auth":{"token":"test-token"}}');
-  assert.match(socket.sent[1] ?? "", /"cmd":"identify"/);
-  assert.match(socket.sent[2] ?? "", /"cmd":"list-workspaces"/);
+  assert.match(socket.sent[1] ?? "", /"operation":"browser.list"/);
+  assert.doesNotMatch(socket.sent[1] ?? "", /"cmd":/);
   await controller.close();
 });

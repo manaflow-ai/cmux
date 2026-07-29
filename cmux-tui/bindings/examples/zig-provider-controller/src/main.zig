@@ -1,4 +1,5 @@
 const std = @import("std");
+const cmux = @import("cmux_tui");
 const provider = @import("provider_controller");
 
 pub fn main() !void {
@@ -8,107 +9,65 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    if (args.len < 3) return usage();
-
-    const socket_path = args[1];
-    const authority = std.process.getEnvVarOwned(
-        allocator,
-        "CMUX_PROVIDER_AUTHORITY",
-    ) catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => return error.MissingProviderAuthority,
-        else => return err,
-    };
-    defer {
-        @memset(authority, 0);
-        allocator.free(authority);
-    }
+    if (args.len < 7) return usage();
 
     var controller = try provider.ProviderController.connect(allocator, .{
-        .socket_path = socket_path,
-        .authority = authority,
+        .socket_path = args[1],
+        .provider_scope_id = try cmux.ProviderScopeId.parse(args[2]),
+        .session_id = try cmux.SessionId.parse(args[3]),
+        .workspace_id = try cmux.WorkspaceId.parse(args[4]),
+        .revision = try std.fmt.parseInt(u64, args[5], 10),
     });
     defer controller.deinit();
-    try controller.initialize();
 
-    const command = args[2];
-    if (std.mem.eql(u8, command, "inspect")) {
-        try printTopology(&controller);
-        return;
-    }
-    if (std.mem.eql(u8, command, "create")) {
-        if (args.len != 6) return usage();
-        const mutation = try controller.createWorkspace(
-            try controller.workspaceRevision(),
-            args[3],
-            args[4],
-            args[5],
-        );
-        std.debug.print(
-            "created workspace={d} revision={d} replayed={}\n",
-            .{
-                mutation.workspace,
-                mutation.workspace_revision,
-                mutation.replayed,
-            },
-        );
+    const command = args[6];
+    if (std.mem.eql(u8, command, "mark")) {
+        if (args.len != 9) return usage();
+        const managed = if (std.mem.eql(u8, args[7], "managed"))
+            true
+        else if (std.mem.eql(u8, args[7], "unmanaged"))
+            false
+        else
+            return usage();
+        const receipt = try controller.markManaged(managed, args[8]);
+        printReceipt("marked", receipt);
         return;
     }
     if (std.mem.eql(u8, command, "rename")) {
-        if (args.len != 6) return usage();
-        const mutation = try controller.renameWorkspace(
-            try controller.workspaceRevision(),
-            try std.fmt.parseInt(u64, args[3], 10),
-            args[4],
-            args[5],
-        );
-        std.debug.print(
-            "renamed workspace={d} revision={d}\n",
-            .{ mutation.workspace, mutation.workspace_revision },
-        );
+        if (args.len != 9) return usage();
+        const receipt = try controller.rename(args[7], args[8]);
+        printReceipt("renamed", receipt);
+        return;
+    }
+    if (std.mem.eql(u8, command, "clear-name")) {
+        if (args.len != 8) return usage();
+        const receipt = try controller.rename(null, args[7]);
+        printReceipt("cleared-name", receipt);
         return;
     }
     if (std.mem.eql(u8, command, "close")) {
-        if (args.len != 5) return usage();
-        const mutation = try controller.closeWorkspace(
-            try controller.workspaceRevision(),
-            try std.fmt.parseInt(u64, args[3], 10),
-            args[4],
-        );
-        std.debug.print(
-            "closed workspace={d} revision={d}\n",
-            .{ mutation.workspace, mutation.workspace_revision },
-        );
+        if (args.len != 8) return usage();
+        const receipt = try controller.closeWorkspace(args[7]);
+        printReceipt("closed", receipt);
         return;
     }
     return usage();
 }
 
-fn printTopology(controller: *const provider.ProviderController) !void {
+fn printReceipt(action: []const u8, receipt: provider.Receipt) void {
     std.debug.print(
-        "registry={s} generation={s} revision={d}\n",
-        .{
-            try controller.registryId(),
-            try controller.generationId(),
-            try controller.workspaceRevision(),
-        },
+        "{s} revision={d} replayed={}\n",
+        .{ action, receipt.revision, receipt.replayed },
     );
-    for (try controller.workspaces()) |workspace| {
-        std.debug.print(
-            "workspace={d} key={s} active={} name={s}\n",
-            .{ workspace.id, workspace.key, workspace.active, workspace.name },
-        );
-    }
 }
 
 fn usage() error{InvalidArguments} {
     std.debug.print(
         \\usage:
-        \\  cmux-zig-provider-controller <socket> inspect
-        \\  cmux-zig-provider-controller <socket> create <name> <uuid-key> <mutation-id>
-        \\  cmux-zig-provider-controller <socket> rename <workspace-id> <key> <name>
-        \\  cmux-zig-provider-controller <socket> close <workspace-id> <key>
-        \\
-        \\CMUX_PROVIDER_AUTHORITY must contain the pre-provisioned provider authority.
+        \\  cmux-zig-provider-controller <socket> <provider-scope-id> <session-id> <workspace-id> <revision> mark <managed|unmanaged> <idempotency-key>
+        \\  cmux-zig-provider-controller <socket> <provider-scope-id> <session-id> <workspace-id> <revision> rename <name> <idempotency-key>
+        \\  cmux-zig-provider-controller <socket> <provider-scope-id> <session-id> <workspace-id> <revision> clear-name <idempotency-key>
+        \\  cmux-zig-provider-controller <socket> <provider-scope-id> <session-id> <workspace-id> <revision> close <idempotency-key>
         \\
     , .{});
     return error.InvalidArguments;

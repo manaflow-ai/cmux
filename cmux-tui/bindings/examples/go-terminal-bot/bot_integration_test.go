@@ -3,9 +3,7 @@ package terminalbot_test
 import (
 	"context"
 	"errors"
-	"math"
-	"strconv"
-	"strings"
+	"reflect"
 	"testing"
 	"time"
 
@@ -13,225 +11,92 @@ import (
 	cmux "github.com/manaflow-ai/cmux/cmux-tui/bindings/go"
 )
 
-const (
-	testWorkspaceKey = "11111111-1111-4111-8111-111111111111"
-	testTerminalID   = "22222222-2222-4222-8222-222222222222"
-	testMutationID   = "33333333-3333-4333-8333-333333333333"
-)
-
-func TestBotCreatesMonitorsReconnectsCapturesAndCleansUp(t *testing.T) {
-	server := startFakeServer(t, fakeScenario{
-		complete:         true,
-		reconnectStreams: true,
-		exitCode:         0,
+func TestBotRunsThroughTypedResourceHandles(t *testing.T) {
+	server := startFakeServer(t, 0)
+	bot, err := terminalbot.New(terminalbot.Config{
+		SocketPath: server.socketPath,
+		Argv:       []string{"/usr/bin/printf", "hello"},
+		Timeout:    time.Second,
 	})
-	bot := newTestBot(t, server, 3*time.Second)
-
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := bot.Run(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Workspace != fakeWorkspaceID ||
-		result.Screen != fakeScreenID ||
-		result.Pane != fakePaneID ||
-		result.Surface != fakeSurfaceID {
-		t.Fatalf("exact IDs were not preserved: %#v", result)
+	if result.Workspace.String() != fakeWorkspaceID ||
+		result.Screen.String() != fakeScreenID ||
+		result.Pane.String() != fakePaneID ||
+		result.Tab.String() != fakeTabID ||
+		result.Terminal.String() != fakeTerminalID {
+		t.Fatalf("typed created path was not preserved: %#v", result)
 	}
-	if result.Notification != fakeNotificationID {
-		t.Fatalf("notification = %d, want %d", result.Notification, fakeNotificationID)
+	if result.Notification.String() != fakeNotificationID {
+		t.Fatalf("notification = %s", result.Notification)
 	}
-	if result.WorkspaceRevision != fakeWorkspaceRevision+1 {
-		t.Fatalf(
-			"workspace revision = %d, want %d",
-			result.WorkspaceRevision,
-			fakeWorkspaceRevision+1,
-		)
+	if result.ScreenText != "compile finished" ||
+		result.HistoryText != "compile started\ncompile finished" {
+		t.Fatalf("capture = %#v", result)
 	}
-	if result.TerminalRevision != fakeTerminalRevision+1 {
-		t.Fatalf(
-			"terminal revision = %d, want %d",
-			result.TerminalRevision,
-			fakeTerminalRevision+1,
-		)
+	want := []string{
+		"workspace.create",
+		"workspace.run",
+		"terminal.wait",
+		"terminal.screen.read",
+		"terminal.history.read",
+		"notification.create",
+		"workspace.close",
 	}
-	if result.Reconnects < 2 {
-		t.Fatalf("reconnects = %d, want at least 2", result.Reconnects)
+	if operations := server.operations(); !reflect.DeepEqual(operations, want) {
+		t.Fatalf("operations = %v, want %v", operations, want)
 	}
-	if !strings.Contains(result.Output, "CMUX_TERMINAL_BOT_DONE_") {
-		t.Fatalf("output does not contain completion marker: %q", result.Output)
+	for _, operation := range server.operations() {
+		if operation == "identify" || operation == "list-workspaces" {
+			t.Fatalf("legacy operation leaked: %s", operation)
+		}
 	}
-	if !strings.Contains(result.Scrollback, "compile started") {
-		t.Fatalf("scrollback was not captured: %q", result.Scrollback)
+	notification := server.request("notification.create")
+	params := notification["params"].(map[string]any)
+	if params["terminal_id"] != fakeTerminalID || params["level"] != "info" {
+		t.Fatalf("notification params = %#v", params)
 	}
-	if !contains(result.EventNames, "surface-output") ||
-		!contains(result.EventNames, "output") ||
-		(!contains(result.EventNames, "surface-exited") &&
-			!contains(result.EventNames, "detached")) {
-		t.Fatalf("expected output and lifecycle events, got %v", result.EventNames)
+	if _, ok := notification["idempotency_key"].(string); !ok {
+		t.Fatalf("mutation omitted idempotency key: %#v", notification)
 	}
-	if len(result.Warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", result.Warnings)
-	}
-
-	createdWorkspace := requireRecord(t, server.recordsFor("create-workspace"))
-	if createdWorkspace.expectedRevision != strconv.FormatUint(fakeWorkspaceRevision, 10) {
-		t.Fatalf("create expected revision = %s", createdWorkspace.expectedRevision)
-	}
-	createdTerminal := requireRecord(t, server.recordsFor("create-terminal"))
-	if createdTerminal.expectedRevision != strconv.FormatUint(fakeTerminalRevision, 10) {
-		t.Fatalf("terminal expected revision = %s", createdTerminal.expectedRevision)
-	}
-	if createdTerminal.expectedGeneration != "generation-exact" {
-		t.Fatalf("terminal generation = %q", createdTerminal.expectedGeneration)
-	}
-	closed := requireRecord(t, server.recordsFor("close-workspace"))
-	if closed.workspace != strconv.FormatUint(uint64(fakeWorkspaceID), 10) {
-		t.Fatalf("cleanup workspace ID = %s", closed.workspace)
-	}
-	if closed.expectedRevision != strconv.FormatUint(fakeWorkspaceRevision+1, 10) {
-		t.Fatalf("cleanup expected revision = %s", closed.expectedRevision)
-	}
-	states := server.recordsFor("report-agent")
-	if len(states) != 2 || states[0].state != string(cmux.AgentStateWorking) ||
-		states[1].state != string(cmux.AgentStateDone) {
-		t.Fatalf("agent states = %#v", states)
-	}
-	notification := requireRecord(t, server.recordsFor("notify"))
-	if notification.level != string(cmux.NotificationLevelInfo) {
-		t.Fatalf("notification level = %q", notification.level)
-	}
-	server.assertHealthy(t)
 }
 
-func TestBotDiscoversWorkspaceAndReportsNonzeroTask(t *testing.T) {
-	server := startFakeServer(t, fakeScenario{
-		existingWorkspace: true,
-		complete:          true,
-		exitCode:          23,
+func TestBotReturnsTaskErrorAndErrorNotification(t *testing.T) {
+	server := startFakeServer(t, 23)
+	bot, err := terminalbot.New(terminalbot.Config{
+		SocketPath: server.socketPath,
+		Argv:       []string{"/usr/bin/false"},
+		Timeout:    time.Second,
 	})
-	server.mu.Lock()
-	server.workspaceKey = testWorkspaceKey
-	server.mu.Unlock()
-	bot := newTestBot(t, server, 3*time.Second)
-
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := bot.Run(context.Background())
 	var taskErr *terminalbot.TaskError
 	if !errors.As(err, &taskErr) || taskErr.ExitCode != 23 {
-		t.Fatalf("got %v, want TaskError(23)", err)
+		t.Fatalf("error = %v, want TaskError(23)", err)
 	}
 	if result.ExitCode != 23 {
-		t.Fatalf("exit code = %d", result.ExitCode)
+		t.Fatalf("exit = %d", result.ExitCode)
 	}
-	if records := server.recordsFor("create-workspace"); len(records) != 0 {
-		t.Fatalf("existing workspace was recreated: %#v", records)
-	}
-	states := server.recordsFor("report-agent")
-	if len(states) != 2 || states[1].state != string(cmux.AgentStateBlocked) {
-		t.Fatalf("agent states = %#v", states)
-	}
-	notification := requireRecord(t, server.recordsFor("notify"))
-	if notification.level != string(cmux.NotificationLevelError) {
-		t.Fatalf("notification level = %q", notification.level)
-	}
-	requireRecord(t, server.recordsFor("close-workspace"))
-	server.assertHealthy(t)
-}
-
-func TestBotTimeoutReportsCapturesAndCleansUp(t *testing.T) {
-	server := startFakeServer(t, fakeScenario{complete: false})
-	bot := newTestBot(t, server, 250*time.Millisecond)
-
-	result, err := bot.Run(context.Background())
-	requireErrorIs(t, err, context.DeadlineExceeded)
-	if result.ScreenText != "task running" {
-		t.Fatalf("screen = %q", result.ScreenText)
-	}
-	states := server.recordsFor("report-agent")
-	if len(states) != 2 || states[1].state != string(cmux.AgentStateBlocked) {
-		t.Fatalf("agent states = %#v", states)
-	}
-	notification := requireRecord(t, server.recordsFor("notify"))
-	if notification.level != string(cmux.NotificationLevelWarning) {
-		t.Fatalf("notification level = %q", notification.level)
-	}
-	requireRecord(t, server.recordsFor("close-workspace"))
-	server.assertHealthy(t)
-}
-
-func TestBotCancellationReportsAndCleansUp(t *testing.T) {
-	server := startFakeServer(t, fakeScenario{complete: false})
-	bot := newTestBot(t, server, 0)
-	ctx, cancel := context.WithCancel(context.Background())
-	type outcome struct {
-		result terminalbot.Result
-		err    error
-	}
-	finished := make(chan outcome, 1)
-	go func() {
-		result, err := bot.Run(ctx)
-		finished <- outcome{result: result, err: err}
-	}()
-
-	select {
-	case <-server.started:
-		cancel()
-	case <-time.After(2 * time.Second):
-		t.Fatal("task did not start")
-	}
-	select {
-	case got := <-finished:
-		requireErrorIs(t, got.err, context.Canceled)
-		if got.result.Notification != fakeNotificationID {
-			t.Fatalf("notification = %d", got.result.Notification)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("canceled bot did not stop")
-	}
-	requireRecord(t, server.recordsFor("close-workspace"))
-	server.assertHealthy(t)
-}
-
-func TestExactIDsExceedIEEE754IntegerRange(t *testing.T) {
-	if uint64(fakeSurfaceID) <= uint64(1)<<53 ||
-		fakeWorkspaceRevision <= uint64(1)<<53 ||
-		uint64(fakeNotificationID) != math.MaxUint64-36 {
-		t.Fatal("fake IDs must exercise exact uint64 values")
+	params := server.request("notification.create")["params"].(map[string]any)
+	if params["level"] != "error" {
+		t.Fatalf("notification level = %v", params["level"])
 	}
 }
 
-func newTestBot(
-	t *testing.T,
-	server *fakeServer,
-	timeout time.Duration,
-) *terminalbot.Bot {
-	t.Helper()
-	bot, err := terminalbot.New(terminalbot.Config{
-		SocketPath:     server.socketPath,
-		WorkspaceKey:   testWorkspaceKey,
-		TerminalID:     testTerminalID,
-		MutationID:     testMutationID,
-		Argv:           []string{"/usr/bin/printf", "hello"},
-		Timeout:        timeout,
-		IOTimeout:      time.Second,
-		CleanupTimeout: time.Second,
-		RetryLimit:     3,
-		RetryDelay:     time.Millisecond,
-		ExitGrace:      time.Second,
-		ScrollbackRows: 10,
-		MaxOutputBytes: 64 * 1024,
-		KeepWorkspace:  false,
-	})
+func TestPublicRootNoLongerExportsLegacyIDsAtCompileTime(t *testing.T) {
+	workspace, err := cmux.ParseWorkspaceID(fakeWorkspaceID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return bot
-}
-
-func contains(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
+	var exact cmux.WorkspaceID = workspace
+	if exact.String() != fakeWorkspaceID {
+		t.Fatalf("workspace ID = %s", exact)
 	}
-	return false
 }

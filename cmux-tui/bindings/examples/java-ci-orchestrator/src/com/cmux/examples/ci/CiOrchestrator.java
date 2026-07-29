@@ -1,25 +1,21 @@
 package com.cmux.examples.ci;
 
-import com.cmux.CmuxClient;
-import com.cmux.CmuxException;
-import com.cmux.UInt64;
-import com.cmux.generated.CloseWorkspaceRequest;
-import com.cmux.generated.CreateTerminalRequest;
-import com.cmux.generated.CreateWorkspaceRequest;
-import com.cmux.generated.IdentifyResult;
-import com.cmux.generated.NotificationLevel;
-import com.cmux.generated.NotifyRequest;
-import com.cmux.generated.ReadScreenRequest;
-import com.cmux.generated.ReadScreenResult;
-import com.cmux.generated.ReadScrollbackRequest;
-import com.cmux.generated.ReadScrollbackResult;
-import com.cmux.generated.RenderRow;
-import com.cmux.generated.RenderRun;
-import com.cmux.generated.TerminalPlacement;
-import com.cmux.generated.WorkspaceMutationResult;
+import com.cmux.Client;
+import com.cmux.Command;
+import com.cmux.CreatedPath;
+import com.cmux.Document;
+import com.cmux.ExactCommand;
+import com.cmux.Ids;
+import com.cmux.MutationResult;
+import com.cmux.Notification;
+import com.cmux.Options;
+import com.cmux.Selector;
+import com.cmux.Session;
+import com.cmux.Terminal;
+import com.cmux.Transport;
+import com.cmux.Workspace;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -27,13 +23,13 @@ import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
- * A dependency-free CI/task orchestrator built only on the public cmux Java SDK.
+ * A dependency-free CI task orchestrator built only on the public cmux
+ * resource API.
  */
 public final class CiOrchestrator {
-    private static final int MAX_SCROLLBACK_ROWS = 65_535;
+    private static final int MAX_HISTORY_ROWS = 65_535;
     private static final Pattern SAFE_MARKER = Pattern.compile("[A-Za-z0-9_]+");
 
     private CiOrchestrator() {}
@@ -43,19 +39,19 @@ public final class CiOrchestrator {
             Config config = Config.parse(args);
             Outcome outcome = execute(config);
             System.out.printf(
-                "session=%s workspace=%s surface=%s exit=%d%n",
-                outcome.identity().session(),
-                outcome.workspace(),
-                outcome.surface(),
+                "session=%s workspace=%s terminal=%s exit=%d%n",
+                config.session(),
+                outcome.workspace().value(),
+                outcome.terminal().value(),
                 outcome.exitCode()
             );
             System.out.println("--- screen ---");
             System.out.println(outcome.screen());
-            System.out.println("--- scrollback ---");
-            System.out.println(outcome.scrollback());
-            if (outcome.notification().isPresent()) {
-                System.out.println("notification=" + outcome.notification().orElseThrow());
-            }
+            System.out.println("--- history ---");
+            System.out.println(outcome.history());
+            outcome.notification().ifPresent(
+                id -> System.out.println("notification=" + id.value())
+            );
             if (outcome.exitCode() != 0) {
                 System.exit(outcome.exitCode());
             }
@@ -66,18 +62,27 @@ public final class CiOrchestrator {
     }
 
     /**
-     * Runs one command in a newly registered workspace and always attempts to
-     * tombstone that workspace before returning.
+     * Runs one command in a new workspace and always attempts to close that
+     * workspace before returning.
      */
     public static Outcome execute(Config config) throws Exception {
-        Objects.requireNonNull(config, "config");
-        CmuxClient.Builder clientBuilder = CmuxClient.builder()
-            .session(config.session())
-            .timeout(config.timeout());
-        config.socketPath().ifPresent(clientBuilder::socketPath);
+        return execute(config, null);
+    }
 
-        try (CmuxClient client = clientBuilder.build()) {
-            WorkspaceCleanup cleanup = new WorkspaceCleanup(client);
+    static Outcome execute(Config config, Transport transport) throws Exception {
+        Objects.requireNonNull(config, "config");
+        Client.Builder builder = Client.builder()
+            .session(config.session())
+            .timeout(config.timeout().plusSeconds(1));
+        config.socketPath().ifPresent(builder::socket);
+        if (transport != null) {
+            builder.transport(transport);
+        }
+
+        try (Client client = builder.build()) {
+            Session session = client.machine(Selector.current())
+                .session(Selector.current());
+            WorkspaceCleanup cleanup = new WorkspaceCleanup();
             Thread shutdownHook = new Thread(
                 cleanup::closeQuietly,
                 "cmux-ci-workspace-cleanup"
@@ -87,19 +92,18 @@ public final class CiOrchestrator {
             Outcome outcome = null;
             Exception operationFailure = null;
             try {
-                outcome = runCommand(client, cleanup, config);
+                outcome = runCommand(session, cleanup, config);
             } catch (Exception error) {
                 operationFailure = error;
                 notifyFailure(
-                    client,
-                    cleanup.surface(),
+                    session,
                     "cmux CI orchestration error",
                     usefulMessage(error)
                 );
             } finally {
                 try {
                     cleanup.close();
-                } catch (CmuxException cleanupError) {
+                } catch (RuntimeException cleanupError) {
                     if (operationFailure != null) {
                         operationFailure.addSuppressed(cleanupError);
                     } else {
@@ -117,99 +121,85 @@ public final class CiOrchestrator {
     }
 
     private static Outcome runCommand(
-        CmuxClient client,
+        Session session,
         WorkspaceCleanup cleanup,
         Config config
     ) throws Exception {
-        IdentifyResult identity = client.identify();
-
-        WorkspaceMutationResult workspace = client.createWorkspace(
-            CreateWorkspaceRequest.builder()
-                .key(config.workspaceKey())
+        MutationResult<CreatedPath> createdWorkspace = session.createWorkspace(
+            Options.WorkspaceCreate.builder()
                 .name(config.workspaceName())
+                .initialContent(Options.InitialContent.EMPTY)
                 .build()
         );
-        cleanup.arm(workspace.key());
+        Ids.WorkspaceId workspaceId = createdWorkspace.value()
+            .workspace()
+            .orElseThrow(() -> new IllegalStateException(
+                "workspace.create omitted the workspace ID"
+            ));
+        Workspace workspace = session.workspace(Selector.id(workspaceId));
+        cleanup.arm(workspace);
 
-        CreateTerminalRequest.Builder terminalRequest = CreateTerminalRequest.builder()
-            .key(workspace.key())
-            .argv(wrapperArgv(config.command(), config.marker()))
+        Options.Run.Builder run = Options.Run.builder(wrapperCommand(config))
             .name("ci-task");
-        config.cwd().map(Path::toString).ifPresent(terminalRequest::cwd);
-        TerminalPlacement terminal = client.createTerminal(terminalRequest.build());
-        cleanup.surface(terminal.surface());
-
-        ReadScreenResult completedScreen = waitForExitMarker(
-            client,
-            terminal.surface(),
-            config.marker(),
-            config.timeout(),
-            config.pollInterval()
+        config.cwd().map(Path::toString).ifPresent(run::cwd);
+        CreatedPath createdTerminal = workspace.run(run.build()).value();
+        Ids.TerminalId terminalId = createdTerminal.terminal().orElseThrow(
+            () -> new IllegalStateException("workspace.run omitted the terminal ID")
         );
-        int exitCode = parseExitCode(completedScreen.text(), config.marker())
-            .orElseThrow(() -> new IllegalStateException("exit marker disappeared"));
-        ReadScrollbackResult scrollback = client.readScrollback(
-            ReadScrollbackRequest.builder()
-                .surface(terminal.surface())
-                .start(0)
-                .count(MAX_SCROLLBACK_ROWS)
-                .build()
+        Terminal terminal = session.terminal(Selector.id(terminalId));
+
+        String completionPattern =
+            Pattern.quote(config.marker()) + ":[0-9]{1,3}";
+        Document waited = terminal.waitFor(new Options.Wait(
+            Options.Read.defaults(),
+            completionPattern,
+            config.timeout().toMillis()
+        ));
+        String waitText = documentText(waited, "terminal.wait");
+        if (!Boolean.TRUE.equals(waited.fields().get("matched"))) {
+            throw new TimeoutException(
+                "timed out after " + config.timeout()
+                    + " waiting for marker " + config.marker()
+            );
+        }
+        int exitCode = parseExitCode(waitText, config.marker()).orElseThrow(
+            () -> new IllegalStateException("terminal.wait omitted the exit marker")
         );
 
-        Optional<UInt64> notification = Optional.empty();
+        String screen = documentText(
+            terminal.readScreen(Options.Read.defaults()),
+            "terminal.screen.read"
+        );
+        String history = documentText(
+            terminal.readHistory(new Options.HistoryRead(
+                Options.Read.defaults(),
+                Optional.empty(),
+                Optional.of(MAX_HISTORY_ROWS),
+                false
+            )),
+            "terminal.history.read"
+        );
+
+        Optional<Ids.NotificationId> notification = Optional.empty();
         if (exitCode != 0) {
             notification = notifyFailure(
-                client,
-                Optional.of(terminal.surface()),
+                session,
                 "cmux CI task failed",
                 "Command exited with status " + exitCode
             );
         }
 
         return new Outcome(
-            identity,
-            workspace.workspace(),
-            terminal.surface(),
+            workspaceId,
+            terminalId,
             exitCode,
-            completedScreen.text(),
-            renderScrollback(scrollback.rows()),
+            screen,
+            history,
             notification
         );
     }
 
-    private static ReadScreenResult waitForExitMarker(
-        CmuxClient client,
-        UInt64 surface,
-        String marker,
-        Duration timeout,
-        Duration pollInterval
-    ) throws Exception {
-        long deadline = System.nanoTime() + timeout.toNanos();
-        ReadScreenRequest request = ReadScreenRequest.builder().surface(surface).build();
-        while (true) {
-            ReadScreenResult screen = client.readScreen(request);
-            if (parseExitCode(screen.text(), marker).isPresent()) {
-                return screen;
-            }
-
-            long remainingNanos = deadline - System.nanoTime();
-            if (remainingNanos <= 0) {
-                throw new TimeoutException(
-                    "timed out after " + timeout + " waiting for marker " + marker
-                );
-            }
-            long sleepNanos = Math.min(pollInterval.toNanos(), remainingNanos);
-            try {
-                Duration sleep = Duration.ofNanos(sleepNanos);
-                Thread.sleep(sleep.toMillis(), sleep.toNanosPart() % 1_000_000);
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                throw interrupted;
-            }
-        }
-    }
-
-    private static List<String> wrapperArgv(String command, String marker) {
+    private static Command wrapperCommand(Config config) {
         String script = """
             set +e
             /bin/sh -lc "$1"
@@ -217,13 +207,13 @@ public final class CiOrchestrator {
             printf '\\n%s:%s\\n' "$2" "$status"
             exit "$status"
             """;
-        return List.of(
+        return ExactCommand.of(
             "/bin/sh",
             "-c",
             script,
             "cmux-ci-wrapper",
-            command,
-            marker
+            config.command(),
+            config.marker()
         );
     }
 
@@ -240,28 +230,33 @@ public final class CiOrchestrator {
         return result;
     }
 
-    private static String renderScrollback(List<RenderRow> rows) {
-        return rows.stream()
-            .map(row -> row.runs().stream().map(RenderRun::text).collect(Collectors.joining()))
-            .collect(Collectors.joining("\n"));
+    private static String documentText(Document document, String operation) {
+        Object text = document.fields().get("text");
+        if (text instanceof String value) {
+            return value;
+        }
+        throw new IllegalStateException(operation + " result omitted text");
     }
 
-    private static Optional<UInt64> notifyFailure(
-        CmuxClient client,
-        Optional<UInt64> surface,
+    private static Optional<Ids.NotificationId> notifyFailure(
+        Session session,
         String title,
         String body
     ) {
         try {
-            NotifyRequest.Builder request = NotifyRequest.builder()
-                .title(title)
-                .body(body)
-                .level(NotificationLevel.ERROR);
-            surface.ifPresent(request::surface);
-            return Optional.of(client.notify(request.build()).notification());
-        } catch (CmuxException notificationError) {
+            MutationResult<Notification> result = session.createNotification(
+                new Options.NotificationCreate(
+                    Options.Mutation.defaults(),
+                    title,
+                    body,
+                    Optional.of("error")
+                )
+            );
+            return Optional.of(result.value().snapshot().id());
+        } catch (RuntimeException notificationError) {
             System.err.println(
-                "could not post cmux failure notification: " + usefulMessage(notificationError)
+                "could not post cmux failure notification: "
+                    + usefulMessage(notificationError)
             );
             return Optional.empty();
         }
@@ -283,20 +278,18 @@ public final class CiOrchestrator {
     }
 
     public record Outcome(
-        IdentifyResult identity,
-        UInt64 workspace,
-        UInt64 surface,
+        Ids.WorkspaceId workspace,
+        Ids.TerminalId terminal,
         int exitCode,
         String screen,
-        String scrollback,
-        Optional<UInt64> notification
+        String history,
+        Optional<Ids.NotificationId> notification
     ) {
         public Outcome {
-            Objects.requireNonNull(identity, "identity");
             Objects.requireNonNull(workspace, "workspace");
-            Objects.requireNonNull(surface, "surface");
+            Objects.requireNonNull(terminal, "terminal");
             Objects.requireNonNull(screen, "screen");
-            Objects.requireNonNull(scrollback, "scrollback");
+            Objects.requireNonNull(history, "history");
             Objects.requireNonNull(notification, "notification");
             if (exitCode < 0 || exitCode > 255) {
                 throw new IllegalArgumentException("exitCode must be in 0..255");
@@ -308,22 +301,18 @@ public final class CiOrchestrator {
         String session,
         Optional<Path> socketPath,
         Duration timeout,
-        Duration pollInterval,
         String command,
         Optional<Path> cwd,
         String marker,
-        String workspaceKey,
         String workspaceName
     ) {
         public Config {
             Objects.requireNonNull(session, "session");
             Objects.requireNonNull(socketPath, "socketPath");
             Objects.requireNonNull(timeout, "timeout");
-            Objects.requireNonNull(pollInterval, "pollInterval");
             Objects.requireNonNull(command, "command");
             Objects.requireNonNull(cwd, "cwd");
             Objects.requireNonNull(marker, "marker");
-            Objects.requireNonNull(workspaceKey, "workspaceKey");
             Objects.requireNonNull(workspaceName, "workspaceName");
             if (session.isBlank()) {
                 throw new IllegalArgumentException("session must not be blank");
@@ -331,20 +320,12 @@ public final class CiOrchestrator {
             if (timeout.isNegative() || timeout.isZero()) {
                 throw new IllegalArgumentException("timeout must be positive");
             }
-            if (pollInterval.isNegative() || pollInterval.isZero()) {
-                throw new IllegalArgumentException("pollInterval must be positive");
-            }
             if (command.isBlank()) {
                 throw new IllegalArgumentException("command must not be blank");
             }
             if (!SAFE_MARKER.matcher(marker).matches()) {
                 throw new IllegalArgumentException(
                     "marker must contain only ASCII letters, digits, or underscore"
-                );
-            }
-            if (!UUID.fromString(workspaceKey).toString().equals(workspaceKey)) {
-                throw new IllegalArgumentException(
-                    "workspaceKey must be a lowercase canonical UUID"
                 );
             }
             if (workspaceName.isBlank()) {
@@ -380,17 +361,13 @@ public final class CiOrchestrator {
             }
 
             String suffix = UUID.randomUUID().toString().replace("-", "");
-            String marker = "CMUX_CI_" + suffix;
-            String workspaceKey = UUID.randomUUID().toString();
             return new Config(
                 session,
                 Optional.ofNullable(socket),
                 timeout,
-                Duration.ofMillis(100),
                 command,
                 Optional.ofNullable(cwd),
-                marker,
-                workspaceKey,
+                "CMUX_CI_" + suffix,
                 "cmux-ci-" + suffix.substring(0, 8)
             );
         }
@@ -411,31 +388,16 @@ public final class CiOrchestrator {
     }
 
     private static final class WorkspaceCleanup {
-        private final CmuxClient client;
+        private Workspace workspace;
         private boolean closed;
-        private volatile String workspaceKey;
-        private volatile UInt64 surface;
 
-        private WorkspaceCleanup(CmuxClient client) {
-            this.client = client;
+        private synchronized void arm(Workspace value) {
+            workspace = Objects.requireNonNull(value, "value");
         }
 
-        private void arm(String key) {
-            workspaceKey = key;
-        }
-
-        private void surface(UInt64 value) {
-            surface = value;
-        }
-
-        private Optional<UInt64> surface() {
-            return Optional.ofNullable(surface);
-        }
-
-        private synchronized void close() throws CmuxException {
-            String key = workspaceKey;
-            if (key != null && !closed) {
-                client.closeWorkspace(CloseWorkspaceRequest.builder().key(key).build());
+        private synchronized void close() {
+            if (workspace != null && !closed) {
+                workspace.close(Options.Mutation.defaults());
                 closed = true;
             }
         }
@@ -443,9 +405,10 @@ public final class CiOrchestrator {
         private void closeQuietly() {
             try {
                 close();
-            } catch (CmuxException cleanupError) {
+            } catch (RuntimeException cleanupError) {
                 System.err.println(
-                    "could not clean up cmux CI workspace: " + usefulMessage(cleanupError)
+                    "could not clean up cmux CI workspace: "
+                        + usefulMessage(cleanupError)
                 );
             }
         }

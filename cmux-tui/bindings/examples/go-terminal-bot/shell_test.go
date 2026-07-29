@@ -3,34 +3,39 @@ package terminalbot
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestCompletionMarkerSurvivesChunkBoundaries(t *testing.T) {
-	marker := newCompletionMarker("33333333-3333-4333-8333-333333333333")
-	token := string(marker.token)
-	chunks := []string{
-		"prefix " + token[:10],
-		token[10:] + ":2",
-		"3\n",
+func TestCompletionScriptPreservesExactArguments(t *testing.T) {
+	script := completionScript(
+		[]string{"/usr/bin/printf", "%s", "quote ' newline\n dollar $"},
+		"CMUX_DONE",
+	)
+	if !strings.Contains(script, "'quote '\"'\"' newline\n dollar $'") {
+		t.Fatalf("argument was not shell quoted: %q", script)
 	}
-	for index, chunk := range chunks {
-		status, found := marker.consume([]byte(chunk))
-		if index < len(chunks)-1 && found {
-			t.Fatalf("marker completed early after chunk %d", index)
-		}
-		if index == len(chunks)-1 && (!found || status != 23) {
-			t.Fatalf("status = %d, found = %v", status, found)
-		}
+	if !strings.Contains(script, "CMUX_DONE:%d") {
+		t.Fatalf("completion marker missing: %q", script)
 	}
 }
 
-func TestCommandQuotesArgumentsAndWaitsForAcknowledgement(t *testing.T) {
-	marker := newCompletionMarker("mutation")
-	if got, want := shellQuote("a'b"), `'a'"'"'b'`; got != want {
-		t.Fatalf("shellQuote = %q, want %q", got, want)
+func TestParseCompletionUsesTheLastMarker(t *testing.T) {
+	status, err := parseCompletion("CMUX_DONE:7 old\nCMUX_DONE:23\n", "CMUX_DONE")
+	if err != nil {
+		t.Fatal(err)
 	}
-	command := marker.command([]string{"printf", "%s", "a'b"})
-	if !strings.Contains(command, "IFS= read -r cmux_bot_ack") {
-		t.Fatalf("command does not retain the terminal for capture: %s", command)
+	if status != 23 {
+		t.Fatalf("status = %d, want 23", status)
+	}
+}
+
+func TestClientTimeoutMustOutliveTerminalWait(t *testing.T) {
+	_, err := New(Config{
+		Argv:      []string{"/usr/bin/true"},
+		Timeout:   10 * time.Second,
+		IOTimeout: 10 * time.Second,
+	})
+	if err == nil || !strings.Contains(err.Error(), "IOTimeout must exceed Timeout") {
+		t.Fatalf("New error = %v", err)
 	}
 }

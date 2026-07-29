@@ -22,6 +22,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    executable_module.addImport("cmux_tui", cmux_tui);
     executable_module.addImport("provider_controller", provider_controller);
 
     const executable = b.addExecutable(.{
@@ -48,6 +49,6 @@ pub fn build(b: *std.Build) void {
         .root_module = tests_module,
     });
     const run_tests = b.addRunArtifact(tests);
-    const test_step = b.step("test", "Run deterministic fake Unix server tests");
+    const test_step = b.step("test", "Run deterministic fake resource server tests");
     test_step.dependOn(&run_tests.step);
 }

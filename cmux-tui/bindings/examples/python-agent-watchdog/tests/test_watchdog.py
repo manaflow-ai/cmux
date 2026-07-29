@@ -10,9 +10,22 @@ import time
 import unittest
 from typing import Any, Dict, List, Optional
 
-from cmux import AgentRecord, AgentSource, AgentState, UnknownEvent
+import cmux
+from cmux import AgentId, AgentSnapshot, SessionId, TerminalId, Unknown
 
 from watchdog import AgentWatchdog, WatchdogConfig
+
+
+MACHINE_ID = "machine_" + "1" * 32
+SESSION_ID = "session_" + "2" * 32
+WORKSPACE_ID = "ws_" + "3" * 32
+SCREEN_ID = "screen_" + "4" * 32
+PANE_ID = "pane_" + "5" * 32
+TAB_ID = "tab_" + "6" * 32
+TERMINAL_ID = "term_" + "7" * 32
+AGENT_ID = "agent_" + "8" * 32
+NOTIFICATION_ID = "notification_" + "9" * 32
+GENERATION = "fake-generation"
 
 
 def receive_frame(connection: socket.socket) -> Dict[str, Any]:
@@ -33,12 +46,122 @@ def send_frame(connection: socket.socket, value: Dict[str, Any]) -> None:
     )
 
 
+def response(request: Dict[str, Any], result: Any) -> Dict[str, Any]:
+    return {
+        "protocol": "cmux.protocol/1",
+        "type": "response",
+        "id": request["id"],
+        "ok": True,
+        "result": result,
+    }
+
+
+def full_snapshot(*, blocked: bool) -> Dict[str, Any]:
+    agent = {
+        "id": AGENT_ID,
+        "session_id": SESSION_ID,
+        "terminal_id": TERMINAL_ID,
+        "state": "blocked",
+        "source": "socket",
+        "updated_at_ms": "1700000000000",
+        "source_session": "codex-7",
+    }
+    return {
+        "machine": {
+            "id": MACHINE_ID,
+            "name": "local",
+            "origin": "local",
+            "status": "running",
+            "connectable": True,
+            "deleted": False,
+            "recoverable": False,
+        },
+        "session": {
+            "id": SESSION_ID,
+            "machine_id": MACHINE_ID,
+            "name": "test",
+            "generation": GENERATION,
+            "revision": "1",
+            "connected": True,
+        },
+        "workspaces": [
+            {
+                "id": WORKSPACE_ID,
+                "session_id": SESSION_ID,
+                "name": "watchdog-test",
+                "index": 0,
+                "focused": True,
+            }
+        ],
+        "screens": [
+            {
+                "id": SCREEN_ID,
+                "workspace_id": WORKSPACE_ID,
+                "name": "agents",
+                "index": 0,
+                "focused": True,
+                "layout": {
+                    "version": 1,
+                    "screen_id": SCREEN_ID,
+                    "active_pane_id": PANE_ID,
+                    "zoomed_pane_id": None,
+                    "root": {
+                        "kind": "leaf",
+                        "pane_id": PANE_ID,
+                        "tab_ids": [TAB_ID],
+                        "active_tab_id": TAB_ID,
+                    }
+                },
+            }
+        ],
+        "panes": [
+            {
+                "id": PANE_ID,
+                "screen_id": SCREEN_ID,
+                "name": "codex",
+                "focused": True,
+                "zoomed": False,
+            }
+        ],
+        "tabs": [
+            {
+                "id": TAB_ID,
+                "pane_id": PANE_ID,
+                "name": "agent",
+                "index": 0,
+                "focused": True,
+                "content_kind": "terminal",
+                "content_id": TERMINAL_ID,
+            }
+        ],
+        "terminals": [
+            {
+                "id": TERMINAL_ID,
+                "tab_id": TAB_ID,
+                "title": "Codex",
+                "cwd": "/tmp/project",
+                "cols": 80,
+                "rows": 24,
+                "running": True,
+            }
+        ],
+        "browsers": [],
+        "clients": [],
+        "notifications": [],
+        "agents": [agent] if blocked else [],
+        "frontend_projections": [],
+        "sidebar_views": [],
+        "cursor": {"generation": GENERATION, "revision": "1"},
+    }
+
+
 class FakeCmuxServer:
-    def __init__(self, *, drop_first_coarse: bool = False) -> None:
-        self.drop_first_coarse = drop_first_coarse
-        self.identify_count = 0
+    def __init__(self, *, drop_first_stream: bool = False) -> None:
+        self.drop_first_stream = drop_first_stream
+        self.connection_count = 0
+        self.event_stream_count = 0
+        self.operations: List[str] = []
         self.notifications: List[Dict[str, Any]] = []
-        self.subscriptions: List[str] = []
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._root = tempfile.mkdtemp(prefix="cmux-watchdog-", dir="/tmp")
@@ -59,111 +182,109 @@ class FakeCmuxServer:
                 continue
             except OSError:
                 return
+            with self._lock:
+                self.connection_count += 1
+                cycle = self.connection_count
             thread = threading.Thread(
                 target=self._handle_connection,
-                args=(connection,),
+                args=(connection, cycle),
                 daemon=True,
             )
             self._threads.append(thread)
             thread.start()
 
-    def _handle_connection(self, connection: socket.socket) -> None:
+    def _handle_connection(self, connection: socket.socket, cycle: int) -> None:
         with connection:
-            try:
-                first = receive_frame(connection)
-                if first["cmd"] == "subscribe":
-                    self._handle_subscription(connection, first)
-                else:
-                    self._handle_commands(connection, first)
-            except (BrokenPipeError, ConnectionError, EOFError, OSError):
-                return
-
-    def _handle_subscription(
-        self, connection: socket.socket, request: Dict[str, Any]
-    ) -> None:
-        mode = request.get("tree_events", "coarse")
-        with self._lock:
-            self.subscriptions.append(mode)
-            ordinal = len(self.subscriptions)
-        send_frame(connection, {"id": request["id"], "ok": True, "data": {}})
-
-        if self.drop_first_coarse and mode == "coarse" and ordinal == 1:
-            return
-        if not self.drop_first_coarse and mode == "coarse":
-            send_frame(
-                connection,
-                {
-                    "event": "agent-heartbeat-v2",
-                    "surface": 7,
-                    "opaque_future_field": {"sequence": 99},
-                },
-            )
-        self._stop.wait(2.0)
-
-    def _handle_commands(
-        self, connection: socket.socket, request: Dict[str, Any]
-    ) -> None:
-        cycle = 0
-        current: Optional[Dict[str, Any]] = request
-        while current is not None:
-            command = current["cmd"]
-            if command == "identify":
+            while not self._stop.is_set():
+                try:
+                    request = receive_frame(connection)
+                except (ConnectionError, EOFError, OSError):
+                    return
+                operation = request["operation"]
                 with self._lock:
-                    self.identify_count += 1
-                    cycle = self.identify_count
-                data: Dict[str, Any] = {
-                    "app": "cmux-tui",
-                    "daemon_handoff": 1,
-                    "generation": "generation-" + str(cycle),
-                    "pid": 4100 + cycle,
-                    "protocol": 10,
-                    "registry_id": "registry",
-                    "session": "test",
-                    "terminal_revision": 0,
-                    "version": "test",
-                    "workspace_revision": 0,
-                    "capabilities": [],
-                }
-            elif command == "set-client-info":
-                data = {}
-            elif command == "list-workspaces":
-                data = {"workspaces": []}
-            elif command == "list-agents":
-                agents: List[Dict[str, Any]] = []
-                if self.drop_first_coarse and cycle >= 2:
-                    agents.append(
-                        {
-                            "surface": 7,
-                            "session": "codex-7",
-                            "source": "socket",
-                            "state": "blocked",
-                            "updated_at_ms": 1_700_000_000_000,
-                        }
+                    self.operations.append(operation)
+
+                if operation == "session.events":
+                    with self._lock:
+                        self.event_stream_count += 1
+                    send_frame(
+                        connection,
+                        response(request, {"stream_id": request["params"]["stream_id"]}),
                     )
-                data = {"agents": agents}
-            elif command == "read-screen":
-                data = {"text": "$ codex\nWaiting for user approval"}
-            elif command == "notify":
-                with self._lock:
-                    self.notifications.append(dict(current))
-                data = {"notification": 81}
-            else:
-                send_frame(
-                    connection,
-                    {
-                        "id": current["id"],
-                        "ok": False,
-                        "error": "unsupported fake command " + command,
-                    },
-                )
-                current = receive_frame(connection)
-                continue
-
-            send_frame(
-                connection,
-                {"id": current["id"], "ok": True, "data": data},
-            )
-            current = receive_frame(connection)
+                    if self.drop_first_stream and cycle == 1:
+                        return
+                    if not self.drop_first_stream:
+                        send_frame(
+                            connection,
+                            {
+                                "protocol": "cmux.protocol/1",
+                                "type": "stream_item",
+                                "stream_id": request["params"]["stream_id"],
+                                "sequence": "1",
+                                "item": {
+                                    "kind": "agent-heartbeat-v2",
+                                    "opaque_future_field": {"sequence": 99},
+                                },
+                            },
+                        )
+                elif operation == "session.snapshot":
+                    send_frame(
+                        connection,
+                        response(
+                            request,
+                            full_snapshot(
+                                blocked=self.drop_first_stream and cycle >= 2
+                            ),
+                        ),
+                    )
+                elif operation == "terminal.screen.read":
+                    send_frame(
+                        connection,
+                        response(request, {"text": "$ codex\nWaiting for user approval"}),
+                    )
+                elif operation == "terminal.history.read":
+                    send_frame(connection, response(request, {"text": "history"}))
+                elif operation == "notification.create":
+                    with self._lock:
+                        self.notifications.append(dict(request["params"]))
+                    send_frame(
+                        connection,
+                        response(
+                            request,
+                            {
+                                "value": {
+                                    "id": NOTIFICATION_ID,
+                                    "session_id": SESSION_ID,
+                                    "title": request["params"]["title"],
+                                    "body": request["params"]["body"],
+                                    "level": request["params"]["level"],
+                                    "created_at_ms": "1700000060000",
+                                    "unread": True,
+                                    "terminal_id": request["params"]["terminal_id"],
+                                },
+                                "generation": GENERATION,
+                                "revision": "2",
+                                "replayed": False,
+                            },
+                        ),
+                    )
+                elif operation == "stream.cancel":
+                    send_frame(connection, response(request, {}))
+                else:
+                    send_frame(
+                        connection,
+                        {
+                            "protocol": "cmux.protocol/1",
+                            "type": "response",
+                            "id": request["id"],
+                            "ok": False,
+                            "error": {
+                                "code": "unsupported",
+                                "message": "unsupported fake operation " + operation,
+                                "retryable": False,
+                            },
+                        },
+                    )
 
     def close(self) -> None:
         self._stop.set()
@@ -181,17 +302,24 @@ class FakeCmuxServer:
 
 
 class WatchdogTests(unittest.TestCase):
+    def test_root_package_exposes_only_the_resource_client(self) -> None:
+        self.assertTrue(hasattr(cmux, "Client"))
+        self.assertFalse(hasattr(cmux, "CmuxClient"))
+        self.assertFalse(hasattr(cmux, "AgentRecord"))
+
     def test_working_agent_becomes_stalled_at_the_configured_threshold(self) -> None:
         watchdog = AgentWatchdog(
             WatchdogConfig(stalled_after=60.0),
             wall_clock_ms=lambda: 1_700_000_060_000,
         )
-        agent = AgentRecord(
-            surface=7,
-            session="codex-7",
-            source=AgentSource.SOCKET,
-            state=AgentState.WORKING,
-            updated_at_ms=1_700_000_000_000,
+        agent = AgentSnapshot(
+            id=AgentId(AGENT_ID),
+            session_id=SessionId(SESSION_ID),
+            terminal_id=TerminalId(TERMINAL_ID),
+            state="working",
+            source="socket",
+            updated_at_ms="1700000000000",
+            source_session="codex-7",
         )
 
         self.assertEqual(
@@ -200,12 +328,14 @@ class WatchdogTests(unittest.TestCase):
         )
         self.assertIsNone(watchdog._condition(agent, 1_700_000_059_999))
 
-    def test_unknown_event_is_delivered_without_breaking_the_watchdog(self) -> None:
-        observed: List[UnknownEvent] = []
+    def test_unknown_resource_event_is_delivered_without_breaking_the_watchdog(
+        self,
+    ) -> None:
+        observed: List[Unknown] = []
         holder: Dict[str, AgentWatchdog] = {}
 
-        def record(_source: str, event: object) -> None:
-            if isinstance(event, UnknownEvent):
+        def record(event: object) -> None:
+            if isinstance(event, Unknown):
                 observed.append(event)
                 holder["watchdog"].request_stop()
 
@@ -214,7 +344,6 @@ class WatchdogTests(unittest.TestCase):
                 WatchdogConfig(
                     socket_path=server.path,
                     poll_interval=0.05,
-                    stalled_after=60.0,
                     timeout=0.5,
                     reconnect_initial=0.01,
                     reconnect_max=0.02,
@@ -230,13 +359,12 @@ class WatchdogTests(unittest.TestCase):
             thread.join(timeout=1.0)
 
         self.assertFalse(thread.is_alive())
-        self.assertEqual([event.event for event in observed], ["agent-heartbeat-v2"])
+        self.assertEqual([event.kind for event in observed], ["agent-heartbeat-v2"])
         self.assertEqual(observed[0].raw["opaque_future_field"]["sequence"], 99)
-        self.assertIn("coarse", server.subscriptions)
-        self.assertIn("deltas", server.subscriptions)
+        self.assertEqual(server.event_stream_count, 1)
 
-    def test_transport_loss_reconnects_and_restores_both_subscriptions(self) -> None:
-        with FakeCmuxServer(drop_first_coarse=True) as server:
+    def test_transport_loss_reconnects_resource_stream_and_notifies(self) -> None:
+        with FakeCmuxServer(drop_first_stream=True) as server:
             watchdog = AgentWatchdog(
                 WatchdogConfig(
                     socket_path=server.path,
@@ -258,15 +386,16 @@ class WatchdogTests(unittest.TestCase):
             thread.join(timeout=1.0)
 
         self.assertFalse(thread.is_alive())
-        self.assertGreaterEqual(server.identify_count, 2)
-        self.assertGreaterEqual(server.subscriptions.count("coarse"), 2)
-        self.assertGreaterEqual(server.subscriptions.count("deltas"), 2)
+        self.assertGreaterEqual(server.connection_count, 2)
+        self.assertGreaterEqual(server.event_stream_count, 2)
         self.assertEqual(len(server.notifications), 1)
         notification = server.notifications[0]
         self.assertEqual(notification["level"], "warning")
-        self.assertEqual(notification["surface"], 7)
+        self.assertEqual(notification["terminal_id"], TERMINAL_ID)
         self.assertIn("Agent blocked", notification["title"])
         self.assertIn("Waiting for user approval", notification["body"])
+        self.assertNotIn("identify", server.operations)
+        self.assertNotIn("list-agents", server.operations)
 
 
 if __name__ == "__main__":

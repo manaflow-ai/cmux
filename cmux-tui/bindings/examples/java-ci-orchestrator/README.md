@@ -1,11 +1,12 @@
 # Java CI orchestrator
 
-This dependency-free Java 17 consumer creates one isolated cmux workspace,
-runs a shell task in a terminal inside it, polls the screen for a unique exit
-marker, captures the live screen and styled scrollback as text, posts an error
-notification when the task fails, and tombstones the workspace.
+This dependency-free Java 17 consumer creates an empty cmux workspace, runs a
+shell task in a terminal, waits for a unique completion marker, captures the
+screen and terminal history, posts an error notification when the task fails,
+and closes the workspace.
 
-It uses only public typed SDK methods. It never calls `rawRequest`.
+The implementation imports only the public `com.cmux` resource API. It uses
+typed machine, session, workspace, terminal, and notification handles.
 
 ## Test
 
@@ -15,9 +16,9 @@ From the cmux repository root:
 cmux-tui/bindings/examples/java-ci-orchestrator/scripts/test.sh
 ```
 
-The deterministic integration test starts a fake Unix-socket cmux server and
-checks successful, nonzero-exit, and timeout paths. Each path verifies the
-typed command sequence and workspace cleanup.
+The deterministic in-process server checks success, nonzero exit, timeout,
+notification, opaque identifier routing, exact command arguments, and cleanup.
+Compilation uses Java 17 with `-Xlint:all -Werror`.
 
 ## Run
 
@@ -40,16 +41,13 @@ cmux-tui/bindings/examples/java-ci-orchestrator/scripts/run.sh \
 ```
 
 The task string runs through `/bin/sh -lc`. Exit status `0` prints the captured
-screen and scrollback. A nonzero task status also posts a typed
-`NotificationLevel.ERROR` notification and becomes the process exit status.
-Transport or orchestration failures exit with status `2`.
+screen and history. A nonzero status also creates an error notification and
+becomes the process exit status. Transport or orchestration failures exit with
+status `2`.
 
-`CMUX_JAVA_SDK_JAR=/path/to/cmux-java-sdk.jar` compiles this example against an
-external SDK artifact. Without it, the scripts build the adjacent local SDK.
+`CMUX_JAVA_SDK_JAR=/path/to/cmux-java-sdk.jar` compiles against an external SDK
+artifact. Without it, the scripts build the adjacent local SDK.
 
 The process installs a shutdown hook after connecting. Normal completion,
-command failure, timeout, interruption, and JVM shutdown all attempt
-`closeWorkspace` by the generated stable workspace key.
-
-The fake server returns the ordinary local-terminal response with nullable
-terminal identity and lifecycle fields, matching a non-durable local task.
+command failure, timeout, interruption, and JVM shutdown all attempt to close
+the typed workspace handle.

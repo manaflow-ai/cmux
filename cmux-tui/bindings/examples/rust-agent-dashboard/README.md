@@ -1,10 +1,10 @@
 # Rust agent dashboard
 
-This standalone consumer connects to one cmux-tui session, registers a delta
-subscription before fetching its first snapshots, and renders workspace and
-agent state from typed SDK models. Topology updates arrive as events. Protocol
-10 has no agent-change event, so the dashboard refreshes `list-agents` once per
-second. Blocked and done agents are sorted into view first.
+This standalone Rust 1.88+ consumer selects the current session, refreshes
+typed workspace handles, and queries agents with typed `AgentState` filters.
+It renders opaque resource IDs without parsing protocol documents and can send
+one warning notification for each transition into the blocked filter.
+Transport failures trigger a fresh `Client` and complete snapshot refresh.
 
 From the cmux repository root:
 
@@ -12,15 +12,8 @@ From the cmux repository root:
 cargo run --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml -- --session main
 ```
 
-Type `q` then Enter to close the subscription and command connection cleanly.
-Use `--socket /path/to/session.sock` for an explicit socket,
-`--notify-blocked` to create a typed warning notification on each transition to
-blocked, `--poll-ms 250` to change the agent refresh interval, or `--once` for
-one snapshot. Connection and subscription failures are printed and retried
-without reusing stale snapshots.
+Type `q` then Enter to stop. Use `--socket /path/to/session.sock`,
+`--notify-blocked`, `--poll-ms 250`, or `--once` as needed.
 
-Verify the independent consumer with:
-
-```bash
-cargo test --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml
-```
+Tests use a deterministic Unix-socket resource-protocol server and assert that
+the consumer sends only named high-level operations.

@@ -47,8 +47,10 @@ try {
   }));
   writeFileSync(join(consumer, "consumer.ts"), `
 import {
-  CmuxClient,
+  Client,
   WebSocketTransport,
+  browserId,
+  selectCurrent,
   type WebSocketConstructor,
 } from "cmux/browser";
 
@@ -57,8 +59,11 @@ const transport = new WebSocketTransport("ws://127.0.0.1:7681", {
   WebSocket: InjectedWebSocket,
   authToken: "token",
 });
-const client = new CmuxClient({ transport });
-void client.browserNavigate({ surface: 18446744073709551615n, url: "https://example.com" });
+const client = new Client({ transport });
+const browser = client
+  .session(selectCurrent())
+  .browser(browserId("browser_ffffffffffffffffffffffffffffffff"));
+void browser.navigate("https://example.com");
 `);
   execFileSync("npm", [
     "install",
@@ -84,7 +89,7 @@ void client.browserNavigate({ surface: 18446744073709551615n, url: "https://exam
   const runtimeType = execFileSync(process.execPath, [
     "--input-type=module",
     "--eval",
-    "import('cmux/browser').then(({ CmuxClient }) => process.stdout.write(typeof CmuxClient))",
+    "import('cmux/browser').then(({ Client }) => process.stdout.write(typeof Client))",
   ], { cwd: consumer, encoding: "utf8" });
   assert.equal(runtimeType, "function");
   console.log("packaged npm consumer compile passed");

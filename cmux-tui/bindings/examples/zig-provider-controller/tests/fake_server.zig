@@ -2,22 +2,18 @@ const std = @import("std");
 const cmux = @import("cmux_tui");
 const provider = @import("provider_controller");
 
-const authority = "provider-secret";
-const seed_key = "11111111-1111-4111-8111-111111111111";
-const created_key = "22222222-2222-4222-8222-222222222222";
-const registry_id = "registry-test";
-const generation = "generation-test";
-const EmptyScreen = struct {};
+const hex = "0123456789abcdef0123456789abcdef";
+const provider_scope_text = "provider_scope_" ++ hex;
+const session_text = "session_" ++ hex;
+const other_session_text = "session_fedcba9876543210fedcba9876543210";
+const workspace_text = "ws_" ++ hex;
+const generation = "generation-provider-test";
 
 const Scenario = enum {
-    happy,
-    authority_error,
-    old_protocol,
-    missing_capability,
-    omitted_capabilities,
-    stale_create,
-    init_only,
-    revision_gap,
+    lifecycle,
+    revision_conflict,
+    wrong_scope,
+    mark_only,
 };
 
 const FakeServer = struct {
@@ -59,239 +55,129 @@ const FakeServer = struct {
         const connection = try self.listener.accept();
         defer connection.stream.close();
         switch (self.scenario) {
-            .happy => try self.runHappy(connection.stream),
-            .authority_error => try self.runAuthorityError(connection.stream),
-            .old_protocol => try self.runProtocolError(
+            .lifecycle => try self.runLifecycle(connection.stream),
+            .revision_conflict => try self.runRevisionConflict(
                 connection.stream,
-                8,
-                true,
             ),
-            .missing_capability => try self.runProtocolError(
-                connection.stream,
-                10,
-                false,
-            ),
-            .omitted_capabilities => try self.handleIdentifyWithoutCapabilities(
-                connection.stream,
-                10,
-            ),
-            .stale_create => try self.runStaleCreate(connection.stream),
-            .init_only => try self.runInitialize(connection.stream),
-            .revision_gap => try self.runRevisionGap(connection.stream),
+            .wrong_scope => try self.runWrongScope(connection.stream),
+            .mark_only => try self.runMarkOnly(connection.stream),
         }
     }
 
-    fn runHappy(self: *FakeServer, stream: std.net.Stream) !void {
-        try self.runInitialize(stream);
-
-        var create_request = try self.receive(stream, "create-workspace");
-        defer create_request.deinit();
-        const create_object = create_request.value.object;
-        try expectString(create_object, "name", "worker");
-        try expectString(create_object, "key", created_key);
-        try expectString(create_object, "origin", provider.mutation_origin);
-        try expectString(create_object, "mutation_id", "mutation-create-1");
-        try expectString(create_object, "expected_generation", generation);
-        try expectInteger(create_object, "expected_revision", 7);
-        try self.respond(stream, try requestId(create_request.value), .{
-            .workspace = @as(u64, 42),
-            .key = created_key,
-            .index = @as(u64, 1),
-            .workspace_revision = @as(u64, 8),
-            .replayed = false,
-            .registry_id = registry_id,
-            .generation = generation,
-        });
-
-        var rename = try self.receive(
-            stream,
-            "rename-provider-managed-workspace",
-        );
-        defer rename.deinit();
-        const rename_object = rename.value.object;
-        try expectString(rename_object, "authority", authority);
-        try expectInteger(rename_object, "workspace", 42);
-        try expectString(rename_object, "key", created_key);
-        try expectString(rename_object, "name", "production");
-        try expectAbsent(rename_object, "expected_revision");
-        try self.respond(stream, try requestId(rename.value), .{
-            .workspace = @as(u64, 42),
-            .key = created_key,
-            .workspace_revision = @as(u64, 9),
-        });
-
-        var close = try self.receive(
-            stream,
-            "close-provider-managed-workspace",
-        );
-        defer close.deinit();
-        const close_object = close.value.object;
-        try expectString(close_object, "authority", authority);
-        try expectInteger(close_object, "workspace", 42);
-        try expectString(close_object, "key", created_key);
-        try expectAbsent(close_object, "expected_revision");
-        try self.respond(stream, try requestId(close.value), .{
-            .workspace = @as(u64, 42),
-            .key = created_key,
-            .workspace_revision = @as(u64, 10),
-        });
-    }
-
-    fn runInitialize(self: *FakeServer, stream: std.net.Stream) !void {
-        try self.handleIdentify(stream, 10, true);
-        var mark = try self.receive(
-            stream,
-            "mark-workspaces-provider-managed",
-        );
+    fn runLifecycle(self: *FakeServer, stream: std.net.Stream) !void {
+        var mark = try self.receive(stream, "provider_workspace.mark");
         defer mark.deinit();
-        try expectString(mark.value.object, "authority", authority);
-        try self.respond(stream, try requestId(mark.value), struct {}{});
-        try self.handleList(stream);
-    }
-
-    fn runAuthorityError(self: *FakeServer, stream: std.net.Stream) !void {
-        try self.handleIdentify(stream, 10, true);
-        var mark = try self.receive(
-            stream,
-            "mark-workspaces-provider-managed",
-        );
-        defer mark.deinit();
-        try expectString(mark.value.object, "authority", "wrong-secret");
-        try self.respondError(
+        try expectMutationRoute(mark.value, 10, "mark-1");
+        const mark_params = try requestParams(mark.value);
+        try expectBool(mark_params, "managed", true);
+        try self.respondMutation(
             stream,
             try requestId(mark.value),
-            "invalid provider workspace authority",
+            workspaceSnapshot(session_text, "seed"),
+            "11",
+            false,
+        );
+
+        var rename = try self.receive(stream, "provider_workspace.rename");
+        defer rename.deinit();
+        try expectMutationRoute(rename.value, 11, "rename-1");
+        try expectString(
+            try requestParams(rename.value),
+            "name",
+            "production",
+        );
+        try self.respondMutation(
+            stream,
+            try requestId(rename.value),
+            workspaceSnapshot(session_text, "production"),
+            "12",
+            false,
+        );
+
+        var clear_name = try self.receive(
+            stream,
+            "provider_workspace.rename",
+        );
+        defer clear_name.deinit();
+        try expectMutationRoute(clear_name.value, 12, "clear-name-1");
+        try expectNull(try requestParams(clear_name.value), "name");
+        try self.respondMutation(
+            stream,
+            try requestId(clear_name.value),
+            workspaceSnapshot(session_text, "seed"),
+            "13",
+            false,
+        );
+
+        var close = try self.receive(stream, "provider_workspace.close");
+        defer close.deinit();
+        try expectMutationRoute(close.value, 13, "close-1");
+        try self.respondMutation(
+            stream,
+            try requestId(close.value),
+            struct {}{},
+            "14",
+            false,
         );
     }
 
-    fn runProtocolError(
+    fn runRevisionConflict(
         self: *FakeServer,
         stream: std.net.Stream,
-        protocol: u32,
-        include_provider_capability: bool,
     ) !void {
-        try self.handleIdentify(
+        var mark = try self.receive(stream, "provider_workspace.mark");
+        defer mark.deinit();
+        try expectMutationRoute(mark.value, 10, "mark-1");
+        try self.respondMutation(
             stream,
-            protocol,
-            include_provider_capability,
+            try requestId(mark.value),
+            workspaceSnapshot(session_text, "seed"),
+            "11",
+            false,
         );
-    }
 
-    fn runStaleCreate(self: *FakeServer, stream: std.net.Stream) !void {
-        try self.runInitialize(stream);
-        var create_request = try self.receive(stream, "create-workspace");
-        defer create_request.deinit();
-        try expectInteger(create_request.value.object, "expected_revision", 7);
+        var rename = try self.receive(stream, "provider_workspace.rename");
+        defer rename.deinit();
+        try expectMutationRoute(rename.value, 11, "rename-conflict");
         try self.respondError(
             stream,
-            try requestId(create_request.value),
-            "workspace revision conflict: expected 7, current 8",
+            try requestId(rename.value),
+            "revision.conflict",
+            "workspace revision changed",
+            .{ .expected = "11", .actual = "12" },
         );
     }
 
-    fn runRevisionGap(self: *FakeServer, stream: std.net.Stream) !void {
-        try self.runInitialize(stream);
-        var rename = try self.receive(
+    fn runWrongScope(self: *FakeServer, stream: std.net.Stream) !void {
+        var mark = try self.receive(stream, "provider_workspace.mark");
+        defer mark.deinit();
+        try expectMutationRoute(mark.value, 10, "mark-wrong");
+        try self.respondMutation(
             stream,
-            "rename-provider-managed-workspace",
+            try requestId(mark.value),
+            workspaceSnapshot(other_session_text, "wrong"),
+            "11",
+            false,
         );
-        defer rename.deinit();
-        try expectInteger(rename.value.object, "workspace", 41);
-        try expectString(rename.value.object, "key", seed_key);
-        try self.respond(stream, try requestId(rename.value), .{
-            .workspace = @as(u64, 41),
-            .key = seed_key,
-            .workspace_revision = @as(u64, 9),
-        });
     }
 
-    fn handleIdentify(
-        self: *FakeServer,
-        stream: std.net.Stream,
-        protocol: u32,
-        include_provider_capability: bool,
-    ) !void {
-        var request = try self.receive(stream, "identify");
-        defer request.deinit();
-        const provider_capabilities = [_][]const u8{
-            "workspace-registry-v1",
-            provider.provider_capability,
-        };
-        const base_capabilities = [_][]const u8{"workspace-registry-v1"};
-        const capabilities: []const []const u8 =
-            if (include_provider_capability)
-                &provider_capabilities
-            else
-                &base_capabilities;
-        try self.respond(stream, try requestId(request.value), .{
-            .app = "cmux-tui",
-            .version = "0.4.0-test",
-            .protocol = protocol,
-            .capabilities = capabilities,
-            .session = "provider-test",
-            .pid = @as(u32, 1234),
-            .registry_id = registry_id,
-            .generation = generation,
-            .workspace_revision = @as(u64, 7),
-            .terminal_revision = @as(u64, 0),
-            .daemon_handoff = @as(i64, 1),
-        });
-    }
-
-    fn handleIdentifyWithoutCapabilities(
-        self: *FakeServer,
-        stream: std.net.Stream,
-        protocol: u32,
-    ) !void {
-        var request = try self.receive(stream, "identify");
-        defer request.deinit();
-        try self.respond(stream, try requestId(request.value), .{
-            .app = "cmux-tui",
-            .version = "0.4.0-test",
-            .protocol = protocol,
-            .session = "provider-test",
-            .pid = @as(u32, 1234),
-            .registry_id = registry_id,
-            .generation = generation,
-            .workspace_revision = @as(u64, 7),
-            .terminal_revision = @as(u64, 0),
-            .daemon_handoff = @as(i64, 1),
-        });
-    }
-
-    fn handleList(self: *FakeServer, stream: std.net.Stream) !void {
-        var request = try self.receive(stream, "list-workspaces");
-        defer request.deinit();
-        const empty_screens = [_]EmptyScreen{};
-        const workspaces = [_]struct {
-            active: bool,
-            id: u64,
-            key: []const u8,
-            name: []const u8,
-            screens: []const EmptyScreen,
-            short_id: []const u8,
-        }{.{
-            .active = true,
-            .id = 41,
-            .key = seed_key,
-            .name = "seed",
-            .screens = &empty_screens,
-            .short_id = "workspace:1",
-        }};
-        try self.respond(stream, try requestId(request.value), .{
-            .registry_id = registry_id,
-            .generation = generation,
-            .workspace_revision = @as(u64, 7),
-            .terminal_revision = @as(u64, 0),
-            .pane_revision = @as(u64, 0),
-            .workspaces = &workspaces,
-        });
+    fn runMarkOnly(self: *FakeServer, stream: std.net.Stream) !void {
+        var mark = try self.receive(stream, "provider_workspace.mark");
+        defer mark.deinit();
+        try expectMutationRoute(mark.value, 10, "mark-leak");
+        try self.respondMutation(
+            stream,
+            try requestId(mark.value),
+            workspaceSnapshot(session_text, "owned-name"),
+            "11",
+            false,
+        );
     }
 
     fn receive(
         self: *FakeServer,
         stream: std.net.Stream,
-        expected_command: []const u8,
+        expected_operation: []const u8,
     ) !std.json.Parsed(std.json.Value) {
         const line = try readLineAlloc(self.allocator, stream);
         defer self.allocator.free(line);
@@ -303,20 +189,52 @@ const FakeServer = struct {
         );
         errdefer parsed.deinit();
         if (parsed.value != .object) return error.ExpectedObject;
-        try expectString(parsed.value.object, "cmd", expected_command);
+        try expectString(
+            parsed.value.object,
+            "protocol",
+            "cmux.protocol/1",
+        );
+        try expectString(parsed.value.object, "type", "request");
+        try expectString(
+            parsed.value.object,
+            "operation",
+            expected_operation,
+        );
         self.requests_seen += 1;
         return parsed;
+    }
+
+    fn respondMutation(
+        self: *FakeServer,
+        stream: std.net.Stream,
+        id: []const u8,
+        value: anytype,
+        revision: []const u8,
+        replayed: bool,
+    ) !void {
+        try self.respond(stream, id, .{
+            .value = value,
+            .generation = generation,
+            .revision = revision,
+            .replayed = replayed,
+        });
     }
 
     fn respond(
         self: *FakeServer,
         stream: std.net.Stream,
-        id: u64,
-        data: anytype,
+        id: []const u8,
+        result: anytype,
     ) !void {
         const encoded = try std.json.Stringify.valueAlloc(
             self.allocator,
-            .{ .id = id, .ok = true, .data = data },
+            .{
+                .protocol = "cmux.protocol/1",
+                .type = "response",
+                .id = id,
+                .ok = true,
+                .result = result,
+            },
             .{},
         );
         defer self.allocator.free(encoded);
@@ -327,12 +245,25 @@ const FakeServer = struct {
     fn respondError(
         self: *FakeServer,
         stream: std.net.Stream,
-        id: u64,
+        id: []const u8,
+        code: []const u8,
         message: []const u8,
+        details: anytype,
     ) !void {
         const encoded = try std.json.Stringify.valueAlloc(
             self.allocator,
-            .{ .id = id, .ok = false, .@"error" = message },
+            .{
+                .protocol = "cmux.protocol/1",
+                .type = "response",
+                .id = id,
+                .ok = false,
+                .@"error" = .{
+                    .code = code,
+                    .message = message,
+                    .details = details,
+                    .retryable = false,
+                },
+            },
             .{},
         );
         defer self.allocator.free(encoded);
@@ -341,282 +272,190 @@ const FakeServer = struct {
     }
 };
 
-test "public SDK drives provider lifecycle over a Unix socket" {
-    var temp = std.testing.tmpDir(.{});
-    defer temp.cleanup();
-    const path = try socketPath(std.testing.allocator, &temp);
-    defer std.testing.allocator.free(path);
-
-    const fake = try FakeServer.create(std.testing.allocator, path, .happy);
-    defer fake.deinit();
-    var controller = try provider.ProviderController.connect(
-        std.testing.allocator,
-        .{ .socket_path = path, .authority = authority },
-    );
-    errdefer controller.deinit();
-    const thread = try std.Thread.spawn(.{}, FakeServer.threadMain, .{fake});
-    var joined = false;
-    defer if (!joined) thread.join();
+test "public resource API drives the provider workspace lifecycle" {
+    var fixture = try Fixture.init(.lifecycle);
+    defer fixture.deinit();
+    var controller = try fixture.connect(std.testing.allocator);
     defer controller.deinit();
 
-    try controller.initialize();
-    try std.testing.expectEqualStrings(
-        registry_id,
-        try controller.registryId(),
-    );
-    try std.testing.expectEqualStrings(
-        generation,
-        try controller.generationId(),
-    );
-    try std.testing.expectEqual(@as(u64, 7), try controller.workspaceRevision());
-    try std.testing.expectEqual(@as(usize, 1), (try controller.workspaces()).len);
+    const marked = try controller.markManaged(true, "mark-1");
+    try std.testing.expectEqual(@as(u64, 11), marked.revision);
+    try std.testing.expectEqualStrings("seed", controller.currentName().?);
 
-    const created = try controller.createWorkspace(
-        try controller.workspaceRevision(),
-        "worker",
-        created_key,
-        "mutation-create-1",
-    );
-    try std.testing.expectEqual(@as(u64, 42), created.workspace);
-    try std.testing.expectEqual(@as(u64, 8), created.workspace_revision);
-    try std.testing.expectEqual(@as(usize, 2), (try controller.workspaces()).len);
-
-    const renamed = try controller.renameWorkspace(
-        try controller.workspaceRevision(),
-        created.workspace,
-        created_key,
-        "production",
-    );
-    try std.testing.expectEqual(@as(u64, 9), renamed.workspace_revision);
+    const renamed = try controller.rename("production", "rename-1");
+    try std.testing.expectEqual(@as(u64, 12), renamed.revision);
     try std.testing.expectEqualStrings(
         "production",
-        (try controller.workspaces())[1].name,
+        controller.currentName().?,
     );
 
-    const closed = try controller.closeWorkspace(
-        try controller.workspaceRevision(),
-        created.workspace,
-        created_key,
-    );
-    try std.testing.expectEqual(@as(u64, 10), closed.workspace_revision);
-    try std.testing.expectEqual(@as(usize, 1), (try controller.workspaces()).len);
+    const cleared = try controller.rename(null, "clear-name-1");
+    try std.testing.expectEqual(@as(u64, 13), cleared.revision);
+    try std.testing.expectEqualStrings("seed", controller.currentName().?);
 
-    thread.join();
-    joined = true;
-    if (fake.failure) |failure| return failure;
-    try std.testing.expectEqual(@as(usize, 6), fake.requests_seen);
+    const closed = try controller.closeWorkspace("close-1");
+    try std.testing.expectEqual(@as(u64, 14), closed.revision);
+    try std.testing.expect(controller.isClosed());
+    try std.testing.expectError(
+        error.WorkspaceAlreadyClosed,
+        controller.closeWorkspace("close-again"),
+    );
+
+    try fixture.join();
+    try std.testing.expectEqual(@as(usize, 4), fixture.server.requests_seen);
 }
 
-test "authority error preserves the remote message" {
-    var temp = std.testing.tmpDir(.{});
-    defer temp.cleanup();
-    const path = try socketPath(std.testing.allocator, &temp);
-    defer std.testing.allocator.free(path);
-    const fake = try FakeServer.create(
-        std.testing.allocator,
-        path,
-        .authority_error,
-    );
-    defer fake.deinit();
-    var controller = try provider.ProviderController.connect(
-        std.testing.allocator,
-        .{ .socket_path = path, .authority = "wrong-secret" },
-    );
-    errdefer controller.deinit();
-    const thread = try std.Thread.spawn(.{}, FakeServer.threadMain, .{fake});
-    var joined = false;
-    defer if (!joined) thread.join();
+test "structured revision conflict remains available on the client" {
+    var fixture = try Fixture.init(.revision_conflict);
+    defer fixture.deinit();
+    var controller = try fixture.connect(std.testing.allocator);
     defer controller.deinit();
 
-    try std.testing.expectError(error.RemoteError, controller.initialize());
-    try std.testing.expectEqualStrings(
-        "invalid provider workspace authority",
-        controller.lastRemoteError().?,
-    );
-    thread.join();
-    joined = true;
-    if (fake.failure) |failure| return failure;
-    try std.testing.expectEqual(@as(usize, 2), fake.requests_seen);
-}
-
-test "old protocol is rejected before authority is sent" {
-    try expectInitializeError(.old_protocol, error.UnsupportedProtocol);
-}
-
-test "missing provider capability is rejected before authority is sent" {
-    try expectInitializeError(
-        .missing_capability,
-        error.MissingProviderCapability,
-    );
-}
-
-test "omitted capabilities are treated as an empty capability set" {
-    try expectInitializeError(
-        .omitted_capabilities,
-        error.MissingProviderCapability,
-    );
-}
-
-test "wire CAS conflict preserves revision and remote detail" {
-    var temp = std.testing.tmpDir(.{});
-    defer temp.cleanup();
-    const path = try socketPath(std.testing.allocator, &temp);
-    defer std.testing.allocator.free(path);
-    const fake = try FakeServer.create(
-        std.testing.allocator,
-        path,
-        .stale_create,
-    );
-    defer fake.deinit();
-    var controller = try provider.ProviderController.connect(
-        std.testing.allocator,
-        .{ .socket_path = path, .authority = authority },
-    );
-    errdefer controller.deinit();
-    const thread = try std.Thread.spawn(.{}, FakeServer.threadMain, .{fake});
-    var joined = false;
-    defer if (!joined) thread.join();
-    defer controller.deinit();
-
-    try controller.initialize();
+    _ = try controller.markManaged(true, "mark-1");
     try std.testing.expectError(
         error.RemoteError,
-        controller.createWorkspace(
-            7,
-            "worker",
-            created_key,
-            "mutation-create-1",
-        ),
+        controller.rename("stale", "rename-conflict"),
     );
+    try std.testing.expectEqual(@as(u64, 11), controller.currentRevision());
+    const remote = controller.lastResourceError().?;
+    try std.testing.expectEqualStrings("revision.conflict", remote.code);
     try std.testing.expectEqualStrings(
-        "workspace revision conflict: expected 7, current 8",
-        controller.lastRemoteError().?,
+        "workspace revision changed",
+        remote.message,
     );
-    try std.testing.expectEqual(@as(u64, 7), try controller.workspaceRevision());
+    switch (remote.details) {
+        .revision_conflict => |details| {
+            try std.testing.expectEqual(@as(u64, 11), details.expected);
+            try std.testing.expectEqual(@as(u64, 12), details.actual);
+        },
+        else => return error.UnexpectedResourceErrorDetails,
+    }
 
-    thread.join();
-    joined = true;
-    if (fake.failure) |failure| return failure;
-    try std.testing.expectEqual(@as(usize, 4), fake.requests_seen);
+    try fixture.join();
+    try std.testing.expectEqual(@as(usize, 2), fixture.server.requests_seen);
 }
 
-test "local CAS blocks a stale provider rename without a wire request" {
-    var temp = std.testing.tmpDir(.{});
-    defer temp.cleanup();
-    const path = try socketPath(std.testing.allocator, &temp);
-    defer std.testing.allocator.free(path);
-    const fake = try FakeServer.create(
-        std.testing.allocator,
-        path,
-        .init_only,
-    );
-    defer fake.deinit();
-    var controller = try provider.ProviderController.connect(
-        std.testing.allocator,
-        .{ .socket_path = path, .authority = authority },
-    );
-    errdefer controller.deinit();
-    const thread = try std.Thread.spawn(.{}, FakeServer.threadMain, .{fake});
-    var joined = false;
-    defer if (!joined) thread.join();
+test "mismatched typed snapshot does not advance controller state" {
+    var fixture = try Fixture.init(.wrong_scope);
+    defer fixture.deinit();
+    var controller = try fixture.connect(std.testing.allocator);
     defer controller.deinit();
 
-    try controller.initialize();
     try std.testing.expectError(
-        error.LocalRevisionConflict,
-        controller.renameWorkspace(6, 41, seed_key, "stale"),
+        error.SnapshotScopeMismatch,
+        controller.markManaged(true, "mark-wrong"),
     );
-    thread.join();
-    joined = true;
-    if (fake.failure) |failure| return failure;
-    try std.testing.expectEqual(@as(usize, 3), fake.requests_seen);
+    try std.testing.expectEqual(@as(u64, 10), controller.currentRevision());
+    try std.testing.expect(controller.currentName() == null);
+
+    try fixture.join();
+    try std.testing.expectEqual(@as(usize, 1), fixture.server.requests_seen);
 }
 
-test "provider revision discontinuity does not mutate local topology" {
-    var temp = std.testing.tmpDir(.{});
-    defer temp.cleanup();
-    const path = try socketPath(std.testing.allocator, &temp);
-    defer std.testing.allocator.free(path);
-    const fake = try FakeServer.create(
-        std.testing.allocator,
-        path,
-        .revision_gap,
-    );
-    defer fake.deinit();
-    var controller = try provider.ProviderController.connect(
-        std.testing.allocator,
-        .{ .socket_path = path, .authority = authority },
-    );
-    errdefer controller.deinit();
-    const thread = try std.Thread.spawn(.{}, FakeServer.threadMain, .{fake});
-    var joined = false;
-    defer if (!joined) thread.join();
-    defer controller.deinit();
-
-    try controller.initialize();
-    try std.testing.expectError(
-        error.RevisionDiscontinuity,
-        controller.renameWorkspace(7, 41, seed_key, "renamed"),
-    );
-    try std.testing.expectEqual(@as(u64, 7), try controller.workspaceRevision());
-    try std.testing.expectEqualStrings(
-        "seed",
-        (try controller.workspaces())[0].name,
-    );
-    thread.join();
-    joined = true;
-    if (fake.failure) |failure| return failure;
-    try std.testing.expectEqual(@as(usize, 4), fake.requests_seen);
-}
-
-test "controller deinit releases allocator-owned authority and topology" {
-    var temp = std.testing.tmpDir(.{});
-    defer temp.cleanup();
-    const path = try socketPath(std.testing.allocator, &temp);
-    defer std.testing.allocator.free(path);
-    const fake = try FakeServer.create(
-        std.testing.allocator,
-        path,
-        .init_only,
-    );
-    defer fake.deinit();
+test "controller releases copied generation and workspace name" {
+    var fixture = try Fixture.init(.mark_only);
+    defer fixture.deinit();
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     const allocator = debug_allocator.allocator();
-    var controller = try provider.ProviderController.connect(
-        allocator,
-        .{ .socket_path = path, .authority = authority },
-    );
-    const thread = try std.Thread.spawn(.{}, FakeServer.threadMain, .{fake});
-    try controller.initialize();
+    var controller = try fixture.connect(allocator);
+    _ = try controller.markManaged(true, "mark-leak");
     controller.deinit();
-    thread.join();
-    if (fake.failure) |failure| return failure;
+    try fixture.join();
     try std.testing.expectEqual(.ok, debug_allocator.deinit());
 }
 
-fn expectInitializeError(scenario: Scenario, expected: anyerror) !void {
-    var temp = std.testing.tmpDir(.{});
-    defer temp.cleanup();
-    const path = try socketPath(std.testing.allocator, &temp);
-    defer std.testing.allocator.free(path);
-    const fake = try FakeServer.create(std.testing.allocator, path, scenario);
-    defer fake.deinit();
-    var controller = try provider.ProviderController.connect(
-        std.testing.allocator,
-        .{ .socket_path = path, .authority = authority },
+test "opaque IDs reject cross-resource and malformed values" {
+    try std.testing.expectError(
+        error.InvalidResourceId,
+        cmux.WorkspaceId.parse(session_text),
     );
-    errdefer controller.deinit();
-    const thread = try std.Thread.spawn(.{}, FakeServer.threadMain, .{fake});
-    var joined = false;
-    defer if (!joined) thread.join();
-    defer controller.deinit();
+    try std.testing.expectError(
+        error.InvalidResourceId,
+        cmux.ProviderScopeId.parse("provider_scope_NOT_HEX"),
+    );
+}
 
-    try std.testing.expectError(expected, controller.initialize());
-    thread.join();
-    joined = true;
-    if (fake.failure) |failure| return failure;
-    try std.testing.expectEqual(@as(usize, 1), fake.requests_seen);
+const Fixture = struct {
+    temp: std.testing.TmpDir,
+    path: []u8,
+    server: *FakeServer,
+    thread: std.Thread,
+    joined: bool = false,
+
+    fn init(scenario: Scenario) !Fixture {
+        var temp = std.testing.tmpDir(.{});
+        errdefer temp.cleanup();
+        const path = try socketPath(std.testing.allocator, &temp);
+        errdefer std.testing.allocator.free(path);
+        const server = try FakeServer.create(
+            std.testing.allocator,
+            path,
+            scenario,
+        );
+        errdefer server.deinit();
+        const thread = try std.Thread.spawn(
+            .{},
+            FakeServer.threadMain,
+            .{server},
+        );
+        return .{
+            .temp = temp,
+            .path = path,
+            .server = server,
+            .thread = thread,
+        };
+    }
+
+    fn connect(
+        self: *Fixture,
+        allocator: std.mem.Allocator,
+    ) !provider.ProviderController {
+        return provider.ProviderController.connect(allocator, .{
+            .socket_path = self.path,
+            .provider_scope_id = try cmux.ProviderScopeId.parse(
+                provider_scope_text,
+            ),
+            .session_id = try cmux.SessionId.parse(session_text),
+            .workspace_id = try cmux.WorkspaceId.parse(workspace_text),
+            .revision = 10,
+        });
+    }
+
+    fn join(self: *Fixture) !void {
+        if (!self.joined) {
+            self.thread.join();
+            self.joined = true;
+        }
+        if (self.server.failure) |failure| return failure;
+    }
+
+    fn deinit(self: *Fixture) void {
+        if (!self.joined) self.thread.join();
+        self.server.deinit();
+        std.testing.allocator.free(self.path);
+        self.temp.cleanup();
+        self.* = undefined;
+    }
+};
+
+fn workspaceSnapshot(
+    session_id: []const u8,
+    name: []const u8,
+) struct {
+    id: []const u8,
+    session_id: []const u8,
+    name: []const u8,
+    index: u32,
+    focused: bool,
+} {
+    return .{
+        .id = workspace_text,
+        .session_id = session_id,
+        .name = name,
+        .index = 0,
+        .focused = true,
+    };
 }
 
 fn socketPath(
@@ -625,7 +464,7 @@ fn socketPath(
 ) ![]u8 {
     return std.fmt.allocPrint(
         allocator,
-        ".zig-cache/tmp/{s}/provider.sock",
+        ".zig-cache/tmp/{s}/provider-resource.sock",
         .{&temp.sub_path},
     );
 }
@@ -646,14 +485,38 @@ fn readLineAlloc(
     return error.FrameTooLarge;
 }
 
-fn requestId(value: std.json.Value) !u64 {
+fn requestId(value: std.json.Value) ![]const u8 {
     const raw = value.object.get("id") orelse return error.MissingRequestId;
     return switch (raw) {
-        .integer => |number| std.math.cast(u64, number) orelse
-            error.InvalidRequestId,
-        .number_string => |number| try std.fmt.parseInt(u64, number, 10),
+        .string => |text| text,
         else => error.InvalidRequestId,
     };
+}
+
+fn requestParams(value: std.json.Value) !std.json.ObjectMap {
+    const raw = value.object.get("params") orelse return error.MissingParams;
+    return switch (raw) {
+        .object => |object| object,
+        else => error.ExpectedObject,
+    };
+}
+
+fn expectMutationRoute(
+    request: std.json.Value,
+    revision: u64,
+    idempotency_key: []const u8,
+) !void {
+    try expectString(
+        request.object,
+        "idempotency_key",
+        idempotency_key,
+    );
+    const params = try requestParams(request);
+    try expectString(params, "provider_scope", provider_scope_text);
+    try expectString(params, "machine", "current");
+    try expectString(params, "session", session_text);
+    try expectString(params, "workspace", workspace_text);
+    try expectDecimal(params, "expected_revision", revision);
 }
 
 fn expectString(
@@ -663,10 +526,31 @@ fn expectString(
 ) !void {
     const value = object.get(field) orelse return error.MissingField;
     if (value != .string) return error.ExpectedString;
-    if (!std.mem.eql(u8, value.string, expected)) return error.UnexpectedValue;
+    if (!std.mem.eql(u8, value.string, expected)) {
+        return error.UnexpectedValue;
+    }
 }
 
-fn expectInteger(
+fn expectBool(
+    object: std.json.ObjectMap,
+    field: []const u8,
+    expected: bool,
+) !void {
+    const value = object.get(field) orelse return error.MissingField;
+    if (value != .bool or value.bool != expected) {
+        return error.UnexpectedValue;
+    }
+}
+
+fn expectNull(
+    object: std.json.ObjectMap,
+    field: []const u8,
+) !void {
+    const value = object.get(field) orelse return error.MissingField;
+    if (value != .null) return error.ExpectedNull;
+}
+
+fn expectDecimal(
     object: std.json.ObjectMap,
     field: []const u8,
     expected: u64,
@@ -676,17 +560,8 @@ fn expectInteger(
         .integer => |number| std.math.cast(u64, number) orelse
             return error.ExpectedInteger,
         .number_string => |number| try std.fmt.parseInt(u64, number, 10),
+        .string => |number| try std.fmt.parseInt(u64, number, 10),
         else => return error.ExpectedInteger,
     };
     if (actual != expected) return error.UnexpectedValue;
-}
-
-fn expectAbsent(object: std.json.ObjectMap, field: []const u8) !void {
-    if (object.get(field) != null) return error.UnexpectedField;
-}
-
-test "consumer compiles against the public protocol inventory" {
-    try std.testing.expectEqual(@as(usize, 87), cmux.protocol.command_count);
-    try std.testing.expectEqual(@as(usize, 44), cmux.protocol.event_count);
-    try std.testing.expectEqual(@as(u16, 10), cmux.protocol.mux_protocol);
 }

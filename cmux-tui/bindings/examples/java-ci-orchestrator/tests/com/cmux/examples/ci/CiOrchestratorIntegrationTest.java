@@ -1,7 +1,6 @@
 package com.cmux.examples.ci;
 
-import com.cmux.UInt64;
-import java.nio.file.Path;
+import com.cmux.Ids;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -9,7 +8,6 @@ import java.util.concurrent.TimeoutException;
 
 public final class CiOrchestratorIntegrationTest {
     private static final String MARKER = "CMUX_CI_DETERMINISTIC";
-    private static final String WORKSPACE_KEY = "123e4567-e89b-12d3-a456-426614174000";
     private static final String COMMAND = "printf 'compile ok\\n'";
 
     private CiOrchestratorIntegrationTest() {}
@@ -23,74 +21,84 @@ public final class CiOrchestratorIntegrationTest {
 
     private static void successCapturesOutputAndCleansUp() throws Exception {
         try (FakeCmuxServer server = fake(FakeCmuxServer.Scenario.SUCCESS)) {
-            CiOrchestrator.Outcome outcome = CiOrchestrator.execute(config(server.socketPath()));
+            CiOrchestrator.Outcome outcome =
+                CiOrchestrator.execute(config(Duration.ofSeconds(2)), server);
             require(outcome.exitCode() == 0, "success exit code");
-            require(outcome.identity().protocol() == 10, "identify protocol");
-            require(outcome.workspace().equals(UInt64.of(11)), "workspace id");
-            require(outcome.surface().equals(UInt64.of(31)), "surface id");
-            require(outcome.screen().contains(MARKER + ":0"), "screen marker");
-            require(outcome.scrollback().equals("compile started"), "scrollback text");
-            require(outcome.notification().isEmpty(), "success notification");
-            server.await();
             require(
-                server.commands().equals(
+                outcome.workspace().equals(
+                    new Ids.WorkspaceId(FakeCmuxServer.WORKSPACE_ID)
+                ),
+                "workspace id"
+            );
+            require(
+                outcome.terminal().equals(
+                    new Ids.TerminalId(FakeCmuxServer.TERMINAL_ID)
+                ),
+                "terminal id"
+            );
+            require(outcome.screen().equals("compile ok"), "screen text");
+            require(
+                outcome.history().equals("compile started\ncompile ok"),
+                "history text"
+            );
+            require(outcome.notification().isEmpty(), "success notification");
+            require(
+                server.operations().equals(
                     List.of(
-                        "identify",
-                        "create-workspace",
-                        "create-terminal",
-                        "read-screen",
-                        "read-scrollback",
-                        "close-workspace"
+                        "workspace.create",
+                        "workspace.run",
+                        "terminal.wait",
+                        "terminal.screen.read",
+                        "terminal.history.read",
+                        "workspace.close"
                     )
                 ),
-                "success command sequence: " + server.commands()
+                "success operation sequence: " + server.operations()
             );
         }
     }
 
     private static void commandFailureNotifiesAndCleansUp() throws Exception {
-        try (FakeCmuxServer server = fake(FakeCmuxServer.Scenario.COMMAND_FAILURE)) {
-            CiOrchestrator.Outcome outcome = CiOrchestrator.execute(config(server.socketPath()));
+        try (FakeCmuxServer server = fake(
+            FakeCmuxServer.Scenario.COMMAND_FAILURE
+        )) {
+            CiOrchestrator.Outcome outcome =
+                CiOrchestrator.execute(config(Duration.ofSeconds(2)), server);
             require(outcome.exitCode() == 7, "failure exit code");
-            require(outcome.screen().contains(MARKER + ":7"), "failure marker");
-            require(outcome.scrollback().equals("tests started"), "failure scrollback");
+            require(outcome.screen().equals("test failed"), "failure screen");
             require(
-                outcome.notification().equals(Optional.of(UInt64.of(44))),
-                "failure notification"
+                outcome.history().equals("tests started\ntest failed"),
+                "failure history"
             );
-            server.await();
             require(
-                server.commands().equals(
-                    List.of(
-                        "identify",
-                        "create-workspace",
-                        "create-terminal",
-                        "read-screen",
-                        "read-scrollback",
-                        "notify",
-                        "close-workspace"
+                outcome.notification().equals(
+                    Optional.of(
+                        new Ids.NotificationId(FakeCmuxServer.NOTIFICATION_ID)
                     )
                 ),
-                "failure command sequence: " + server.commands()
+                "failure notification"
+            );
+            require(
+                server.operations().equals(
+                    List.of(
+                        "workspace.create",
+                        "workspace.run",
+                        "terminal.wait",
+                        "terminal.screen.read",
+                        "terminal.history.read",
+                        "notification.create",
+                        "workspace.close"
+                    )
+                ),
+                "failure operation sequence: " + server.operations()
             );
         }
     }
 
     private static void timeoutNotifiesAndCleansUp() throws Exception {
         try (FakeCmuxServer server = fake(FakeCmuxServer.Scenario.TIMEOUT)) {
-            CiOrchestrator.Config config = new CiOrchestrator.Config(
-                "fake-ci",
-                Optional.of(server.socketPath()),
-                Duration.ofMillis(60),
-                Duration.ofMillis(5),
-                COMMAND,
-                Optional.empty(),
-                MARKER,
-                WORKSPACE_KEY,
-                "cmux-ci-test"
-            );
             try {
-                CiOrchestrator.execute(config);
+                CiOrchestrator.execute(config(Duration.ofMillis(60)), server);
                 throw new AssertionError("timeout scenario unexpectedly succeeded");
             } catch (TimeoutException expected) {
                 require(
@@ -98,33 +106,33 @@ public final class CiOrchestratorIntegrationTest {
                     "timeout names the marker"
                 );
             }
-            server.await();
-            require(server.readScreenCount() >= 2, "timeout polls more than once");
-            List<String> commands = server.commands();
-            require(commands.get(0).equals("identify"), "timeout identifies first");
-            require(commands.contains("notify"), "timeout posts notification");
             require(
-                commands.get(commands.size() - 1).equals("close-workspace"),
-                "timeout cleans up last"
+                server.operations().equals(
+                    List.of(
+                        "workspace.create",
+                        "workspace.run",
+                        "terminal.wait",
+                        "notification.create",
+                        "workspace.close"
+                    )
+                ),
+                "timeout operation sequence: " + server.operations()
             );
-            require(!commands.contains("read-scrollback"), "timeout skips scrollback");
         }
     }
 
-    private static FakeCmuxServer fake(FakeCmuxServer.Scenario scenario) throws Exception {
-        return new FakeCmuxServer(scenario, MARKER, WORKSPACE_KEY, COMMAND);
+    private static FakeCmuxServer fake(FakeCmuxServer.Scenario scenario) {
+        return new FakeCmuxServer(scenario, MARKER, COMMAND);
     }
 
-    private static CiOrchestrator.Config config(Path socketPath) {
+    private static CiOrchestrator.Config config(Duration timeout) {
         return new CiOrchestrator.Config(
             "fake-ci",
-            Optional.of(socketPath),
-            Duration.ofSeconds(2),
-            Duration.ofMillis(5),
+            Optional.empty(),
+            timeout,
             COMMAND,
             Optional.empty(),
             MARKER,
-            WORKSPACE_KEY,
             "cmux-ci-test"
         );
     }

@@ -1,21 +1,22 @@
 # Python agent watchdog
 
-This zero-dependency Python 3.9+ process connects to one cmux TUI session,
-identifies the server, lists agents and workspaces, and maintains both coarse
-and delta event subscriptions. It warns when an agent reports `blocked`, or
-when a `working` record has not changed within the configured threshold. Each
-warning includes the current screen or a scrollback fallback. A lost Unix
-socket triggers bounded exponential reconnects and restores both subscriptions.
+This zero-dependency Python 3.9+ process follows one typed session event stream
+and periodically reads the session's resource snapshot. It warns when an agent
+is `blocked`, or when a `working` agent has not changed within the configured
+threshold. Each warning names the typed terminal and its workspace ancestry,
+then includes the visible screen or a terminal-history fallback. A lost Unix
+socket triggers bounded exponential reconnects and restores the event stream.
 
-From the cmuxterm-hq checkout:
+From the cmux checkout:
 
 ```bash
-PYTHONPATH=worktrees/feat-tui-sdk-stack/cmux-tui/bindings/python python3 worktrees/feat-tui-sdk-stack/cmux-tui/bindings/examples/python-agent-watchdog/watchdog.py --session main
+PYTHONPATH=cmux-tui/bindings/python python3 cmux-tui/bindings/examples/python-agent-watchdog/watchdog.py --session main
 ```
 
-Use `--socket /path/to/session.sock` to bypass session discovery,
+Use `--socket /path/to/session.sock` to bypass socket discovery,
 `--stalled-after 120` to change the stale threshold, and Ctrl-C for clean
 shutdown.
 
-The `tests` directory contains deterministic fake-server coverage for future
-events, reconnection, resubscription, notification capture, and stall timing.
+The tests use a deterministic resource-protocol fake server to cover unknown
+future events, reconnection, resubscription, notification capture, and stall
+timing.

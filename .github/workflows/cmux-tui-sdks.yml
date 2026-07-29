@@ -335,7 +335,7 @@ jobs:
           npm ci --no-audit --no-fund
           npm test
 
-      - name: Test Rust agent dashboard
+      - name: Test Rust resource consumers
         if: matrix.language == 'rust'
         run: |
           cargo +1.88.0 test \
@@ -343,6 +343,15 @@ jobs:
             --locked
           cargo +1.88.0 clippy \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
+            --locked \
+            --all-targets \
+            -- -D warnings
+          cargo +1.88.0 test \
+            --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
+            --locked \
+            --all-targets
+          cargo +1.88.0 clippy \
+            --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets \
             -- -D warnings

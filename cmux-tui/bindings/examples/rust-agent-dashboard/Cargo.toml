@@ -9,6 +9,9 @@ publish = false
 [dependencies]
 cmux-client = { path = "../../rust" }
 
+[dev-dependencies]
+serde_json = "1"
+
 # Keep this consumer example independent from the cmux-tui workspace so it
 # exercises the SDK exactly like an external path dependency.
 [workspace]

@@ -1,4 +1,4 @@
-use cmux_client::ClientConfig;
+use cmux::Config;
 use cmux_rust_agent_dashboard::{
     NotificationTracker, RunOptions, run_connection, run_with_reconnect,
 };
@@ -36,8 +36,8 @@ fn main() -> ExitCode {
 
 fn run(arguments: Arguments) -> Result<(), String> {
     let config = arguments.socket.map_or_else(
-        || ClientConfig::from_env_or_default_session(&arguments.session),
-        ClientConfig::from_socket_path,
+        || Config::from_env_or_default_session(&arguments.session),
+        Config::from_socket_path,
     );
     let shutdown = Arc::new(AtomicBool::new(false));
 
