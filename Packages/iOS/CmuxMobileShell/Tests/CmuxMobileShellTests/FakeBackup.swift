@@ -51,6 +51,25 @@ actor FakeBackup: PairedMacBackingUp {
         return true
     }
 
+    /// The team the fake "server" reports it stored a successful upload under,
+    /// mirroring the presence worker's echo of its verified resolved team. When
+    /// unset, a successful upload echoes the requested team back verbatim.
+    private var echoedResolvedTeamID: String?
+
+    func setEchoedResolvedTeamID(_ teamID: String?) { echoedResolvedTeamID = teamID }
+
+    func uploadReportingResolvedTeam(
+        ops: [PairedMacBackupOp],
+        teamID: String?,
+        expectedUserID: String?
+    ) async -> PairedMacBackupUploadOutcome {
+        let succeeded = await upload(ops: ops, teamID: teamID, expectedUserID: expectedUserID)
+        return PairedMacBackupUploadOutcome(
+            succeeded: succeeded,
+            resolvedTeamID: succeeded ? (echoedResolvedTeamID ?? teamID) : nil
+        )
+    }
+
     func fetchAll() async -> [PairedMacBackupRecord]? {
         await fetchSnapshot()?.records
     }
