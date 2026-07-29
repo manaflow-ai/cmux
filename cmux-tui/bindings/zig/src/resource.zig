@@ -419,7 +419,6 @@ pub const StreamId = OpaqueId("stream_");
 pub const FrontendProjectionId = OpaqueId("projection_");
 pub const PairingRequestId = OpaqueId("pairing_");
 pub const SidebarViewId = OpaqueId("sidebar_view_");
-pub const SidebarPluginId = OpaqueId("sidebar_plugin_");
 pub const ProviderScopeId = OpaqueId("provider_scope_");
 pub const ProviderActionId = OpaqueId("provider_action_");
 pub const ProviderNoticeId = OpaqueId("provider_notice_");
@@ -630,20 +629,20 @@ pub const OwnedResult = struct {
 };
 
 pub const MutationResult = struct {
-    owned: raw.wire.OwnedValue,
     value: raw.wire.Value,
-    receipt: MutationReceipt,
-    path: ?CreatedPath = null,
+    generation: []const u8,
+    revision: u64,
+    replayed: bool,
+    owned: raw.wire.OwnedValue,
+
+    pub fn createdPath(self: *const MutationResult) !?CreatedPath {
+        return maybeParseCreatedPath(self.value);
+    }
 
     pub fn deinit(self: *MutationResult) void {
         self.owned.deinit();
         self.* = undefined;
     }
-};
-
-pub const MutationReceipt = struct {
-    idempotency_key: []const u8,
-    cursor: ?Cursor = null,
 };
 
 pub const RendererGrant = struct {
@@ -1223,36 +1222,26 @@ pub const Client = struct {
             .object => |item| item,
             else => return error.ExpectedObject,
         };
-        const receipt_object = switch (object.get("receipt") orelse
-            return error.MissingMutationReceipt) {
-            .object => |item| item,
-            else => return error.ExpectedObject,
-        };
-        const idempotency_key = try objectString(
-            receipt_object,
-            "idempotency_key",
-        );
-        if (!std.mem.eql(u8, idempotency_key, options.key())) {
-            return error.IdempotencyReceiptMismatch;
+        const generation = try objectString(object, "generation");
+        if (generation.len == 0 or generation.len > 128) {
+            return error.InvalidMutationGeneration;
         }
-        const cursor = if (receipt_object.get("cursor")) |value|
-            switch (value) {
-                .null => null,
-                else => try parseCursor(value),
-            }
-        else
-            null;
+        const revision = try decimalU64(
+            object.get("revision") orelse return error.MissingField,
+        );
+        const replayed = switch (object.get("replayed") orelse
+            return error.MissingField) {
+            .bool => |value| value,
+            else => return error.ExpectedBool,
+        };
         const logical_value = object.get("value") orelse
             return error.MissingMutationValue;
-        const path = try maybeParseCreatedPath(logical_value);
         const mutation_result = MutationResult{
-            .owned = result.owned,
             .value = logical_value,
-            .receipt = .{
-                .idempotency_key = idempotency_key,
-                .cursor = cursor,
-            },
-            .path = path,
+            .generation = generation,
+            .revision = revision,
+            .replayed = replayed,
+            .owned = result.owned,
         };
         result = undefined;
         return mutation_result;
@@ -3177,7 +3166,7 @@ const FakeShared = struct {
             if (self.mode == .remote_error) {
                 const response = try std.fmt.allocPrint(
                     self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":false," ++ "\"error\":{{\"code\":\"mutation.indeterminate\"," ++ "\"message\":\"external effect may have committed\"," ++ "\"details\":{{\"token\":\"must-not-log\"," ++ "\"phase\":\"external_committed\"}}," ++ "\"retryable\":false}}}}",
+                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":false," ++ "\"error\":{{\"code\":\"mutation.indeterminate\"," ++ "\"message\":\"external effect may have committed\"," ++ "\"details\":{{\"idempotency_key\":" ++ "\"indeterminate-test-key\",\"operation\":" ++ "\"workspace.rename\",\"recovery\":" ++ "\"inspect_state_then_retry_with_new_key\"}}," ++ "\"retryable\":false}}}}",
                     .{id},
                 );
                 defer self.allocator.free(response);
@@ -3242,14 +3231,10 @@ const FakeShared = struct {
                 try self.appendInput(response);
                 continue;
             }
-            const idempotency_key = objectString(
-                object,
-                "idempotency_key",
-            ) catch "";
             const response = try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":true," ++ "\"result\":{{\"value\":{{\"kind\":\"terminal\"," ++ "\"workspace_id\":\"ws_0123456789abcdef0123456789abcdef\"," ++ "\"screen_id\":\"screen_0123456789abcdef0123456789abcdef\"," ++ "\"pane_id\":\"pane_0123456789abcdef0123456789abcdef\"," ++ "\"tab_id\":\"tab_0123456789abcdef0123456789abcdef\"," ++ "\"terminal_id\":\"term_0123456789abcdef0123456789abcdef\"}}," ++ "\"receipt\":{{\"idempotency_key\":\"{s}\"," ++ "\"cursor\":{{\"generation\":\"g\"," ++ "\"revision\":\"7\"}}}}}}}}",
-                .{ id, idempotency_key },
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":true," ++ "\"result\":{{\"value\":{{\"kind\":\"terminal\"," ++ "\"workspace_id\":\"ws_0123456789abcdef0123456789abcdef\"," ++ "\"screen_id\":\"screen_0123456789abcdef0123456789abcdef\"," ++ "\"pane_id\":\"pane_0123456789abcdef0123456789abcdef\"," ++ "\"tab_id\":\"tab_0123456789abcdef0123456789abcdef\"," ++ "\"terminal_id\":\"term_0123456789abcdef0123456789abcdef\"}}," ++ "\"generation\":\"g\",\"revision\":\"7\"," ++ "\"replayed\":false}}}}",
+                .{id},
             );
             defer self.allocator.free(response);
             try self.appendInput(response);
@@ -3507,18 +3492,20 @@ test "workspace run encodes exact argv and one injected idempotency key" {
         (try MutationOptions.withKey("stable-test-key")).expecting(42),
     );
     defer result.deinit();
-    try std.testing.expectEqual(
-        @as(u64, 7),
-        result.receipt.cursor.?.revision,
+    try std.testing.expectEqual(@as(u64, 7), result.revision);
+    try std.testing.expectEqualStrings("g", result.generation);
+    try std.testing.expect(!result.replayed);
+    try std.testing.expect(
+        std.meta.fieldIndex(MutationResult, "receipt") == null,
     );
-    try std.testing.expectEqualStrings(
-        "g",
-        result.receipt.cursor.?.generation,
-    );
-    try std.testing.expectEqualStrings(
-        "stable-test-key",
-        result.receipt.idempotency_key,
-    );
+    const created_path = (try result.createdPath()).?;
+    switch (created_path) {
+        .terminal => |path| try std.testing.expectEqualStrings(
+            "term_0123456789abcdef0123456789abcdef",
+            path.terminal_id.slice(),
+        ),
+        else => return error.ExpectedTerminalPath,
+    }
     try std.testing.expectEqual(
         @as(usize, 1),
         std.mem.count(u8, shared.output.items, "idempotency_key"),
@@ -3612,13 +3599,18 @@ test "indeterminate mutations retain fields and never retry" {
         failure.message,
     );
     const details = failure.details.?.object;
+    try std.testing.expectEqual(@as(usize, 3), details.count());
     try std.testing.expectEqualStrings(
-        "[REDACTED]",
-        details.get("token").?.string,
+        "indeterminate-test-key",
+        details.get("idempotency_key").?.string,
     );
     try std.testing.expectEqualStrings(
-        "external_committed",
-        details.get("phase").?.string,
+        "workspace.rename",
+        details.get("operation").?.string,
+    );
+    try std.testing.expectEqualStrings(
+        "inspect_state_then_retry_with_new_key",
+        details.get("recovery").?.string,
     );
     try std.testing.expectEqual(
         @as(usize, 1),

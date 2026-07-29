@@ -119,6 +119,11 @@ static_assert(!std::is_copy_constructible_v<cmux::TerminalAttachmentStream>);
 static_assert(std::is_same_v<
               decltype(std::declval<cmux::raw::Client&>().identify()),
               cmux::Result<cmux::raw::IdentifyResult>>);
+template <typename T>
+concept HasMutationReceipt = requires(T value) {
+    value.receipt;
+};
+static_assert(!HasMutationReceipt<cmux::MutationResult>);
 
 TEST("resource IDs and selectors never expose mux numbers") {
     auto id = cmux::WorkspaceId::parse(
@@ -205,7 +210,7 @@ TEST("mutation sends one stable injected idempotency key without retry") {
         state,
         response(
             "cpp-request-1",
-            R"({"value":{"name":""},"receipt":{"idempotency_key":"test-stable-key","cursor":{"generation":"g","revision":"7"}}})"));
+            R"({"value":{"name":""},"generation":"g","revision":"7","replayed":false})"));
     auto key = cmux::MutationOptions::with_key("test-stable-key");
     CHECK(key);
     auto result = client.mutate(
@@ -217,12 +222,12 @@ TEST("mutation sends one stable injected idempotency key without retry") {
         },
         std::move(key).value().expecting(42));
     CHECK(result);
-    CHECK_EQ(
-        result.value().receipt.idempotency_key,
-        std::string("test-stable-key"));
-    CHECK(result.value().receipt.cursor.has_value());
-    CHECK_EQ(result.value().receipt.cursor->generation, std::string("g"));
-    CHECK_EQ(result.value().receipt.cursor->revision, 7U);
+    CHECK_EQ(result.value().generation, std::string("g"));
+    CHECK_EQ(result.value().revision, 7U);
+    CHECK(!result.value().replayed);
+    auto created_path = result.value().created_path();
+    CHECK(created_path);
+    CHECK(!created_path.value().has_value());
 
     std::lock_guard lock(state->mutex);
     CHECK_EQ(state->outgoing.size(), 1U);
@@ -283,7 +288,7 @@ TEST("indeterminate mutations retain outcome details and never retry") {
     auto client = client_for(state);
     enqueue(
         state,
-        R"({"protocol":"cmux.protocol/1","type":"response","id":"cpp-request-1","ok":false,"error":{"code":"mutation.indeterminate","message":"external effect may have committed","details":{"phase":"external_committed","token":"must-not-log"},"retryable":false}})");
+        R"({"protocol":"cmux.protocol/1","type":"response","id":"cpp-request-1","ok":false,"error":{"code":"mutation.indeterminate","message":"external effect may have committed","details":{"idempotency_key":"indeterminate-test-key","operation":"workspace.rename","recovery":"inspect_state_then_retry_with_new_key"},"retryable":false}})");
     auto key = cmux::MutationOptions::with_key("indeterminate-test-key");
     CHECK(key);
     auto result = client.mutate(
@@ -303,10 +308,18 @@ TEST("indeterminate mutations retain outcome details and never retry") {
         std::string("external effect may have committed"));
     CHECK(!result.error().retryable);
     CHECK(result.error().details != nullptr);
-    auto details = result.error().details->encode();
+    auto details = result.error().details->as_object();
     CHECK(details);
-    CHECK(details.value().find("external_committed") != std::string::npos);
-    CHECK(details.value().find("must-not-log") == std::string::npos);
+    CHECK_EQ(details.value()->size(), 3U);
+    CHECK_EQ(
+        details.value()->at("idempotency_key").as_string().value(),
+        std::string_view("indeterminate-test-key"));
+    CHECK_EQ(
+        details.value()->at("operation").as_string().value(),
+        std::string_view("workspace.rename"));
+    CHECK_EQ(
+        details.value()->at("recovery").as_string().value(),
+        std::string_view("inspect_state_then_retry_with_new_key"));
 
     std::lock_guard lock(state->mutex);
     CHECK_EQ(state->outgoing.size(), 1U);

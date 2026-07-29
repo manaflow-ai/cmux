@@ -251,7 +251,6 @@ using StreamId = OpaqueId<"stream_">;
 using FrontendProjectionId = OpaqueId<"projection_">;
 using PairingRequestId = OpaqueId<"pairing_">;
 using SidebarViewId = OpaqueId<"sidebar_view_">;
-using SidebarPluginId = OpaqueId<"sidebar_plugin_">;
 using ProviderScopeId = OpaqueId<"provider_scope_">;
 using ProviderActionId = OpaqueId<"provider_action_">;
 using ProviderNoticeId = OpaqueId<"provider_notice_">;
@@ -433,15 +432,13 @@ using CreatedPath = std::variant<
     CreatedTerminalPath,
     CreatedBrowserPath>;
 
-struct MutationReceipt {
-    std::string idempotency_key;
-    std::optional<Cursor> cursor;
-};
-
 struct MutationResult {
     Json value;
-    MutationReceipt receipt;
-    std::optional<CreatedPath> created_path;
+    std::string generation;
+    std::uint64_t revision = 0;
+    bool replayed = false;
+
+    [[nodiscard]] Result<std::optional<CreatedPath>> created_path() const;
 };
 
 class SensitiveString {

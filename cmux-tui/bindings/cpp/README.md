@@ -35,9 +35,10 @@ uses `RunCommand::shell_with_executable`, which encodes exact
 `[executable, "-lc", script]` arguments.
 
 Each mutation sends one caller-visible idempotency key and never retries
-implicitly. `MutationResult` contains the typed receipt key, optional cursor,
-raw operation value, and a parsed created-path variant when an operation
-creates a workspace, terminal, or browser.
+implicitly. `MutationResult` contains the flat canonical value, generation,
+revision, and replayed fields. Results never echo the request’s idempotency
+key. `created_path()` parses a typed workspace, terminal, or browser path from
+a creation result’s value.
 
 The socket binds a client to its current machine and session. The client adds
 those routing selectors when callers supply only an opaque target ID.

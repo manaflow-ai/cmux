@@ -409,26 +409,26 @@ template <typename Id>
         return make_error(ErrorCode::decode, "mutation result must be an object");
     }
     MutationResult decoded;
-    const Json* receipt = result.find("receipt");
-    if (!receipt || !receipt->is_object()) {
+    auto generation = require_string(result, "generation");
+    if (!generation || generation.value().empty() ||
+        generation.value().size() > 128U) {
         return make_error(
             ErrorCode::decode,
-            "mutation result is missing receipt");
+            "mutation result generation must contain 1 to 128 bytes");
     }
-    auto idempotency_key = require_string(*receipt, "idempotency_key");
-    if (!idempotency_key || idempotency_key.value().empty()) {
+    const Json* revision = result.find("revision");
+    if (!revision) {
         return make_error(
             ErrorCode::decode,
-            "mutation receipt is missing idempotency_key");
+            "mutation result is missing revision");
     }
-    decoded.receipt.idempotency_key = std::move(idempotency_key).value();
-    if (const Json* cursor = receipt->find("cursor");
-        cursor && !cursor->is_null()) {
-        auto parsed = parse_cursor(*cursor);
-        if (!parsed) {
-            return std::move(parsed).error();
-        }
-        decoded.receipt.cursor = std::move(parsed).value();
+    auto parsed_revision = decimal_u64(*revision, "mutation revision");
+    if (!parsed_revision) {
+        return std::move(parsed_revision).error();
+    }
+    auto replayed = require_bool(result, "replayed");
+    if (!replayed) {
+        return std::move(replayed).error();
     }
     const Json* value = result.find("value");
     if (!value) {
@@ -437,18 +437,9 @@ template <typename Id>
             "mutation result is missing value");
     }
     decoded.value = *value;
-    if (const Json* kind = value->find("kind")) {
-        if (auto text = kind->as_string();
-            text && (text.value() == "workspace" ||
-                     text.value() == "terminal" ||
-                     text.value() == "browser")) {
-            auto parsed = parse_created_path(*value);
-            if (!parsed) {
-                return std::move(parsed).error();
-            }
-            decoded.created_path = std::move(parsed).value();
-        }
-    }
+    decoded.generation = std::move(generation).value();
+    decoded.revision = parsed_revision.value();
+    decoded.replayed = replayed.value();
     return decoded;
 }
 
@@ -673,6 +664,25 @@ std::string_view operation_name(Operation operation) noexcept {
 
 OperationClass operation_class(Operation operation) noexcept {
     return info_for(operation).operation_class;
+}
+
+Result<std::optional<CreatedPath>> MutationResult::created_path() const {
+    const Json* kind = value.find("kind");
+    if (!kind) {
+        return std::optional<CreatedPath>{};
+    }
+    auto text = kind->as_string();
+    if (!text ||
+        (text.value() != "workspace" &&
+         text.value() != "terminal" &&
+         text.value() != "browser")) {
+        return std::optional<CreatedPath>{};
+    }
+    auto parsed = parse_created_path(value);
+    if (!parsed) {
+        return std::move(parsed).error();
+    }
+    return std::optional<CreatedPath>(std::move(parsed).value());
 }
 
 Result<MutationOptions> MutationOptions::with_key(std::string key) {
@@ -979,11 +989,6 @@ Result<MutationResult> resource_mutate(
     auto decoded = decode_mutation(std::move(result).value());
     if (!decoded) {
         return std::move(decoded).error();
-    }
-    if (decoded.value().receipt.idempotency_key != expected_key) {
-        return make_error(
-            ErrorCode::protocol,
-            "mutation receipt idempotency_key does not match request");
     }
     return decoded;
 }

@@ -37,9 +37,10 @@ for the server platform default shell. `shellWithExecutable` encodes exact
 `[executable, "-lc", script]` arguments.
 
 Each mutation sends one caller-visible idempotency key and never retries
-implicitly. `MutationResult` owns the raw operation value, a receipt with the
-same key and optional cursor, and a parsed created-path union when an operation
-creates a workspace, terminal, or browser.
+implicitly. `MutationResult` contains the flat canonical value, generation,
+revision, and replayed fields. Results never echo the request’s idempotency
+key. `createdPath` parses a typed workspace, terminal, or browser path from a
+creation result’s value.
 
 The socket binds a client to its current machine and session. The client adds
 those selectors when callers supply only an opaque target ID. Handles contain
