@@ -130,6 +130,18 @@ class CapturingSocketServer:
                 if "id" not in request:
                     return None
                 if request.get("method") == "agent.resolve_delivery_target":
+                    params = request.get("params")
+                    if not isinstance(params, dict) or params.get("pid") != os.getpid():
+                        return json.dumps(
+                            {
+                                "id": request.get("id"),
+                                "ok": False,
+                                "error": {
+                                    "code": "invalid_request",
+                                    "message": "unexpected Claude PID",
+                                },
+                            }
+                        )
                     return json.dumps(
                         {
                             "id": request.get("id"),
