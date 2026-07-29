@@ -5,6 +5,8 @@ import CmuxSettings
 @MainActor
 final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     nonisolated let currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner?
+    nonisolated let currentRemotePTYLifecycleOwnerProvider:
+        (@Sendable () -> ControlRemotePTYLifecycleOwner?)?
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
     var closeResolution: ControlWorkspaceCloseResolution = .tabManagerUnavailable
@@ -27,8 +29,13 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         authority: ControlWorkspaceRemoteTerminalAuthority
     )?
 
-    init(currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner? = nil) {
+    init(
+        currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner? = nil,
+        currentRemotePTYLifecycleOwnerProvider:
+            (@Sendable () -> ControlRemotePTYLifecycleOwner?)? = nil
+    ) {
         self.currentRemotePTYLifecycleOwner = currentRemotePTYLifecycleOwner
+        self.currentRemotePTYLifecycleOwnerProvider = currentRemotePTYLifecycleOwnerProvider
     }
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
@@ -111,6 +118,9 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         sessionID: String,
         lifecycleID: String
     ) -> ControlRemotePTYLifecycleOwner? {
-        currentRemotePTYLifecycleOwner
+        if let currentRemotePTYLifecycleOwnerProvider {
+            return currentRemotePTYLifecycleOwnerProvider()
+        }
+        return currentRemotePTYLifecycleOwner
     }
 }

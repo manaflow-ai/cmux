@@ -1,5 +1,6 @@
 import Foundation
 import CmuxSettings
+import os
 import Testing
 @testable import CmuxControlSocket
 
@@ -302,6 +303,49 @@ struct ControlCommandCoordinatorWorkspaceTests {
             context: context
         ) else {
             Issue.record("another surface's lifecycle owner was accepted")
+            return
+        }
+
+        #expect(code == "not_found")
+        #expect(context.terminalSessionConnectedCall == nil)
+    }
+
+    @Test func persistentTerminalSessionConnectedRejectsLifecycleRetiredBeforeMainCommit() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "ssh-session"
+        let lifecycleID = UUID().uuidString.lowercased()
+        let owner = ControlRemotePTYLifecycleOwner(
+            transportKey: "persistent-transport",
+            attachmentID: surfaceID.uuidString
+        )
+        let owners = OSAllocatedUnfairLock(
+            initialState: [ControlRemotePTYLifecycleOwner?](arrayLiteral: owner, nil)
+        )
+        let context = FakeWorkspaceControlCommandContext(
+            currentRemotePTYLifecycleOwnerProvider: {
+                owners.withLock { responses in
+                    responses.isEmpty ? nil : responses.removeFirst()
+                }
+            }
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+        context.terminalSessionConnectedResolution = .resolved(
+            windowID: nil,
+            workspaceID: workspaceID,
+            remoteStatus: .object(["connected": .bool(true)])
+        )
+
+        guard case .err(let code, _, _) = coordinator.handleSocketWorkerV2(
+            request("workspace.remote.terminal_session_connected", [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "session_id": .string(sessionID),
+                "lifecycle_id": .string(lifecycleID),
+            ]),
+            context: context
+        ) else {
+            Issue.record("retired persistent lifecycle was accepted")
             return
         }
 
