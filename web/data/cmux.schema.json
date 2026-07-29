@@ -593,6 +593,7 @@
         "deferAgentResumeUntilFirstFocus": {
           "type": "boolean",
           "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.deferAgentResumeUntilFirstFocus",
           "description": "Only takes effect when autoResumeAgentSessions is true. Set true to wait until you actually focus or view a restored agent terminal's tab before running its resume command, instead of running every restorable terminal's resume command immediately on restore."
         },
         "autoRetryAgentSessions": {

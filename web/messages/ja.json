@@ -1697,6 +1697,7 @@
         "terminal": {
           "autoRetryAgentSessions": "アクティブな管理対象エージェントのコマンドが、シグナル以外の 0 でないエラーステータスで終了した場合に、セッションを自動的に再開します。再試行は回数制限付きの指数バックオフで行い、正常終了やユーザーによる明示的な終了は再試行しません。",
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
+          "deferAgentResumeUntilFirstFocus": "autoResumeAgentSessions が true の場合にのみ有効です。true にすると、復元されたすべてのエージェントターミナルの resume コマンドを復元直後に一斉に実行するのではなく、そのタブを実際にフォーカスまたは表示するまで待ってから実行します。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
           "sessionContentMaxWidth": "ターミナルと組み込みエージェントチャットのコンテンツ幅の上限をポイント単位で指定します。ペインの全幅を使うには false を設定します。",
           "sessionContentAlignment": "sessionContentMaxWidth が有効な場合の、ターミナルと組み込みエージェントチャットの水平方向の配置です。",
