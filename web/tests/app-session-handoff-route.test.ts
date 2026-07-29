@@ -233,6 +233,49 @@ describe("app session handoff", () => {
     expect(getUser).not.toHaveBeenCalled();
   });
 
+  test("rate limits before reading an unauthenticated request body", async () => {
+    durableRateLimited = true;
+    const request = handoffRequest({
+      refresh_token: "native-refresh",
+      after: "/dashboard/testflight",
+    }, {
+      "x-forwarded-for": "203.0.113.22",
+    });
+    const readBody = mock(async () => {
+      throw new Error("body must not be buffered before rate limiting");
+    });
+    Object.defineProperty(request, "text", { value: readBody });
+
+    const response = await POST(request);
+
+    expect(new URL(response.headers.get("location")!).pathname).toBe(
+      "/handler/sign-in",
+    );
+    expect(readBody).not.toHaveBeenCalled();
+    expect(getUser).not.toHaveBeenCalled();
+  });
+
+  test("rejects an oversized Content-Length before reading the body", async () => {
+    const request = handoffRequest({
+      refresh_token: "native-refresh",
+      after: "/dashboard/testflight",
+    }, {
+      "content-length": String(32 * 1024 + 1),
+      "x-forwarded-for": "203.0.113.23",
+    });
+    const readBody = mock(async () => {
+      throw new Error("oversized body must not be buffered");
+    });
+    Object.defineProperty(request, "text", { value: readBody });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+    expect(readBody).not.toHaveBeenCalled();
+    expect(getUser).not.toHaveBeenCalled();
+  });
+
   test("distinguishes native rate limiting from missing authentication", async () => {
     durableRateLimited = true;
 

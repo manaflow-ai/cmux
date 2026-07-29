@@ -101,6 +101,10 @@ describe("TestFlight route", () => {
     currentUser = createTestflightUser();
     user = currentUser;
     getUser.mockClear();
+    isTestflightEligible.mockClear();
+    mockImplementation(isTestflightEligible, async (candidate: unknown) =>
+      testflightUserEligibility(candidate) ?? false,
+    );
     ascFetch.mockClear();
     captureAscError.mockClear();
     mockImplementation(ascFetch, async (path: unknown, init?: unknown) => {
@@ -155,6 +159,54 @@ describe("TestFlight route", () => {
         ([path]) => path === "/v1/betaTesterInvitations",
       ),
     ).toBe(false);
+  });
+
+  test("re-fetches reconciled Stack metadata before recording enrollment ownership", async () => {
+    const staleUpdates: unknown[] = [];
+    const freshUpdates: unknown[] = [];
+    const staleUser = createTestflightUser();
+    staleUser.update = mock(async (options: unknown) => {
+      staleUpdates.push(options);
+    });
+    const freshUser = createTestflightUser();
+    freshUser.clientReadOnlyMetadata = {
+      cmuxPlan: "pro",
+      retained: true,
+    };
+    freshUser.update = mock(async (options: unknown) => {
+      freshUpdates.push(options);
+    });
+    let reads = 0;
+    mockImplementation(getUser, async () => {
+      reads += 1;
+      return reads === 1 ? staleUser : freshUser;
+    });
+    mockImplementation(isTestflightEligible, async (candidate: unknown) => {
+      await (candidate as typeof staleUser).update({
+        clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      });
+      return true;
+    });
+
+    const response = await postAction("join");
+
+    expect(response.status).toBe(303);
+    expect(getUser).toHaveBeenCalledTimes(2);
+    expect(staleUpdates).toEqual([
+      { clientReadOnlyMetadata: { cmuxPlan: "pro" } },
+    ]);
+    expect(freshUpdates).toEqual([
+      {
+        clientReadOnlyMetadata: {
+          cmuxPlan: "pro",
+          retained: true,
+          cmuxProTestflightEnrollmentEmails: ["pro@example.com"],
+          cmuxProTestflightGrants: [
+            { email: "pro@example.com", source: "user" },
+          ],
+        },
+      },
+    ]);
   });
 
   test("does not enroll ineligible users", async () => {

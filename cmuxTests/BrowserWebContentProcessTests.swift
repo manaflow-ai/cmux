@@ -133,6 +133,32 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserAppSessionDoesNotReopenASharedPersistentProfileForCleanup() throws {
+        let suiteName = "BrowserAppSessionSharedProfileTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let environment = BrowserAppSessionEnvironment(
+            webOrigin: URL(string: "https://cmux.test")!,
+            projectID: "project-a"
+        )
+
+        let firstLaunch = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "owned-stores",
+            environment: environment
+        )
+        firstLaunch.register(WKWebsiteDataStore(forIdentifier: UUID()))
+
+        let relaunched = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "owned-stores",
+            environment: environment
+        )
+        #expect(relaunched.storesForCleanup().isEmpty)
+    }
+
+    @Test
     func browserAppSessionStoreOwnershipTracksAuthEnvironmentChanges() throws {
         let suiteName = "BrowserAppSessionStoreEnvironmentTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

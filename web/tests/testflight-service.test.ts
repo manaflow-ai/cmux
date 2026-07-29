@@ -24,12 +24,14 @@ mock.module("../services/asc/client", () => ({
 
 const {
   proTestflightEnrollmentEmails,
+  proTestflightGrants,
   recordProOwnedLegacyTestflightGroup,
   recordProTestflightEnrollmentEmail,
   enrollTester,
   findBetaTesterByEmail,
   proTestflightRemovalTargets,
   removeTester,
+  removeProTesterAccess,
   testerGroupStatus,
 } = await import("../services/asc/testflight");
 
@@ -332,11 +334,51 @@ describe("TestFlight ASC service", () => {
           "first@example.com",
           "second@example.com",
         ],
+        cmuxProTestflightGrants: [
+          { email: "first@example.com", source: "user" },
+          { email: "second@example.com", source: "user" },
+        ],
       },
     });
     expect(proTestflightEnrollmentEmails({
       cmuxProTestflightEnrollmentEmails: ["First@Example.com", "first@example.com"],
     })).toEqual(["first@example.com"]);
+    expect(proTestflightGrants({
+      cmuxProTestflightGrants: [
+        { email: "First@Example.com", source: "user" },
+        { email: "first@example.com", source: "user" },
+      ],
+    })).toEqual([{ email: "first@example.com", source: "user" }]);
+  });
+
+  test("retires each historical enrollment email after successful ASC removal", async () => {
+    const remover = mock(async () => undefined);
+    const updates: unknown[] = [];
+    const metadata = {
+      retained: true,
+      cmuxProTestflightEnrollmentEmails: ["old@example.com"],
+      cmuxProTestflightGrants: [
+        { email: "old@example.com", source: "user" },
+      ],
+    };
+
+    await (removeProTesterAccess as unknown as (
+      currentEmail: string | null,
+      metadata: unknown,
+      remover: typeof removeTester,
+      options: { updateMetadata: (next: unknown) => Promise<void> },
+    ) => Promise<number>)(null, metadata, remover, {
+      updateMetadata: async (next) => {
+        updates.push(next);
+      },
+    });
+
+    expect(remover).toHaveBeenCalledTimes(1);
+    expect(updates).toEqual([{ retained: true }]);
+
+    remover.mockClear();
+    await removeProTesterAccess(null, updates.at(-1), remover);
+    expect(remover).not.toHaveBeenCalled();
   });
 
   test("legacy Pro ownership backfill is idempotent", async () => {
