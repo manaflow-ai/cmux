@@ -4588,6 +4588,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let allowResizeResponse = DispatchSemaphore(value: 0)
         let bridgeReady = DispatchSemaphore(value: 0)
         let closeBridge = DispatchSemaphore(value: 0)
+        let readinessAcknowledged = DispatchSemaphore(value: 0)
 
         defer {
             Darwin.close(listenerFD)
@@ -4639,7 +4640,20 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertNotNil(
                     (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
                 )
-                return nil
+                let readinessReportCount = state.snapshot().compactMap {
+                    self.jsonObject($0)?["method"] as? String
+                }.filter {
+                    $0 == "workspace.remote.terminal_session_connected"
+                }.count
+                if readinessReportCount == 1 {
+                    return nil
+                }
+                readinessAcknowledged.signal()
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["connected": true]
+                )
             case "workspace.remote.pty_sessions":
                 return self.v2Response(id: id, ok: true, result: ["sessions": []])
             case "workspace.remote.pty_attach_end":
@@ -4661,7 +4675,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
         }
-        let socketHandled = (0..<3).map {
+        let socketHandled = (0..<4).map {
             _ in startMockServerAllowingNoResponse(
                 listenerFD: listenerFD,
                 state: state,
@@ -4728,6 +4742,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
         }
         XCTAssertEqual(bridgeReady.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(
+            readinessAcknowledged.wait(timeout: .now() + 5),
+            .success,
+            "Expected a retry to acknowledge persistent PTY readiness"
+        )
 
         XCTAssertEqual(
             resizeRequestReceived.wait(timeout: .now() + 5),
@@ -4754,7 +4773,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(stderr, "")
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_bridge" }.count, 1)
-        XCTAssertEqual(methods.filter { $0 == "workspace.remote.terminal_session_connected" }.count, 1)
+        XCTAssertEqual(
+            methods.filter {
+                $0 == "workspace.remote.terminal_session_connected"
+            }.count,
+            2,
+            "A live PTY must retry its authoritative readiness report after a transient no-response"
+        )
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_resize" }.count, 1)
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 1)
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1)

@@ -80,6 +80,162 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
     }
 
     @MainActor
+    func testEndingOnlyConnectedTerminalRevealsUnderlyingProxyFailure() throws {
+        let workspace = Workspace()
+        let configuration = remoteConfiguration(preserveAfterTerminalExit: false)
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let connectedSurfaceID = try seededTerminalSurfaceID(in: workspace)
+        let connectedTerminal = try XCTUnwrap(
+            workspace.panels[connectedSurfaceID] as? TerminalPanel
+        )
+        let launchingTerminal = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: connectedSurfaceID,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 2)
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: connectedSurfaceID,
+                authority: .relayPort(64007),
+                terminalLifecycleID: connectedTerminal.surface.terminalLifecycleId
+            )
+        )
+        let proxyError =
+            "Remote proxy to host unavailable: Remote daemon transport failed"
+        workspace.applyRemoteConnectionStateUpdate(
+            .error,
+            detail: proxyError,
+            target: "host"
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionEnded(
+                surfaceId: connectedSurfaceID,
+                relayPort: 64007,
+                terminalLifecycleID: connectedTerminal.surface.terminalLifecycleId
+            )
+        )
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(launchingTerminal.id))
+        XCTAssertFalse(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        XCTAssertEqual(workspace.remoteConnectionState, .error)
+        XCTAssertEqual(workspace.remoteConnectionDetail, proxyError)
+    }
+
+    @MainActor
+    func testEndingOnlyConnectedDockTerminalRevealsUnderlyingProxyFailure() throws {
+        let workspace = Workspace()
+        let configuration = remoteConfiguration(preserveAfterTerminalExit: false)
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let connectedSurfaceID = try seededTerminalSurfaceID(in: workspace)
+        let connectedTerminal = try XCTUnwrap(
+            workspace.panels[connectedSurfaceID] as? TerminalPanel
+        )
+        let launchingTerminal = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: connectedSurfaceID,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        let detached = try XCTUnwrap(
+            workspace.detachSurface(panelId: connectedSurfaceID)
+        )
+        XCTAssertNotNil(
+            dock.attachDetachedSurface(detached, inPane: dockPane, focus: false)
+        )
+
+        XCTAssertTrue(
+            workspace.markDockRemoteTerminalSessionConnected(
+                surfaceId: connectedSurfaceID,
+                authority: .relayPort(64007),
+                terminalLifecycleID: connectedTerminal.surface.terminalLifecycleId,
+                dock: dock
+            )
+        )
+        let proxyError =
+            "Remote proxy to host unavailable: Remote daemon transport failed"
+        workspace.applyRemoteConnectionStateUpdate(
+            .error,
+            detail: proxyError,
+            target: "host",
+            externalRemoteTerminalDocks: [dock]
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        XCTAssertTrue(
+            workspace.markDockRemoteTerminalSessionEnded(
+                surfaceId: connectedSurfaceID,
+                authority: .relayPort(64007),
+                relayPort: 64007,
+                terminalLifecycleID: connectedTerminal.surface.terminalLifecycleId,
+                dock: dock
+            )
+        )
+
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(launchingTerminal.id))
+        XCTAssertFalse(
+            workspace.hasAuthoritativelyConnectedRemoteTerminal(in: [dock])
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .error)
+        XCTAssertEqual(workspace.remoteConnectionDetail, proxyError)
+    }
+
+    @MainActor
+    func testClosingEndedTerminalRetiresItsLifecycleTombstone() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            remoteConfiguration(preserveAfterTerminalExit: false),
+            autoConnect: false
+        )
+        let endedSurfaceID = try seededTerminalSurfaceID(in: workspace)
+        let endedTerminal = try XCTUnwrap(
+            workspace.panels[endedSurfaceID] as? TerminalPanel
+        )
+        let siblingTerminal = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: endedSurfaceID,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionEnded(
+                surfaceId: endedSurfaceID,
+                relayPort: 64007,
+                terminalLifecycleID: endedTerminal.surface.terminalLifecycleId
+            )
+        )
+        XCTAssertEqual(
+            workspace.endedRemoteTerminalLifecycleIDsBySurfaceId[endedSurfaceID],
+            endedTerminal.surface.terminalLifecycleId
+        )
+
+        XCTAssertTrue(workspace.closePanel(endedSurfaceID, force: true))
+
+        XCTAssertNil(workspace.panels[endedSurfaceID])
+        XCTAssertNotNil(workspace.panels[siblingTerminal.id])
+        XCTAssertNil(
+            workspace.endedRemoteTerminalLifecycleIDsBySurfaceId[endedSurfaceID],
+            "Permanent panel retirement must release its lifecycle tombstone"
+        )
+    }
+
+    @MainActor
     func testTerminalConnectedRejectsStaleRelayGeneration() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(
