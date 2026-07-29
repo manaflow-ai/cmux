@@ -192,19 +192,21 @@ const outputs = {{}};
 const compareCalls = [];
 const warnings = [];
 const waitCalls = [];
+const priorRunStatuses = [];
+const uploadJobStatuses = [];
 let workflowRunCalls = 0;
-let blockingReleased = !scenario.blockingPriorRun;
+let uploadReleased = !scenario.blockingPriorRun;
 const priorRuns = () => scenario.priorSha
   ? [{{
       id: 50,
-      status: blockingReleased ? 'completed' : 'in_progress',
+      status: scenario.blockingPriorRun ? 'in_progress' : 'completed',
       event: 'schedule',
       head_sha: scenario.priorSha,
     }}]
   : [];
 const setTimeout = (resolve, milliseconds) => {{
   waitCalls.push(milliseconds);
-  blockingReleased = true;
+  uploadReleased = true;
   resolve();
 }};
 const context = {{
@@ -229,19 +231,25 @@ const github = {{
     actions: {{
       listWorkflowRuns: async () => {{
         workflowRunCalls += 1;
+        const workflowRuns = priorRuns();
+        priorRunStatuses.push(...workflowRuns.map((run) => run.status));
         return {{
-          data: {{ workflow_runs: priorRuns() }},
+          data: {{ workflow_runs: workflowRuns }},
         }};
       }},
-      listJobsForWorkflowRun: async () => ({{
-        data: {{
-          jobs: [{{
-            name: 'Upload to TestFlight',
-            status: blockingReleased ? 'completed' : 'in_progress',
-            conclusion: blockingReleased ? 'success' : null,
-          }}],
-        }},
-      }}),
+      listJobsForWorkflowRun: async () => {{
+        const status = uploadReleased ? 'completed' : 'in_progress';
+        uploadJobStatuses.push(status);
+        return {{
+          data: {{
+            jobs: [{{
+              name: 'Upload to TestFlight',
+              status,
+              conclusion: uploadReleased ? 'success' : null,
+            }}],
+          }},
+        }};
+      }},
       listWorkflowRunArtifacts: async () => ({{
         data: {{
           artifacts: [{{ name: scenario.priorArtifact }}],
@@ -295,6 +303,8 @@ process.stdout.write(JSON.stringify({{
   warnings,
   waitCalls,
   workflowRunCalls,
+  priorRunStatuses,
+  uploadJobStatuses,
   producedArtifactName,
 }}));
 """
