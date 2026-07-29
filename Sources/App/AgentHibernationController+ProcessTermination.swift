@@ -186,7 +186,9 @@ extension AgentHibernationController {
             index: preSignalIndex,
             shouldProceed: shouldProceed
         ),
-        snapshot.map(AgentHibernationTranscriptGuard.liveFileVersionStillMatches) ?? true else {
+        snapshot.map({
+            AgentHibernationTranscriptGuard.liveFileVersionStillMatches($0)
+        }) ?? true else {
             return false
         }
 
