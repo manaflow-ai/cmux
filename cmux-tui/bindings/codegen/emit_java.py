@@ -317,12 +317,6 @@ class JavaEmitter:
 
     def _imports(self, expr: Mapping[str, Any], extra: tuple[str, ...] = ()) -> str:
         imports = {
-            "com.cmux.Bytes",
-            "com.cmux.Field",
-            "com.cmux.UInt64",
-            "com.cmux.Wire",
-            "com.cmux.WireEnum",
-            "com.cmux.WireValue",
             "java.util.ArrayList",
             "java.util.Collections",
             "java.util.LinkedHashMap",
@@ -340,8 +334,6 @@ class JavaEmitter:
         body = ",\n".join(constants) + ";\n"
         return (
             _HEADER
-            + "import com.cmux.CmuxDecodeException;\n"
-            + "import com.cmux.WireEnum;\n"
             + "import java.util.Objects;\n\n"
             + f"public enum {name} implements WireEnum {{\n"
             + body
@@ -708,9 +700,6 @@ class JavaEmitter:
     def _render_tagged_union(self, name: str, expr: Mapping[str, Any]) -> str:
         lines = [
             _HEADER,
-            "import com.cmux.CmuxDecodeException;\n"
-            "import com.cmux.Wire;\n"
-            "import com.cmux.WireValue;\n"
             "import java.util.Map;\n\n",
             f"public interface {name} extends WireValue {{",
             f"    static {name} fromWire(Object value) {{",
@@ -754,9 +743,6 @@ class JavaEmitter:
             variants.append((label, self._type(variant, boxed=True), variant))
         lines = [
             _HEADER,
-            "import com.cmux.CmuxDecodeException;\n"
-            "import com.cmux.Wire;\n"
-            "import com.cmux.WireValue;\n"
             "import java.util.Objects;\n\n",
             f"public final class {name} implements WireValue {{",
             "    public enum Kind { "
@@ -864,7 +850,6 @@ class JavaEmitter:
             )
         return (
             _HEADER
-            + "import com.cmux.WireEnum;\n\n"
             + "public enum Authority implements WireEnum {\n"
             + ",\n".join(constants)
             + ";\n\n"
@@ -1028,8 +1013,6 @@ class JavaEmitter:
     def _protocol_source(self) -> str:
         lines = [
             _HEADER,
-            "import com.cmux.CmuxDecodeException;\n"
-            "import com.cmux.Wire;\n"
             "import java.util.Map;\n\n",
             "public final class Protocol {",
             f"    public static final String SDK_VERSION = {_java_string(_SDK_VERSION)};",
@@ -1062,7 +1045,6 @@ class JavaEmitter:
     def _protocol_support_source() -> str:
         return (
             _HEADER
-            + "import com.cmux.CmuxDecodeException;\n"
             + "import java.math.BigDecimal;\n"
             + "import java.math.BigInteger;\n"
             + "import java.util.Objects;\n\n"
@@ -1083,7 +1065,6 @@ class JavaEmitter:
     def _unknown_event_source() -> str:
         return (
             _HEADER
-            + "import com.cmux.Wire;\n"
             + "import java.util.Collections;\n"
             + "import java.util.LinkedHashMap;\n"
             + "import java.util.Map;\n\n"
@@ -1110,9 +1091,6 @@ class JavaEmitter:
     def _client_source(self) -> str:
         lines = [
             _HEADER,
-            "import com.cmux.CmuxException;\n"
-            "import com.cmux.CmuxStream;\n"
-            "import com.cmux.Wire;\n"
             "import java.util.List;\n"
             "import java.util.Map;\n\n",
             "/** Canonical typed method surface for every implemented protocol command. */",

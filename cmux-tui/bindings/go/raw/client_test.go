@@ -20,11 +20,13 @@ import (
 
 func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 	commands := AllCommandMetadata()
-	if len(commands) != 83 {
-		t.Fatalf("generated commands = %d, want 83", len(commands))
+	if len(commands) != 87 {
+		t.Fatalf("generated commands = %d, want 87", len(commands))
 	}
 	clientType := reflect.TypeOf((*Client)(nil))
+	commandNames := make(map[string]struct{}, len(commands))
 	for _, command := range commands {
+		commandNames[command.Name] = struct{}{}
 		if command.Since < 5 || command.Since > MuxProtocolVersion {
 			t.Errorf("%s since = %d", command.Name, command.Since)
 		}
@@ -33,6 +35,16 @@ func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 		}
 		if _, ok := clientType.MethodByName(command.GoMethod); !ok {
 			t.Errorf("%s has no typed Client.%s method", command.Name, command.GoMethod)
+		}
+	}
+	for _, name := range []string{
+		"clear-history",
+		"new-pane-right",
+		"set-viewport-pane-width",
+		"undo-layout",
+	} {
+		if _, ok := commandNames[name]; !ok {
+			t.Errorf("generated command inventory is missing %s", name)
 		}
 	}
 	if events := AllEventMetadata(); len(events) != 44 {
@@ -491,7 +503,13 @@ func TestProtocolTenAttachIsEnabledByDefault(t *testing.T) {
 func TestVersionedMethodFailsLocally(t *testing.T) {
 	protocol := uint32(7)
 	client := &Client{protocol: &protocol}
-	if err := client.SetSplitRatio(context.Background(), 1, 0.5); !errors.Is(
+	options := SetSplitRatioOptions{}
+	if !options.Transaction.IsAbsent() {
+		t.Fatal("zero-value SetSplitRatioOptions transaction must be absent")
+	}
+	if err := client.SetSplitRatio(
+		context.Background(), 1, 0.5, options,
+	); !errors.Is(
 		err,
 		ErrProtocolMismatch,
 	) {
