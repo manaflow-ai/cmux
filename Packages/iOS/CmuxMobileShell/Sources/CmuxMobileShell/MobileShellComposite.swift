@@ -832,8 +832,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connection drives terminal I/O and the connected UI.
     private var connections: [String: MacConnection] = [:]
     var foregroundMacDeviceID: String? {
-        didSet { recomputeDerivedWorkspaceState() }
+        didSet {
+            if let foregroundMacDeviceID {
+                recoveryTargetMacDeviceID = foregroundMacDeviceID
+            }
+            recomputeDerivedWorkspaceState()
+        }
     }
+    /// The Mac the foreground connection most recently targeted. Survives
+    /// `clearRemoteConnectionContext()`, which nils `foregroundMacDeviceID`
+    /// before a bounded redial begins, so recovery-scoped UI keeps attributing
+    /// the in-flight redial (and its failure) to the workspace that owns it
+    /// instead of falling back to an actionable disconnected state mid-dial.
+    /// Cleared on sign-out.
+    private(set) var recoveryTargetMacDeviceID: String?
     /// Persistent read-only connections to the NON-foreground Macs, each holding a
     /// live `workspace.updated` subscription that keeps its ``workspacesByMac``
     /// entry current (slice 3). Best-effort and fully additive: any failure tears
@@ -947,7 +959,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let macID = selectedWorkspace?.macDeviceID, !macID.isEmpty else {
             return true
         }
-        return macID == foregroundMacDeviceID
+        // Fall back to the retained recovery target: automatic recovery nils
+        // foregroundMacDeviceID before the redial, and the workspace being
+        // redialed must keep reading as recovering, not disconnected.
+        return macID == (foregroundMacDeviceID ?? recoveryTargetMacDeviceID)
     }
 
     /// Resolve a UI row id back to the Mac-local workspace id expected by RPC.
@@ -1329,6 +1344,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the wrong key. Also drop the foreground connection-pool entry so a
         // stale per-Mac connection can't be reused.
         foregroundMacDeviceID = nil
+        recoveryTargetMacDeviceID = nil
         connections = [:]
         // A signed-out store owns no Macs: clear the per-Mac source of truth so
         // `workspaces`/`workspaceGroups` derive to empty. Group sections are
