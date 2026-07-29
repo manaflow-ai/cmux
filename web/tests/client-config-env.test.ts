@@ -10,6 +10,8 @@ const requiredEnv = {
   STACK_SECRET_SERVER_KEY: "stack-secret",
   NEXT_PUBLIC_STACK_PROJECT_ID: "stack-project",
   NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "stack-public",
+  SUBROUTER_ENFORCE_STACK_PERMISSIONS: "1",
+  SUBROUTER_ALLOWED_TEAM_IDS: "team-test",
 };
 
 const requiredIrohProductionEnv = {
