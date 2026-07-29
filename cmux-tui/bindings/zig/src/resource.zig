@@ -425,12 +425,26 @@ pub const ProviderNoticeId = OpaqueId("provider_notice_");
 
 pub fn Selector(comptime Id: type) type {
     return union(enum) {
+        const Self = @This();
+
         id: Id,
         current,
         name: []const u8,
 
+        pub fn byId(value: Id) Self {
+            return .{ .id = value };
+        }
+
+        pub fn currentValue() Self {
+            return .current;
+        }
+
+        pub fn named(value: []const u8) Self {
+            return .{ .name = value };
+        }
+
         pub fn formatAlloc(
-            self: @This(),
+            self: Self,
             allocator: std.mem.Allocator,
         ) ![]u8 {
             return switch (self) {
@@ -443,6 +457,108 @@ pub fn Selector(comptime Id: type) type {
                 ),
             };
         }
+    };
+}
+
+fn selectorValue(comptime Id: type, value: anytype) Selector(Id) {
+    const Value = @TypeOf(value);
+    if (comptime Value == Id) return .{ .id = value };
+    if (comptime Value == Selector(Id)) return value;
+    switch (@typeInfo(Value)) {
+        .enum_literal => {
+            if (value == .current) return .current;
+            @compileError("only .current is a standalone selector literal");
+        },
+        .@"struct" => {
+            if (comptime @hasField(Value, "id")) {
+                return .{ .id = @field(value, "id") };
+            }
+            if (comptime @hasField(Value, "name")) {
+                return .{ .name = @field(value, "name") };
+            }
+            @compileError("selector struct must contain id or name");
+        },
+        else => @compileError(
+            "expected a typed resource ID or Selector(resource ID)",
+        ),
+    }
+}
+
+const HandleRoute = struct {
+    machine: ?Selector(MachineId) = null,
+    session: ?Selector(SessionId) = null,
+    workspace: ?Selector(WorkspaceId) = null,
+    screen: ?Selector(ScreenId) = null,
+    pane: ?Selector(PaneId) = null,
+    tab: ?Selector(TabId) = null,
+
+    fn putSelector(
+        comptime Id: type,
+        object: *raw.wire.Object,
+        allocator: std.mem.Allocator,
+        field: []const u8,
+        selector: Selector(Id),
+    ) !void {
+        try object.put(
+            try allocator.dupe(u8, field),
+            .{ .string = try selector.formatAlloc(allocator) },
+        );
+    }
+
+    fn putInto(
+        self: HandleRoute,
+        object: *raw.wire.Object,
+        allocator: std.mem.Allocator,
+    ) !void {
+        if (self.machine) |value| {
+            try putSelector(
+                MachineId,
+                object,
+                allocator,
+                "machine",
+                value,
+            );
+        }
+        if (self.session) |value| {
+            try putSelector(
+                SessionId,
+                object,
+                allocator,
+                "session",
+                value,
+            );
+        }
+        if (self.workspace) |value| {
+            try putSelector(
+                WorkspaceId,
+                object,
+                allocator,
+                "workspace",
+                value,
+            );
+        }
+        if (self.screen) |value| {
+            try putSelector(
+                ScreenId,
+                object,
+                allocator,
+                "screen",
+                value,
+            );
+        }
+        if (self.pane) |value| {
+            try putSelector(PaneId, object, allocator, "pane", value);
+        }
+        if (self.tab) |value| {
+            try putSelector(TabId, object, allocator, "tab", value);
+        }
+    }
+};
+
+fn ScopedSelector(comptime Id: type) type {
+    return struct {
+        selector: Selector(Id),
+        ancestors: HandleRoute = .{},
     };
 }
 
@@ -645,23 +761,149 @@ pub const MutationResult = struct {
     }
 };
 
-pub const RendererGrant = struct {
-    allocator: std.mem.Allocator,
-    owned: raw.wire.OwnedValue,
+pub const RendererGrantOptions = struct {
     endpoint: []const u8,
     terminal_id: TerminalId,
     token: SensitiveString,
-    rights: [][]const u8,
+    rights: []const []const u8,
     ttl_ms: u32,
+};
+
+const RendererGrantStorage = struct {
+    allocator: std.mem.Allocator,
+    backing: union(enum) {
+        offline: std.heap.ArenaAllocator,
+        live: struct {
+            owned: raw.wire.OwnedValue,
+            rights: [][]const u8,
+        },
+    },
+    endpoint: []const u8,
+    terminal_id: TerminalId,
+    token: SensitiveString,
+    rights: []const []const u8,
+    ttl_ms: u32,
+};
+
+fn validateRendererGrant(options: RendererGrantOptions) !void {
+    if (options.endpoint.len == 0) return error.InvalidRendererEndpoint;
+    if (options.token.reveal().len == 0) {
+        return error.InvalidRendererToken;
+    }
+    if (options.rights.len == 0) return error.MissingRendererRight;
+    for (options.rights) |right| {
+        if (right.len == 0) return error.InvalidRendererRight;
+    }
+    if (options.ttl_ms == 0 or options.ttl_ms > 60_000) {
+        return error.InvalidRendererTtl;
+    }
+}
+
+/// Owned one-use renderer credential. Only accessor methods expose data, so
+/// allocator and response ownership cannot be forged by aggregate literals.
+pub const RendererGrant = opaque {
+    fn storage(self: *const RendererGrant) *const RendererGrantStorage {
+        return @ptrCast(@alignCast(self));
+    }
+
+    fn storageMut(self: *RendererGrant) *RendererGrantStorage {
+        return @ptrCast(@alignCast(self));
+    }
+
+    /// Creates a validated, independently owned grant for offline tooling and
+    /// tests. All input slices may be released after this call returns.
+    pub fn init(
+        allocator: std.mem.Allocator,
+        options: RendererGrantOptions,
+    ) !*RendererGrant {
+        try validateRendererGrant(options);
+        const state = try allocator.create(RendererGrantStorage);
+        errdefer allocator.destroy(state);
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        errdefer arena.deinit();
+        const owned = arena.allocator();
+        const owned_rights = try owned.alloc(
+            []const u8,
+            options.rights.len,
+        );
+        for (options.rights, 0..) |right, index| {
+            owned_rights[index] = try owned.dupe(u8, right);
+        }
+        state.* = .{
+            .allocator = allocator,
+            .backing = .{ .offline = arena },
+            .endpoint = try owned.dupe(u8, options.endpoint),
+            .terminal_id = options.terminal_id,
+            .token = .{
+                .bytes = try owned.dupe(u8, options.token.reveal()),
+            },
+            .rights = owned_rights,
+            .ttl_ms = options.ttl_ms,
+        };
+        return @ptrCast(state);
+    }
+
+    fn initLive(
+        allocator: std.mem.Allocator,
+        owned: raw.wire.OwnedValue,
+        options: RendererGrantOptions,
+        live_rights: [][]const u8,
+    ) !*RendererGrant {
+        try validateRendererGrant(options);
+        const state = try allocator.create(RendererGrantStorage);
+        state.* = .{
+            .allocator = allocator,
+            .backing = .{ .live = .{
+                .owned = owned,
+                .rights = live_rights,
+            } },
+            .endpoint = options.endpoint,
+            .terminal_id = options.terminal_id,
+            .token = options.token,
+            .rights = live_rights,
+            .ttl_ms = options.ttl_ms,
+        };
+        return @ptrCast(state);
+    }
 
     pub fn deinit(self: *RendererGrant) void {
-        self.allocator.free(self.rights);
-        self.owned.deinit();
-        self.* = undefined;
+        const state = self.storageMut();
+        if (state.token.bytes.len > 0) {
+            @memset(@constCast(state.token.bytes), 0);
+        }
+        const allocator = state.allocator;
+        switch (state.backing) {
+            .offline => |*arena| arena.deinit(),
+            .live => |*live| {
+                allocator.free(live.rights);
+                live.owned.deinit();
+            },
+        }
+        allocator.destroy(state);
+    }
+
+    pub fn endpoint(self: *const RendererGrant) []const u8 {
+        return self.storage().endpoint;
+    }
+
+    pub fn terminalId(self: *const RendererGrant) TerminalId {
+        return self.storage().terminal_id;
+    }
+
+    pub fn token(self: *const RendererGrant) SensitiveString {
+        return self.storage().token;
+    }
+
+    pub fn rights(self: *const RendererGrant) []const []const u8 {
+        return self.storage().rights;
+    }
+
+    pub fn ttlMs(self: *const RendererGrant) u32 {
+        return self.storage().ttl_ms;
     }
 
     pub fn format(
-        _: RendererGrant,
+        _: *const RendererGrant,
         writer: *std.Io.Writer,
     ) std.Io.Writer.Error!void {
         try writer.writeAll("RendererGrant{token=[REDACTED]}");
@@ -1342,36 +1584,103 @@ pub const Client = struct {
         ) };
     }
 
-    pub fn machine(self: *Client, id: MachineId) Machine {
-        return Machine.init(self, id);
+    pub fn machine(self: *Client, selector: anytype) Machine {
+        return Machine.init(self, selector);
     }
 
-    pub fn session(self: *Client, id: SessionId) Session {
-        return Session.init(self, id);
+    pub fn session(self: *Client, selector: anytype) Session {
+        return Session.initScoped(self, selector, .{
+            .machine = .current,
+        });
     }
 
-    pub fn workspace(self: *Client, id: WorkspaceId) Workspace {
-        return Workspace.init(self, id);
+    pub fn workspace(self: *Client, selector: anytype) Workspace {
+        return Workspace.initScoped(self, selector, .{
+            .machine = .current,
+            .session = .current,
+        });
     }
 
-    pub fn screen(self: *Client, id: ScreenId) Screen {
-        return Screen.init(self, id);
+    pub fn screen(self: *Client, selector: anytype) Screen {
+        const selection = selectorValue(ScreenId, selector);
+        var route = HandleRoute{
+            .machine = .current,
+            .session = .current,
+        };
+        switch (selection) {
+            .id => {},
+            .current, .name => route.workspace = .current,
+        }
+        return Screen.initScoped(self, selection, route);
     }
 
-    pub fn pane(self: *Client, id: PaneId) Pane {
-        return Pane.init(self, id);
+    pub fn pane(self: *Client, selector: anytype) Pane {
+        const selection = selectorValue(PaneId, selector);
+        var route = HandleRoute{
+            .machine = .current,
+            .session = .current,
+        };
+        switch (selection) {
+            .id => {},
+            .current, .name => {
+                route.workspace = .current;
+                route.screen = .current;
+            },
+        }
+        return Pane.initScoped(self, selection, route);
     }
 
-    pub fn tab(self: *Client, id: TabId) Tab {
-        return Tab.init(self, id);
+    pub fn tab(self: *Client, selector: anytype) Tab {
+        const selection = selectorValue(TabId, selector);
+        var route = HandleRoute{
+            .machine = .current,
+            .session = .current,
+        };
+        switch (selection) {
+            .id => {},
+            .current, .name => {
+                route.workspace = .current;
+                route.screen = .current;
+                route.pane = .current;
+            },
+        }
+        return Tab.initScoped(self, selection, route);
     }
 
-    pub fn terminal(self: *Client, id: TerminalId) Terminal {
-        return Terminal.init(self, id);
+    pub fn terminal(self: *Client, selector: anytype) Terminal {
+        const selection = selectorValue(TerminalId, selector);
+        var route = HandleRoute{
+            .machine = .current,
+            .session = .current,
+        };
+        switch (selection) {
+            .id => {},
+            .current, .name => {
+                route.workspace = .current;
+                route.screen = .current;
+                route.pane = .current;
+                route.tab = .current;
+            },
+        }
+        return Terminal.initScoped(self, selection, route);
     }
 
-    pub fn browser(self: *Client, id: BrowserId) Browser {
-        return Browser.init(self, id);
+    pub fn browser(self: *Client, selector: anytype) Browser {
+        const selection = selectorValue(BrowserId, selector);
+        var route = HandleRoute{
+            .machine = .current,
+            .session = .current,
+        };
+        switch (selection) {
+            .id => {},
+            .current, .name => {
+                route.workspace = .current;
+                route.screen = .current;
+                route.pane = .current;
+                route.tab = .current;
+            },
+        }
+        return Browser.initScoped(self, selection, route);
     }
 
     pub fn connectedClient(
@@ -1454,10 +1763,108 @@ pub const StreamEnd = struct {
     resource_error: ?ResourceError = null,
 };
 
-pub const SessionEvent = struct {
-    kind: []const u8,
-    data: raw.wire.Value,
-    extra: raw.wire.Value,
+pub const ResetReason = enum {
+    initial,
+    generation_changed,
+    cursor_expired,
+};
+
+pub const ResourceKind = enum {
+    machine,
+    session,
+    workspace,
+    screen,
+    pane,
+    tab,
+    terminal,
+    browser,
+    client,
+    notification,
+    agent,
+    pairing_request,
+    frontend_projection,
+    sidebar_view,
+    provider_scope,
+    provider_action,
+    provider_notice,
+
+    fn parse(value: []const u8) !ResourceKind {
+        inline for (@typeInfo(ResourceKind).@"enum".fields) |field| {
+            if (std.mem.eql(u8, value, field.name)) {
+                return @enumFromInt(field.value);
+            }
+        }
+        return error.UnknownResourceKind;
+    }
+};
+
+pub const ResourceReference = union(ResourceKind) {
+    machine: MachineId,
+    session: SessionId,
+    workspace: WorkspaceId,
+    screen: ScreenId,
+    pane: PaneId,
+    tab: TabId,
+    terminal: TerminalId,
+    browser: BrowserId,
+    client: ConnectedClientId,
+    notification: NotificationId,
+    agent: AgentId,
+    pairing_request: PairingRequestId,
+    frontend_projection: FrontendProjectionId,
+    sidebar_view: SidebarViewId,
+    provider_scope: ProviderScopeId,
+    provider_action: ProviderActionId,
+    provider_notice: ProviderNoticeId,
+
+    pub fn slice(self: *const ResourceReference) []const u8 {
+        return switch (self.*) {
+            inline else => |*id| id.slice(),
+        };
+    }
+};
+
+pub const UnknownDiscriminated = struct {
+    discriminator: []const u8,
+    raw_object: raw.wire.Value,
+};
+
+pub const ResourceUpsert = struct {
+    sequence: u32,
+    resource: ResourceKind,
+    id: ResourceReference,
+    value: raw.wire.Value,
+};
+
+pub const ResourceDelete = struct {
+    sequence: u32,
+    resource: ResourceKind,
+    id: ResourceReference,
+};
+
+pub const ResourceChange = union(enum) {
+    upsert: ResourceUpsert,
+    delete: ResourceDelete,
+    unknown: UnknownDiscriminated,
+};
+
+pub const SessionSnapshotEvent = struct {
+    cursor: Cursor,
+    reset_reason: ?ResetReason,
+    snapshot: raw.wire.Value,
+};
+
+pub const SessionDeltaEvent = struct {
+    cursor: Cursor,
+    previous_revision: u64,
+    revision: u64,
+    changes: []ResourceChange,
+};
+
+pub const SessionEvent = union(enum) {
+    snapshot: SessionSnapshotEvent,
+    delta: SessionDeltaEvent,
+    unknown: UnknownDiscriminated,
 };
 
 pub const TerminalAttachmentItem = struct {
@@ -1497,10 +1904,255 @@ fn parseCursor(value: raw.wire.Value) !Cursor {
     };
 }
 
+fn ensureOnlyFields(
+    object: raw.wire.Object,
+    allowed: []const []const u8,
+) !void {
+    var iterator = object.iterator();
+    while (iterator.next()) |entry| {
+        var found = false;
+        for (allowed) |name| {
+            if (std.mem.eql(u8, entry.key_ptr.*, name)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) return error.UnexpectedField;
+    }
+}
+
+fn parseStrictCursor(value: raw.wire.Value) !Cursor {
+    const object = switch (value) {
+        .object => |item| item,
+        else => return error.ExpectedObject,
+    };
+    try ensureOnlyFields(object, &.{ "generation", "revision" });
+    const cursor = try parseCursor(value);
+    if (cursor.generation.len == 0 or cursor.generation.len > 128) {
+        return error.InvalidCursorGeneration;
+    }
+    return cursor;
+}
+
+fn validateEnvelopeCursor(
+    envelope: ?Cursor,
+    item: Cursor,
+) !void {
+    const expected = envelope orelse return;
+    if (!std.mem.eql(u8, expected.generation, item.generation) or
+        expected.revision != item.revision)
+    {
+        return error.StreamCursorMismatch;
+    }
+}
+
+fn parseResourceReference(
+    resource: ResourceKind,
+    value: []const u8,
+) !ResourceReference {
+    return switch (resource) {
+        .machine => .{ .machine = try MachineId.parse(value) },
+        .session => .{ .session = try SessionId.parse(value) },
+        .workspace => .{ .workspace = try WorkspaceId.parse(value) },
+        .screen => .{ .screen = try ScreenId.parse(value) },
+        .pane => .{ .pane = try PaneId.parse(value) },
+        .tab => .{ .tab = try TabId.parse(value) },
+        .terminal => .{ .terminal = try TerminalId.parse(value) },
+        .browser => .{ .browser = try BrowserId.parse(value) },
+        .client => .{ .client = try ConnectedClientId.parse(value) },
+        .notification => .{
+            .notification = try NotificationId.parse(value),
+        },
+        .agent => .{ .agent = try AgentId.parse(value) },
+        .pairing_request => .{
+            .pairing_request = try PairingRequestId.parse(value),
+        },
+        .frontend_projection => .{
+            .frontend_projection = try FrontendProjectionId.parse(
+                value,
+            ),
+        },
+        .sidebar_view => .{
+            .sidebar_view = try SidebarViewId.parse(value),
+        },
+        .provider_scope => .{
+            .provider_scope = try ProviderScopeId.parse(value),
+        },
+        .provider_action => .{
+            .provider_action = try ProviderActionId.parse(value),
+        },
+        .provider_notice => .{
+            .provider_notice = try ProviderNoticeId.parse(value),
+        },
+    };
+}
+
+fn decodeResourceChange(value: raw.wire.Value) !ResourceChange {
+    const object = switch (value) {
+        .object => |item| item,
+        else => return error.ExpectedObject,
+    };
+    const kind = try objectString(object, "kind");
+    if (!std.mem.eql(u8, kind, "upsert") and
+        !std.mem.eql(u8, kind, "delete"))
+    {
+        return .{ .unknown = .{
+            .discriminator = kind,
+            .raw_object = value,
+        } };
+    }
+    const sequence_u64 = try decimalU64(
+        object.get("sequence") orelse return error.MissingField,
+    );
+    const sequence = std.math.cast(u32, sequence_u64) orelse
+        return error.IntegerOverflow;
+    const resource = try ResourceKind.parse(
+        try objectString(object, "resource"),
+    );
+    const id = try parseResourceReference(
+        resource,
+        try objectString(object, "id"),
+    );
+    if (std.mem.eql(u8, kind, "delete")) {
+        try ensureOnlyFields(
+            object,
+            &.{ "kind", "sequence", "resource", "id" },
+        );
+        return .{ .delete = .{
+            .sequence = sequence,
+            .resource = resource,
+            .id = id,
+        } };
+    }
+    try ensureOnlyFields(
+        object,
+        &.{ "kind", "sequence", "resource", "id", "value" },
+    );
+    const snapshot = object.get("value") orelse return error.MissingField;
+    const snapshot_object = switch (snapshot) {
+        .object => |item| item,
+        else => return error.ExpectedObject,
+    };
+    const snapshot_id = try objectString(snapshot_object, "id");
+    if (!std.mem.eql(u8, id.slice(), snapshot_id)) {
+        return error.ResourceSnapshotIdMismatch;
+    }
+    return .{ .upsert = .{
+        .sequence = sequence,
+        .resource = resource,
+        .id = id,
+        .value = snapshot,
+    } };
+}
+
+fn decodeSessionEvent(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+    envelope_cursor: ?Cursor,
+) !SessionEvent {
+    const object = switch (value) {
+        .object => |item| item,
+        else => return error.ExpectedObject,
+    };
+    const kind = try objectString(object, "kind");
+    if (std.mem.eql(u8, kind, "snapshot")) {
+        try ensureOnlyFields(
+            object,
+            &.{ "kind", "cursor", "reset_reason", "snapshot" },
+        );
+        const cursor = try parseStrictCursor(
+            object.get("cursor") orelse return error.MissingField,
+        );
+        try validateEnvelopeCursor(envelope_cursor, cursor);
+        const reset_reason = if (object.get("reset_reason")) |reason|
+            switch (reason) {
+                .string => |text| blk: {
+                    if (std.mem.eql(u8, text, "initial")) {
+                        break :blk ResetReason.initial;
+                    }
+                    if (std.mem.eql(u8, text, "generation_changed")) {
+                        break :blk ResetReason.generation_changed;
+                    }
+                    if (std.mem.eql(u8, text, "cursor_expired")) {
+                        break :blk ResetReason.cursor_expired;
+                    }
+                    return error.InvalidResetReason;
+                },
+                else => return error.ExpectedString,
+            }
+        else
+            null;
+        const snapshot = object.get("snapshot") orelse
+            return error.MissingField;
+        switch (snapshot) {
+            .object => {},
+            else => return error.ExpectedObject,
+        }
+        return .{ .snapshot = .{
+            .cursor = cursor,
+            .reset_reason = reset_reason,
+            .snapshot = snapshot,
+        } };
+    }
+    if (std.mem.eql(u8, kind, "delta")) {
+        try ensureOnlyFields(
+            object,
+            &.{
+                "kind",
+                "cursor",
+                "previous_revision",
+                "revision",
+                "changes",
+            },
+        );
+        const cursor = try parseStrictCursor(
+            object.get("cursor") orelse return error.MissingField,
+        );
+        try validateEnvelopeCursor(envelope_cursor, cursor);
+        const previous_revision = try decimalU64(
+            object.get("previous_revision") orelse
+                return error.MissingField,
+        );
+        const revision = try decimalU64(
+            object.get("revision") orelse return error.MissingField,
+        );
+        if (revision != cursor.revision) {
+            return error.StreamCursorMismatch;
+        }
+        const raw_changes = switch (object.get("changes") orelse
+            return error.MissingField) {
+            .array => |items| items.items,
+            else => return error.ExpectedArray,
+        };
+        const changes = try allocator.alloc(
+            ResourceChange,
+            raw_changes.len,
+        );
+        for (raw_changes, 0..) |change, index| {
+            changes[index] = try decodeResourceChange(change);
+        }
+        return .{ .delta = .{
+            .cursor = cursor,
+            .previous_revision = previous_revision,
+            .revision = revision,
+            .changes = changes,
+        } };
+    }
+    return .{ .unknown = .{
+        .discriminator = kind,
+        .raw_object = value,
+    } };
+}
+
 fn domainItem(
     comptime Item: type,
+    allocator: std.mem.Allocator,
     value: raw.wire.Value,
+    cursor: ?Cursor,
 ) !Item {
+    if (comptime Item == SessionEvent) {
+        return decodeSessionEvent(allocator, value, cursor);
+    }
     const object = switch (value) {
         .object => |item| item,
         else => return error.ExpectedObject,
@@ -1534,11 +2186,13 @@ fn OwnedStreamItem(comptime Item: type) type {
         const Self = @This();
 
         owned: raw.wire.OwnedValue,
+        decoded: std.heap.ArenaAllocator,
         sequence: u64,
         cursor: ?Cursor,
         value: Item,
 
         pub fn deinit(self: *Self) void {
+            self.decoded.deinit();
             self.owned.deinit();
             self.* = undefined;
         }
@@ -1941,6 +2595,10 @@ fn TypedStream(comptime Item: type) type {
         pub fn next(self: *Self) !?OwnedItem {
             var message = (try self.raw_stream.nextRaw()) orelse return null;
             errdefer message.deinit();
+            var decoded = std.heap.ArenaAllocator.init(
+                self.raw_stream.client.allocator,
+            );
+            errdefer decoded.deinit();
             const object = switch (message.value) {
                 .object => |value| value,
                 else => return error.ExpectedObject,
@@ -1959,9 +2617,15 @@ fn TypedStream(comptime Item: type) type {
                 return error.MissingField;
             return .{
                 .owned = message,
+                .decoded = decoded,
                 .sequence = sequence,
                 .cursor = cursor,
-                .value = try domainItem(Item, raw_item),
+                .value = try domainItem(
+                    Item,
+                    decoded.allocator(),
+                    raw_item,
+                    cursor,
+                ),
             };
         }
 
@@ -2038,7 +2702,7 @@ fn Params(comptime Id: type) type {
         fn init(
             allocator: std.mem.Allocator,
             scope: []const u8,
-            id: *const Id,
+            target: *const ScopedSelector(Id),
             extra: ?raw.wire.Value,
         ) !Self {
             const arena = try allocator.create(std.heap.ArenaAllocator);
@@ -2053,9 +2717,12 @@ fn Params(comptime Id: type) type {
                 }
             else
                 raw.wire.Object.init(temp);
+            try target.ancestors.putInto(&object, temp);
             try object.put(
                 try temp.dupe(u8, scope),
-                .{ .string = try temp.dupe(u8, id.slice()) },
+                .{
+                    .string = try target.selector.formatAlloc(temp),
+                },
             );
             return .{
                 .backing_allocator = allocator,
@@ -2228,7 +2895,7 @@ pub fn ResourceSnapshot(comptime Id: type) type {
 
 fn decodeSnapshot(
     comptime Id: type,
-    fallback_id: Id,
+    fallback_id: ?Id,
     result: OwnedResult,
 ) !ResourceSnapshot(Id) {
     var owned_result = result;
@@ -2243,7 +2910,7 @@ fn decodeSnapshot(
             else => return error.ExpectedString,
         }
     else
-        fallback_id;
+        fallback_id orelse return error.MissingField;
     const name = if (object.get("name")) |name_value|
         switch (name_value) {
             .null => null,
@@ -2292,23 +2959,116 @@ fn Handle(
         const Self = @This();
 
         client: *Client,
-        id: Id,
+        target: ScopedSelector(Id),
 
-        pub fn init(client: *Client, id: Id) Self {
-            return .{ .client = client, .id = id };
+        pub fn init(client: *Client, selection: anytype) Self {
+            return .{
+                .client = client,
+                .target = .{
+                    .selector = selectorValue(Id, selection),
+                },
+            };
+        }
+
+        pub fn initScoped(
+            client: *Client,
+            selection: anytype,
+            ancestors: HandleRoute,
+        ) Self {
+            return .{
+                .client = client,
+                .target = .{
+                    .selector = selectorValue(Id, selection),
+                    .ancestors = ancestors,
+                },
+            };
+        }
+
+        pub fn selector(self: Self) Selector(Id) {
+            return self.target.selector;
+        }
+
+        pub fn id(self: Self) ?Id {
+            return switch (self.target.selector) {
+                .id => |value| value,
+                .current, .name => null,
+            };
+        }
+
+        pub fn session(self: Self, child: anytype) Session {
+            if (comptime !std.mem.eql(u8, scope, "machine")) {
+                @compileError("session() is available only on Machine");
+            }
+            var route = self.target.ancestors;
+            route.machine = self.target.selector;
+            return Session.initScoped(self.client, child, route);
+        }
+
+        pub fn workspace(self: Self, child: anytype) Workspace {
+            if (comptime !std.mem.eql(u8, scope, "session")) {
+                @compileError("workspace() is available only on Session");
+            }
+            var route = self.target.ancestors;
+            route.session = self.target.selector;
+            return Workspace.initScoped(self.client, child, route);
+        }
+
+        pub fn screen(self: Self, child: anytype) Screen {
+            if (comptime !std.mem.eql(u8, scope, "workspace")) {
+                @compileError("screen() is available only on Workspace");
+            }
+            var route = self.target.ancestors;
+            route.workspace = self.target.selector;
+            return Screen.initScoped(self.client, child, route);
+        }
+
+        pub fn pane(self: Self, child: anytype) Pane {
+            if (comptime !std.mem.eql(u8, scope, "screen")) {
+                @compileError("pane() is available only on Screen");
+            }
+            var route = self.target.ancestors;
+            route.screen = self.target.selector;
+            return Pane.initScoped(self.client, child, route);
+        }
+
+        pub fn tab(self: Self, child: anytype) Tab {
+            if (comptime !std.mem.eql(u8, scope, "pane")) {
+                @compileError("tab() is available only on Pane");
+            }
+            var route = self.target.ancestors;
+            route.pane = self.target.selector;
+            return Tab.initScoped(self.client, child, route);
+        }
+
+        pub fn terminal(self: Self, child: anytype) Terminal {
+            if (comptime !std.mem.eql(u8, scope, "tab")) {
+                @compileError("terminal() is available only on Tab");
+            }
+            var route = self.target.ancestors;
+            route.tab = self.target.selector;
+            return Terminal.initScoped(self.client, child, route);
+        }
+
+        pub fn browser(self: Self, child: anytype) Browser {
+            if (comptime !std.mem.eql(u8, scope, "tab")) {
+                @compileError("browser() is available only on Tab");
+            }
+            var route = self.target.ancestors;
+            route.tab = self.target.selector;
+            return Browser.initScoped(self.client, child, route);
         }
 
         pub fn refresh(self: Self) !ResourceSnapshot(Id) {
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
             return decodeSnapshot(
                 Id,
-                self.id,
+                self.id(),
                 try self.client.read(config.get, params.asValue()),
             );
         }
@@ -2321,7 +3081,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 extra,
             );
             defer params.deinit();
@@ -2337,7 +3097,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 extra,
             );
             defer params.deinit();
@@ -2352,7 +3112,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 extra,
             );
             defer params.deinit();
@@ -2378,7 +3138,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2399,7 +3159,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2417,7 +3177,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2440,7 +3200,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2463,7 +3223,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2496,7 +3256,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2528,7 +3288,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2558,7 +3318,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2581,7 +3341,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2608,7 +3368,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2632,7 +3392,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2658,7 +3418,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2690,7 +3450,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2726,7 +3486,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2749,7 +3509,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2763,7 +3523,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2777,7 +3537,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2791,7 +3551,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2808,7 +3568,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2845,7 +3605,7 @@ fn Handle(
             return ProviderNoticeHandle.initScoped(
                 self.client,
                 notice_id,
-                self.id,
+                self.id() orelse return error.SelectorRequiresResourceId,
             );
         }
 
@@ -2870,7 +3630,7 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
@@ -2892,7 +3652,7 @@ fn Handle(
                 return error.UnsupportedHandleOperation;
             }
             return self.client.invokeProviderAction(
-                self.id,
+                self.id() orelse return error.SelectorRequiresResourceId,
                 action,
                 parameters,
                 mutation,
@@ -2901,8 +3661,8 @@ fn Handle(
 
         pub fn markWorkspace(
             self: Self,
-            session: SessionId,
-            workspace: WorkspaceId,
+            scoped_session: SessionId,
+            scoped_workspace: WorkspaceId,
             managed: bool,
             mutation: MutationOptions,
         ) !MutationResult {
@@ -2912,12 +3672,12 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
-            try params.putString("session", session.slice());
-            try params.putString("workspace", workspace.slice());
+            try params.putString("session", scoped_session.slice());
+            try params.putString("workspace", scoped_workspace.slice());
             try params.putValue("managed", .{ .bool = managed });
             return self.client.mutate(
                 .provider_workspace_mark,
@@ -2928,8 +3688,8 @@ fn Handle(
 
         pub fn renameWorkspace(
             self: Self,
-            session: SessionId,
-            workspace: WorkspaceId,
+            scoped_session: SessionId,
+            scoped_workspace: WorkspaceId,
             name: ?[]const u8,
             mutation: MutationOptions,
         ) !MutationResult {
@@ -2939,12 +3699,12 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
-            try params.putString("session", session.slice());
-            try params.putString("workspace", workspace.slice());
+            try params.putString("session", scoped_session.slice());
+            try params.putString("workspace", scoped_workspace.slice());
             if (name) |value| {
                 try params.putString("name", value);
             } else {
@@ -2959,8 +3719,8 @@ fn Handle(
 
         pub fn closeWorkspace(
             self: Self,
-            session: SessionId,
-            workspace: WorkspaceId,
+            scoped_session: SessionId,
+            scoped_workspace: WorkspaceId,
             mutation: MutationOptions,
         ) !MutationResult {
             if (comptime !std.mem.eql(u8, scope, "provider_scope")) {
@@ -2969,12 +3729,12 @@ fn Handle(
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
-                &self.id,
+                &self.target,
                 null,
             );
             defer params.deinit();
-            try params.putString("session", session.slice());
-            try params.putString("workspace", workspace.slice());
+            try params.putString("session", scoped_session.slice());
+            try params.putString("workspace", scoped_workspace.slice());
             return self.client.mutate(
                 .provider_workspace_close,
                 params.asValue(),
@@ -2982,7 +3742,7 @@ fn Handle(
             );
         }
 
-        pub fn rendererGrant(self: Self) !RendererGrant {
+        pub fn rendererGrant(self: Self) !*RendererGrant {
             if (comptime !std.mem.eql(u8, scope, "terminal")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -2995,6 +3755,10 @@ fn Handle(
                 .object => |item| item,
                 else => return error.ExpectedObject,
             };
+            try ensureOnlyFields(
+                object,
+                &.{ "endpoint", "terminal_id", "token", "rights", "ttl_ms" },
+            );
             const token = try objectString(object, "token");
             const endpoint = try objectString(object, "endpoint");
             const terminal_id = try TerminalId.parse(
@@ -3010,7 +3774,6 @@ fn Handle(
                 .array => |items| items.items,
                 else => return error.ExpectedArray,
             };
-            if (right_values.len == 0) return error.MissingRendererRight;
             const rights = try self.client.allocator.alloc(
                 []const u8,
                 right_values.len,
@@ -3022,15 +3785,18 @@ fn Handle(
                     else => return error.ExpectedString,
                 };
             }
-            const grant = RendererGrant{
-                .allocator = self.client.allocator,
-                .owned = result.owned,
-                .endpoint = endpoint,
-                .terminal_id = terminal_id,
-                .token = .{ .bytes = token },
-                .rights = rights,
-                .ttl_ms = ttl_ms,
-            };
+            const grant = try RendererGrant.initLive(
+                self.client.allocator,
+                result.owned,
+                .{
+                    .endpoint = endpoint,
+                    .terminal_id = terminal_id,
+                    .token = .{ .bytes = token },
+                    .rights = rights,
+                    .ttl_ms = ttl_ms,
+                },
+                rights,
+            );
             result = undefined;
             return grant;
         }
@@ -3108,11 +3874,14 @@ pub const ProviderNoticeHandle = struct {
     const Self = @This();
 
     client: *Client,
-    id: ProviderNoticeId,
+    target: ScopedSelector(ProviderNoticeId),
     provider_scope: ?ProviderScopeId = null,
 
     pub fn init(client: *Client, id: ProviderNoticeId) Self {
-        return .{ .client = client, .id = id };
+        return .{
+            .client = client,
+            .target = .{ .selector = .{ .id = id } },
+        };
     }
 
     fn initScoped(
@@ -3122,7 +3891,7 @@ pub const ProviderNoticeHandle = struct {
     ) Self {
         return .{
             .client = client,
-            .id = id,
+            .target = .{ .selector = .{ .id = id } },
             .provider_scope = provider_scope,
         };
     }
@@ -3131,7 +3900,7 @@ pub const ProviderNoticeHandle = struct {
         var params = try Params(ProviderNoticeId).init(
             self.client.allocator,
             "provider_notice",
-            &self.id,
+            &self.target,
             null,
         );
         defer params.deinit();
@@ -3240,7 +4009,7 @@ const FakeShared = struct {
                 try self.appendInput(response);
                 const item = try std.fmt.allocPrint(
                     self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"stream_item\",\"stream_id\":\"{s}\"," ++ "\"sequence\":\"1\",\"cursor\":{{\"generation\":" ++ "\"g\",\"revision\":\"3\"}},\"item\":{{\"event\":" ++ "\"future.event\",\"data\":{{\"x\":1}}," ++ "\"future\":true}}}}",
+                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"stream_item\",\"stream_id\":\"{s}\"," ++ "\"sequence\":\"1\",\"cursor\":{{\"generation\":" ++ "\"g\",\"revision\":\"3\"}},\"item\":{{\"kind\":" ++ "\"future.event\",\"data\":{{\"x\":1}}," ++ "\"future\":true}}}}",
                     .{stream_id},
                 );
                 defer self.allocator.free(item);
@@ -3605,6 +4374,92 @@ test "remote shell remains a distinct server-expanded field" {
     );
 }
 
+test "selector handle construction is offline and nested routes are exact" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+
+    const tab = client
+        .machine(.{ .name = "builder" })
+        .session(.current)
+        .workspace(.{ .name = "sdk" })
+        .screen(.{ .name = "tests" })
+        .pane(.current)
+        .tab(.{ .name = "output" });
+    const terminal = tab.terminal(.{ .name = "shell" });
+    const browser = tab.browser(.{ .name = "preview" });
+    try std.testing.expectEqual(@as(usize, 0), shared.output.items.len);
+
+    var written = try terminal.writeText(
+        "hello",
+        try MutationOptions.withKey("route-terminal-key"),
+    );
+    written.deinit();
+    var navigated = try browser.navigate(
+        "https://cmux.dev/sdk",
+        try MutationOptions.withKey("route-browser-key"),
+    );
+    navigated.deinit();
+
+    var requests = std.mem.splitScalar(u8, shared.output.items, '\n');
+    try std.testing.expectEqualStrings(
+        "{\"protocol\":\"cmux.protocol/1\",\"type\":\"request\"," ++
+            "\"id\":\"zig-request-1\",\"operation\":" ++
+            "\"terminal.input.write\",\"params\":{" ++
+            "\"machine\":\"name:builder\",\"session\":\"current\"," ++
+            "\"workspace\":\"name:sdk\",\"screen\":\"name:tests\"," ++
+            "\"pane\":\"current\",\"tab\":\"name:output\"," ++
+            "\"terminal\":\"name:shell\",\"text\":\"hello\"}," ++
+            "\"idempotency_key\":\"route-terminal-key\"}",
+        requests.next().?,
+    );
+    try std.testing.expectEqualStrings(
+        "{\"protocol\":\"cmux.protocol/1\",\"type\":\"request\"," ++
+            "\"id\":\"zig-request-2\",\"operation\":" ++
+            "\"browser.navigate\",\"params\":{" ++
+            "\"machine\":\"name:builder\",\"session\":\"current\"," ++
+            "\"workspace\":\"name:sdk\",\"screen\":\"name:tests\"," ++
+            "\"pane\":\"current\",\"tab\":\"name:output\"," ++
+            "\"browser\":\"name:preview\"," ++
+            "\"url\":\"https://cmux.dev/sdk\"}," ++
+            "\"idempotency_key\":\"route-browser-key\"}",
+        requests.next().?,
+    );
+}
+
+test "client session name selector keeps current machine route" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+
+    const named = client.session(.{ .name = "release" });
+    try std.testing.expectEqual(@as(usize, 0), shared.output.items.len);
+    var created = try named.createWorkspace(
+        .{ .name = "sdk-tests", .initial_content = .empty },
+        try MutationOptions.withKey("session-selector-key"),
+    );
+    created.deinit();
+    try std.testing.expectEqualStrings(
+        "{\"protocol\":\"cmux.protocol/1\",\"type\":\"request\"," ++
+            "\"id\":\"zig-request-1\",\"operation\":" ++
+            "\"workspace.create\",\"params\":{" ++
+            "\"machine\":\"current\",\"session\":\"name:release\"," ++
+            "\"name\":\"sdk-tests\",\"initial_content\":\"empty\"}," ++
+            "\"idempotency_key\":\"session-selector-key\"}\n",
+        shared.output.items,
+    );
+}
+
 test "indeterminate mutations retain fields and never retry" {
     var shared = FakeShared{
         .allocator = std.testing.allocator,
@@ -3656,6 +4511,139 @@ test "indeterminate mutations retain fields and never retry" {
     );
 }
 
+test "session events decode strict snapshot delta and unknown changes" {
+    const workspace_id = "ws_0123456789abcdef0123456789abcdef";
+    const input =
+        "{\"kind\":\"delta\",\"cursor\":{" ++
+        "\"generation\":\"g\",\"revision\":\"3\"}," ++
+        "\"previous_revision\":\"2\",\"revision\":\"3\",\"changes\":[" ++
+        "{\"kind\":\"upsert\",\"sequence\":0,\"resource\":\"workspace\"," ++
+        "\"id\":\"" ++ workspace_id ++ "\",\"value\":{" ++
+        "\"id\":\"" ++ workspace_id ++ "\",\"name\":\"sdk\"}}," ++
+        "{\"kind\":\"delete\",\"sequence\":1,\"resource\":\"workspace\"," ++
+        "\"id\":\"" ++ workspace_id ++ "\"}," ++
+        "{\"kind\":\"future.change\",\"sequence\":2,\"future\":true}" ++
+        "]}";
+    var parsed = try raw.wire.parse(std.testing.allocator, input, .{});
+    defer parsed.deinit();
+    var decoded = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer decoded.deinit();
+    const event = try decodeSessionEvent(
+        decoded.allocator(),
+        parsed.value,
+        .{ .generation = "g", .revision = 3 },
+    );
+    switch (event) {
+        .delta => |delta| {
+            try std.testing.expectEqual(@as(u64, 2), delta.previous_revision);
+            try std.testing.expectEqual(@as(u64, 3), delta.revision);
+            try std.testing.expectEqual(@as(usize, 3), delta.changes.len);
+            switch (delta.changes[0]) {
+                .upsert => |upsert| {
+                    try std.testing.expectEqual(
+                        ResourceKind.workspace,
+                        upsert.resource,
+                    );
+                    try std.testing.expectEqualStrings(
+                        workspace_id,
+                        upsert.id.slice(),
+                    );
+                },
+                else => return error.ExpectedResourceUpsert,
+            }
+            switch (delta.changes[1]) {
+                .delete => |deleted| try std.testing.expectEqual(
+                    @as(u32, 1),
+                    deleted.sequence,
+                ),
+                else => return error.ExpectedResourceDelete,
+            }
+            switch (delta.changes[2]) {
+                .unknown => |unknown| {
+                    try std.testing.expectEqualStrings(
+                        "future.change",
+                        unknown.discriminator,
+                    );
+                    try std.testing.expect(
+                        unknown.raw_object.object.get("future").?.bool,
+                    );
+                },
+                else => return error.ExpectedUnknownResourceChange,
+            }
+        },
+        else => return error.ExpectedSessionDelta,
+    }
+
+    const snapshot_input =
+        "{\"kind\":\"snapshot\",\"cursor\":{" ++
+        "\"generation\":\"g\",\"revision\":\"3\"}," ++
+        "\"reset_reason\":\"initial\",\"snapshot\":{}}";
+    var parsed_snapshot = try raw.wire.parse(
+        std.testing.allocator,
+        snapshot_input,
+        .{},
+    );
+    defer parsed_snapshot.deinit();
+    const snapshot = try decodeSessionEvent(
+        decoded.allocator(),
+        parsed_snapshot.value,
+        .{ .generation = "g", .revision = 3 },
+    );
+    switch (snapshot) {
+        .snapshot => |item| try std.testing.expectEqual(
+            ResetReason.initial,
+            item.reset_reason.?,
+        ),
+        else => return error.ExpectedSessionSnapshot,
+    }
+}
+
+test "recognized session and change variants reject malformed payloads" {
+    const wrong_id =
+        "{\"kind\":\"delta\",\"cursor\":{" ++
+        "\"generation\":\"g\",\"revision\":\"3\"}," ++
+        "\"previous_revision\":\"2\",\"revision\":\"3\",\"changes\":[" ++
+        "{\"kind\":\"upsert\",\"sequence\":0,\"resource\":\"workspace\"," ++
+        "\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+        "\"value\":{\"id\":" ++
+        "\"term_0123456789abcdef0123456789abcdef\"}}]}";
+    var parsed = try raw.wire.parse(
+        std.testing.allocator,
+        wrong_id,
+        .{},
+    );
+    defer parsed.deinit();
+    var decoded = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer decoded.deinit();
+    try std.testing.expectError(
+        error.InvalidResourceId,
+        decodeSessionEvent(
+            decoded.allocator(),
+            parsed.value,
+            .{ .generation = "g", .revision = 3 },
+        ),
+    );
+
+    const malformed_snapshot =
+        "{\"kind\":\"snapshot\",\"cursor\":{" ++
+        "\"generation\":\"g\",\"revision\":\"3\"}," ++
+        "\"reset_reason\":\"future\",\"snapshot\":{}}";
+    var parsed_snapshot = try raw.wire.parse(
+        std.testing.allocator,
+        malformed_snapshot,
+        .{},
+    );
+    defer parsed_snapshot.deinit();
+    try std.testing.expectError(
+        error.InvalidResetReason,
+        decodeSessionEvent(
+            decoded.allocator(),
+            parsed_snapshot.value,
+            .{ .generation = "g", .revision = 3 },
+        ),
+    );
+}
+
 test "typed session stream preserves unknown payload and cancel end order" {
     var control_shared = FakeShared{
         .allocator = std.testing.allocator,
@@ -3687,8 +4675,18 @@ test "typed session stream preserves unknown payload and cancel end order" {
     var item = (try stream.next()).?;
     defer item.deinit();
     try std.testing.expectEqual(@as(u64, 1), item.sequence);
-    try std.testing.expectEqualStrings("future.event", item.value.kind);
-    try std.testing.expect(item.value.extra.object.get("future") != null);
+    switch (item.value) {
+        .unknown => |unknown| {
+            try std.testing.expectEqualStrings(
+                "future.event",
+                unknown.discriminator,
+            );
+            try std.testing.expect(
+                unknown.raw_object.object.get("future") != null,
+            );
+        },
+        else => return error.ExpectedUnknownSessionEvent,
+    }
     const stream_end = try stream.cancel();
     try std.testing.expectEqual(
         StreamEndReason.canceled,
@@ -3729,6 +4727,45 @@ test "typed session stream preserves unknown payload and cancel end order" {
     try std.testing.expect(cancel_params.get("stream_id") == null);
 }
 
+test "offline renderer grants validate and own every input slice" {
+    var endpoint = [_]u8{ '/', 't', 'm', 'p', '/', 'r' };
+    var token = [_]u8{ 's', 'e', 'c', 'r', 'e', 't' };
+    var right = [_]u8{ 'r', 'e', 'a', 'd' };
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+    const input_rights = [_][]const u8{&right};
+    const grant = try RendererGrant.init(std.testing.allocator, .{
+        .endpoint = &endpoint,
+        .terminal_id = terminal_id,
+        .token = .{ .bytes = &token },
+        .rights = &input_rights,
+        .ttl_ms = 5_000,
+    });
+    defer grant.deinit();
+    endpoint[0] = 'x';
+    token[0] = 'x';
+    right[0] = 'x';
+    try std.testing.expectEqualStrings("/tmp/r", grant.endpoint());
+    try std.testing.expectEqualStrings("secret", grant.token().reveal());
+    try std.testing.expectEqualStrings("read", grant.rights()[0]);
+    try std.testing.expectEqualStrings(
+        terminal_id.slice(),
+        grant.terminalId().slice(),
+    );
+
+    try std.testing.expectError(
+        error.InvalidRendererTtl,
+        RendererGrant.init(std.testing.allocator, .{
+            .endpoint = "/tmp/r",
+            .terminal_id = terminal_id,
+            .token = .{ .bytes = "secret" },
+            .rights = &.{"read"},
+            .ttl_ms = 0,
+        }),
+    );
+}
+
 test "renderer and provider credentials redact formatting" {
     const provider = ProviderCredential{ .bytes = "provider-secret" };
     const provider_text = try std.fmt.allocPrint(
@@ -3750,18 +4787,18 @@ test "renderer and provider credentials redact formatting" {
     const terminal_id = try TerminalId.parse(
         "term_0123456789abcdef0123456789abcdef",
     );
-    var grant = try client.terminal(terminal_id).rendererGrant();
+    const grant = try client.terminal(terminal_id).rendererGrant();
     defer grant.deinit();
     try std.testing.expectEqualStrings(
         "renderer-secret",
-        grant.token.reveal(),
+        grant.token().reveal(),
     );
     try std.testing.expectEqualStrings(
         "/tmp/renderer.sock",
-        grant.endpoint,
+        grant.endpoint(),
     );
-    try std.testing.expectEqual(@as(u32, 5000), grant.ttl_ms);
-    try std.testing.expectEqual(@as(usize, 2), grant.rights.len);
+    try std.testing.expectEqual(@as(u32, 5000), grant.ttlMs());
+    try std.testing.expectEqual(@as(usize, 2), grant.rights().len);
     const formatted = try std.fmt.allocPrint(
         std.testing.allocator,
         "{f}",

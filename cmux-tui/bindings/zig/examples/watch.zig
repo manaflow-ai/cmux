@@ -11,7 +11,12 @@ pub fn main() !void {
 
     var machines = try client.machines();
     defer machines.deinit();
-    std.debug.print("machine inventory: {f}\n", .{machines.value});
+    const encoded = try cmux.raw.wire.stringifyAlloc(
+        allocator,
+        machines.value,
+    );
+    defer allocator.free(encoded);
+    std.debug.print("machine inventory: {s}\n", .{encoded});
 }
 
 test "package consumer imports handwritten root and generated raw module" {
@@ -33,5 +38,34 @@ test "package consumer imports handwritten root and generated raw module" {
     try std.testing.expectEqual(
         @as(usize, 44),
         cmux.raw.protocol.event_count,
+    );
+
+    // Handle construction stores selectors and routes without touching the
+    // client, so an external consumer can compose a route before connecting.
+    var offline_client: cmux.Client = undefined;
+    const terminal = offline_client
+        .machine(.current)
+        .session(.{ .name = "main" })
+        .workspace(.{ .name = "sdk" })
+        .screen(.current)
+        .pane(.current)
+        .tab(.current)
+        .terminal(.{ .name = "shell" });
+    try std.testing.expect(terminal.id() == null);
+
+    const terminal_id = try cmux.TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+    const grant = try cmux.RendererGrant.init(std.testing.allocator, .{
+        .endpoint = "/tmp/cmux-renderer.sock",
+        .terminal_id = terminal_id,
+        .token = .{ .bytes = "secret" },
+        .rights = &.{ "read", "input" },
+        .ttl_ms = 5_000,
+    });
+    defer grant.deinit();
+    try std.testing.expectEqualStrings(
+        "/tmp/cmux-renderer.sock",
+        grant.endpoint(),
     );
 }
