@@ -4875,7 +4875,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func moveWorkspaceToWindow(workspaceId: UUID, windowId: UUID, atIndex: Int? = nil, focus: Bool = true) -> Bool {
         guard let sourceManager = tabManagerFor(tabId: workspaceId),
-              let destinationManager = tabManagerFor(windowId: windowId) else {
+              let destinationManager = registeredMainWindowTabManager(windowId: windowId) else {
             return false
         }
         if focus, !focusMainWindow(windowId: windowId) {
