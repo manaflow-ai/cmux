@@ -1,16 +1,21 @@
 package com.cmux.examples.ci;
 
 import com.cmux.Client;
-import com.cmux.Command;
 import com.cmux.CreatedPath;
-import com.cmux.Document;
-import com.cmux.ExactCommand;
+import com.cmux.CreatedTerminalPath;
+import com.cmux.CreatedWorkspaceOnly;
+import com.cmux.Decimal;
 import com.cmux.Ids;
+import com.cmux.MutationOutcomeUncertain;
 import com.cmux.MutationResult;
 import com.cmux.Notification;
 import com.cmux.Options;
+import com.cmux.Render;
+import com.cmux.Results;
 import com.cmux.Selector;
 import com.cmux.Session;
+import com.cmux.ShellCommand;
+import com.cmux.Snapshots;
 import com.cmux.Terminal;
 import com.cmux.Transport;
 import com.cmux.Workspace;
@@ -18,11 +23,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * A dependency-free CI task orchestrator built only on the public cmux
@@ -30,7 +34,8 @@ import java.util.regex.Pattern;
  */
 public final class CiOrchestrator {
     private static final int MAX_HISTORY_ROWS = 65_535;
-    private static final Pattern SAFE_MARKER = Pattern.compile("[A-Za-z0-9_]+");
+    private static final Pattern SAFE_OPERATION_KEY =
+        Pattern.compile("[A-Za-z0-9_-]{1,80}");
 
     private CiOrchestrator() {}
 
@@ -39,21 +44,22 @@ public final class CiOrchestrator {
             Config config = Config.parse(args);
             Outcome outcome = execute(config);
             System.out.printf(
-                "session=%s workspace=%s terminal=%s exit=%d%n",
+                "session=%s workspace=%s terminal=%s exit=%s%n",
                 config.session(),
                 outcome.workspace().value(),
                 outcome.terminal().value(),
-                outcome.exitCode()
+                describeExit(outcome.exit().outcome())
             );
             System.out.println("--- screen ---");
-            System.out.println(outcome.screen());
+            System.out.println(outcome.screen().text());
             System.out.println("--- history ---");
-            System.out.println(outcome.history());
+            System.out.println(historyText(outcome.history()));
             outcome.notification().ifPresent(
                 id -> System.out.println("notification=" + id.value())
             );
-            if (outcome.exitCode() != 0) {
-                System.exit(outcome.exitCode());
+            int processExitCode = outcome.processExitCode();
+            if (processExitCode != 0) {
+                System.exit(processExitCode);
             }
         } catch (Exception error) {
             System.err.println("cmux CI orchestration failed: " + usefulMessage(error));
@@ -73,7 +79,7 @@ public final class CiOrchestrator {
         Objects.requireNonNull(config, "config");
         Client.Builder builder = Client.builder()
             .session(config.session())
-            .timeout(config.timeout().plusSeconds(1));
+            .timeout(config.timeout().plusMillis(500));
         config.socketPath().ifPresent(builder::socket);
         if (transport != null) {
             builder.transport(transport);
@@ -125,117 +131,269 @@ public final class CiOrchestrator {
         WorkspaceCleanup cleanup,
         Config config
     ) throws Exception {
-        MutationResult<CreatedPath> createdWorkspace = session.createWorkspace(
-            Options.WorkspaceCreate.builder()
-                .name(config.workspaceName())
-                .initialContent(Options.InitialContent.EMPTY)
-                .build()
+        Creation<CreatedWorkspaceOnly> workspaceCreation = createWorkspace(
+            session,
+            config
         );
-        Ids.WorkspaceId workspaceId = createdWorkspace.value()
-            .workspace()
-            .orElseThrow(() -> new IllegalStateException(
-                "workspace.create omitted the workspace ID"
-            ));
+        Ids.WorkspaceId workspaceId = workspaceCreation.path().workspaceId();
         Workspace workspace = session.workspace(Selector.id(workspaceId));
         cleanup.arm(workspace);
 
-        Options.Run.Builder run = Options.Run.builder(wrapperCommand(config))
-            .name("ci-task");
-        config.cwd().map(Path::toString).ifPresent(run::cwd);
-        CreatedPath createdTerminal = workspace.run(run.build()).value();
-        Ids.TerminalId terminalId = createdTerminal.terminal().orElseThrow(
-            () -> new IllegalStateException("workspace.run omitted the terminal ID")
+        Creation<CreatedTerminalPath> terminalCreation = runTerminal(
+            session,
+            workspace,
+            config
         );
+        Ids.TerminalId terminalId = terminalCreation.path().terminalId();
         Terminal terminal = session.terminal(Selector.id(terminalId));
 
-        String completionPattern =
-            Pattern.quote(config.marker()) + ":[0-9]{1,3}";
-        Document waited = terminal.waitFor(new Options.Wait(
-            Options.Read.defaults(),
-            completionPattern,
-            config.timeout().toMillis()
-        ));
-        String waitText = documentText(waited, "terminal.wait");
-        if (!Boolean.TRUE.equals(waited.fields().get("matched"))) {
+        Results.TerminalWaitExitResult waited = terminal.waitExit(
+            new Options.WaitExit(
+                Options.Read.defaults(),
+                Optional.of(Decimal.parse(
+                    Long.toString(config.timeout().toMillis())
+                ))
+            )
+        );
+        if (waited instanceof Results.TerminalWaitExitPending pending) {
+            if (!pending.terminalId().equals(terminalId)) {
+                throw new IllegalStateException(
+                    "terminal.wait_exit returned the wrong terminal"
+                );
+            }
             throw new TimeoutException(
                 "timed out after " + config.timeout()
-                    + " waiting for marker " + config.marker()
+                    + " waiting for terminal " + terminalId.value() + " to exit"
             );
         }
-        int exitCode = parseExitCode(waitText, config.marker()).orElseThrow(
-            () -> new IllegalStateException("terminal.wait omitted the exit marker")
-        );
+        Results.TerminalWaitExitExited exited =
+            (Results.TerminalWaitExitExited) waited;
+        if (!exited.terminalId().equals(terminalId)) {
+            throw new IllegalStateException(
+                "terminal.wait_exit returned the wrong terminal"
+            );
+        }
 
-        String screen = documentText(
-            terminal.readScreen(Options.Read.defaults()),
-            "terminal.screen.read"
-        );
-        String history = documentText(
-            terminal.readHistory(new Options.HistoryRead(
+        Snapshots.TerminalSnapshot terminalSnapshot = terminal.refresh();
+        validateExitedSnapshot(terminalSnapshot, exited);
+        Results.TerminalScreenResult screen =
+            terminal.readScreen(Options.Read.defaults());
+        Results.TerminalHistoryResult history = terminal.readHistory(
+            new Options.HistoryRead(
                 Options.Read.defaults(),
                 Optional.empty(),
                 Optional.of(MAX_HISTORY_ROWS),
                 false
-            )),
-            "terminal.history.read"
+            )
         );
 
         Optional<Ids.NotificationId> notification = Optional.empty();
-        if (exitCode != 0) {
+        if (!isSuccess(exited.outcome())) {
             notification = notifyFailure(
                 session,
                 "cmux CI task failed",
-                "Command exited with status " + exitCode
+                "Command " + describeExit(exited.outcome())
             );
         }
 
         return new Outcome(
             workspaceId,
             terminalId,
-            exitCode,
+            exited,
+            terminalSnapshot,
             screen,
             history,
-            notification
+            notification,
+            workspaceCreation.recovered(),
+            terminalCreation.recovered()
         );
     }
 
-    private static Command wrapperCommand(Config config) {
-        String script = """
-            set +e
-            /bin/sh -lc "$1"
-            status=$?
-            printf '\\n%s:%s\\n' "$2" "$status"
-            exit "$status"
-            """;
-        return ExactCommand.of(
-            "/bin/sh",
-            "-c",
-            script,
-            "cmux-ci-wrapper",
-            config.command(),
-            config.marker()
-        );
+    private static Creation<CreatedWorkspaceOnly> createWorkspace(
+        Session session,
+        Config config
+    ) {
+        try {
+            MutationResult<CreatedPath> result = session.createWorkspace(
+                Options.WorkspaceCreate.builder()
+                    .mutation(Options.Mutation.keyed(
+                        config.workspaceIdempotencyKey()
+                    ))
+                    .name(config.workspaceName())
+                    .initialContent(Options.InitialContent.EMPTY)
+                    .correlationKey(config.workspaceCorrelationKey())
+                    .build()
+            );
+            return new Creation<>(
+                requirePath(
+                    result.value(),
+                    CreatedWorkspaceOnly.class,
+                    "workspace.create"
+                ),
+                false
+            );
+        } catch (MutationOutcomeUncertain uncertain) {
+            return new Creation<>(
+                recoverPath(
+                    session,
+                    uncertain,
+                    "workspace.create",
+                    config.workspaceIdempotencyKey(),
+                    config.workspaceCorrelationKey(),
+                    CreatedWorkspaceOnly.class
+                ),
+                true
+            );
+        }
     }
 
-    private static OptionalInt parseExitCode(String text, String marker) {
-        Pattern pattern = Pattern.compile(Pattern.quote(marker) + ":([0-9]{1,3})");
-        Matcher matcher = pattern.matcher(text);
-        OptionalInt result = OptionalInt.empty();
-        while (matcher.find()) {
-            int value = Integer.parseInt(matcher.group(1));
-            if (value <= 255) {
-                result = OptionalInt.of(value);
+    private static Creation<CreatedTerminalPath> runTerminal(
+        Session session,
+        Workspace workspace,
+        Config config
+    ) {
+        Options.Run.Builder run = Options.Run.builder(
+            new ShellCommand(config.command())
+        )
+            .mutation(Options.Mutation.keyed(config.runIdempotencyKey()))
+            .name("ci-task")
+            .correlationKey(config.runCorrelationKey());
+        config.cwd().map(Path::toString).ifPresent(run::cwd);
+        try {
+            return new Creation<>(workspace.run(run.build()).value(), false);
+        } catch (MutationOutcomeUncertain uncertain) {
+            return new Creation<>(
+                recoverPath(
+                    session,
+                    uncertain,
+                    "workspace.run",
+                    config.runIdempotencyKey(),
+                    config.runCorrelationKey(),
+                    CreatedTerminalPath.class
+                ),
+                true
+            );
+        }
+    }
+
+    private static <T extends CreatedPath> T recoverPath(
+        Session session,
+        MutationOutcomeUncertain uncertain,
+        String expectedOperation,
+        String expectedIdempotencyKey,
+        String correlationKey,
+        Class<T> pathType
+    ) {
+        if (!uncertain.operation().equals(expectedOperation)
+                || !uncertain.idempotencyKey().equals(expectedIdempotencyKey)) {
+            throw new IllegalStateException(
+                "unexpected uncertain mutation " + uncertain.operation()
+                    + " with key " + uncertain.idempotencyKey(),
+                uncertain
+            );
+        }
+        Results.CreationResolution resolution = session.resolveCreation(
+            new Options.CreationResolve(
+                Options.Read.defaults(),
+                correlationKey
+            )
+        );
+        if (!resolution.correlationKey().equals(correlationKey)) {
+            throw new IllegalStateException(
+                "creation resolution returned a different correlation key"
+            );
+        }
+        if (resolution.state() != Results.CreationState.CREATED) {
+            throw new IllegalStateException(
+                "creation is " + resolution.state()
+                    + "; recovery is " + resolution.recovery()
+            );
+        }
+        resolution.operation().ifPresent(operation -> {
+            if (!operation.equals(expectedOperation)) {
+                throw new IllegalStateException(
+                    "creation correlation resolved to " + operation
+                );
             }
-        }
-        return result;
+        });
+        resolution.idempotencyKey().ifPresent(key -> {
+            if (!key.equals(expectedIdempotencyKey)) {
+                throw new IllegalStateException(
+                    "creation correlation resolved to a different idempotency key"
+                );
+            }
+        });
+        CreatedPath path = resolution.createdPath().orElseThrow(
+            () -> new IllegalStateException(
+                "created resolution omitted its created path"
+            )
+        );
+        return requirePath(path, pathType, expectedOperation);
     }
 
-    private static String documentText(Document document, String operation) {
-        Object text = document.fields().get("text");
-        if (text instanceof String value) {
-            return value;
+    private static <T extends CreatedPath> T requirePath(
+        CreatedPath path,
+        Class<T> pathType,
+        String operation
+    ) {
+        if (!pathType.isInstance(path)) {
+            throw new IllegalStateException(
+                operation + " returned " + path.getClass().getSimpleName()
+                    + " instead of " + pathType.getSimpleName()
+            );
         }
-        throw new IllegalStateException(operation + " result omitted text");
+        return pathType.cast(path);
+    }
+
+    private static void validateExitedSnapshot(
+        Snapshots.TerminalSnapshot snapshot,
+        Results.TerminalWaitExitExited exited
+    ) {
+        if (!snapshot.id().equals(exited.terminalId())
+                || snapshot.lifecycle() != Snapshots.TerminalLifecycle.EXITED
+                || snapshot.running()) {
+            throw new IllegalStateException(
+                "terminal refresh did not return the exited terminal"
+            );
+        }
+        Snapshots.TerminalExit durableExit = snapshot.exit().orElseThrow(
+            () -> new IllegalStateException(
+                "exited terminal snapshot omitted its durable exit"
+            )
+        );
+        if (!durableExit.outcome().equals(exited.outcome())
+                || !durableExit.exitedAt().equals(exited.exitedAt())
+                || !durableExit.revision().equals(exited.revision())) {
+            throw new IllegalStateException(
+                "terminal snapshot exit differs from terminal.wait_exit"
+            );
+        }
+    }
+
+    private static boolean isSuccess(Results.TerminalExitOutcome outcome) {
+        return outcome instanceof Results.TerminalExitCode code
+            && code.code() == 0;
+    }
+
+    private static String describeExit(Results.TerminalExitOutcome outcome) {
+        if (outcome instanceof Results.TerminalExitCode code) {
+            return "exited with status " + code.code();
+        }
+        if (outcome instanceof Results.TerminalExitSignal signal) {
+            return "terminated by signal " + signal.signal()
+                + (signal.coreDumped() ? " with a core dump" : "");
+        }
+        Results.TerminalExitUnknown unknown =
+            (Results.TerminalExitUnknown) outcome;
+        return "ended for an unknown reason: " + unknown.reason();
+    }
+
+    public static String historyText(Results.TerminalHistoryResult history) {
+        return history.rows().stream()
+            .map(row -> row.runs().stream()
+                .map(Render.Run::text)
+                .collect(Collectors.joining()))
+            .collect(Collectors.joining("\n"));
     }
 
     private static Optional<Ids.NotificationId> notifyFailure(
@@ -277,23 +435,41 @@ public final class CiOrchestrator {
             : message;
     }
 
+    private record Creation<T extends CreatedPath>(T path, boolean recovered) {
+        private Creation {
+            Objects.requireNonNull(path, "path");
+        }
+    }
+
     public record Outcome(
         Ids.WorkspaceId workspace,
         Ids.TerminalId terminal,
-        int exitCode,
-        String screen,
-        String history,
-        Optional<Ids.NotificationId> notification
+        Results.TerminalWaitExitExited exit,
+        Snapshots.TerminalSnapshot terminalSnapshot,
+        Results.TerminalScreenResult screen,
+        Results.TerminalHistoryResult history,
+        Optional<Ids.NotificationId> notification,
+        boolean recoveredWorkspace,
+        boolean recoveredTerminal
     ) {
         public Outcome {
             Objects.requireNonNull(workspace, "workspace");
             Objects.requireNonNull(terminal, "terminal");
+            Objects.requireNonNull(exit, "exit");
+            Objects.requireNonNull(terminalSnapshot, "terminalSnapshot");
             Objects.requireNonNull(screen, "screen");
             Objects.requireNonNull(history, "history");
             Objects.requireNonNull(notification, "notification");
-            if (exitCode < 0 || exitCode > 255) {
-                throw new IllegalArgumentException("exitCode must be in 0..255");
+        }
+
+        public int processExitCode() {
+            if (exit.outcome() instanceof Results.TerminalExitCode code) {
+                return Math.max(0, Math.min(255, code.code()));
             }
+            if (exit.outcome() instanceof Results.TerminalExitSignal signal) {
+                return Math.min(255, 128 + signal.signal());
+            }
+            return 2;
         }
     }
 
@@ -303,7 +479,7 @@ public final class CiOrchestrator {
         Duration timeout,
         String command,
         Optional<Path> cwd,
-        String marker,
+        String operationKey,
         String workspaceName
     ) {
         public Config {
@@ -312,7 +488,7 @@ public final class CiOrchestrator {
             Objects.requireNonNull(timeout, "timeout");
             Objects.requireNonNull(command, "command");
             Objects.requireNonNull(cwd, "cwd");
-            Objects.requireNonNull(marker, "marker");
+            Objects.requireNonNull(operationKey, "operationKey");
             Objects.requireNonNull(workspaceName, "workspaceName");
             if (session.isBlank()) {
                 throw new IllegalArgumentException("session must not be blank");
@@ -323,14 +499,31 @@ public final class CiOrchestrator {
             if (command.isBlank()) {
                 throw new IllegalArgumentException("command must not be blank");
             }
-            if (!SAFE_MARKER.matcher(marker).matches()) {
+            if (!SAFE_OPERATION_KEY.matcher(operationKey).matches()) {
                 throw new IllegalArgumentException(
-                    "marker must contain only ASCII letters, digits, or underscore"
+                    "operationKey must contain 1 to 80 ASCII letters, digits, "
+                        + "underscores, or hyphens"
                 );
             }
             if (workspaceName.isBlank()) {
                 throw new IllegalArgumentException("workspaceName must not be blank");
             }
+        }
+
+        public String workspaceCorrelationKey() {
+            return operationKey + "-workspace";
+        }
+
+        public String workspaceIdempotencyKey() {
+            return operationKey + "-workspace-attempt-1";
+        }
+
+        public String runCorrelationKey() {
+            return operationKey + "-run";
+        }
+
+        public String runIdempotencyKey() {
+            return operationKey + "-run-attempt-1";
         }
 
         public static Config parse(String[] args) {
@@ -367,7 +560,7 @@ public final class CiOrchestrator {
                 timeout,
                 command,
                 Optional.ofNullable(cwd),
-                "CMUX_CI_" + suffix,
+                "cmux-ci-" + suffix,
                 "cmux-ci-" + suffix.substring(0, 8)
             );
         }

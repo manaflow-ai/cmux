@@ -2,24 +2,30 @@
 
 No raw, generated-model, internal, private, or generic escape API is used.
 
-1. `terminal.wait`, `terminal.screen.read`, and `terminal.history.read` return
-   `Document`. The consumer must validate `matched` and `text` at runtime.
-   Operation-specific result records would move this validation into the SDK.
-2. `terminal.wait` shares the client's request deadline. The client timeout must
-   exceed the server-side wait timeout, which couples connection policy to one
+The strict API resolved the earlier untyped result and exit-status gaps:
+`terminal.waitExit`, `terminal.readScreen`, `terminal.readHistory`, terminal
+lifecycle snapshots, and closed exit-outcome variants are all concrete types.
+Creation methods accept correlation keys, deterministic terminal creation
+returns `CreatedTerminalPath`, and `Session.resolveCreation` recovers a durable
+created path after response loss.
+
+Remaining friction:
+
+1. `terminal.waitExit` shares the client's request deadline. The client timeout
+   must exceed the server-side wait timeout, coupling connection policy to one
    operation.
-3. The resource API exposes no terminal exit-status primitive. This consumer
-   wraps the task, prints a unique marker into PTY output, and parses status
-   `0..255`.
-4. `Session.createNotification` has no terminal selector even though
+2. `Session.resolveCreation` correctly returns the closed `CreatedPath` union,
+   but a caller recovering a known operation must still verify the expected
+   path variant at runtime.
+3. `Session.createNotification` has no terminal selector even though
    `NotificationSnapshot` can contain a terminal ID. Failure notifications are
    therefore session-scoped.
-5. Workspace ownership requires a custom shutdown hook and idempotent cleanup
+4. Workspace ownership requires a custom shutdown hook and idempotent cleanup
    guard. An `AutoCloseable` workspace lease would make this lifecycle explicit.
-6. `terminal.history.read` returns plain text inside an untyped document and a
-   bounded integer limit. A typed pager would support large histories without
-   consumer-managed limits.
+5. Typed history preserves styled runs, so a plain-text CLI must concatenate
+   runs and pages itself. A standard plain-text projection helper would avoid
+   each consumer implementing this conversion.
 
-The resource-handle composition and opaque identifiers are principled. The
-completion marker is a protocol workaround required because exit status is not
-modeled.
+The resource-handle composition, opaque identifiers, exact terminal lifecycle,
+and correlation recovery are principled. No protocol workaround remains in the
+command execution path.
