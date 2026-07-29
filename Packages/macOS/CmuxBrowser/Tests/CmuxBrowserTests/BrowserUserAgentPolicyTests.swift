@@ -49,4 +49,11 @@ struct BrowserUserAgentPolicyTests {
         #expect(policy.customUserAgent(for: URL(string: "about:blank")!) == nil)
         #expect(policy.customUserAgent(for: URL(fileURLWithPath: "/tmp/example.html")) == nil)
     }
+
+    @Test func googleSheetsAndNonWebDestinationsHaveDistinctPolicyOutcomes() {
+        let sheetURL = URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
+        let fileURL = URL(fileURLWithPath: "/tmp/example.html")
+
+        #expect(policy.customUserAgent(for: sheetURL) != policy.customUserAgent(for: fileURL))
+    }
 }
