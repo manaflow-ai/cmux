@@ -6664,6 +6664,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     surfaceID: terminalID.rawValue
                 ) {
                     await terminalInputRPCPipeline.waitUntilAllSettled()
+                    // The barrier can also resume via a connection-lifecycle
+                    // clear() (sign-out, reconnect, new pairing attempt). The
+                    // captured generation/client are then stale; fail closed
+                    // instead of writing this chunk into a lane that may still
+                    // belong to the previous connection.
+                    guard generation == connectionGeneration,
+                          client === remoteClient else {
+                        return
+                    }
                     laneResult = await terminalLaneCoordinator.sendInput(
                         text,
                         surfaceID: terminalID.rawValue

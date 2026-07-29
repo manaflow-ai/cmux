@@ -38,6 +38,10 @@ final class MobileTerminalInputRPCPipeline {
         }
         let request = try await makeRequest()
         guard generation == enqueueGeneration else {
+            // clear() ran while makeRequest() was suspended, so this handle
+            // was never added to entries and clear() could not abandon it.
+            // Release its session settlement slot before dropping it.
+            await request.abandon()
             throw CancellationError()
         }
         entries.append(Entry(
