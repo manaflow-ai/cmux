@@ -65,16 +65,6 @@ template <typename T>
     return string_value(field(value, name));
 }
 
-[[nodiscard]] bool bool_field(
-    const cmux::Json& value,
-    std::string_view name) {
-    auto boolean = field(value, name).as_bool();
-    if (!boolean) {
-        throw AdapterError("expected a JSON boolean: " + std::string(name));
-    }
-    return boolean.value();
-}
-
 [[nodiscard]] std::uint64_t decimal(std::string_view text) {
     std::uint64_t value = 0;
     const auto [end, error] =
@@ -163,10 +153,11 @@ template <typename Id>
     });
 }
 
-[[nodiscard]] cmux::Json mutation_json(const cmux::MutationResult& result) {
+[[nodiscard]] cmux::Json mutation_json(
+    const cmux::MutationResult<cmux::WorkspaceSnapshot>& result) {
     return cmux::Json(cmux::Json::Object{
-        {"workspace_id", cmux::Json(string_field(result.value, "id"))},
-        {"name", cmux::Json(string_field(result.value, "name"))},
+        {"workspace_id", cmux::Json(result.value.id.value())},
+        {"name", cmux::Json(result.value.name)},
         {"generation", cmux::Json(result.generation)},
         {"revision", cmux::Json(std::to_string(result.revision))},
         {"replayed", cmux::Json(result.replayed)},
@@ -183,14 +174,189 @@ template <typename Id>
     });
 }
 
+[[nodiscard]] cmux::Json created_path_json(const cmux::CreatedPath& path) {
+    if (const auto* value =
+            std::get_if<cmux::CreatedWorkspaceOnly>(&path)) {
+        return cmux::Json(cmux::Json::Object{
+            {"kind", cmux::Json("workspace")},
+            {"workspace_id", cmux::Json(value->workspace_id.value())},
+        });
+    }
+    if (const auto* value =
+            std::get_if<cmux::CreatedTerminalPath>(&path)) {
+        return cmux::Json(cmux::Json::Object{
+            {"kind", cmux::Json("terminal")},
+            {"workspace_id", cmux::Json(value->workspace_id.value())},
+            {"screen_id", cmux::Json(value->screen_id.value())},
+            {"pane_id", cmux::Json(value->pane_id.value())},
+            {"tab_id", cmux::Json(value->tab_id.value())},
+            {"terminal_id", cmux::Json(value->terminal_id.value())},
+        });
+    }
+    const auto& value = std::get<cmux::CreatedBrowserPath>(path);
+    return cmux::Json(cmux::Json::Object{
+        {"kind", cmux::Json("browser")},
+        {"workspace_id", cmux::Json(value.workspace_id.value())},
+        {"screen_id", cmux::Json(value.screen_id.value())},
+        {"pane_id", cmux::Json(value.pane_id.value())},
+        {"tab_id", cmux::Json(value.tab_id.value())},
+        {"browser_id", cmux::Json(value.browser_id.value())},
+    });
+}
+
+[[nodiscard]] std::string creation_state_name(cmux::CreationState state) {
+    switch (state) {
+        case cmux::CreationState::pending:
+            return "pending";
+        case cmux::CreationState::created:
+            return "created";
+        case cmux::CreationState::not_applied:
+            return "not_applied";
+        case cmux::CreationState::indeterminate:
+            return "indeterminate";
+    }
+    throw AdapterError("unknown creation state");
+}
+
+[[nodiscard]] std::string creation_recovery_name(
+    cmux::CreationRecovery recovery) {
+    switch (recovery) {
+        case cmux::CreationRecovery::retry_same_idempotency_key:
+            return "retry_same_idempotency_key";
+        case cmux::CreationRecovery::retry_new_idempotency_key:
+            return "retry_new_idempotency_key";
+        case cmux::CreationRecovery::wait:
+            return "wait";
+        case cmux::CreationRecovery::none:
+            return "none";
+        case cmux::CreationRecovery::do_not_retry:
+            return "do_not_retry";
+    }
+    throw AdapterError("unknown creation recovery");
+}
+
+[[nodiscard]] cmux::Json creation_resolution_json(
+    const cmux::CreationResolution& resolution) {
+    cmux::Json::Object result{
+        {"correlation_key", cmux::Json(resolution.correlation_key)},
+        {"state", cmux::Json(creation_state_name(resolution.state))},
+        {"recovery", cmux::Json(creation_recovery_name(resolution.recovery))},
+    };
+    if (resolution.operation) {
+        result.emplace("operation", cmux::Json(*resolution.operation));
+    }
+    if (resolution.idempotency_key) {
+        result.emplace(
+            "idempotency_key",
+            cmux::Json(*resolution.idempotency_key));
+    }
+    if (resolution.created_path) {
+        result.emplace(
+            "created_path",
+            created_path_json(*resolution.created_path));
+    }
+    if (resolution.generation) {
+        result.emplace("generation", cmux::Json(*resolution.generation));
+    }
+    if (resolution.revision) {
+        result.emplace(
+            "revision",
+            cmux::Json(std::to_string(*resolution.revision)));
+    }
+    return cmux::Json(std::move(result));
+}
+
+[[nodiscard]] cmux::Json exit_outcome_json(
+    const cmux::TerminalExitOutcome& outcome) {
+    if (const auto* value = std::get_if<cmux::TerminalExitCode>(&outcome)) {
+        return cmux::Json(cmux::Json::Object{
+            {"kind", cmux::Json("exit")},
+            {"code", cmux::Json(std::int64_t{value->code})},
+        });
+    }
+    if (const auto* value =
+            std::get_if<cmux::TerminalExitSignal>(&outcome)) {
+        return cmux::Json(cmux::Json::Object{
+            {"kind", cmux::Json("signal")},
+            {"signal", cmux::Json(std::int64_t{value->signal})},
+            {"core_dumped", cmux::Json(value->core_dumped)},
+        });
+    }
+    const auto& value = std::get<cmux::TerminalExitUnknown>(outcome);
+    return cmux::Json(cmux::Json::Object{
+        {"kind", cmux::Json("unknown")},
+        {"reason", cmux::Json(value.reason)},
+    });
+}
+
+[[nodiscard]] cmux::Json terminal_wait_exit_json(
+    const cmux::TerminalWaitExitResult& result) {
+    if (const auto* value =
+            std::get_if<cmux::TerminalWaitExitPending>(&result)) {
+        return cmux::Json(cmux::Json::Object{
+            {"state", cmux::Json("pending")},
+            {"terminal_id", cmux::Json(value->terminal_id.value())},
+            {"lifecycle", cmux::Json(value->lifecycle)},
+            {"revision", cmux::Json(std::to_string(value->revision))},
+        });
+    }
+    const auto& value = std::get<cmux::TerminalWaitExitExited>(result);
+    return cmux::Json(cmux::Json::Object{
+        {"state", cmux::Json("exited")},
+        {"terminal_id", cmux::Json(value.terminal_id.value())},
+        {"lifecycle", cmux::Json("exited")},
+        {"outcome", exit_outcome_json(value.outcome)},
+        {"exited_at", cmux::Json(std::to_string(value.exited_at))},
+        {"revision", cmux::Json(std::to_string(value.revision))},
+    });
+}
+
 [[nodiscard]] cmux::Json run_read(const cmux::Json& request) {
     auto client = connect(
         request, string_field(constants(request), "session"));
     const auto result = take(session(client, request).ping());
     return cmux::Json(cmux::Json::Object{
-        {"alive", cmux::Json(bool_field(result, "alive"))},
-        {"cursor", field(result, "cursor")},
+        {"alive", cmux::Json(result.alive)},
+        {"cursor", cursor_json(result.cursor)},
     });
+}
+
+[[nodiscard]] cmux::Json run_creation_resolve(
+    const cmux::Json& request) {
+    auto client = connect(
+        request, string_field(constants(request), "session"));
+    const auto result = take(session(client, request).resolve_creation(
+        string_field(constants(request), "correlation_key")));
+    return creation_resolution_json(result);
+}
+
+[[nodiscard]] cmux::Json run_creation_conflict(
+    const cmux::Json& request) {
+    auto client = connect(
+        request, string_field(constants(request), "session"));
+    cmux::CreateWorkspaceOptions create;
+    create.name = string_field(constants(request), "name");
+    create.initial_content = cmux::InitialContent::empty;
+    create.correlation_key =
+        string_field(constants(request), "correlation_key");
+    auto result = session(client, request).create_workspace(
+        std::move(create),
+        take(cmux::MutationOptions::with_key(
+            string_field(constants(request), "idempotency_key"))));
+    if (result) {
+        throw AdapterError("creation conflict unexpectedly succeeded");
+    }
+    return error_json(result.error());
+}
+
+[[nodiscard]] cmux::Json run_terminal_wait_exit(
+    const cmux::Json& request) {
+    auto client = connect(
+        request, string_field(constants(request), "session"));
+    auto terminal = client.terminal(opaque_id<cmux::TerminalId>(
+        string_field(constants(request), "terminal")));
+    const auto timeout = decimal(string_field(request, "timeout_ms"));
+    return terminal_wait_exit_json(take(terminal.wait_exit(timeout)));
 }
 
 [[nodiscard]] cmux::Json run_mutation_replay(const cmux::Json& request) {
@@ -299,7 +465,7 @@ template <typename Id>
     return cmux::Json(cmux::Json::Object{
         {"first_end", cmux::Json(first_end)},
         {"second_kind", cmux::Json(second_kind)},
-        {"control_alive", cmux::Json(bool_field(control, "alive"))},
+        {"control_alive", cmux::Json(control.alive)},
     });
 }
 
@@ -331,64 +497,6 @@ template <typename Id>
     });
 }
 
-[[nodiscard]] std::optional<std::string> find_id(
-    const cmux::Json& value,
-    std::string_view prefix) {
-    if (auto text = value.as_string()) {
-        if (text.value().starts_with(prefix)) {
-            return std::string(text.value());
-        }
-        return std::nullopt;
-    }
-    if (auto object = value.as_object()) {
-        if (const auto found = object.value()->find("id");
-            found != object.value()->end()) {
-            if (auto text = found->second.as_string();
-                text && text.value().starts_with(prefix)) {
-                return std::string(text.value());
-            }
-        }
-        for (const auto& [key, item] : *object.value()) {
-            static_cast<void>(key);
-            if (auto nested = find_id(item, prefix)) {
-                return nested;
-            }
-        }
-    }
-    if (auto array = value.as_array()) {
-        for (const auto& item : *array.value()) {
-            if (auto nested = find_id(item, prefix)) {
-                return nested;
-            }
-        }
-    }
-    return std::nullopt;
-}
-
-[[nodiscard]] bool contains_id(
-    const cmux::Json& value,
-    std::string_view expected) {
-    if (auto text = value.as_string()) {
-        return text.value() == expected;
-    }
-    if (auto object = value.as_object()) {
-        for (const auto& [key, item] : *object.value()) {
-            static_cast<void>(key);
-            if (contains_id(item, expected)) {
-                return true;
-            }
-        }
-    }
-    if (auto array = value.as_array()) {
-        for (const auto& item : *array.value()) {
-            if (contains_id(item, expected)) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 [[nodiscard]] cmux::MutationOptions key(
     std::string_view prefix,
     std::string_view suffix) {
@@ -405,31 +513,17 @@ template <typename Id>
     create.initial_content = cmux::InitialContent::empty;
     auto created = take(session.create_workspace(
         std::move(create), std::move(mutation)));
-    auto path = take(created.created_path());
-    if (!path) {
-        throw AdapterError("workspace.create omitted its created path");
-    }
     return std::visit(
         [](const auto& value) { return value.workspace_id; },
-        *path);
+        created.value);
 }
 
 [[nodiscard]] std::map<std::string, std::string> workspace_rows(
     cmux::Session& session) {
     const auto listed = take(session.workspaces());
-    auto array = listed.as_array();
-    if (!array) {
-        throw AdapterError("workspace.list did not return an array");
-    }
     std::map<std::string, std::string> rows;
-    for (const auto& item : *array.value()) {
-        const auto identifier = string_field(item, "id");
-        const auto* name = item.find("name");
-        if (!name || name->is_null()) {
-            rows.emplace(identifier, "");
-            continue;
-        }
-        rows.emplace(identifier, string_value(*name));
+    for (const auto& item : listed) {
+        rows.emplace(item.id.value(), item.name);
     }
     return rows;
 }
@@ -464,7 +558,7 @@ template <typename Id>
     auto client = connect(request, "current");
     auto current =
         client.session(cmux::Selector<cmux::SessionId>::current());
-    const auto pinged = bool_field(take(current.ping()), "alive");
+    const auto pinged = take(current.ping()).alive;
     const auto base = string_field(request, "workspace_name");
     const auto key_prefix = string_field(request, "key_prefix");
 
@@ -475,8 +569,7 @@ template <typename Id>
         current.workspace(stable_id).rename(
             renamed_name,
             key(key_prefix, "stable-rename")));
-    const auto stable_renamed =
-        string_field(renamed.value, "name") == renamed_name;
+    const auto stable_renamed = renamed.value.name == renamed_name;
 
     const auto duplicate_name = base + "-duplicate";
     std::vector<std::string> duplicate_ids;
@@ -549,6 +642,157 @@ template <typename Id>
         {"ambiguity_preserved_all_candidates",
          cmux::Json(candidates_preserved)},
         {"no_mutation", cmux::Json(no_mutation)},
+    });
+}
+
+[[nodiscard]] const cmux::TerminalWaitExitPending& require_pending(
+    const cmux::TerminalWaitExitResult& result) {
+    const auto* value =
+        std::get_if<cmux::TerminalWaitExitPending>(&result);
+    if (!value) {
+        throw AdapterError("terminal wait did not return pending");
+    }
+    return *value;
+}
+
+[[nodiscard]] const cmux::TerminalWaitExitExited& require_exited(
+    const cmux::TerminalWaitExitResult& result) {
+    const auto* value =
+        std::get_if<cmux::TerminalWaitExitExited>(&result);
+    if (!value) {
+        throw AdapterError("terminal wait did not return an exit");
+    }
+    return *value;
+}
+
+[[nodiscard]] const cmux::TerminalExitCode& require_exit_code(
+    const cmux::TerminalExitOutcome& outcome) {
+    const auto* value = std::get_if<cmux::TerminalExitCode>(&outcome);
+    if (!value) {
+        throw AdapterError("terminal did not exit with an exit code");
+    }
+    return *value;
+}
+
+[[nodiscard]] cmux::Json run_live_creation_exit(
+    const cmux::Json& request) {
+    auto client = connect(request, "current");
+    auto current =
+        client.session(cmux::Selector<cmux::SessionId>::current());
+    auto workspace = current.workspace(opaque_id<cmux::WorkspaceId>(
+        string_field(request, "expected_stable_id")));
+    const auto key_prefix = string_field(request, "key_prefix");
+    const auto screen_created = take(workspace.create_screen(
+        {},
+        key(key_prefix, "runtime-screen")));
+    const auto& screen_path = screen_created.value;
+    auto pane = workspace.screen(screen_path.screen_id)
+        .pane(screen_path.pane_id);
+
+    const auto correlation_key =
+        key_prefix + "-terminal-correlation";
+    cmux::RunOptions run(take(cmux::RunCommand::shell(
+        string_field(request, "exit_shell"))));
+    run.correlation_key = correlation_key;
+    const auto run_result = take(pane.run(
+        std::move(run),
+        key(key_prefix, "terminal-run")));
+    const auto& path = run_result.value;
+    auto terminal = client.terminal(path.terminal_id);
+
+    const auto pending_result = take(terminal.wait_exit(decimal(
+        string_field(request, "pending_timeout_ms"))));
+    const auto& pending = require_pending(pending_result);
+    const auto resolution =
+        take(current.resolve_creation(correlation_key));
+    if (!resolution.created_path) {
+        throw AdapterError("creation resolution omitted its terminal path");
+    }
+    const auto* resolved =
+        std::get_if<cmux::CreatedTerminalPath>(
+            &*resolution.created_path);
+    if (!resolved ||
+        resolved->workspace_id != path.workspace_id ||
+        resolved->screen_id != path.screen_id ||
+        resolved->pane_id != path.pane_id ||
+        resolved->tab_id != path.tab_id ||
+        resolved->terminal_id != path.terminal_id) {
+        throw AdapterError(
+            "creation resolution returned a different terminal path");
+    }
+    if (!resolution.generation || !resolution.revision) {
+        throw AdapterError(
+            "created resolution omitted generation or revision");
+    }
+
+    const auto exit_result = take(terminal.wait_exit(decimal(
+        string_field(request, "exit_timeout_ms"))));
+    const auto& exited = require_exited(exit_result);
+    const auto& exit_code = require_exit_code(exited.outcome);
+    cmux::CreatedPath created_path = path;
+    return cmux::Json(cmux::Json::Object{
+        {"correlation_key", cmux::Json(correlation_key)},
+        {"created_path", created_path_json(created_path)},
+        {"pending_terminal_id",
+         cmux::Json(pending.terminal_id.value())},
+        {"pending_state", cmux::Json("pending")},
+        {"pending_lifecycle", cmux::Json(pending.lifecycle)},
+        {"creation_state",
+         cmux::Json(creation_state_name(resolution.state))},
+        {"creation_recovery",
+         cmux::Json(creation_recovery_name(resolution.recovery))},
+        {"creation_generation", cmux::Json(*resolution.generation)},
+        {"creation_revision",
+         cmux::Json(std::to_string(*resolution.revision))},
+        {"exit_state", cmux::Json("exited")},
+        {"exit_terminal_id", cmux::Json(exited.terminal_id.value())},
+        {"exit_lifecycle", cmux::Json("exited")},
+        {"exit_kind", cmux::Json("exit")},
+        {"exit_code", cmux::Json(std::int64_t{exit_code.code})},
+        {"exited_at", cmux::Json(std::to_string(exited.exited_at))},
+        {"exit_revision", cmux::Json(std::to_string(exited.revision))},
+    });
+}
+
+[[nodiscard]] cmux::Json run_live_exit_restart(
+    const cmux::Json& request) {
+    auto client = connect(request, "current");
+    auto current =
+        client.session(cmux::Selector<cmux::SessionId>::current());
+    const auto correlation_key =
+        string_field(request, "expected_correlation_key");
+    const auto resolution =
+        take(current.resolve_creation(correlation_key));
+    if (!resolution.created_path ||
+        !resolution.generation ||
+        !resolution.revision) {
+        throw AdapterError(
+            "durable creation resolution omitted required evidence");
+    }
+    const auto& expected_path = field(request, "expected_created_path");
+    auto terminal = client.terminal(opaque_id<cmux::TerminalId>(
+        string_field(expected_path, "terminal_id")));
+    const auto exit_result = take(terminal.wait_exit(decimal(
+        string_field(request, "exit_timeout_ms"))));
+    const auto& exited = require_exited(exit_result);
+    const auto& exit_code = require_exit_code(exited.outcome);
+    return cmux::Json(cmux::Json::Object{
+        {"correlation_key", cmux::Json(resolution.correlation_key)},
+        {"created_path", created_path_json(*resolution.created_path)},
+        {"creation_state",
+         cmux::Json(creation_state_name(resolution.state))},
+        {"creation_recovery",
+         cmux::Json(creation_recovery_name(resolution.recovery))},
+        {"creation_generation", cmux::Json(*resolution.generation)},
+        {"creation_revision",
+         cmux::Json(std::to_string(*resolution.revision))},
+        {"exit_state", cmux::Json("exited")},
+        {"exit_terminal_id", cmux::Json(exited.terminal_id.value())},
+        {"exit_lifecycle", cmux::Json("exited")},
+        {"exit_kind", cmux::Json("exit")},
+        {"exit_code", cmux::Json(std::int64_t{exit_code.code})},
+        {"exited_at", cmux::Json(std::to_string(exited.exited_at))},
+        {"exit_revision", cmux::Json(std::to_string(exited.revision))},
     });
 }
 
@@ -626,14 +870,12 @@ template <typename Id>
 [[nodiscard]] cmux::Json run_live(const cmux::Json& request) {
     auto client = connect(request, "current");
     const auto available_sessions = take(client.sessions());
-    const auto session_value = find_id(available_sessions, "session_");
-    if (!session_value) {
+    if (available_sessions.empty()) {
         throw AdapterError("session.list omitted an opaque session id");
     }
-    auto current_session =
-        client.session(opaque_id<cmux::SessionId>(*session_value));
+    auto current_session = client.session(available_sessions.front().id);
     const auto ping = take(current_session.ping());
-    const auto pinged = bool_field(ping, "alive");
+    const auto pinged = ping.alive;
 
     const auto name = string_field(request, "workspace_name");
     cmux::CreateWorkspaceOptions create;
@@ -642,25 +884,28 @@ template <typename Id>
     auto created = take(current_session.create_workspace(
         std::move(create),
         take(cmux::MutationOptions::with_key("live-create"))));
-    auto path = take(created.created_path());
-    if (!path) {
-        throw AdapterError("workspace.create omitted its created path");
-    }
     const auto workspace_id = std::visit(
         [](const auto& value) { return value.workspace_id; },
-        *path);
+        created.value);
     auto target = client.workspace(workspace_id);
     const auto renamed_result = take(target.rename(
         name + "-renamed",
         take(cmux::MutationOptions::with_key("live-rename"))));
-    const auto renamed =
-        string_field(renamed_result.value, "name") == name + "-renamed";
-    const auto listed =
-        contains_id(take(current_session.workspaces()), workspace_id.value());
+    const auto renamed = renamed_result.value.name == name + "-renamed";
+    const auto listed_workspaces = take(current_session.workspaces());
+    const auto listed = std::ranges::any_of(
+        listed_workspaces,
+        [&workspace_id](const auto& item) {
+            return item.id == workspace_id;
+        });
     static_cast<void>(take(target.close(
         take(cmux::MutationOptions::with_key("live-close")))));
-    const auto disappeared =
-        !contains_id(take(current_session.workspaces()), workspace_id.value());
+    const auto remaining = take(current_session.workspaces());
+    const auto disappeared = std::ranges::none_of(
+        remaining,
+        [&workspace_id](const auto& item) {
+            return item.id == workspace_id;
+        });
 
     return cmux::Json(cmux::Json::Object{
         {"pinged", cmux::Json(pinged)},
@@ -683,6 +928,15 @@ template <typename Id>
     if (operation == "mutation-error") {
         return run_mutation_error(request);
     }
+    if (operation == "creation-resolve") {
+        return run_creation_resolve(request);
+    }
+    if (operation == "creation-conflict") {
+        return run_creation_conflict(request);
+    }
+    if (operation == "terminal-wait-exit") {
+        return run_terminal_wait_exit(request);
+    }
     if (operation == "stream-unknown") {
         return run_stream_unknown(request);
     }
@@ -697,6 +951,12 @@ template <typename Id>
     }
     if (operation == "live-setup") {
         return run_live_setup(request);
+    }
+    if (operation == "live-creation-exit") {
+        return run_live_creation_exit(request);
+    }
+    if (operation == "live-exit-restart") {
+        return run_live_exit_restart(request);
     }
     if (operation == "live-restart") {
         return run_live_restart(request);
