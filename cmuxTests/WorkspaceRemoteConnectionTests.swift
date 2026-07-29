@@ -35,16 +35,6 @@ private func remoteDaemonServeCommand(_ command: String) -> Bool {
     command.contains("serve") && command.contains("--stdio")
 }
 
-private func remoteReverseRelayControlOperation(from arguments: [String]) -> (command: String, spec: String)? {
-    guard let operationIndex = arguments.firstIndex(of: "-O"),
-          operationIndex + 1 < arguments.count,
-          let reverseIndex = arguments.firstIndex(of: "-R"),
-          reverseIndex + 1 < arguments.count else {
-        return nil
-    }
-    return (arguments[operationIndex + 1], arguments[reverseIndex + 1])
-}
-
 @MainActor
 private final class NativeSSHCleanupRecorder {
     var arguments: [[String]] = []
@@ -1893,93 +1883,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(
             destination.hasPrefix("test@hpc.example:/home/test/.cmux/bin/cmuxd-remote/"),
             "expected missing pty.session to reinstall the old daemon, got \(destination)"
-        )
-    }
-
-    @MainActor
-    func testPersistentReverseRelayCancelsInheritedForwardWithoutExplicitControlPath() {
-        let daemonTransportStarted = DispatchSemaphore(value: 0)
-        let inheritedForwardCancelled = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var controlOperations: [(command: String, spec: String)] = []
-
-        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
-            guard executable == "/usr/bin/ssh" else {
-                XCTFail("unexpected executable \(executable)")
-                return (status: 1, stdout: "", stderr: "unexpected executable")
-            }
-
-            if let controlOperation = remoteReverseRelayControlOperation(from: arguments) {
-                let operation = controlOperation.command
-                let spec = controlOperation.spec
-                lock.lock()
-                controlOperations.append((command: operation, spec: spec))
-                lock.unlock()
-                if operation == "cancel" {
-                    inheritedForwardCancelled.signal()
-                }
-                return (status: 0, stdout: "", stderr: "")
-            }
-
-            let command = arguments.last ?? ""
-            if command.contains("uname -s") {
-                return (
-                    status: 0,
-                    stdout: """
-                    __CMUX_REMOTE_HOME__=/home/test
-                    __CMUX_REMOTE_OS__=Linux
-                    __CMUX_REMOTE_ARCH__=x86_64
-                    __CMUX_REMOTE_EXISTS__=yes
-                    """,
-                    stderr: ""
-                )
-            }
-            if remoteDaemonServeCommand(command) {
-                daemonTransportStarted.signal()
-                return (
-                    status: 0,
-                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.resize.notification","pty.session.persistent_daemon"]}}"# + "\n",
-                    stderr: ""
-                )
-            }
-            return (status: 0, stdout: "", stderr: "")
-        }
-
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting =
-            ScriptedRemoteProcessRunner(script: remoteProcessScript)
-        let config = WorkspaceRemoteConfiguration(
-            destination: "127.0.0.1",
-            port: 1,
-            identityFile: nil,
-            sshOptions: [
-                "StrictHostKeyChecking=accept-new",
-            ],
-            localProxyPort: nil,
-            relayPort: 64044,
-            relayID: "relay-stale-forward",
-            relayToken: String(repeating: "c", count: 64),
-            localSocketPath: "/tmp/cmux-stale-forward-test.sock",
-            terminalStartupCommand: "ssh-pty-attach",
-            preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "ssh-stale-forward-test"
-        )
-        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
-
-        workspace.configureRemoteConnection(config, autoConnect: true)
-
-        XCTAssertEqual(daemonTransportStarted.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(inheritedForwardCancelled.wait(timeout: .now() + 2), .success)
-        lock.lock()
-        let operations = controlOperations
-        lock.unlock()
-
-        XCTAssertEqual(operations.count, 1)
-        XCTAssertEqual(operations.first?.command, "cancel")
-        XCTAssertEqual(operations.first?.spec, "127.0.0.1:64044")
-        XCTAssertFalse(
-            operations.contains(where: { $0.command == "forward" }),
-            "the relay must never install its forward on the shared ControlMaster: \(operations)"
         )
     }
 

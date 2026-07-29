@@ -1,30 +1,37 @@
 internal import Foundation
 
-private enum InheritedReverseRelayCancellationOutcome: Sendable {
-    case cancelled
+private enum ConflictedControlMasterExitOutcome: Sendable {
+    case exited
     case ignored(String)
 }
 
 extension RemoteSessionCoordinator {
-    /// Removes a reverse forward left on a ControlPersist master by a
-    /// pre-dedicated-relay app instance, then continues startup on `queue`.
+    /// Exits a legacy ControlPersist master only after the dedicated relay
+    /// proves that its configured remote port is already bound.
     ///
-    /// Do not require an explicit `ControlPath`: `ssh -O` can resolve one from
-    /// the user's host config, and exits without creating a connection when no
-    /// master is available.
-    func beginInheritedReverseRelayCancellationLocked(
+    /// OpenSSH cannot cancel an inherited reverse forward without its original
+    /// full target specification. Exiting the owning master is the only
+    /// deterministic migration path; persistent remote PTYs survive and active
+    /// transports reconnect.
+    @discardableResult
+    func beginConflictedControlMasterExitIfNeededLocked(
+        startupFailure: String,
         remotePath: String,
         relayPort: Int,
         relayID: String,
         relayToken: String,
         localSocketPath: String
-    ) {
-        let forwardSpec = "127.0.0.1:\(relayPort)"
-        let arguments = sshCommonArguments(batchMode: true) + [
-            "-O", "cancel",
-            "-R", forwardSpec,
-            configuration.destination,
-        ]
+    ) -> Bool {
+        guard reverseRelayStartupPhase.canAttemptRecovery,
+              Self.isReverseRelayPortBindingFailure(
+                  startupFailure,
+                  relayPort: relayPort
+              ) else {
+            return false
+        }
+
+        let arguments = RemoteControlMasterCleanup()
+            .cleanupArguments(configuration: configuration)
         let request = RemoteProcessRequest(
             executable: "/usr/bin/ssh",
             arguments: arguments,
@@ -37,7 +44,7 @@ extension RemoteSessionCoordinator {
 
         let task = Task { [weak self] in
             let outcome = await withTaskCancellationHandler {
-                await Self.runInheritedReverseRelayCancellation(
+                await Self.runConflictedControlMasterExit(
                     request: request,
                     processRunner: processRunner,
                     cancellation: cancellation
@@ -47,9 +54,10 @@ extension RemoteSessionCoordinator {
             }
             guard !Task.isCancelled else { return }
             self?.queue.async { [weak self] in
-                self?.finishInheritedReverseRelayCancellationLocked(
+                self?.finishConflictedControlMasterExitLocked(
                     token: token,
                     outcome: outcome,
+                    startupFailure: startupFailure,
                     remotePath: remotePath,
                     relayPort: relayPort,
                     relayID: relayID,
@@ -58,27 +66,34 @@ extension RemoteSessionCoordinator {
                 )
             }
         }
-        reverseRelayStartupPhase = .cancellingInheritedForward(
+        reverseRelayStartupPhase = .exitingConflictedControlMaster(
             token: token,
             task: task,
             cancellation: cancellation
         )
+        debugLog(
+            "remote.relay.conflictedMaster.exitBegin " +
+            "relayPort=\(relayPort) \(debugConfigSummary())"
+        )
+        return true
     }
 
-    private static func runInheritedReverseRelayCancellation(
+    /// Runs blocking `ssh -O exit` without occupying the coordinator queue or
+    /// Swift's cooperative executor.
+    private static func runConflictedControlMasterExit(
         request: RemoteProcessRequest,
         processRunner: any RemoteSessionProcessRunning,
         cancellation: RemoteProcessCancellationOperation
-    ) async -> InheritedReverseRelayCancellationOutcome {
+    ) async -> ConflictedControlMasterExitOutcome {
         await withCheckedContinuation { continuation in
             // The process runner is intentionally blocking. Keep that legacy
             // boundary on a utility thread while the owning Task suspends.
             DispatchQueue.global(qos: .utility).async {
-                let outcome: InheritedReverseRelayCancellationOutcome
+                let outcome: ConflictedControlMasterExitOutcome
                 do {
                     let result = try processRunner.run(request, operation: cancellation)
                     if result.status == 0 {
-                        outcome = .cancelled
+                        outcome = .exited
                     } else {
                         let detail = bestErrorLine(stderr: result.stderr, stdout: result.stdout)
                             ?? "ssh exited \(result.status)"
@@ -92,9 +107,12 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    private func finishInheritedReverseRelayCancellationLocked(
+    /// Re-enters queue confinement and retries only after `ssh -O exit`
+    /// completes and this recovery phase still owns the token.
+    private func finishConflictedControlMasterExitLocked(
         token: UUID,
-        outcome: InheritedReverseRelayCancellationOutcome,
+        outcome: ConflictedControlMasterExitOutcome,
+        startupFailure: String,
         remotePath: String,
         relayPort: Int,
         relayID: String,
@@ -102,19 +120,25 @@ extension RemoteSessionCoordinator {
         localSocketPath: String
     ) {
         guard reverseRelayStartupPhase.token == token else { return }
-        reverseRelayStartupPhase = .idle
+        reverseRelayStartupPhase = .recoveryAttempted
 
         switch outcome {
-        case .cancelled:
+        case .exited:
             debugLog(
-                "remote.relay.inheritedForward.cancelled " +
+                "remote.relay.conflictedMaster.exited " +
                 "relayPort=\(relayPort) \(debugConfigSummary())"
             )
         case .ignored(let detail):
             debugLog(
-                "remote.relay.inheritedForward.cancelIgnored " +
+                "remote.relay.conflictedMaster.exitIgnored " +
                 "relayPort=\(relayPort) \(detail) \(debugConfigSummary())"
             )
+            publishDaemonStatus(
+                .error,
+                detail: "Remote SSH relay unavailable: \(startupFailure) (retry in 2s)"
+            )
+            scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+            return
         }
 
         guard !isStopping, daemonReady, reverseRelayProcess == nil else { return }
@@ -127,15 +151,16 @@ extension RemoteSessionCoordinator {
         )
     }
 
+    /// Cancels the in-flight OpenSSH recovery and invalidates its continuation.
     func cancelReverseRelayStartupLocked() {
-        guard case .cancellingInheritedForward(
+        guard case .exitingConflictedControlMaster(
             _,
             let task,
             let cancellation
         ) = reverseRelayStartupPhase else {
             return
         }
-        reverseRelayStartupPhase = .idle
+        reverseRelayStartupPhase = .recoveryAttempted
         task.cancel()
         cancellation.cancel()
     }

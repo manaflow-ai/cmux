@@ -7,17 +7,112 @@ import CmuxRemoteDaemon
 
 @Suite("Reverse relay startup lifecycle")
 struct RemoteSessionReverseRelayStartupTests {
+    @Test("Only the configured OpenSSH remote-bind error triggers migration recovery")
+    func identifiesConfiguredPortBindingFailure() {
+        #expect(RemoteSessionCoordinator.isReverseRelayPortBindingFailure(
+            "remote port forwarding failed for listen port 64044",
+            relayPort: 64_044
+        ))
+        #expect(RemoteSessionCoordinator.isReverseRelayPortBindingFailure(
+            "Error: remote port forwarding failed for listen port 64044",
+            relayPort: 64_044
+        ))
+        #expect(!RemoteSessionCoordinator.isReverseRelayPortBindingFailure(
+            "remote port forwarding failed for listen port 64045",
+            relayPort: 64_044
+        ))
+        #expect(!RemoteSessionCoordinator.isReverseRelayPortBindingFailure(
+            "Connection refused",
+            relayPort: 64_044
+        ))
+    }
+
+    @Test("Confirmed bind conflict exits the configured master once")
+    func confirmedConflictExitsConfiguredMaster() async {
+        let host = ReverseRelayRecoveryHost()
+        let runner = RecordingProcessRunner { _ in
+            RemoteCommandResult(
+                status: 255,
+                stdout: "",
+                stderr: "Control socket connect: No such file or directory"
+            )
+        }
+        let coordinator = Self.makeCoordinator(host: host, runner: runner)
+
+        let ignoredUnrelatedFailure = coordinator.queue.sync {
+            coordinator.beginConflictedControlMasterExitIfNeededLocked(
+                startupFailure: "Connection refused",
+                remotePath: "/tmp/cmuxd-remote",
+                relayPort: 64_044,
+                relayID: "relay-startup-cancellation",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-relay-startup-cancellation.sock"
+            )
+        }
+        #expect(!ignoredUnrelatedFailure)
+        #expect(runner.requests.isEmpty)
+
+        let beganRecovery = coordinator.queue.sync {
+            coordinator.beginConflictedControlMasterExitIfNeededLocked(
+                startupFailure: "Error: remote port forwarding failed for listen port 64044",
+                remotePath: "/tmp/cmuxd-remote",
+                relayPort: 64_044,
+                relayID: "relay-startup-cancellation",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-relay-startup-cancellation.sock"
+            )
+        }
+        #expect(beganRecovery)
+
+        var statuses = host.daemonStatuses.makeAsyncIterator()
+        let status = await statuses.next()
+        #expect(status?.detail?.contains("retry in 2s") == true)
+
+        let request = runner.requests.first
+        #expect(request?.executable == "/usr/bin/ssh")
+        #expect(request?.arguments.contains("-O") == true)
+        #expect(request?.arguments.contains("exit") == true)
+        #expect(request?.arguments.contains("-R") == false)
+        #expect(request?.arguments.contains("StrictHostKeyChecking=accept-new") == true)
+        #expect(request?.arguments.last == "user@example.test")
+
+        let recoveryAttempted = coordinator.queue.sync {
+            !coordinator.reverseRelayStartupPhase.isRecovering &&
+                coordinator.reverseRelayRestartTask != nil
+        }
+        #expect(recoveryAttempted)
+        let beganSecondRecovery = coordinator.queue.sync {
+            coordinator.beginConflictedControlMasterExitIfNeededLocked(
+                startupFailure: "remote port forwarding failed for listen port 64044",
+                remotePath: "/tmp/cmuxd-remote",
+                relayPort: 64_044,
+                relayID: "relay-startup-cancellation",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-relay-startup-cancellation.sock"
+            )
+        }
+        #expect(!beganSecondRecovery)
+        #expect(runner.requests.count == 1)
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     @Test(
-        "Stop cancels inherited-forward cleanup without waiting on its timeout",
+        "Stop cancels conflicted-master exit without waiting on its timeout",
         .timeLimit(.minutes(1))
     )
-    func stopCancelsInheritedForwardCleanup() async {
-        let runner = BlockingInheritedForwardCancellationRunner()
+    func stopCancelsConflictedMasterExit() async {
+        let runner = BlockingConflictedMasterExitRunner()
         let coordinator = Self.makeCoordinator(runner: runner)
 
         coordinator.queue.async {
-            coordinator.daemonReady = true
-            coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
+            _ = coordinator.beginConflictedControlMasterExitIfNeededLocked(
+                startupFailure: "remote port forwarding failed for listen port 64044",
+                remotePath: "/tmp/cmuxd-remote",
+                relayPort: 64_044,
+                relayID: "relay-startup-cancellation",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-relay-startup-cancellation.sock"
+            )
         }
 
         var started = runner.started.makeAsyncIterator()
@@ -28,14 +123,15 @@ struct RemoteSessionReverseRelayStartupTests {
         var cancelled = runner.cancelled.makeAsyncIterator()
         #expect(await cancelled.next() != nil)
         let startupCleared = coordinator.queue.sync {
-            coordinator.reverseRelayStartupPhase.isIdle &&
+            !coordinator.reverseRelayStartupPhase.isRecovering &&
                 coordinator.reverseRelayProcess == nil
         }
         #expect(startupCleared)
     }
 
     private static func makeCoordinator(
-        runner: BlockingInheritedForwardCancellationRunner
+        host: any RemoteSessionHosting = NoopRemoteSessionHost(),
+        runner: any RemoteSessionProcessRunning
     ) -> RemoteSessionCoordinator {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "user@example.test",
@@ -52,7 +148,7 @@ struct RemoteSessionReverseRelayStartupTests {
             persistentDaemonSlot: nil
         )
         return RemoteSessionCoordinator(
-            host: NoopRemoteSessionHost(),
+            host: host,
             configuration: configuration,
             proxyBroker: SSHOverrideUnusedRemoteProxyBroker(),
             connectionBroker: NativeSSHConnectionBroker(),
@@ -75,7 +171,7 @@ struct RemoteSessionReverseRelayStartupTests {
     }
 }
 
-private final class BlockingInheritedForwardCancellationRunner:
+private final class BlockingConflictedMasterExitRunner:
     RemoteSessionProcessRunning,
     @unchecked Sendable
 {
@@ -96,11 +192,11 @@ private final class BlockingInheritedForwardCancellationRunner:
         operation: (any RemoteTransferCancelling)?
     ) throws -> RemoteCommandResult {
         guard request.arguments.contains("-O"),
-              request.arguments.contains("cancel") else {
+              request.arguments.contains("exit") else {
             return RemoteCommandResult(status: 0, stdout: "", stderr: "")
         }
         guard let operation else {
-            throw BlockingInheritedForwardCancellationError.missingCancellationOperation
+            throw BlockingConflictedMasterExitError.missingCancellationOperation
         }
 
         try operation.throwIfCancelled()
@@ -115,6 +211,24 @@ private final class BlockingInheritedForwardCancellationRunner:
     }
 }
 
-private enum BlockingInheritedForwardCancellationError: Error {
+private enum BlockingConflictedMasterExitError: Error {
     case missingCancellationOperation
+}
+
+private final class ReverseRelayRecoveryHost: RemoteSessionHosting, @unchecked Sendable {
+    let daemonStatuses: AsyncStream<WorkspaceRemoteDaemonStatus>
+    private let daemonStatusContinuation: AsyncStream<WorkspaceRemoteDaemonStatus>.Continuation
+
+    init() {
+        (daemonStatuses, daemonStatusContinuation) = AsyncStream.makeStream()
+    }
+
+    func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {}
+    func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {
+        daemonStatusContinuation.yield(status)
+    }
+    func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {}
+    func publishPortsSnapshot(detectedByPanel: [UUID: [Int]], detected: [Int]) {}
+    func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
+    func publishBootstrapRemoteTTY(_ ttyName: String) {}
 }

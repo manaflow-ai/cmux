@@ -6,6 +6,8 @@ internal import Foundation
 /// `@unchecked Sendable` is safe because the lock protects the complete
 /// mutable state, and handlers are always invoked after releasing the lock.
 final class RemoteProcessCancellationOperation: RemoteTransferCancelling, @unchecked Sendable {
+    // lint:allow lock - Process termination handlers are synchronous and the
+    // critical region only exchanges a cancellation bit and one callback.
     private let lock = NSLock()
     private var cancelled = false
     private var cancellationHandler: (() -> Void)?

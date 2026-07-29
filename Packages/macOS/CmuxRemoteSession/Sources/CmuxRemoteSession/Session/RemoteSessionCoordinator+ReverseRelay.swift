@@ -25,10 +25,10 @@ extension RemoteSessionCoordinator {
             return
         }
         guard reverseRelayProcess == nil else { return }
-        guard reverseRelayStartupPhase.isIdle else { return }
+        guard reverseRelayStartupPhase.allowsRelayLaunch else { return }
 
         cancelReverseRelayRestartLocked()
-        beginInheritedReverseRelayCancellationLocked(
+        launchReverseRelayLocked(
             remotePath: remotePath,
             relayPort: relayPort,
             relayID: relayID,
@@ -37,6 +37,7 @@ extension RemoteSessionCoordinator {
         )
     }
 
+    /// Launches the app-owned relay without adopting a shared ControlMaster.
     func launchReverseRelayLocked(
         remotePath: String,
         relayPort: Int,
@@ -96,6 +97,16 @@ extension RemoteSessionCoordinator {
                     if cliRelayServer === relayServer {
                         cliRelayServer = nil
                     }
+                }
+                if beginConflictedControlMasterExitIfNeededLocked(
+                    startupFailure: startupFailure,
+                    remotePath: remotePath,
+                    relayPort: relayPort,
+                    relayID: relayID,
+                    relayToken: relayToken,
+                    localSocketPath: localSocketPath
+                ) {
+                    return
                 }
                 publishDaemonStatus(
                     .error,
@@ -405,5 +416,13 @@ extension RemoteSessionCoordinator {
         let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
+    }
+
+    /// Returns whether OpenSSH reported that this relay's remote listener is
+    /// already bound. The optional `Error:` prefix varies across OpenSSH builds.
+    static func isReverseRelayPortBindingFailure(_ detail: String, relayPort: Int) -> Bool {
+        let expected = "remote port forwarding failed for listen port \(relayPort)"
+        let normalized = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized == expected || normalized == "Error: \(expected)"
     }
 }
