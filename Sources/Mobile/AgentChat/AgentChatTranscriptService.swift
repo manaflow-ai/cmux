@@ -203,21 +203,20 @@ final class AgentChatTranscriptService {
         }
     }
 
-    /// Lists chat-capable sessions.
+    /// Lists sessions that can be presented in mobile chat.
     ///
-    /// - Parameter workspaceID: Workspace UUID string filter, or `nil`.
-    /// - Returns: Wire descriptors, most recent first.
-    func sessionDescriptors(workspaceID: String?) -> [ChatSessionDescriptor] {
-        registry.sessions(workspaceID: workspaceID).map(\.descriptor)
-    }
-
-    /// Lists raw session records for callers that must validate live
-    /// terminal bindings before exposing descriptors.
+    /// Live records remain visible while their transcript is being created.
+    /// Ended records use one shared readability policy so global and
+    /// workspace-scoped lists cannot disagree.
     ///
-    /// - Parameter workspaceID: Workspace UUID string filter, or `nil`.
-    /// - Returns: Matching records, most recent first.
-    func sessionRecords(workspaceID: String?) -> [AgentChatSessionRecord] {
-        registry.sessions(workspaceID: workspaceID)
+    /// - Parameter workspaceID: Stored workspace UUID filter, or `nil`.
+    ///   Workspace UI callers should pass `nil` and filter by current live
+    ///   surfaces because stored workspace identifiers can become stale.
+    /// - Returns: Eligible records, most recent first.
+    func listableSessionRecords(workspaceID: String?) -> [AgentChatSessionRecord] {
+        registry.sessions(workspaceID: workspaceID).filter { record in
+            record.state != .ended || shouldListEndedSession(record)
+        }
     }
 
     /// Observe-floor detection: discover live codex/claude sessions from the
@@ -258,7 +257,7 @@ final class AgentChatTranscriptService {
         switch record.agentKind {
         case .codex:
             return true
-        case .claude, .other:
+        case .claude, .omp, .other:
             return endedListability.shouldList(record, resolver: resolver, now: now())
         }
     }

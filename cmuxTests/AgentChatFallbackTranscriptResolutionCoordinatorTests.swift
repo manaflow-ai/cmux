@@ -329,10 +329,10 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
             )
             let record = ompRecord(sessionID: item.sessionID, cwd: item.cwd)
             #expect(
-                resolver.transcriptPath(
+                canonicalPath(resolver.transcriptPath(
                     for: record,
                     deadline: ContinuousClock.now.advanced(by: .seconds(1))
-                ) == transcript.path
+                )) == canonicalPath(transcript.path)
             )
         }
 
@@ -363,10 +363,10 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
         )
 
         #expect(
-            resolver.transcriptPath(
+            canonicalPath(resolver.transcriptPath(
                 for: ompRecord(sessionID: sessionID, cwd: cwd),
                 deadline: ContinuousClock.now.advanced(by: .seconds(1))
-            ) == transcript.path
+            )) == canonicalPath(transcript.path)
         )
     }
 
@@ -391,10 +391,10 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
             environment: ["XDG_DATA_HOME": xdgData.path]
         )
         #expect(
-            defaultResolver.transcriptPath(
+            canonicalPath(defaultResolver.transcriptPath(
                 for: ompRecord(sessionID: defaultSessionID, cwd: cwd),
                 deadline: ContinuousClock.now.advanced(by: .seconds(1))
-            ) == defaultTranscript.path
+            )) == canonicalPath(defaultTranscript.path)
         )
 
         let namedAppRoot = defaultAppRoot
@@ -416,10 +416,10 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
             ]
         )
         #expect(
-            namedResolver.transcriptPath(
+            canonicalPath(namedResolver.transcriptPath(
                 for: ompRecord(sessionID: namedSessionID, cwd: cwd),
                 deadline: ContinuousClock.now.advanced(by: .seconds(1))
-            ) == namedTranscript.path
+            )) == canonicalPath(namedTranscript.path)
         )
     }
 
@@ -474,16 +474,16 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
         let deadline = ContinuousClock.now.advanced(by: .seconds(1))
 
         #expect(
-            resolver.transcriptPath(
+            canonicalPath(resolver.transcriptPath(
                 for: ompRecord(sessionID: configSessionID, cwd: cwd),
                 deadline: deadline
-            ) == configTranscript.path
+            )) == canonicalPath(configTranscript.path)
         )
         #expect(
-            resolver.transcriptPath(
+            canonicalPath(resolver.transcriptPath(
                 for: ompRecord(sessionID: xdgSessionID, cwd: cwd),
                 deadline: deadline
-            ) == xdgTranscript.path
+            )) == canonicalPath(xdgTranscript.path)
         )
         #expect(
             resolver.transcriptPath(
@@ -542,6 +542,15 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
             surfaceID: UUID().uuidString
         )
     }
+    private func canonicalPath(_ path: String?) -> String? {
+        path.map {
+            URL(fileURLWithPath: $0)
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+                .path
+        }
+    }
+
     private func makeTemporaryDirectory(prefix: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)

@@ -51,7 +51,7 @@ actor AgentChatTranscriptTailer {
     ///
     /// - Parameters:
     ///   - sessionID: The session this transcript belongs to.
-    ///   - agentKind: Selects the parser (claude or codex).
+    ///   - agentKind: Selects the agent-specific transcript parser.
     ///   - path: Absolute transcript JSONL path.
     ///   - maxInitialLines: Backfill bound for the first read.
     ///   - maxCachedMessages: In-memory cache cap; oldest fall out.
@@ -257,6 +257,8 @@ actor AgentChatTranscriptTailer {
         switch agentKind {
         case .codex:
             return CodexTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: parseState)
+        case .omp:
+            return PiTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: parseState)
         case .claude, .other:
             return ClaudeTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: parseState)
         }

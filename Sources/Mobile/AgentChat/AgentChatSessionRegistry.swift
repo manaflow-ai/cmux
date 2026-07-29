@@ -360,7 +360,7 @@ final class AgentChatSessionRegistry {
     /// Dead processes register as ended.
     ///
     /// - Parameter agentSources: The agent store files to read.
-    func seedFromHookStores(agentSources: [String] = ["claude", "codex"]) async {
+    func seedFromHookStores(agentSources: [String] = ["claude", "codex", "omp"]) async {
         let store = hookStore
         let parsed: [(source: String, entries: [AgentChatHookSessionStore.Entry])] =
             await Task.detached(priority: .utility) {

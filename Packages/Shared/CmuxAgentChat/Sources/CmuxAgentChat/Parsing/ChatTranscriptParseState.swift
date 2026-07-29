@@ -6,12 +6,13 @@ import Foundation
 /// in different parse calls. The state carries the registry of tool
 /// invocations still awaiting a result so a later call can pair them, plus
 /// the last seen timestamp for lines that omit one. Pass the state returned
-/// by one ``ClaudeTranscriptParser/parse(lines:startingSeq:state:)`` or
-/// ``CodexTranscriptParser/parse(lines:startingSeq:state:)`` call into the
-/// next.
+/// by one ``ClaudeTranscriptParser/parse(lines:startingSeq:state:)``,
+/// ``CodexTranscriptParser/parse(lines:startingSeq:state:)``, or
+/// ``PiTranscriptParser/parse(lines:startingSeq:state:)`` call into the next.
 public struct ChatTranscriptParseState: Sendable, Equatable, Codable {
     /// Tool invocations awaiting a result, keyed by the transcript's tool
-    /// call identifier (`tool_use_id` for Claude, `call_id` for Codex).
+    /// call identifier (`tool_use_id` for Claude, `call_id` for Codex, or
+    /// `toolCallId` for Pi/OMP).
     ///
     /// Each value is the already-emitted message in its running form; when
     /// the result line arrives the parser re-emits a completed copy through
