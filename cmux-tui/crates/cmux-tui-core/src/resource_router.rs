@@ -1270,24 +1270,30 @@ fn execute_notification_effect(
             json!({}),
         )
     })?;
+    let session_id = mux.local_resource_context().map_err(resource_operation_error)?.session_id;
     mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
         body.to_string(),
         level,
         surface,
-        terminal_id,
+        terminal_id.clone(),
         created_at_ms,
     );
-    let value = match public_session_snapshot(mux)
-        .and_then(|snapshot| find_snapshot(&snapshot, "notifications", notification_id.as_str()))
-    {
-        Ok(value) => value,
-        Err(_) => {
-            let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
-            return Err(indeterminate_error(idempotency_key, "notification.create"));
-        }
-    };
+    let mut value = json!({
+        "id":notification_id,
+        "session_id":session_id,
+        "title":title,
+        "body":body,
+        "level":level.as_str(),
+        "created_at_ms":created_at_ms.to_string(),
+        "unread":surface
+            .and_then(|surface| mux.surface_notification(surface))
+            .is_some_and(|notification| notification.unread),
+    });
+    if let Some(terminal_id) = terminal_id {
+        value["terminal_id"] = json!(terminal_id);
+    }
     let outcome = ResourceEffectOutcome::Success(value.clone());
     let deltas = json!([{
         "kind":"upsert",
@@ -1764,6 +1770,16 @@ mod tests {
         assert_eq!(created["result"]["revision"], "1");
         assert_eq!(created["result"]["replayed"], false);
         let notification_id = created["result"]["value"]["id"].as_str().unwrap().to_string();
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["cursor"]["revision"], created["result"]["revision"]);
+        assert_eq!(snapshot["notifications"], json!([created["result"]["value"].clone()]));
+        let events = mux.resource_events_after(0).unwrap();
+        assert_eq!(events.head_revision.to_string(), created["result"]["revision"]);
+        assert_eq!(events.batches.len(), 1);
+        assert_eq!(events.batches[0].revision.to_string(), created["result"]["revision"]);
+        assert_eq!(events.batches[0].changes[0]["resource"], "notification");
+        assert_eq!(events.batches[0].changes[0]["id"], notification_id);
+        assert_eq!(events.batches[0].changes[0]["value"], created["result"]["value"]);
 
         let replayed = handle_resource_message(
             &mux,
