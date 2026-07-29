@@ -33,8 +33,11 @@ extension WorkspaceDetailView {
         .onChange(of: surface) { _, newSurface in
             if newSurface == .terminal {
                 // The surface stayed mounted under the chrome, so no attach
-                // autofocus fires on return; refocus explicitly.
-                if let refocusTerminalID {
+                // autofocus fires on return; refocus explicitly. Never while
+                // input is blocked: a disconnected terminal's keystrokes
+                // drain silently, and the blocked observer won't re-fire to
+                // resign a keyboard opened here.
+                if let refocusTerminalID, !terminalInputIsBlocked {
                     GhosttySurfaceView.focusInput(surfaceID: refocusTerminalID)
                 }
             } else {

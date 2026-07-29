@@ -404,8 +404,9 @@ struct WorkspaceDetailView: View {
     /// the RPC client still carries keystrokes, so blocking or resigning
     /// there would dismiss a working keyboard mid-typing. Block only when
     /// the workspace status itself is disconnected or foreground recovery
-    /// actually failed.
-    private var terminalInputIsBlocked: Bool {
+    /// actually failed. Internal so the +Surfaces chrome-return refocus can
+    /// share the same policy.
+    var terminalInputIsBlocked: Bool {
         guard toasts.isEnabled else { return false }
         if connectionStatus != .connected {
             return true
