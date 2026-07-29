@@ -45,19 +45,4 @@ extension GhosttyNSView {
         }
     }
 
-    /// A committed preedit does not prove that the physical submit key belongs
-    /// to the terminal. AppKit must delegate a command callback explicitly.
-    func replaysPhysicalKeyAfterLiteralPreeditCommit(
-        _: NSEvent
-    ) -> Bool {
-        false
-    }
-
-    /// A changed preedit caret proves that AppKit consumed the navigation key.
-    /// Only an explicit command callback can delegate it to the terminal.
-    func replaysPhysicalKeyAfterPreeditCaretMove(
-        _: NSEvent
-    ) -> Bool {
-        false
-    }
 }

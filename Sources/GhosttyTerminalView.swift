@@ -5489,7 +5489,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let markedTextBefore = textInputEditSession.markedText
-        let markedSelectionBefore = textInputEditSession.markedSelection
 
         // AppKit may redispatch a command event from performKeyEquivalent.
         // Interpretation now owns this event, so it must not remain replayable.
@@ -5515,20 +5514,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             contentsOf: textInputEditSession.finishEvent()
         )
         let markedTextAfter = textInputEditSession.markedText
-        let markedSelectionAfter = textInputEditSession.markedSelection
-        let preeditCaretMoved =
-            !markedTextBefore.isEmpty &&
-            markedTextBefore == markedTextAfter &&
-            markedSelectionBefore.location != NSNotFound &&
-            markedSelectionAfter.location != NSNotFound &&
-            markedSelectionBefore.length == 0 &&
-            markedSelectionAfter.length == 0 &&
-            markedSelectionBefore.location != markedSelectionAfter.location
         let committedText = keyTextAccumulator ?? []
-        let committedTextMatchesPreedit =
-            !markedTextBefore.isEmpty &&
-            markedTextAfter.isEmpty &&
-            committedText.joined() == markedTextBefore
 
 #if DEBUG
         let syncPreeditStart = ProcessInfo.processInfo.systemUptime
@@ -5544,8 +5530,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             textInputConsumed: textInputConsumed,
             textInputCommandPerformed: textInputCommandPerformed ?? false,
             committedText: committedText,
-            preeditCaretMoved: preeditCaretMoved,
-            committedTextMatchesPreedit: committedTextMatchesPreedit,
             event: terminalKeyInputEvent(
                 original: event,
                 translated: translationEvent
@@ -5624,11 +5608,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             translatedText: textForKeyEvent(translationEvent),
             rawText: event.characters,
             replaysPhysicalKeyAfterPreeditCommit:
-                replaysPhysicalKeyAfterPreeditCommit(translationEvent),
-            replaysPhysicalKeyAfterLiteralPreeditCommit:
-                replaysPhysicalKeyAfterLiteralPreeditCommit(translationEvent),
-            replaysPhysicalKeyAfterPreeditCaretMove:
-                replaysPhysicalKeyAfterPreeditCaretMove(translationEvent)
+                replaysPhysicalKeyAfterPreeditCommit(translationEvent)
         )
     }
 
