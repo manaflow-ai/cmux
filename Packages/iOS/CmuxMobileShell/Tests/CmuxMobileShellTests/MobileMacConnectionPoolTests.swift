@@ -220,6 +220,106 @@ import Testing
         #expect(candidates.first?.macDeviceID == representative.macDeviceID)
     }
 
+    @Test
+    func targetedOfflineAliasRetiresRepresentativeControlConnection()
+        async throws {
+        let route = try CmxAttachRoute(
+            id: "offline-alias-route",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_589)
+        )
+        func paired(_ id: String, seenAt: Date) -> MobilePairedMac {
+            MobilePairedMac(
+                macDeviceID: id,
+                displayName: "Alias Mac",
+                routes: [route],
+                createdAt: .distantPast,
+                lastSeenAt: seenAt,
+                isActive: false,
+                stackUserID: "user-1",
+                teamID: "team-1",
+                instanceTag: "alias-tag"
+            )
+        }
+        let oldAlias = paired("mac-old-offline-alias", seenAt: .distantPast)
+        let representative = paired(
+            "mac-new-offline-alias",
+            seenAt: Date()
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-1": [oldAlias, representative],
+            ],
+            blockedTeams: []
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: representative.macDeviceID,
+            instanceTag: "alias-tag",
+            displayName: "Alias Mac"
+        )
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: TransportBox()
+                ),
+                now: { Date() },
+                supportedRouteKinds: [.debugLoopback]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        await shell.loadPairedMacs()
+        let scope = MobileShellScopeSnapshot(
+            userID: "user-1",
+            teamID: "team-1",
+            generation: 0
+        )
+        let onlineInstance = Self.instance(
+            deviceID: oldAlias.macDeviceID,
+            tag: "alias-tag",
+            online: true
+        )
+        shell.applyPresenceUpdate(
+            Self.snapshot([onlineInstance]),
+            scope: scope
+        )
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions[
+                representative.macDeviceID
+            ] != nil
+        })
+
+        shell.applyPresenceUpdate(
+            .offline(
+                Self.instance(
+                    deviceID: oldAlias.macDeviceID,
+                    tag: "alias-tag",
+                    online: false
+                ),
+                reason: .goodbye
+            ),
+            scope: scope
+        )
+
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions[
+                representative.macDeviceID
+            ] == nil
+        })
+        #expect(
+            shell.workspacesByMac[representative.macDeviceID]?.status
+                == .unavailable
+        )
+        shell.secondaryMacSubscriptions[
+            representative.macDeviceID
+        ]?.cancel()
+    }
+
     @Test func teardownCancelsDeferredPostRouteAggregation() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
