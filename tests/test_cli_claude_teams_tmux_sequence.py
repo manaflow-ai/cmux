@@ -38,6 +38,7 @@ class FakeCmuxState:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.requests: list[str] = []
+        self.equalize_calls: list[dict[str, object]] = []
         self.workspace = {
             "id": INITIAL_WORKSPACE_ID,
             "ref": "workspace:1",
@@ -177,6 +178,9 @@ class FakeCmuxState:
                         "title": "teammate",
                     }
                 )
+                if params.get("focus") is True:
+                    self.current_pane_id = NEW_PANE_ID
+                    self.current_surface_id = NEW_SURFACE_ID
                 return {
                     "surface_id": NEW_SURFACE_ID,
                     "pane_id": NEW_PANE_ID,
@@ -187,6 +191,9 @@ class FakeCmuxState:
                 self.current_pane_id = surface["pane_id"]
                 return {"ok": True}
             if method == "pane.resize":
+                return {"ok": True}
+            if method == "workspace.equalize_splits":
+                self.equalize_calls.append(dict(params))
                 return {"ok": True}
             if method == "surface.send_text":
                 return {"ok": True}
@@ -344,10 +351,21 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
             print(f"FAIL: expected list-panes output {expected_panes!r}, got {pane_lines!r}")
             return 1
 
-        if state.current_pane_id != INITIAL_PANE_ID:
+        if state.current_pane_id != NEW_PANE_ID:
             print(
-                "FAIL: expected split-window to keep the leader pane focused, "
+                "FAIL: expected split-window without -d to focus the teammate pane, "
                 f"got current pane {state.current_pane_id!r}"
+            )
+            return 1
+
+        expected_equalize_call = {
+            "workspace_id": INITIAL_WORKSPACE_ID,
+            "orientation": "vertical",
+        }
+        if state.equalize_calls != [expected_equalize_call] * 2:
+            print(
+                "FAIL: expected split-window and main-vertical selection to "
+                f"equalize the teammate column, got {state.equalize_calls!r}"
             )
             return 1
 
