@@ -234,23 +234,38 @@ extension RestorableAgentSessionIndex {
         latestSessionIdForSolePanel: String?,
         sameWorkingDirectoryPanelCount: Int
     ) -> String? {
+        openCodeSessionIDResolutionForProcess(
+            arguments: arguments,
+            latestSessionIdForSolePanel: latestSessionIdForSolePanel,
+            sameWorkingDirectoryPanelCount: sameWorkingDirectoryPanelCount
+        )?.sessionId
+    }
+
+    static func openCodeSessionIDResolutionForProcess(
+        arguments: [String],
+        latestSessionIdForSolePanel: String?,
+        sameWorkingDirectoryPanelCount: Int
+    ) -> (
+        sessionId: String,
+        source: ProcessDetectedSessionIDSource
+    )? {
         if arguments.hasOpenCodeForkFlag {
             let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s")
             let assignedForkParentSessionId = arguments.openCodeForkParentSessionId
             if let explicitSessionId,
                let assignedForkParentSessionId,
                explicitSessionId != assignedForkParentSessionId {
-                return explicitSessionId
+                return (explicitSessionId, .explicit)
             }
             guard sameWorkingDirectoryPanelCount == 1 else { return nil }
             guard let latestSessionIdForSolePanel else { return nil }
             let forkParentSessionId = assignedForkParentSessionId ?? explicitSessionId
             guard let forkParentSessionId else { return nil }
             guard forkParentSessionId != latestSessionIdForSolePanel else { return nil }
-            return latestSessionIdForSolePanel
+            return (latestSessionIdForSolePanel, .inferredLatestSessionFile)
         }
         if let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s") {
-            return explicitSessionId
+            return (explicitSessionId, .explicit)
         }
         return nil
     }
@@ -330,11 +345,12 @@ extension RestorableAgentSessionIndex {
                     sessionMissesByWorkingDirectoryAndParent.insert(sessionCacheKey)
                 }
             }
-            guard let sessionId = openCodeFallbackSessionIdForProcess(
+            guard let sessionIDResolution = openCodeSessionIDResolutionForProcess(
                 arguments: process.observed.arguments,
                 latestSessionIdForSolePanel: latestSessionId,
                 sameWorkingDirectoryPanelCount: sameWorkingDirectoryPanelCount
             ) else { continue }
+            let sessionId = sessionIDResolution.sessionId
 
             let executablePath = openCodeExecutablePath(
                 observed: process.observed,
@@ -361,7 +377,7 @@ extension RestorableAgentSessionIndex {
                 updatedAt: capturedAt,
                 processIDs: scopedProcessIDsByPanelKey[process.panelKey] ?? [],
                 agentProcessIDs: [process.processID],
-                sessionIDSource: .explicit
+                sessionIDSource: sessionIDResolution.source
             )
         }
 

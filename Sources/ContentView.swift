@@ -5609,6 +5609,7 @@ struct ContentView: View {
             snapshot.sessionId,
             snapshot.workingDirectory ?? "",
             snapshot.transcriptPath ?? "",
+            snapshot.sessionIDProvenance?.rawValue ?? "unknown",
             isRemoteTerminal ? "remote" : "local",
             launchCommand?.launcher ?? "",
             launchCommand?.executablePath ?? "",

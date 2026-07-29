@@ -178,6 +178,36 @@ struct AgentConversationTransferSourceTests {
         ) == nil)
     }
 
+    @Test
+    func legacyOpenCodeSnapshotWithoutProvenanceIsNotTransferable() throws {
+        let currentSnapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "legacy-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                processDetectedLauncher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode", "--session", "legacy-session"],
+                workingDirectory: nil,
+                environment: ["HOME": "/tmp/legacy-opencode-home"]
+            )
+        )
+        let encoded = try JSONEncoder().encode(currentSnapshot)
+        var legacyObject = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        legacyObject.removeValue(forKey: "sessionIDProvenance")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let legacySnapshot = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: legacyData
+        )
+
+        #expect(legacySnapshot.sessionIDProvenance == nil)
+        #expect(!AgentConversationSource(
+            snapshot: legacySnapshot
+        ).hasDeterministicTranscriptSource)
+    }
+
     @Test(arguments: ["hermes", "hermes-agent"])
     func processDetectedHermesCapturesHomeWithoutReplayingIt(
         launcher: String

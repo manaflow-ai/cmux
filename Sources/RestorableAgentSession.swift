@@ -776,6 +776,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// Source-owned transcript path when the harness exposes one. Database-backed
     /// harnesses leave this nil and resolve through a conversation reader adapter.
     var transcriptPath: String? = nil
+    /// Whether the session identifier is panel-specific enough to authorize
+    /// database-backed conversation export. Missing legacy provenance fails closed.
+    var sessionIDProvenance: AgentSessionIDProvenance? = .authoritative
     /// Last hook-observed permission mode; re-applied as `--permission-mode` on
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil
@@ -1333,7 +1336,25 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
 
-        for (key, detected) in detectedSnapshots {
+        for (key, rawDetected) in detectedSnapshots {
+            var detectedSnapshot = rawDetected.snapshot
+            detectedSnapshot.sessionIDProvenance = switch rawDetected.sessionIDSource {
+            case .explicit:
+                .authoritative
+            case .inferredLatestSessionFile:
+                .inferredLatestSessionFile
+            case .forkParentFallback:
+                .forkParentFallback
+            case .relaunchOnly:
+                .relaunchOnly
+            }
+            let detected: ProcessDetectedSnapshotEntry = (
+                snapshot: detectedSnapshot,
+                updatedAt: rawDetected.updatedAt,
+                processIDs: rawDetected.processIDs,
+                agentProcessIDs: rawDetected.agentProcessIDs,
+                sessionIDSource: rawDetected.sessionIDSource
+            )
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]

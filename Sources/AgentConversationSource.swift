@@ -21,6 +21,7 @@ nonisolated struct AgentConversationSource: Sendable {
     let transcriptPath: String?
     let registration: CmuxVaultAgentRegistration?
     let launchEnvironment: [String: String]
+    let sessionIDProvenance: AgentSessionIDProvenance?
 
     init(snapshot: SessionRestorableAgentSnapshot) {
         kind = snapshot.kind
@@ -29,6 +30,7 @@ nonisolated struct AgentConversationSource: Sendable {
         transcriptPath = snapshot.transcriptPath
         registration = snapshot.registration
         launchEnvironment = snapshot.launchCommand?.environment ?? [:]
+        sessionIDProvenance = snapshot.sessionIDProvenance
     }
 
     var sessionAgent: SessionAgent {
@@ -66,6 +68,7 @@ nonisolated struct AgentConversationSource: Sendable {
         switch kind {
         case .opencode:
             openCodeDatabasePath != nil
+                && sessionIDProvenance == .authoritative
         case .hermesAgent:
             hermesStateDatabaseURL != nil
         default:
