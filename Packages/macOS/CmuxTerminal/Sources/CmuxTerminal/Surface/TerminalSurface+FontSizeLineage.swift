@@ -3,15 +3,8 @@ public import Foundation
 internal import GhosttyKit
 
 enum GhosttyFontSizeBindingAction {
-    private static let protocolLocale =
-        Locale(identifier: "en_US_POSIX")
-
     static func setFontSize(_ points: Float) -> String {
-        String(
-            format: "set_font_size:%.3f",
-            locale: protocolLocale,
-            points
-        )
+        "set_font_size:" + String(points)
     }
 }
 

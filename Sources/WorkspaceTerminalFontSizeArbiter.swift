@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminal
 
 /// App-lifecycle owner for ordering work that spans window coordinators.
 /// Production injects one instance into every window. Unit tests receive a
@@ -86,6 +87,7 @@ final class WorkspaceTerminalFontSizeArbiter {
     private var deferredCoordinatorJoinHead = 0
     private var deferredCoordinatorJoinsAfterFontSizeWorkIdle:
         [DeferredWorkspaceTerminalFontSizeCoordinatorJoin] = []
+    private var activeDeferredProjectionTokens: Set<UUID> = []
     private var isPromotingDeferredCoordinatorJoins = false
     private var isCancellingWindowOwnedWork = false
     private var isDeferredCoordinatorJoinPromotionScheduled = false
@@ -478,7 +480,9 @@ final class WorkspaceTerminalFontSizeArbiter {
                 id: join.workspaceId,
                 reference: join.workspaceReference
             ) else {
-                popDeferredCoordinatorJoin()
+                popDeferredCoordinatorJoin(
+                    transferProjectionToken: false
+                )
                 preferred.releaseRetentionIfIdle()
                 continue
             }
@@ -535,7 +539,9 @@ final class WorkspaceTerminalFontSizeArbiter {
                 eventCoordinator.scheduleOutstandingContinuation()
                 return
             }
-            popDeferredCoordinatorJoin()
+            popDeferredCoordinatorJoin(
+                transferProjectionToken: true
+            )
             eventCoordinator.claimWorkspace(workspace)
             if join.includesWindowDock {
                 eventCoordinator.claimWindowDockSlot(
@@ -600,7 +606,12 @@ final class WorkspaceTerminalFontSizeArbiter {
                     closingManager != nil
                     && original.workspaceReference.value?
                         .owningTabManager === closingManager
-                guard !workspaceIsClosing else { return nil }
+                guard !workspaceIsClosing else {
+                    retireDeferredProjectionToken(
+                        original.projectionToken
+                    )
+                    return nil
+                }
                 var join = original
                 if join.includesWindowDock,
                    join.windowDockSlot ===
@@ -798,14 +809,32 @@ final class WorkspaceTerminalFontSizeArbiter {
         where shouldRemove:
             (DeferredWorkspaceTerminalFontSizeCoordinatorJoin) -> Bool
     ) {
-        let remaining = deferredCoordinatorJoins[
+        let pending = deferredCoordinatorJoins[
             deferredCoordinatorJoinHead...
-        ].filter { !shouldRemove($0) }
-        deferredCoordinatorJoins = Array(remaining)
+        ]
+        let removed = pending.filter(shouldRemove)
+        deferredCoordinatorJoins = pending.filter {
+            !shouldRemove($0)
+        }
         deferredCoordinatorJoinHead = 0
-        deferredCoordinatorJoinsAfterFontSizeWorkIdle.removeAll(
-            where: shouldRemove
-        )
+        let removedAfterFontSizeWorkIdle =
+            deferredCoordinatorJoinsAfterFontSizeWorkIdle.filter(
+                shouldRemove
+            )
+        deferredCoordinatorJoinsAfterFontSizeWorkIdle =
+            deferredCoordinatorJoinsAfterFontSizeWorkIdle.filter {
+                !shouldRemove($0)
+            }
+        for join in removed {
+            retireDeferredProjectionToken(
+                join.projectionToken
+            )
+        }
+        for join in removedAfterFontSizeWorkIdle {
+            retireDeferredProjectionToken(
+                join.projectionToken
+            )
+        }
         performFontSizeWorkIdleActionsIfPossible()
     }
 
@@ -938,7 +967,30 @@ final class WorkspaceTerminalFontSizeArbiter {
         } else {
             deferredCoordinatorJoins.append(join)
         }
+        activateDeferredProjectionToken(join.projectionToken)
         return true
+    }
+
+    private func activateDeferredProjectionToken(
+        _ token: UUID
+    ) {
+        precondition(
+            activeDeferredProjectionTokens.insert(token).inserted
+        )
+        TerminalSurface
+            .activateFontSizeChangeReconciliationToken(token)
+    }
+
+    private func retireDeferredProjectionToken(
+        _ token: UUID
+    ) {
+        guard activeDeferredProjectionTokens.remove(token) != nil
+        else {
+            return
+        }
+        TerminalSurface.clearFontSizeChangeReconciledForTransfer(
+            token: token
+        )
     }
 
     private func signalRetainedCoordinators() {
@@ -1022,7 +1074,22 @@ final class WorkspaceTerminalFontSizeArbiter {
         }
     }
 
-    private func popDeferredCoordinatorJoin() {
+    private func popDeferredCoordinatorJoin(
+        transferProjectionToken: Bool
+    ) {
+        let projectionToken =
+            deferredCoordinatorJoins[
+                deferredCoordinatorJoinHead
+            ].projectionToken
+        if transferProjectionToken {
+            precondition(
+                activeDeferredProjectionTokens.remove(
+                    projectionToken
+                ) != nil
+            )
+        } else {
+            retireDeferredProjectionToken(projectionToken)
+        }
         deferredCoordinatorJoinHead += 1
         if deferredCoordinatorJoinHead
                 == deferredCoordinatorJoins.count {
