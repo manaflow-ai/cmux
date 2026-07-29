@@ -99,12 +99,10 @@ actor MobileCoreRPCSession {
     private var writeQueue: AsyncStream<PendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
     private var activeWrite: ActiveWrite?
-    private var transportCloseTask: Task<Void, Never>?
-    private var transportCloseTaskID: UUID?
-    private var pendingTransportCloses: [(
-        transport: any CmxByteTransport,
-        lease: MobileRPCConnectAttemptLease?
-    )] = []
+    /// Each installed close has independent lifetime and is also retained by
+    /// the shared registry, so session deallocation cannot strand a queued
+    /// transport or its route lease.
+    private var transportCloseTasks: [UUID: Task<Void, Never>] = [:]
     var abandonedConnectionCleanupTasks: [UUID: Task<Void, Never>] = [:]
 
     init(
@@ -317,12 +315,15 @@ actor MobileCoreRPCSession {
     /// block on this bounded drain, but a same-peer ownership handoff observes
     /// it before redialing.
     func waitForTransportDrain() async {
-        while transportCloseTask != nil
+        while !transportCloseTasks.isEmpty
             || !abandonedConnectionCleanupTasks.isEmpty {
-            let installedTransportClose = transportCloseTask
+            let installedTransportCloses =
+                Array(transportCloseTasks.values)
             let abandonedConnectCleanups =
                 Array(abandonedConnectionCleanupTasks.values)
-            await installedTransportClose?.value
+            for close in installedTransportCloses {
+                await close.value
+            }
             for cleanup in abandonedConnectCleanups {
                 await cleanup.value
             }
@@ -350,13 +351,6 @@ actor MobileCoreRPCSession {
            !abandonedConnectionCleanupTasks.isEmpty {
             throw MobileShellConnectionError.requestTimedOut
         }
-        // One active close plus one queued close is the cleanup capacity. A
-        // non-cooperative close can delay one later recovery, but cannot retain
-        // an unbounded chain of transports.
-        guard pendingTransportCloses.isEmpty else {
-            throw MobileShellConnectionError.connectionClosed
-        }
-
         let waiterID = UUID()
         let connectionID: UUID
         let connectLease: MobileRPCConnectAttemptLease?
@@ -393,6 +387,30 @@ actor MobileCoreRPCSession {
             let candidate: any CmxByteTransport
             do {
                 candidate = try makeTransport()
+            } catch let rejected as MobileRPCRejectedTransportDisposal {
+                await connectAttemptRegistry.handOffPhysicalCleanup(
+                    lease: connectLease
+                ) {
+                    await rejected.task.value
+                }
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
+                let error = MobileShellConnectionError.connectionClosed
+                if let diagnosticTransport,
+                   let transportConnectObserver {
+                    transportConnectObserver(
+                        .failed(
+                            attemptID: connectAttemptID,
+                            transport: diagnosticTransport,
+                            failure: DiagnosticFailureKind.classify(error),
+                            elapsedMilliseconds: Self.elapsedMilliseconds(
+                                since: connectStartedAt
+                            )
+                        )
+                    )
+                }
+                throw error
             } catch {
                 await connectAttemptRegistry.finishConnect(lease: connectLease)
                 if error is CancellationError || Task.isCancelled {
@@ -1023,23 +1041,18 @@ actor MobileCoreRPCSession {
         await tearDown(error: error)
     }
 
-    /// Serializes physical transport cleanup off this actor. Session state is
-    /// already detached, so a hanging close cannot block the replacement dial.
+    /// Detaches one installed transport close from session request handling and
+    /// transfers its exact task to the shared physical-resource registry.
     private func enqueueTransportClose(
         _ transport: any CmxByteTransport,
         lease: MobileRPCConnectAttemptLease?
     ) async {
-        guard transportCloseTask == nil else {
-            pendingTransportCloses.append((transport, lease))
-            return
-        }
         let taskID = UUID()
-        transportCloseTaskID = taskID
         let closeTask = Task.detached { [weak self] in
             await transport.close()
             await self?.transportCloseDidFinish(taskID: taskID)
         }
-        transportCloseTask = closeTask
+        transportCloseTasks[taskID] = closeTask
         await connectAttemptRegistry.handOffPhysicalCleanup(
             lease: lease
         ) {
@@ -1047,15 +1060,7 @@ actor MobileCoreRPCSession {
         }
     }
 
-    private func transportCloseDidFinish(taskID: UUID) async {
-        guard transportCloseTaskID == taskID else { return }
-        transportCloseTask = nil
-        transportCloseTaskID = nil
-        guard !pendingTransportCloses.isEmpty else { return }
-        let next = pendingTransportCloses.removeFirst()
-        await enqueueTransportClose(
-            next.transport,
-            lease: next.lease
-        )
+    private func transportCloseDidFinish(taskID: UUID) {
+        transportCloseTasks[taskID] = nil
     }
 }

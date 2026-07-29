@@ -769,6 +769,116 @@ import Testing
         await session.waitForTransportDrain()
     }
 
+    @Test func recoveredInstalledClosesOwnIndependentCleanupLifetimes()
+        async throws {
+        let registry = MobileRPCConnectAttemptRegistry()
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 58_986
+        )
+        let key = MobileRPCConnectAttemptKey(route: route)
+        let first = ReleasableConnectTransport(holdsClose: true)
+        let second = ReleasableConnectTransport(holdsClose: true)
+        await first.releaseConnect()
+        await second.releaseConnect()
+        let factory = SequencedTransportFactory([first, second])
+        let session = MobileCoreRPCSession(
+            connectAttemptKey: key,
+            connectAttemptRegistry: registry,
+            makeTransport: {
+                try factory.makeTransport(for: route)
+            }
+        )
+        func send(_ id: String) async throws {
+            _ = try await session.send(
+                payload: MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    id: id
+                ),
+                requestID: id,
+                deadlineUptimeNanoseconds:
+                    DispatchTime.now().uptimeNanoseconds
+                    + 60_000_000_000
+            )
+        }
+
+        try await send("first-installed-close")
+        await session.tearDown(error: .connectionClosed)
+        await first.waitUntilCloseStarted()
+        try await send("second-installed-close")
+        await session.tearDown(error: .connectionClosed)
+        await second.waitUntilCloseStarted()
+
+        #expect(await registry.beginConnect(key: key) == .cleanupBlocked)
+        await first.releaseClose()
+        await second.releaseClose()
+        await session.waitForTransportDrain()
+        var reopenedLease: MobileRPCConnectAttemptLease?
+        for _ in 0..<20 {
+            if case let .granted(lease) =
+                await registry.beginConnect(key: key) {
+                reopenedLease = lease
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(reopenedLease != nil)
+        await registry.finishConnect(lease: reopenedLease)
+    }
+
+    @Test func rejectedFactoryTransportDisposalRetainsCleanupAdmission()
+        async throws {
+        let registry = MobileRPCConnectAttemptRegistry()
+        let key = debugConnectAttemptKey(port: 58_985)
+        let lifecycleGate = MobileRPCClientLifecycleGate()
+        let transport = ReleasableConnectTransport(holdsClose: true)
+        let session = MobileCoreRPCSession(
+            connectAttemptKey: key,
+            connectAttemptRegistry: registry,
+            makeTransport: {
+                try lifecycleGate.makeTransport {
+                    lifecycleGate.retire()
+                    return transport
+                }
+            }
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            id: "factory-disposal-admission"
+        )
+
+        do {
+            _ = try await session.send(
+                payload: request,
+                requestID: "factory-disposal-admission",
+                deadlineUptimeNanoseconds:
+                    DispatchTime.now().uptimeNanoseconds
+                    + 60_000_000_000
+            )
+            Issue.record("Expected retired factory admission to fail")
+        } catch MobileShellConnectionError.connectionClosed {
+        } catch {
+            Issue.record("Expected connectionClosed, got \(error)")
+        }
+        await transport.waitUntilCloseStarted()
+        guard case let .granted(recoveryLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Expected one recovery beside factory disposal")
+            await transport.releaseClose()
+            return
+        }
+        let secondCleanup = PhysicalCleanupGate()
+        await registry.handOffPhysicalCleanup(lease: recoveryLease) {
+            await secondCleanup.wait()
+        }
+        #expect(await registry.beginConnect(key: key) == .cleanupBlocked)
+
+        await transport.releaseClose()
+        await secondCleanup.release()
+        await lifecycleGate.waitForRetiredTransportDisposals()
+    }
+
     @Test func callerCancelledRPCClosesSlowConnectionBeforeSendingAuthenticatedRequest() async throws {
         let transport = SlowConnectTimeoutTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59126)
