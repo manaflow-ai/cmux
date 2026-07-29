@@ -39,6 +39,8 @@ use crate::identity::{AuthDatabase, IdentityError};
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
+#[cfg(unix)]
+use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
@@ -1361,27 +1363,12 @@ pub async fn serve_unix(
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let parent_metadata = match std::fs::symlink_metadata(parent) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            std::fs::create_dir_all(parent).map_err(|error| {
-                DaemonError::Protocol(format!("could not create socket directory: {error}"))
-            })?;
-            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).map_err(
-                |error| {
-                    DaemonError::Protocol(format!("could not secure socket directory: {error}"))
-                },
-            )?;
-            std::fs::symlink_metadata(parent).map_err(|error| {
-                DaemonError::Protocol(format!("could not inspect socket directory: {error}"))
-            })?
-        }
-        Err(error) => {
-            return Err(DaemonError::Protocol(format!(
-                "could not inspect socket directory: {error}"
-            )));
-        }
-    };
+    ensure_secure_directory(parent, DirectoryAccess::OwnerControlled).map_err(|error| {
+        DaemonError::Protocol(format!("could not secure socket directory: {error}"))
+    })?;
+    let parent_metadata = std::fs::symlink_metadata(parent).map_err(|error| {
+        DaemonError::Protocol(format!("could not inspect socket directory: {error}"))
+    })?;
     validate_unix_socket_directory(parent, &parent_metadata, unsafe { libc::geteuid() })?;
     if let Ok(metadata) = std::fs::symlink_metadata(&path) {
         if !metadata.file_type().is_socket() {

@@ -20,6 +20,7 @@ use tokio::sync::{Semaphore, oneshot, watch};
 
 use crate::daemon::RemoteDaemon;
 use crate::identity::{EnrollmentRelayAccess, IdentityError};
+use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_ADMIN_CONNECTIONS: usize = 32;
@@ -402,19 +403,7 @@ async fn prepare_socket_path(path: &Path) -> Result<(), AdminError> {
     let parent = path
         .parent()
         .ok_or_else(|| AdminError::Protocol("admin socket path has no parent".into()))?;
-    let parent_existed = parent.exists();
-    std::fs::create_dir_all(parent)?;
-    if !parent_existed {
-        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
-    } else {
-        let mode = std::fs::metadata(parent)?.permissions().mode();
-        if mode & 0o022 != 0 && mode & 0o1000 == 0 {
-            return Err(AdminError::Protocol(format!(
-                "admin socket directory {} is writable by other users and is not sticky",
-                parent.display()
-            )));
-        }
-    }
+    ensure_secure_directory(parent, DirectoryAccess::OwnerControlled)?;
     if let Ok(metadata) = std::fs::symlink_metadata(path) {
         if !metadata.file_type().is_socket() {
             return Err(AdminError::Protocol(format!(

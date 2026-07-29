@@ -16,6 +16,7 @@ use crate::crypto::{
     AuthGrant, AuthKind, AuthRequest, ConnectionAttemptId, CryptoError, InboundAuthEvidence,
     ServerAuthenticator, StaticIdentity, public_key_fingerprint,
 };
+use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 
 const STATE_VERSION: u32 = 1;
 const MAX_INVITATION_TTL: Duration = Duration::from_secs(5 * 60);
@@ -1454,13 +1455,7 @@ fn sync_parent_directory(path: &Path) -> Result<(), IdentityError> {
 }
 
 fn secure_directory(path: &Path) -> Result<(), IdentityError> {
-    fs::create_dir_all(path).map_err(IdentityError::Io)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(IdentityError::Io)?;
-    }
-    Ok(())
+    ensure_secure_directory(path, DirectoryAccess::OwnerOnly).map_err(IdentityError::Io)
 }
 
 fn restrict_file(path: &Path) -> Result<(), IdentityError> {

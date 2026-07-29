@@ -15,6 +15,7 @@ mod mux_lanes;
 pub mod observability;
 pub mod provider;
 pub mod secret_file;
+pub mod secure_directory;
 pub mod service;
 pub mod services;
 pub mod session;

@@ -32,6 +32,7 @@ use cmux_remote::provider::{
     SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
     register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
 };
+use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
@@ -1186,11 +1187,7 @@ async fn prepare_client_socket(path: &Path) -> anyhow::Result<()> {
 
 #[cfg(unix)]
 fn prepare_client_socket_directory(path: &Path) -> anyhow::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-
-    let mut builder = fs::DirBuilder::new();
-    builder.recursive(true).mode(0o700);
-    builder.create(path)?;
+    ensure_secure_directory(path, DirectoryAccess::OwnerControlled)?;
     let metadata = fs::symlink_metadata(path)?;
     validate_client_socket_directory(path, &metadata, unsafe { libc::geteuid() })
 }
@@ -1322,8 +1319,6 @@ async fn run_daemon(
     ready: mpsc::SyncSender<Result<DaemonRuntimeInfo, String>>,
 ) -> anyhow::Result<()> {
     let setup = async {
-        fs::create_dir_all(&state_dir)
-            .with_context(|| format!("could not create {}", state_dir.display()))?;
         let auth =
             AuthDatabase::load_or_create(state_dir.join("auth"), options.session.clone(), true)?;
         let (daemon, clients) = cmux_remote::daemon::RemoteDaemon::with_policy(
@@ -1947,7 +1942,7 @@ mod tests {
             directory.path().join("missing-mux.sock"),
             DaemonRuntimeOptions {
                 session: "symlinked-state".into(),
-                state_dir: Some(alias.clone()),
+                state_dir: Some(alias),
                 link_socket: Some(directory.path().join("sockets/link.sock")),
                 admin_socket: Some(directory.path().join("sockets/admin.sock")),
                 direct_websocket: None,

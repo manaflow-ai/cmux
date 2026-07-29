@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::Path;
@@ -25,6 +25,7 @@ use crate::provider::{
     ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
     sanitized_route,
 };
+use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 
 /// ALPN negotiated by cmux remote sessions over Iroh.
 pub const CMUX_IROH_ALPN: &[u8] = b"dev.cmux.remote/1";
@@ -79,13 +80,7 @@ impl FromStr for IrohPathMode {
 /// hints valid across daemon restarts.
 pub fn load_or_create_iroh_secret(path: &Path) -> Result<SecretKey, ProviderError> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(io_provider_error)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
-                .map_err(io_provider_error)?;
-        }
+        ensure_secure_directory(parent, DirectoryAccess::OwnerOnly).map_err(io_provider_error)?;
     }
     if path.exists() {
         let mut options = OpenOptions::new();
@@ -1270,7 +1265,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let target = directory.path().join("target");
         let alias = directory.path().join("alias");
-        fs::create_dir(&target).unwrap();
+        std::fs::create_dir(&target).unwrap();
         symlink(&target, &alias).unwrap();
 
         let result = load_or_create_iroh_secret(&alias.join("missing/iroh.key"));
