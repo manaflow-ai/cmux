@@ -2,7 +2,6 @@
 // Public resource conformance adapter for the TypeScript Node entrypoint.
 
 import {
-  ExternalMachineSpecifier,
   RendererGrant,
   ResourceError,
   StreamError,
@@ -10,6 +9,7 @@ import {
   selectCurrent,
   selectName,
   sessionId,
+  shell,
   terminalId,
   workspaceId,
 } from "../../../typescript/dist/src/index.js";
@@ -45,6 +45,95 @@ function mutationValue(result) {
     generation: result.generation,
     revision: result.revision,
     replayed: result.replayed,
+  };
+}
+
+function requiredHandleId(handle, label) {
+  const identifier = handle?.id;
+  if (typeof identifier !== "string") {
+    throw new Error(`created path omitted ${label}`);
+  }
+  return identifier;
+}
+
+function createdPathValue(path) {
+  const result = {
+    kind: path.kind,
+    workspace_id: requiredHandleId(path.workspace, "workspace_id"),
+  };
+  if (path.kind === "workspace") return result;
+  Object.assign(result, {
+    screen_id: requiredHandleId(path.screen, "screen_id"),
+    pane_id: requiredHandleId(path.pane, "pane_id"),
+    tab_id: requiredHandleId(path.tab, "tab_id"),
+  });
+  if (path.kind === "terminal") {
+    result.terminal_id = requiredHandleId(path.terminal, "terminal_id");
+    return result;
+  }
+  if (path.kind === "browser") {
+    result.browser_id = requiredHandleId(path.browser, "browser_id");
+    return result;
+  }
+  throw new Error(`unsupported created path kind ${String(path.kind)}`);
+}
+
+function creationResolutionValue(resolution) {
+  const result = {
+    correlation_key: resolution.correlationKey,
+    state: resolution.state,
+    recovery: resolution.recovery,
+  };
+  if (resolution.operation !== undefined) {
+    result.operation = resolution.operation;
+  }
+  if (resolution.idempotencyKey !== undefined) {
+    result.idempotency_key = resolution.idempotencyKey;
+  }
+  if (resolution.createdPath !== undefined) {
+    result.created_path = createdPathValue(resolution.createdPath);
+  }
+  if (resolution.generation !== undefined) {
+    result.generation = resolution.generation;
+  }
+  if (resolution.revision !== undefined) {
+    result.revision = resolution.revision;
+  }
+  return result;
+}
+
+function exitOutcomeValue(outcome) {
+  if (outcome.kind === "exit") {
+    return { kind: outcome.kind, code: outcome.code };
+  }
+  if (outcome.kind === "signal") {
+    return {
+      kind: outcome.kind,
+      signal: outcome.signal,
+      core_dumped: outcome.coreDumped,
+    };
+  }
+  if (outcome.kind === "unknown") {
+    return { kind: outcome.kind, reason: outcome.reason };
+  }
+  throw new Error(`unsupported terminal exit kind ${String(outcome.kind)}`);
+}
+
+function terminalWaitExitValue(value) {
+  const result = {
+    state: value.state,
+    terminal_id: value.terminalId,
+    lifecycle: value.lifecycle,
+    revision: value.revision,
+  };
+  if (value.state === "pending") return result;
+  if (value.state !== "exited") {
+    throw new Error(`unsupported terminal wait state ${String(value.state)}`);
+  }
+  return {
+    ...result,
+    outcome: exitOutcomeValue(value.outcome),
+    exited_at: value.exitedAt,
   };
 }
 
@@ -219,12 +308,101 @@ async function liveRestart(
   };
 }
 
+async function liveCreationExit(client, payload) {
+  const current = liveSession(client);
+  const workspace = current.workspace(workspaceId(payload.expected_stable_id));
+  const screenCreated = await workspace.createScreen({}, {
+    idempotencyKey: `${payload.key_prefix}-runtime-screen`,
+  });
+  const pane = screenCreated.value.pane;
+  if (!pane?.id) throw new Error("screen.create omitted pane handle");
+
+  const correlationKey = `${payload.key_prefix}-terminal-correlation`;
+  const runResult = await pane.run(
+    { command: shell(payload.exit_shell) },
+    {
+      idempotencyKey: `${payload.key_prefix}-terminal-run`,
+      correlationKey,
+    },
+  );
+  const path = createdPathValue(runResult.value);
+  const terminal = runResult.value.terminal;
+  if (!terminal?.id) throw new Error("pane.run omitted terminal handle");
+
+  const pending = terminalWaitExitValue(
+    await terminal.waitExit(decimalString(payload.pending_timeout_ms)),
+  );
+  const resolution = creationResolutionValue(
+    await current.creation.resolve(correlationKey),
+  );
+  const exited = terminalWaitExitValue(
+    await terminal.waitExit(decimalString(payload.exit_timeout_ms)),
+  );
+  const resolvedPath = resolution.created_path;
+  if (JSON.stringify(resolvedPath) !== JSON.stringify(path)) {
+    throw new Error("creation resolution returned a different terminal path");
+  }
+
+  return {
+    correlation_key: correlationKey,
+    created_path: path,
+    pending_terminal_id: pending.terminal_id,
+    pending_state: pending.state,
+    pending_lifecycle: pending.lifecycle,
+    creation_state: resolution.state,
+    creation_recovery: resolution.recovery,
+    creation_generation: resolution.generation,
+    creation_revision: resolution.revision,
+    exit_state: exited.state,
+    exit_terminal_id: exited.terminal_id,
+    exit_lifecycle: exited.lifecycle,
+    exit_kind: exited.outcome?.kind,
+    exit_code: exited.outcome?.code,
+    exited_at: exited.exited_at,
+    exit_revision: exited.revision,
+  };
+}
+
+async function liveExitRestart(client, payload) {
+  const current = liveSession(client);
+  const resolution = creationResolutionValue(
+    await current.creation.resolve(payload.expected_correlation_key),
+  );
+  const terminal = current.terminal(
+    terminalId(payload.expected_created_path.terminal_id),
+  );
+  const exited = terminalWaitExitValue(
+    await terminal.waitExit(decimalString(payload.exit_timeout_ms)),
+  );
+  return {
+    correlation_key: resolution.correlation_key,
+    created_path: resolution.created_path,
+    creation_state: resolution.state,
+    creation_recovery: resolution.recovery,
+    creation_generation: resolution.generation,
+    creation_revision: resolution.revision,
+    exit_state: exited.state,
+    exit_terminal_id: exited.terminal_id,
+    exit_lifecycle: exited.lifecycle,
+    exit_kind: exited.outcome?.kind,
+    exit_code: exited.outcome?.code,
+    exited_at: exited.exited_at,
+    exit_revision: exited.revision,
+  };
+}
+
 async function run(payload) {
   const constants = payload.constants;
   if (payload.op === "redaction") {
     const specifierSecret = "provider://conformance-secret";
     const rendererSecret = "renderer-conformance-secret";
-    const specifier = new ExternalMachineSpecifier(specifierSecret);
+    const specifier = new RendererGrant(
+      specifierSecret,
+      "unix:///tmp/renderer",
+      terminalId("term_66666666666666666666666666666666"),
+      ["render"],
+      1000,
+    );
     const renderer = new RendererGrant(
       rendererSecret,
       "unix:///tmp/renderer",
@@ -273,6 +451,35 @@ async function run(payload) {
       }
       throw new Error("mutation unexpectedly succeeded");
     }
+    if (payload.op === "creation-resolve") {
+      return creationResolutionValue(
+        await getSession(client, constants).creation.resolve(
+          constants.correlation_key,
+        ),
+      );
+    }
+    if (payload.op === "creation-conflict") {
+      try {
+        await getSession(client, constants).createWorkspace(
+          { name: constants.name, initialContent: "empty" },
+          {
+            idempotencyKey: constants.idempotency_key,
+            correlationKey: constants.correlation_key,
+          },
+        );
+      } catch (error) {
+        if (error instanceof ResourceError) return errorValue(error);
+        throw error;
+      }
+      throw new Error("creation conflict unexpectedly succeeded");
+    }
+    if (payload.op === "terminal-wait-exit") {
+      return terminalWaitExitValue(
+        await getSession(client, constants)
+          .terminal(terminalId(constants.terminal))
+          .waitExit(decimalString(payload.timeout_ms)),
+      );
+    }
     if (payload.op === "stream-unknown") {
       const stream = await getSession(client, constants).events();
       const next = await stream.next();
@@ -315,6 +522,12 @@ async function run(payload) {
     }
     if (payload.op === "live-setup") {
       return await liveSetup(client, payload.workspace_name, payload.key_prefix);
+    }
+    if (payload.op === "live-creation-exit") {
+      return await liveCreationExit(client, payload);
+    }
+    if (payload.op === "live-exit-restart") {
+      return await liveExitRestart(client, payload);
     }
     if (payload.op === "live-restart") {
       if (
