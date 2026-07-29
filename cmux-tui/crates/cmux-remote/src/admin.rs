@@ -547,6 +547,66 @@ mod tests {
         assert!(!target.join("missing").exists());
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn admin_server_respects_the_socket_path_lock() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempdir().unwrap();
+        let socket = directory.path().join("admin.sock");
+        let stale = UnixListener::bind(&socket).unwrap();
+        drop(stale);
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(directory.path().join("admin.sock.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let auth =
+            AuthDatabase::load_or_create(directory.path().join("state"), "locked-admin", true)
+                .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        let result = serve_admin(daemon, &socket, Vec::new()).await;
+        let ignored_lock = result.is_ok();
+        if let Ok(server) = result {
+            server.shutdown().await;
+        }
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+
+        assert!(!ignored_lock, "admin socket ignored its ownership lock");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn admin_server_shutdown_never_unlinks_a_bound_successor() {
+        let directory = tempdir().unwrap();
+        let socket = directory.path().join("admin.sock");
+        let auth =
+            AuthDatabase::load_or_create(directory.path().join("state"), "admin-successor", true)
+                .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
+
+        std::fs::remove_file(&socket).unwrap();
+        let successor = UnixListener::bind(&socket).unwrap();
+        server.shutdown().await;
+        let successor_preserved = socket.exists();
+        let reachable = timeout(TokioDuration::from_secs(1), UnixStream::connect(&socket))
+            .await
+            .is_ok_and(|result| result.is_ok());
+        drop(successor);
+        let _ = std::fs::remove_file(&socket);
+
+        assert!(successor_preserved, "old admin server unlinked its successor socket");
+        assert!(reachable, "successor admin socket was unreachable after old-server shutdown");
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn repeated_admin_requests_do_not_fail_spuriously() {
         let directory = tempdir().unwrap();

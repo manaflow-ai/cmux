@@ -1215,6 +1215,40 @@ mod tests {
         }
     }
 
+    struct BlockingHeartbeatLink {
+        inner: FaultLink,
+        block_next_send: Arc<AtomicBool>,
+        send_started: Arc<Semaphore>,
+        release_send: Arc<Semaphore>,
+    }
+
+    #[async_trait]
+    impl FrameLink for BlockingHeartbeatLink {
+        fn description(&self) -> &str {
+            "blocking-heartbeat-client"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            self.inner.maximum_frame_bytes()
+        }
+
+        async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+            if self.block_next_send.swap(false, Ordering::AcqRel) {
+                self.send_started.add_permits(1);
+                self.release_send.acquire().await.unwrap().forget();
+            }
+            self.inner.send(frame).await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            self.inner.receive().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.inner.close().await
+        }
+    }
+
     struct FaultGroup {
         daemon: Arc<RemoteDaemon>,
         epochs: Mutex<Vec<Arc<FaultEpoch>>>,
@@ -1303,6 +1337,59 @@ mod tests {
         replay_started: Arc<Semaphore>,
         release_replay: Arc<Semaphore>,
         evidence: CarrierEvidence,
+    }
+
+    struct BlockingHeartbeatGroup {
+        daemon: Arc<RemoteDaemon>,
+        opens: AtomicUsize,
+        epochs: Mutex<Vec<Arc<FaultEpoch>>>,
+        block_next_send: Arc<AtomicBool>,
+        send_started: Arc<Semaphore>,
+        release_send: Arc<Semaphore>,
+        evidence: CarrierEvidence,
+    }
+
+    #[async_trait]
+    impl LinkGroup for BlockingHeartbeatGroup {
+        fn description(&self) -> &str {
+            "blocking-heartbeat-group"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::STREAM
+        }
+
+        fn evidence(&self) -> &CarrierEvidence {
+            &self.evidence
+        }
+
+        async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+            let (client, daemon, epoch) = fault_pair();
+            self.epochs.lock().await.push(epoch);
+            let remote = self.daemon.clone();
+            tokio::spawn(async move {
+                let inbound =
+                    InboundLink::same_owner_kernel_peer(Box::new(daemon), 501, 501).unwrap();
+                let _ = remote.accept(inbound).await;
+            });
+            if self.opens.fetch_add(1, Ordering::AcqRel) == 0 {
+                Ok(Box::new(BlockingHeartbeatLink {
+                    inner: client,
+                    block_next_send: self.block_next_send.clone(),
+                    send_started: self.send_started.clone(),
+                    release_send: self.release_send.clone(),
+                }))
+            } else {
+                Ok(Box::new(client))
+            }
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            for epoch in self.epochs.lock().await.iter() {
+                epoch.fail();
+            }
+            Ok(())
+        }
     }
 
     #[async_trait]
@@ -1484,6 +1571,72 @@ mod tests {
         let reconnected = client.snapshot().await;
         assert_eq!(reconnected.generation, 1);
         assert_eq!(reconnected.state, ConnectionState::Connected);
+    }
+
+    #[tokio::test]
+    async fn heartbeat_timeout_includes_a_blocked_probe_send() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "heartbeat-send", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let block_next_send = Arc::new(AtomicBool::new(false));
+        let send_started = Arc::new(Semaphore::new(0));
+        let release_send = Arc::new(Semaphore::new(0));
+        let group = Arc::new(BlockingHeartbeatGroup {
+            daemon,
+            opens: AtomicUsize::new(0),
+            epochs: Mutex::new(Vec::new()),
+            block_next_send: block_next_send.clone(),
+            send_started: send_started.clone(),
+            release_send: release_send.clone(),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let client = ClientConnection::connect(
+            group,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "heartbeat-send-client".into(),
+                session: SessionId([90; 16]),
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    initial_delay: Duration::from_millis(1),
+                    maximum_delay: Duration::from_millis(1),
+                    attempt_timeout: Duration::from_secs(1),
+                    full_jitter: false,
+                    heartbeat_interval: Some(Duration::from_millis(20)),
+                    heartbeat_timeout: Duration::from_millis(40),
+                    maximum_attempts: Some(2),
+                },
+            },
+        )
+        .await
+        .unwrap();
+        let _server =
+            tokio::time::timeout(Duration::from_secs(2), accepted.recv()).await.unwrap().unwrap();
+        let mut generation = client.subscribe_generation();
+        block_next_send.store(true, Ordering::Release);
+        tokio::time::timeout(Duration::from_secs(1), send_started.acquire())
+            .await
+            .expect("heartbeat never reached the blocked carrier send")
+            .unwrap()
+            .forget();
+
+        let recovered = tokio::time::timeout(Duration::from_millis(500), async {
+            while *generation.borrow() == 0 {
+                generation.changed().await.unwrap();
+            }
+        })
+        .await
+        .is_ok();
+        release_send.add_permits(1);
+        let _ = tokio::time::timeout(Duration::from_secs(2), client.close()).await;
+
+        assert!(
+            recovered,
+            "heartbeat send remained blocked beyond the configured liveness deadline"
+        );
     }
 
     #[tokio::test]

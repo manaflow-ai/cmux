@@ -1619,6 +1619,65 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test]
+    async fn serve_unix_respects_the_socket_path_lock() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("link.sock");
+        let stale = UnixListener::bind(&path).unwrap();
+        drop(stale);
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(directory.path().join("link.sock.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "locked-unix-path", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        let result = serve_unix(daemon, &path, 65_535).await;
+        let ignored_lock = result.is_ok();
+        if let Ok(server) = result {
+            server.shutdown().await;
+        }
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+
+        assert!(!ignored_lock, "Unix daemon socket ignored its ownership lock");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_server_shutdown_never_unlinks_a_bound_successor() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("link.sock");
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "socket-successor", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let server = serve_unix(daemon, &path, 65_535).await.unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let successor = UnixListener::bind(&path).unwrap();
+        server.shutdown().await;
+        let successor_preserved = path.exists();
+        let reachable =
+            tokio::time::timeout(Duration::from_secs(1), tokio::net::UnixStream::connect(&path))
+                .await
+                .is_ok_and(|result| result.is_ok());
+        drop(successor);
+        let _ = std::fs::remove_file(&path);
+
+        assert!(successor_preserved, "old Unix server unlinked its successor socket");
+        assert!(reachable, "successor Unix socket was unreachable after old-server shutdown");
+    }
+
+    #[cfg(unix)]
     #[test]
     fn unix_socket_directory_requires_effective_uid_ownership() {
         let directory = tempdir().unwrap();

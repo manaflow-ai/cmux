@@ -1918,6 +1918,50 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn identity_creation_waits_for_the_path_lock() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let identity_path = directory.path().join("client-identity.json");
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(directory.path().join("client-identity.json.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let creator = std::thread::spawn(move || {
+            sender.send(load_or_create_identity(&identity_path)).unwrap();
+        });
+        let early = receiver.recv_timeout(Duration::from_millis(100)).ok();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        let completed_while_locked = early.is_some();
+        let identity = early
+            .unwrap_or_else(|| {
+                receiver
+                    .recv_timeout(Duration::from_secs(1))
+                    .expect("identity creation stayed blocked after releasing its path lock")
+            })
+            .unwrap();
+        creator.join().unwrap();
+
+        assert!(!completed_while_locked, "identity creation ignored the cross-process path lock");
+        assert_eq!(
+            load_or_create_identity(&directory.path().join("client-identity.json"))
+                .unwrap()
+                .public_key(),
+            identity.public_key()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn auth_state_rejects_an_intermediate_symlink_without_creating_under_its_target() {
         use std::os::unix::fs::symlink;
 
@@ -1944,6 +1988,44 @@ mod tests {
 
         assert!(store.pin_daemon("host".into(), public_key, Vec::new()).await.is_err());
         assert_eq!(store.daemon_key(&fingerprint).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn stale_client_store_cannot_overwrite_another_process_pin() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let second = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let first_key = StaticIdentity::generate().unwrap().public_key();
+        let second_key = StaticIdentity::generate().unwrap().public_key();
+        let first_fingerprint = public_key_fingerprint(&first_key);
+        let second_fingerprint = public_key_fingerprint(&second_key);
+
+        first.pin_daemon("first".into(), first_key, Vec::new()).await.unwrap();
+        second.pin_daemon("second".into(), second_key, Vec::new()).await.unwrap();
+
+        let reloaded = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        assert_eq!(reloaded.daemon_key(&first_fingerprint).await.unwrap(), Some(first_key));
+        assert_eq!(reloaded.daemon_key(&second_fingerprint).await.unwrap(), Some(second_key));
+    }
+
+    #[tokio::test]
+    async fn stale_client_store_cannot_restore_a_forgotten_daemon() {
+        let temp = tempfile::tempdir().unwrap();
+        let seed = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let forgotten_key = StaticIdentity::generate().unwrap().public_key();
+        let forgotten =
+            seed.pin_daemon("forgotten".into(), forgotten_key, Vec::new()).await.unwrap();
+        let remover = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let stale = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let retained_key = StaticIdentity::generate().unwrap().public_key();
+        let retained_fingerprint = public_key_fingerprint(&retained_key);
+
+        assert!(remover.forget_daemon(&forgotten.fingerprint).await.unwrap());
+        stale.pin_daemon("retained".into(), retained_key, Vec::new()).await.unwrap();
+
+        let reloaded = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        assert_eq!(reloaded.daemon_key(&forgotten.fingerprint).await.unwrap(), None);
+        assert_eq!(reloaded.daemon_key(&retained_fingerprint).await.unwrap(), Some(retained_key));
     }
 
     #[tokio::test]
