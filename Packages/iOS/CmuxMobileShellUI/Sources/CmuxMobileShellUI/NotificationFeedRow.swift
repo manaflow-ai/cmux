@@ -86,7 +86,7 @@ struct NotificationFeedRow: View, Equatable {
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(item.title)
-        .accessibilityValue(model.presentation.accessibilityValue)
+        .accessibilityValue(accessibilityValue)
         .accessibilityHint(L10n.string(
             "mobile.notificationFeed.openHint",
             defaultValue: "Opens this notification's workspace."
@@ -114,6 +114,14 @@ struct NotificationFeedRow: View, Equatable {
 
     private var accessibilitySuffix: String {
         "\(item.macDeviceID)-\(item.notificationID)"
+    }
+
+    /// Joins the precomputed details with a render-time relative date, so the
+    /// spoken timestamp stays current even when cached models republish.
+    private var accessibilityValue: String {
+        (model.presentation.accessibilityDetails
+            + [item.createdAt.formatted(.relative(presentation: .named))])
+            .formatted()
     }
 }
 

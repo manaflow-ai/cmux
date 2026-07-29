@@ -27,17 +27,17 @@ struct NotificationFeedRowModel: Identifiable, Equatable, Sendable {
 }
 
 /// A compact, immutable projection of the four facts a user scans before
-/// opening, plus the row's precomputed accessibility value.
+/// opening, plus the row's precomputed accessibility details.
 struct NotificationFeedRowPresentation: Equatable, Sendable {
     let workspaceName: String
     let workspaceMatchesTitle: Bool
     let contentPreview: String?
     let computerName: String
     let connectionStatus: MobileMacConnectionStatus
-    /// The full spoken value (read state, workspace, preview, computer,
-    /// relative time). The relative time anchors to the rebuild that produced
-    /// this model, matching the staleness of the day headers around it.
-    let accessibilityValue: String
+    /// The spoken details (read state, workspace, preview, computer) minus the
+    /// relative time, which the row formats at render so VoiceOver never reads
+    /// a timestamp frozen at whatever moment this model was built.
+    let accessibilityDetails: [String]
 
     init(item: MobileNotificationFeedItem) {
         let normalizedTitle = Self.normalized(item.title) ?? item.title
@@ -67,7 +67,7 @@ struct NotificationFeedRowPresentation: Equatable, Sendable {
         }
         self.contentPreview = contentPreview
 
-        accessibilityValue = Self.accessibilityValue(
+        accessibilityDetails = Self.accessibilityDetails(
             item: item,
             workspaceName: normalizedWorkspace,
             contentPreview: contentPreview,
@@ -82,12 +82,12 @@ struct NotificationFeedRowPresentation: Equatable, Sendable {
         Self.applyingConnectionStatus(connectionStatus, to: computerName)
     }
 
-    private static func accessibilityValue(
+    private static func accessibilityDetails(
         item: MobileNotificationFeedItem,
         workspaceName: String,
         contentPreview: String?,
         computerStatusText: String
-    ) -> String {
+    ) -> [String] {
         var details = [
             item.isRead
                 ? L10n.string("mobile.notificationFeed.read", defaultValue: "Read")
@@ -104,8 +104,7 @@ struct NotificationFeedRowPresentation: Equatable, Sendable {
             label: L10n.string("mobile.notificationFeed.row.computer", defaultValue: "Computer"),
             value: computerStatusText
         ))
-        details.append(item.createdAt.formatted(.relative(presentation: .named)))
-        return details.formatted()
+        return details
     }
 
     private static func accessibilityField(label: String, value: String) -> String {

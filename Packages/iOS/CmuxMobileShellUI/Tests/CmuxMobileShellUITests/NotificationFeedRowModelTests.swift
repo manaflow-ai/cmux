@@ -64,20 +64,22 @@ import Testing
         )
     }
 
-    @Test func accessibilityValueCarriesReadStateWorkspacePreviewAndComputer() {
+    @Test func accessibilityDetailsCarryReadStateWorkspacePreviewAndComputer() {
         let unread = NotificationFeedRowModel(item: item(
             isRead: false,
             body: "Choose a builder to continue.",
             connectionStatus: .unavailable
         ))
 
-        #expect(unread.presentation.accessibilityValue.contains("Unread"))
-        #expect(unread.presentation.accessibilityValue.contains("Workspace: Workspace"))
-        #expect(unread.presentation.accessibilityValue.contains("Choose a builder to continue."))
-        #expect(unread.presentation.accessibilityValue.contains("Computer: Mac · Unavailable"))
+        #expect(unread.presentation.accessibilityDetails == [
+            "Unread",
+            "Workspace: Workspace",
+            "Choose a builder to continue.",
+            "Computer: Mac · Unavailable",
+        ])
 
         let read = NotificationFeedRowModel(item: item(isRead: true))
-        #expect(read.presentation.accessibilityValue.contains("Read"))
+        #expect(read.presentation.accessibilityDetails.first == "Read")
     }
 
     @Test func equalityComparesTheItemAlone() {

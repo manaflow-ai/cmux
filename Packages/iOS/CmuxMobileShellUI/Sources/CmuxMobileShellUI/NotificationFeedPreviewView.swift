@@ -227,6 +227,9 @@ public struct NotificationFeedPreviewView: View {
         signposter.emitEvent("scrollStressStart")
         let monitor = NotificationFeedScrollStressFrameMonitor()
         monitor.start()
+        // The scroll passes return early on task cancellation (tab change,
+        // view disappearance); the display link must not outlive them.
+        defer { monitor.stop() }
         let hop = 10
         // The down pass re-reads mounted row ids per hop so it follows the
         // projection's row window as the load-more sentinel extends it, and

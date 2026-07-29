@@ -82,6 +82,8 @@ final class NotificationFeedProjection {
     /// never collapse how deep the user has scrolled; filter and search
     /// changes reset it.
     @ObservationIgnored private var rowWindow = notificationFeedProjectionInitialRowWindow
+    /// True from an accepted `extendRowWindow()` until the next publish.
+    @ObservationIgnored private var isRowWindowExtensionPending = false
 
     init(referenceDate: Date = .now, calendar: Calendar = .autoupdatingCurrent) {
         self.referenceDate = referenceDate
@@ -110,8 +112,12 @@ final class NotificationFeedProjection {
 
     /// Mounts the next chunk of rows when the load-more sentinel appears.
     /// Appending below the viewport never moves the user's scroll anchor.
+    /// One extension per publish: `hasMoreRows` only flips after the rebuild
+    /// lands, so repeated sentinel appearances during an in-flight extension
+    /// must not stack additional increments.
     func extendRowWindow() {
-        guard hasMoreRows else { return }
+        guard hasMoreRows, !isRowWindowExtensionPending else { return }
+        isRowWindowExtensionPending = true
         rowWindow += notificationFeedProjectionRowWindowIncrement
         scheduleRebuild()
     }
@@ -176,6 +182,7 @@ final class NotificationFeedProjection {
             if self.hasMoreRows != output.hasMoreRows {
                 self.hasMoreRows = output.hasMoreRows
             }
+            self.isRowWindowExtensionPending = false
             self.hasStaleSourceSections = false
             self.isSourceRebuilding = false
         }
