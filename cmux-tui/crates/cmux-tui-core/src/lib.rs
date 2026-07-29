@@ -17,6 +17,7 @@ mod pairing;
 pub mod process_session;
 pub mod provider_management;
 mod short_id;
+mod spawned_pty_child;
 mod surface;
 mod workspace_registry;
 

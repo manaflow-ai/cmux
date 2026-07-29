@@ -933,19 +933,13 @@ impl LocalPtyProcess {
 
     fn spawn_reaper(
         self: &Arc<Self>,
-        mut child: Box<dyn portable_pty::Child + Send + Sync>,
+        child: crate::spawned_pty_child::SpawnedPtyChild,
         reaper: LocalChildReaperLease,
     ) -> std::io::Result<()> {
         #[cfg(unix)]
         {
             let process = self.clone();
             let Some(session) = process.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
-                let _ = child.kill();
-                let _ = child.wait();
-                process.child_reaped.store(true, Ordering::Release);
-                process.child_waitable.store(true, Ordering::Release);
-                *process.exited.0.lock().unwrap() = true;
-                process.exited.1.notify_all();
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
                     "native PTY child did not expose a process ID",
@@ -955,24 +949,12 @@ impl LocalPtyProcess {
             {
                 Ok(Some(identity)) => identity,
                 Ok(None) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    process.child_reaped.store(true, Ordering::Release);
-                    *process.exited.0.lock().unwrap() = true;
-                    process.exited.1.notify_all();
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::NotFound,
                         "native PTY child exited before its process identity was captured",
                     ));
                 }
-                Err(error) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    process.child_reaped.store(true, Ordering::Release);
-                    *process.exited.0.lock().unwrap() = true;
-                    process.exited.1.notify_all();
-                    return Err(error);
-                }
+                Err(error) => return Err(error),
             };
             let observe_process = process.clone();
             let cleanup_process = process.clone();
@@ -1013,7 +995,10 @@ impl LocalPtyProcess {
                                 return crate::process_session::NaturalReapFinish::Failed;
                             }
                         }
-                        drop(child.take());
+                        child
+                            .take()
+                            .expect("reserved child releases lost wait ownership once")
+                            .abandon_wait_ownership();
                         reap_process.child_reaped.store(true, Ordering::Release);
                         drop(_signal);
                         *reap_process.exited.0.lock().unwrap() = true;
@@ -1053,7 +1038,7 @@ impl LocalPtyProcess {
         {
             let process = self.clone();
             let (child_sender, child_receiver) =
-                sync_channel::<Box<dyn portable_pty::Child + Send + Sync>>(1);
+                sync_channel::<crate::spawned_pty_child::SpawnedPtyChild>(1);
             let observer =
                 std::thread::Builder::new().name("surface-child".into()).spawn(move || {
                     let Ok(mut child) = child_receiver.recv() else { return };
@@ -1062,14 +1047,9 @@ impl LocalPtyProcess {
                     process.exited.1.notify_all();
                 });
             if let Err(error) = observer {
-                let _ = child.kill();
-                let _ = child.wait();
                 return Err(error);
             }
-            if let Err(error) = child_sender.send(child) {
-                let mut child = error.0;
-                let _ = child.kill();
-                let _ = child.wait();
+            if child_sender.send(child).is_err() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::BrokenPipe,
                     "surface child observer exited before accepting ownership",
@@ -1789,7 +1769,7 @@ impl Surface {
             cmd.cwd(cwd);
         }
 
-        let child = pty.slave.spawn_command(cmd)?;
+        let child = crate::spawned_pty_child::SpawnedPtyChild::new(pty.slave.spawn_command(cmd)?);
         drop(process_creation);
         let pid = child.process_id();
         drop(pty.slave);

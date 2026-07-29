@@ -3252,30 +3252,23 @@ mod unix {
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
-        let mut child = pty.slave.spawn_command(command)?;
+        let child = pty.slave.spawn_command(command)?;
+        let child = crate::spawned_pty_child::SpawnedPtyChild::new(child);
         #[cfg(test)]
         crate::process_session::fail_after_pty_spawn_for_test()?;
         drop(process_creation);
         let pid = child.process_id();
         let Some(session) = pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
-            let _ = child.kill();
-            let _ = child.wait();
             anyhow::bail!("native terminal-host PTY child did not expose a process ID");
         };
         let child_identity = match crate::process_session::StableProcessHandle::capture(session) {
             Ok(Some(identity)) => identity,
             Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
                 anyhow::bail!(
                     "terminal-host PTY child exited before its process identity was captured"
                 );
             }
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error).context("capture terminal-host PTY child identity");
-            }
+            Err(error) => return Err(error).context("capture terminal-host PTY child identity"),
         };
         drop(pty.slave);
         let killer = child.clone_killer();
@@ -3466,7 +3459,10 @@ mod unix {
                             return crate::process_session::NaturalReapFinish::Failed;
                         }
                     }
-                    drop(child.take());
+                    child
+                        .take()
+                        .expect("reserved child releases lost wait ownership once")
+                        .abandon_wait_ownership();
                     reap_host.child_reaped.store(true, Ordering::Release);
                     drop(_signal);
                     let mut exited = reap_host.child_exit.0.lock().unwrap();
