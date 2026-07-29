@@ -298,6 +298,86 @@ import Testing
         await session.tearDown(error: .connectionClosed)
     }
 
+    @Test func queuedRequestTimeoutBehindCancelledWriteRecyclesPromptly() async throws {
+        let stalled = StalledWriteTransport()
+        let recovery = ResponseTimeoutSurvivalTransport()
+        let factory = StalledWriteRecoveryTransportFactory(
+            stalled: stalled,
+            recovery: recovery
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59135
+        )
+        // Grace far beyond the queued request's deadline: recovery must come
+        // from the queued request's own timeout, not the grace watchdog.
+        let session = MobileCoreRPCSession(
+            cancelledWriteCompletionGraceNanoseconds: 60 * 1_000_000_000,
+            makeTransport: { try factory.makeTransport(for: route) }
+        )
+        let headTask = Task {
+            try await session.send(
+                payload: try inputRequest(id: "cancelled-head-long-grace", text: "a"),
+                requestID: "cancelled-head-long-grace",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 60 * 1_000_000_000
+            )
+        }
+
+        await stalled.waitUntilSendStarted()
+        let queuedTask = Task {
+            try await session.send(
+                payload: try inputRequest(id: "short-deadline-behind-cancel", text: "b"),
+                requestID: "short-deadline-behind-cancel",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    + 150_000_000
+            )
+        }
+        var queuedReachedGate = false
+        for _ in 0..<1000 {
+            if await session.queuedRequestIDs.contains("short-deadline-behind-cancel") {
+                queuedReachedGate = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(queuedReachedGate)
+
+        headTask.cancel()
+        do {
+            _ = try await headTask.value
+            Issue.record("Expected the stalled head request to be cancelled")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+
+        // The queued request dies at its own deadline while head-of-line
+        // blocked behind the cancelled write. That death is unserved demand:
+        // it must condemn the wedged transport immediately rather than be
+        // erased from the demand signal like an explicit cancellation.
+        do {
+            _ = try await queuedTask.value
+            Issue.record("Expected the queued request to time out")
+        } catch MobileShellConnectionError.transportWriteTimedOut {
+        } catch {
+            Issue.record("Expected transportWriteTimedOut, got \(error)")
+        }
+        var stalledClosed = false
+        for _ in 0..<1000 {
+            if await stalled.closed() {
+                stalledClosed = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(stalledClosed)
+
+        await stalled.failStalledSend()
+        await session.tearDown(error: .connectionClosed)
+    }
+
     @Test func cancelledWriteResolutionHonorsNextRequestDeadline() async throws {
         let stalled = StalledWriteTransport()
         let recovery = ResponseTimeoutSurvivalTransport()
