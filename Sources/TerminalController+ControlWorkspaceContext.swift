@@ -928,6 +928,23 @@ extension TerminalController: ControlWorkspaceContext {
         }
     }
 
+    /// Retires exact broker ownership after its UI presentation has disappeared.
+    private func controlRetireOrphanedRemoteTerminalSessionEnd(
+        relayPort: Int?,
+        terminalLifecycleID: UUID?,
+        sessionID: String?,
+        lifecycleID: String?,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner?
+    ) {
+        _ = controlClaimRemoteTerminalSessionEnd(
+            relayPort: relayPort,
+            terminalLifecycleID: terminalLifecycleID,
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: expectedOwner
+        )
+    }
+
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
@@ -954,16 +971,25 @@ extension TerminalController: ControlWorkspaceContext {
         let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
         let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
         if let dock = DockSplitStore.liveStore(containingPanel: surfaceId) {
+            guard dock.ownsRemoteTerminalTransfer(
+                panelId: surfaceId,
+                presentationWorkspaceID: workspaceId
+            ) else {
+                return .notFound
+            }
             guard let app,
                   let dockOwner = controlRemoteTerminalDockOwner(
                       app: app,
                       dock: dock,
                       requestedWorkspaceID: workspaceId
-                  ),
-                  dock.ownsRemoteTerminalTransfer(
-                      panelId: surfaceId,
-                      presentationWorkspaceID: workspaceId
                   ) else {
+                controlRetireOrphanedRemoteTerminalSessionEnd(
+                    relayPort: relayPort,
+                    terminalLifecycleID: terminalLifecycleID,
+                    sessionID: sessionID,
+                    lifecycleID: lifecycleID,
+                    expectedOwner: lifecycleOwner
+                )
                 return .notFound
             }
             let lifecycleResolution = controlClaimRemoteTerminalSessionEnd(
@@ -1010,6 +1036,13 @@ extension TerminalController: ControlWorkspaceContext {
         )
         guard let owner = located?.tabManager ?? fallbackOwner,
               let workspace = located?.workspace ?? fallbackWorkspace else {
+            controlRetireOrphanedRemoteTerminalSessionEnd(
+                relayPort: relayPort,
+                terminalLifecycleID: terminalLifecycleID,
+                sessionID: sessionID,
+                lifecycleID: lifecycleID,
+                expectedOwner: lifecycleOwner
+            )
             return .notFound
         }
         let lifecycleResolution = controlClaimRemoteTerminalSessionEnd(
