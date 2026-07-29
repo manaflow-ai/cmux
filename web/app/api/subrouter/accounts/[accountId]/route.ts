@@ -23,7 +23,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
   }
 
   const resolved = await resolveSubrouterRequestContext(request, {
-    manageAccounts: true,
+    permission: "manage",
   });
   if (!resolved.ok) return resolved.response;
   const { team, config, client } = resolved.value;

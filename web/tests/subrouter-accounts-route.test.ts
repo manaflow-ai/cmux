@@ -880,6 +880,7 @@ describe("subrouter accounts route", () => {
 
   test("resolves one permission snapshot per scope with bounded concurrency", async () => {
     process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "1";
+    process.env.SUBROUTER_ALLOWED_TEAM_IDS = "*";
     const teams = Array.from({ length: 12 }, (_, index) => ({
       id: `team-${index}`,
       displayName: `Team ${index}`,

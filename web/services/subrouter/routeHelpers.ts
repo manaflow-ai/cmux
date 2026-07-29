@@ -2,7 +2,10 @@ import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
 } from "../vms/routeHelpers";
-import type { AuthedUser } from "../vms/auth";
+import {
+  subrouterAllowedTeamIds,
+  type AuthedUser,
+} from "../vms/auth";
 import { SubrouterClientError, SubrouterNotConfiguredError } from "./client";
 import {
   SubrouterTenantKeyDecryptionError,
@@ -68,7 +71,6 @@ export async function resolveTeam(
 }
 
 const SUBROUTER_PERMISSION_CONCURRENCY = 8;
-const SUBROUTER_PERMISSION_DEADLINE_MS = 10_000;
 
 // Resolve team permissions only for Subrouter callers. A small worker pool
 // avoids serial Stack round trips without creating unbounded request fanout.
@@ -98,17 +100,14 @@ export async function authorizedSubrouterTeams(
     seen.add(candidate.teamId);
     return true;
   });
-  const deadline = Date.now() + SUBROUTER_PERMISSION_DEADLINE_MS;
   const resolved = await mapWithConcurrency(
     uniqueCandidates,
     SUBROUTER_PERMISSION_CONCURRENCY,
     async (candidate) => {
-      const permissions = await resolveBeforeDeadline(
-        () => user.resolveSubrouterPermissions(candidate.teamId),
-        deadline,
+      const permissions = await user.resolveSubrouterPermissions(
+        candidate.teamId,
       );
       if (
-        !permissions ||
         (!permissions.use && !permissions.manageAccounts)
       ) {
         return null;
@@ -145,34 +144,12 @@ async function mapWithConcurrency<T, U>(
   return results;
 }
 
-async function resolveBeforeDeadline<T>(
-  resolve: () => Promise<T>,
-  deadline: number,
-): Promise<T | null> {
-  const remaining = deadline - Date.now();
-  if (remaining <= 0) return null;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      resolve(),
-      new Promise<null>((done) => {
-        timeout = setTimeout(() => done(null), remaining);
-      }),
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
-}
-
 export function subrouterTeamAllowed(
   teamId: string,
   raw = process.env.SUBROUTER_ALLOWED_TEAM_IDS,
 ): boolean {
-  const allowed = raw
-    ?.split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return !allowed?.length || allowed.includes(teamId);
+  const allowed = subrouterAllowedTeamIds(raw);
+  return allowed === "*" || allowed.has(teamId);
 }
 
 export function teamDisplayName(user: AuthedUser, teamId: string): string {

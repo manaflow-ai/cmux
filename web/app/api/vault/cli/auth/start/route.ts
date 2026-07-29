@@ -46,6 +46,15 @@ export async function POST(request: Request): Promise<Response> {
       if (!body.ok) {
         return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
       }
+      const requestedClient = body.value.client;
+      const client = requestedClient === undefined
+        ? "cmux-vault"
+        : requestedClient === "cmux-vault" || requestedClient === "subrouter"
+        ? requestedClient
+        : null;
+      if (!client) {
+        return jsonResponse({ error: "invalid_client" }, 400);
+      }
 
       const deviceCode = randomBytes(32).toString("hex");
       const deviceCodeHash = hashDeviceCode(deviceCode);
@@ -85,6 +94,7 @@ export async function POST(request: Request): Promise<Response> {
 
       const verification = new URL("/dashboard/vault/cli-auth", request.url);
       verification.searchParams.set("code", userCode);
+      verification.searchParams.set("client", client);
       setSpanAttributes(span, {
         "cmux.vault.result_count": 1,
         "cmux.vault.cli_auth.expires_in_seconds": EXPIRES_IN_SECONDS,

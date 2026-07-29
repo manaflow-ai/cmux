@@ -16,7 +16,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
-  const resolved = await resolveSubrouterRequestContext(request);
+  const resolved = await resolveSubrouterRequestContext(request, {
+    permission: "use-or-manage",
+  });
   if (!resolved.ok) return resolved.response;
   const context = resolved.value;
 
@@ -40,7 +42,7 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   const resolved = await resolveSubrouterRequestContext(request, {
-    manageAccounts: true,
+    permission: "manage",
   });
   if (!resolved.ok) return resolved.response;
   const context = resolved.value;

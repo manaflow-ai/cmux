@@ -23,7 +23,7 @@ export async function POST(
   }
 
   const resolved = await resolveSubrouterRequestContext(request, {
-    manageAccounts: true,
+    permission: "manage",
   });
   if (!resolved.ok) return resolved.response;
   const context = resolved.value;
