@@ -588,6 +588,21 @@ import Testing
                     route: rotatedWebSocketRoute
                 )
         )
+        let explicitDefaultPortWebSocketRoute = try CmxAttachRoute(
+            id: "websocket-explicit-default-port",
+            kind: .websocket,
+            endpoint: .url(
+                "wss://example.test:443/mobile?token=third-secret"
+            )
+        )
+        #expect(
+            MobileRPCConnectAttemptKey(
+                route: firstWebSocketRoute
+            )
+                == MobileRPCConnectAttemptKey(
+                    route: explicitDefaultPortWebSocketRoute
+                )
+        )
         let otherWebSocketRoute = try CmxAttachRoute(
             id: "websocket-other-host",
             kind: .websocket,

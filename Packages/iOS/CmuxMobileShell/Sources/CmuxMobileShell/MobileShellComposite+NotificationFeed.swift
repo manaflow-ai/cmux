@@ -587,9 +587,11 @@ extension MobileShellComposite {
         if advancesGeneration {
             notificationFeedRefreshGenerationByMac[macDeviceID, default: 0]
                 &+= 1
-            notificationFeedRefreshRetryTasksByMac[macDeviceID]?.cancel()
-            notificationFeedRefreshRetryTasksByMac[macDeviceID] = nil
-            notificationFeedRefreshRetryTokensByMac[macDeviceID] = nil
+            if let retry =
+                notificationFeedRefreshRetryTasksByMac[macDeviceID] {
+                notificationFeedRefreshPendingMacIDs.insert(macDeviceID)
+                return retry
+            }
         }
         if let task = notificationFeedRefreshTasksByMac[macDeviceID] {
             notificationFeedRefreshPendingMacIDs.insert(macDeviceID)
@@ -650,15 +652,15 @@ extension MobileShellComposite {
         client: MobileCoreRPCClient,
         displayName: String
     ) {
-        let generation =
+        let scheduledGeneration =
             notificationFeedRefreshGenerationByMac[macDeviceID] ?? 0
         guard notificationFeedRefreshRetryConsumedGenerationByMac[macDeviceID]
-                != generation,
+                != scheduledGeneration,
               notificationFeedRefreshRetryTasksByMac[macDeviceID] == nil else {
             return
         }
         notificationFeedRefreshRetryConsumedGenerationByMac[macDeviceID] =
-            generation
+            scheduledGeneration
         let token = UUID()
         notificationFeedRefreshRetryTokensByMac[macDeviceID] = token
         let clock = controlPlaneSchedulingClock
@@ -682,17 +684,36 @@ extension MobileShellComposite {
             guard !Task.isCancelled,
                   self.notificationFeedRefreshRetryTokensByMac[macDeviceID]
                     == token,
-                  self.notificationFeedRefreshGenerationByMac[macDeviceID]
-                    == generation,
                   self.notificationFeedClient(for: macDeviceID) === client else {
                 return
             }
-            _ = self.scheduleNotificationFeedRefresh(
+            let servicedGeneration =
+                self.notificationFeedRefreshGenerationByMac[macDeviceID] ?? 0
+            self.notificationFeedRefreshRetryConsumedGenerationByMac[
+                macDeviceID
+            ] = servicedGeneration
+            let refresh = self.scheduleNotificationFeedRefresh(
                 macDeviceID: macDeviceID,
                 client: client,
                 displayName: displayName,
                 advancesGeneration: false
             )
+            await refresh?.value
+            guard self.notificationFeedRefreshRetryTokensByMac[macDeviceID]
+                    == token else {
+                return
+            }
+            self.notificationFeedRefreshRetryTasksByMac[macDeviceID] = nil
+            self.notificationFeedRefreshRetryTokensByMac[macDeviceID] = nil
+            if self.notificationFeedRefreshPendingMacIDs.contains(
+                macDeviceID
+            ) {
+                self.scheduleDelayedNotificationFeedRefresh(
+                    macDeviceID: macDeviceID,
+                    client: client,
+                    displayName: displayName
+                )
+            }
         }
     }
 

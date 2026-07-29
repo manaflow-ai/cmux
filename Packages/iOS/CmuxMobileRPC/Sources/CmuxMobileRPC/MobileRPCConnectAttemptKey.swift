@@ -39,11 +39,23 @@ private func stableURLIdentity(_ value: String) -> String {
             .split(separator: "?", maxSplits: 1)[0]
             .lowercased()
     }
-    let port = components.port.map(String.init) ?? ""
+    let port = (components.port ?? defaultPort(for: scheme))
+        .map(String.init) ?? ""
     return """
         scheme=\(scheme);host=\(canonicalHostIdentity(host));\
         port=\(port);path=\(components.percentEncodedPath)
         """
+}
+
+private func defaultPort(for scheme: String) -> Int? {
+    switch scheme {
+    case "http", "ws":
+        80
+    case "https", "wss":
+        443
+    default:
+        nil
+    }
 }
 
 private func canonicalHostIdentity(_ value: String) -> String {

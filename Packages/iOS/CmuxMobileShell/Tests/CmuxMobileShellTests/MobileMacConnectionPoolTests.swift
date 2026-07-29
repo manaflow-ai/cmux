@@ -3319,7 +3319,15 @@ import Testing
                     != nil
                 && clock.sleeperCount == 1
         })
+        shell.notificationFeedKnownRevisionsByMac["mac-b"] = 4
+        shell.scheduleSecondaryNotificationFeedRefresh(
+            macDeviceID: "mac-b",
+            client: client,
+            displayName: "Mac B"
+        )
+        for _ in 0 ..< 8 { await Task.yield() }
         #expect(await router.count(of: "notification.feed.list") == 2)
+        #expect(clock.sleeperCount == 1)
 
         clock.advance(by: .seconds(1))
         #expect(await router.waitForCount(
