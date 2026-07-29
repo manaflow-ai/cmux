@@ -35,7 +35,7 @@ const ascFetch = mock(async (path: unknown) => {
         ? [
             {
               type: "betaGroups",
-              id: "34fbede5-3880-4560-b1bb-a45787249780",
+              id: PRO_TESTFLIGHT_GROUP_ID,
             },
           ]
         : [],
@@ -87,6 +87,7 @@ mock.module("@/services/billing/pro", () => ({
   isTestflightEligible,
 }));
 
+const { PRO_TESTFLIGHT_GROUP_ID } = await import("../services/asc/testflight");
 const { default: DashboardTestflightPage } = await import("../app/[locale]/dashboard/testflight/page");
 
 describe("dashboard TestFlight page", () => {

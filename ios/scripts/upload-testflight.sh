@@ -673,6 +673,17 @@ if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
   ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$("$PLISTBUDDY" -c 'Print :ASC_API_KEY_PATH' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
 fi
 
+# An external lane is incomplete unless the uploaded build is assigned to both
+# subscriber groups and submitted for Beta App Review when required. Validate
+# the credentials before archiving so a missing key cannot leave an uploaded but
+# undistributed build behind.
+if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
+  if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+    echo "error: external TestFlight distribution requires an ASC API key (JWT) for subscriber-group assignment and Beta App Review. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) before rerunning the external lane." >&2
+    exit 2
+  fi
+fi
+
 # Monotonic build-number guard (defense in depth). TestFlight only offers a build
 # as an *update* when its CFBundleVersion is the highest integer build for the
 # app, so a regressed numbering scheme (or a bad manual --build-number) silently
@@ -1476,8 +1487,8 @@ fi
 # lane tracked main when either subscriber group missed the build.
 if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
-    echo "warning: no ASC API key (JWT) available; uploaded the external-eligible build but skipped automatic external-group assignment and Beta App Review submission. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) to distribute the build automatically." >&2
-    exit 0
+    echo "error: no ASC API key (JWT) available; the external build uploaded but was not assigned to subscriber groups or submitted for Beta App Review. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64), then rerun the external lane." >&2
+    exit 1
   fi
   EXTERNAL_GROUP_SELECTOR=()
   if [[ -n "${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" ]]; then

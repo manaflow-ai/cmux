@@ -146,6 +146,9 @@ async function processStripeEvent(
       });
       if (result && "skipped" in result) return { skipped: result.skipped };
       if (result.scope === "user" && isPersonalProCheckout(expanded)) {
+        // Keep the Stripe event retryable until Resend accepts the message.
+        // The checkout-session id is also the provider idempotency key, so a
+        // redelivery retries the same email operation without duplicating it.
         await dependencies.sendProSignupWelcome({
           session: expanded,
         });

@@ -6,6 +6,7 @@ import {
   stripeCustomers,
   stripeSubscriptions,
 } from "../db/schema";
+import { FOUNDER_TESTFLIGHT_GROUP_ID } from "../services/asc/testflightOwnership";
 
 process.env.RESEND_API_KEY ??= "test-resend-key";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
@@ -1118,7 +1119,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: {
         cmuxPlan: "pro",
         cmuxProTestflightOwnedLegacyGroupIDs: [
-          "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+          FOUNDER_TESTFLIGHT_GROUP_ID,
         ],
         cmuxProTestflightOwnedLegacyEmails: ["legacy@example.com"],
       },
@@ -1148,7 +1149,7 @@ describe("recordCheckoutCompletion", () => {
     });
     expect(removeTester).toHaveBeenNthCalledWith(2, "legacy@example.com", {
       ownedLegacyGroupIDs: [
-        "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+        FOUNDER_TESTFLIGHT_GROUP_ID,
       ],
     });
   });

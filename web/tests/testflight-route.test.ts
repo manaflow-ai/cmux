@@ -84,6 +84,7 @@ mock.module("../db/client", () => ({
       : realCloudDb()) as typeof realCloudDb,
 }));
 
+const { PRO_TESTFLIGHT_GROUP_ID } = await import("../services/asc/testflight");
 const { POST } = await import("../app/api/testflight/route");
 
 beforeAll(() => {
@@ -234,7 +235,7 @@ describe("TestFlight route", () => {
       "https://cmux.test/dashboard/testflight?testflight=left",
     );
     expect(ascFetch).toHaveBeenCalledWith(
-      "/v1/betaGroups/34fbede5-3880-4560-b1bb-a45787249780/relationships/betaTesters",
+      `/v1/betaGroups/${PRO_TESTFLIGHT_GROUP_ID}/relationships/betaTesters`,
       expect.objectContaining({ method: "DELETE" }),
     );
   });

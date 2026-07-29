@@ -45,7 +45,6 @@ struct BrowserAppSessionHandoffTests {
         let request = try #require(handoff.request(
             destinationURL: destination,
             tokens: BrowserAppSessionTokens(
-                accessToken: "native+access",
                 refreshToken: "native&refresh"
             )
         ))
@@ -106,7 +105,7 @@ struct BrowserAppSessionHandoffTests {
 
         #expect(handoff.request(
             destinationURL: destination,
-            tokens: BrowserAppSessionTokens(accessToken: "native-access", refreshToken: "")
+            tokens: BrowserAppSessionTokens(refreshToken: "")
         ) == nil)
     }
 
@@ -115,7 +114,6 @@ struct BrowserAppSessionHandoffTests {
         let origin = try #require(URL(string: "https://cmux.test"))
         let handoff = BrowserAppSessionHandoff(webOrigin: origin)
         let tokens = BrowserAppSessionTokens(
-            accessToken: "native-access",
             refreshToken: "native-refresh"
         )
         let offOrigin = try #require(URL(string: "https://example.test/dashboard"))

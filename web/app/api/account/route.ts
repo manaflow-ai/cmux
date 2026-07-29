@@ -193,7 +193,7 @@ export async function DELETE(request: Request): Promise<Response> {
       stackUser,
       originalStackMetadata,
       {
-        afterExternalMutation: () => {
+        beforeExternalMutation: () => {
           restoreBillingEntitlementsOnFailure = false;
           destructiveCleanupStarted = true;
         },
@@ -936,23 +936,24 @@ function deletedStripeAccountId(userId: string): string {
 async function removeTestFlightAccessForAccountDeletion(
   user: DeletableStackUser,
   ownershipMetadata: unknown,
-  options: { readonly afterExternalMutation?: () => void } = {},
+  options: { readonly beforeExternalMutation?: () => void } = {},
 ): Promise<void> {
   if (!isAscConfigured()) return;
   const email = user.primaryEmail?.trim() ?? null;
   try {
-    const targetCount = await removeProTesterAccess(
+    await removeProTesterAccess(
       email,
       ownershipMetadata,
       removeTester,
+      { beforeExternalMutation: options.beforeExternalMutation },
     );
-    if (targetCount > 0) options.afterExternalMutation?.();
   } catch (error) {
     captureAscError(error, {
       route: "/api/account",
       stackUserId: user.id,
       email: email ?? undefined,
     });
+    throw error;
   }
 }
 

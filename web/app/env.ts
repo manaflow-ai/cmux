@@ -149,6 +149,7 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // The deployed handoff route fails closed when this limiter is absent.
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
     // APNs push (iOS notifications). Optional: the app boots without them; the

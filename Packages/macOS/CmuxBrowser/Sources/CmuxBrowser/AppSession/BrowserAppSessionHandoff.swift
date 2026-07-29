@@ -26,9 +26,8 @@ public struct BrowserAppSessionHandoff: Sendable {
 
         let pairs: [(String, String)] = [
             ("refresh_token", tokens.refreshToken),
-            ("access_token", tokens.accessToken ?? ""),
             ("after", relativePath(destinationURL)),
-        ].filter { !$0.1.isEmpty }
+        ]
         let body = pairs
             .map { "\($0.0)=\(formURLEncode($0.1))" }
             .joined(separator: "&")

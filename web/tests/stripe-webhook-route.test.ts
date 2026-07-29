@@ -8,6 +8,7 @@ let insertedEventRows: unknown[] = [{ id: "evt_1" }];
 let selectedEventRows: unknown[] = [];
 const updates: Record<string, unknown>[] = [];
 let recordCheckoutShouldFail = false;
+let proWelcomeShouldFail = false;
 let recordCheckoutCompletionResult: unknown = {
   scope: "user",
   stackUserId: "user_1",
@@ -18,7 +19,9 @@ const recordCheckoutCompletion = mock(async () => {
   return recordCheckoutCompletionResult;
 });
 const applySubscriptionUpdate = mock(async () => ({ stackUserId: "user_1", isActive: true }));
-const sendProSignupWelcome = mock(async () => {});
+const sendProSignupWelcome = mock(async () => {
+  if (proWelcomeShouldFail) throw new Error("email provider unavailable");
+});
 const paidCheckoutSession = {
   id: "cs_1",
   payment_status: "paid",
@@ -106,6 +109,7 @@ describe("Stripe billing webhook route", () => {
     selectedEventRows = [];
     updates.length = 0;
     recordCheckoutShouldFail = false;
+    proWelcomeShouldFail = false;
     recordCheckoutCompletionResult = {
       scope: "user",
       stackUserId: "user_1",
@@ -172,6 +176,26 @@ describe("Stripe billing webhook route", () => {
     expect(sendProSignupWelcome).toHaveBeenCalledWith({
       session: expect.objectContaining({ id: "cs_1" }),
     });
+  });
+
+  test("retries a Pro welcome when the first webhook delivery records an email error", async () => {
+    proWelcomeShouldFail = true;
+
+    const failed = await POST(webhookRequest());
+
+    expect(failed.status).toBe(500);
+    expect(updates.at(-1)).toMatchObject({ error: "email provider unavailable" });
+    expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
+
+    insertedEventRows = [];
+    selectedEventRows = [{ processedAt: null, error: "email provider unavailable" }];
+    proWelcomeShouldFail = false;
+
+    const retried = await POST(webhookRequest());
+
+    expect(retried.status).toBe(200);
+    expect(sendProSignupWelcome).toHaveBeenCalledTimes(2);
+    expect(updates.at(-1)).toMatchObject({ error: null });
   });
 
   test("defers recording and Pro email while checkout payment is pending", async () => {

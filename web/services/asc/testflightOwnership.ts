@@ -47,19 +47,10 @@ export function proOwnedLegacyTestflightGroupIDs(
 export function proOwnedLegacyTestflightEmails(
   metadata: unknown,
 ): readonly string[] {
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
-    return [];
-  }
-  const value = (metadata as Record<string, unknown>)[
-    PRO_OWNED_LEGACY_TESTFLIGHT_EMAILS_METADATA_KEY
-  ];
-  if (!Array.isArray(value)) return [];
-  return [
-    ...new Set(value.flatMap((email) => {
-      const normalized = normalizeEmail(email);
-      return normalized ? [normalized] : [];
-    })),
-  ];
+  return metadataEmails(
+    metadata,
+    PRO_OWNED_LEGACY_TESTFLIGHT_EMAILS_METADATA_KEY,
+  );
 }
 
 export function proTestflightEnrollmentEmails(

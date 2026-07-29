@@ -4,6 +4,19 @@ import AppKit
 import Foundation
 import StackAuth
 
+@MainActor
+final class BrowserAppSessionSignInRelay {
+    private var resume: (@MainActor () -> Void)?
+
+    func bind(_ resume: @escaping @MainActor () -> Void) {
+        self.resume = resume
+    }
+
+    func signedIn() {
+        resume?()
+    }
+}
+
 /// The macOS auth composition root.
 ///
 /// Constructs the de-singletonized auth graph once at app startup, mirroring
@@ -127,6 +140,7 @@ struct MacAuthComposition {
         )
 
         let anchor = AuthPresentationContextProvider()
+        let browserAppSessionSignInRelay = BrowserAppSessionSignInRelay()
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: sessionCache,
@@ -137,7 +151,10 @@ struct MacAuthComposition {
             ),
             anchor: anchor,
             config: config,
-            launch: launch
+            launch: launch,
+            onSignedIn: {
+                await browserAppSessionSignInRelay.signedIn()
+            }
         )
         self.coordinator = coordinator
         let browserAppSession = BrowserAppSessionController(
@@ -147,6 +164,9 @@ struct MacAuthComposition {
             defaults: defaults
         )
         self.browserAppSession = browserAppSession
+        browserAppSessionSignInRelay.bind { [weak browserAppSession] in
+            browserAppSession?.resumeAfterSignIn()
+        }
         let callbackRouter = AuthCallbackRouter(
             extraAllowedScheme: AuthEnvironment.callbackScheme
         )
@@ -166,9 +186,6 @@ struct MacAuthComposition {
             localSignOut: {
                 await browserAppSession.clearCmuxWebSession()
             },
-            onSignedIn: {
-                browserAppSession.resumeAfterSignIn()
-            },
             onSignedOut: { accessToken, refreshToken in
                 await MobileHostIrohRuntime.shared.revokeAfterSignOut(
                     accessToken: accessToken,
@@ -181,14 +198,7 @@ struct MacAuthComposition {
     /// Begin asynchronous session restore. Call once after construction, at
     /// the composition root.
     func start() {
-        guard browserAppSession.hasStaleEnvironmentOwnership else {
-            coordinator.start()
-            return
-        }
-        Task { @MainActor in
-            await browserAppSession.clearStaleEnvironmentWebSessions()
-            coordinator.start()
-        }
+        coordinator.start()
     }
 
     /// Where the file-fallback token store persists, namespaced by bundle id

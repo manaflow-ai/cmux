@@ -273,7 +273,9 @@ export function makeAppSessionHandoffHandler(
     const app = dependencies.stackServerApp;
     const projectId = dependencies.projectId;
     if (!app || !projectId) return handoffFailure(request, "/", 503);
-    if (isRateLimited(request)) return handoffFailure(request, "/", 429);
+    if (isRateLimited(request, dependencies.now?.() ?? Date.now())) {
+      return handoffFailure(request, "/", 429);
+    }
     if (await isDurablyRateLimited(request, dependencies)) {
       return handoffFailure(request, "/", 429);
     }

@@ -3839,10 +3839,20 @@ final class Workspace: Identifiable, ObservableObject {
             ) != nil {
                 return
             }
-            _ = currentSource.navigateWithoutInsecureHTTPPrompt(
-                request: navigation.request,
-                recordTypedNavigation: false
-            )
+            // If layout cannot create the requested split, keep the authenticated
+            // request in its dedicated store by opening a tab beside the source.
+            // Navigating the source would reuse its shared profile and lose the
+            // native-to-web session established above.
+            if let sourcePane = self.paneId(forPanelId: currentSource.id) {
+                _ = self.newBrowserSurface(
+                    inPane: sourcePane,
+                    initialRequest: navigation.request,
+                    focus: true,
+                    insertAtEnd: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: navigation.websiteDataStore
+                )
+            }
         }
         return true
     }

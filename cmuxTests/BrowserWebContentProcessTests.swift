@@ -57,12 +57,14 @@ struct BrowserWebContentProcessTests {
     @Test
     func browserAppSessionOutcomesSeparateMissingAuthFromTransientFailure() {
         let notAuthenticated = BrowserAppSessionRequestOutcome.notAuthenticated
+        let transientFailure = BrowserAppSessionRequestOutcome.transientFailure
         let failed = BrowserAppSessionRequestOutcome.failed
 
         #expect(notAuthenticated.shouldBeginSignIn)
         #expect(!notAuthenticated.shouldRetry)
         #expect(!failed.shouldBeginSignIn)
-        #expect(failed.shouldRetry)
+        #expect(!failed.shouldRetry)
+        #expect(transientFailure.shouldRetry)
         #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 401).shouldBeginSignIn)
         #expect(!BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 429).shouldRetry)
         #expect(BrowserAppSessionRequestOutcome.exchangeFailure(statusCode: 503).shouldRetry)
@@ -89,8 +91,12 @@ struct BrowserWebContentProcessTests {
             BrowserAppSessionRequestOutcome.failed.recoveryAction == .isolatedBrowser
         )
         #expect(
+            BrowserAppSessionRequestOutcome.transientFailure.recoveryAction == .isolatedBrowser
+        )
+        #expect(
             BrowserAppSessionRequestOutcome.notAuthenticated.recoveryAction == .beginSignIn
         )
+        #expect(BrowserAppSessionRequestOutcome.cancelled.recoveryAction == nil)
     }
 
     @Test
@@ -120,7 +126,6 @@ struct BrowserWebContentProcessTests {
             defaultsKey: defaultsKey,
             environment: environment
         )
-        #expect(relaunched.persistedIdentities.isEmpty)
         #expect(relaunched.storesForCleanup().isEmpty)
     }
 
@@ -151,7 +156,7 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func browserAppSessionStoreOwnershipTracksAuthEnvironmentChanges() throws {
+    func browserAppSessionStoreRegistryRetiresPersistedOwnershipMarkers() throws {
         let suiteName = "BrowserAppSessionStoreEnvironmentTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -180,12 +185,7 @@ struct BrowserWebContentProcessTests {
             environment: newEnvironment
         )
         #expect(defaults.object(forKey: defaultsKey) == nil)
-        #expect(switched.hasStaleEnvironmentOwnership)
-        #expect(switched.staleEnvironmentStoresForCleanup().isEmpty)
-
-        switched.removeStaleEnvironmentOwnership()
-        #expect(!switched.hasStaleEnvironmentOwnership)
-        #expect(switched.persistedIdentities.isEmpty)
+        #expect(switched.storesForCleanup().isEmpty)
     }
 
     @Test
@@ -213,13 +213,8 @@ struct BrowserWebContentProcessTests {
         )
 
         #expect(defaults.object(forKey: "owned-stores-v2") == nil)
-        #expect(registry.hasStaleEnvironmentOwnership)
         #expect(defaults.object(forKey: legacyKey) == nil)
-        #expect(registry.staleEnvironmentStoresForCleanup().isEmpty)
-
-        registry.removeStaleEnvironmentOwnership()
-        #expect(!registry.hasStaleEnvironmentOwnership)
-        #expect(registry.persistedIdentities.isEmpty)
+        #expect(registry.storesForCleanup().isEmpty)
     }
 
     @Test

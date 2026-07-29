@@ -23,6 +23,8 @@ mock.module("../services/asc/client", () => ({
 }));
 
 const {
+  FOUNDER_TESTFLIGHT_GROUP_ID,
+  PRO_TESTFLIGHT_GROUP_ID,
   proTestflightEnrollmentEmails,
   proTestflightGrants,
   recordProOwnedLegacyTestflightGroup,
@@ -73,7 +75,7 @@ describe("TestFlight ASC service", () => {
             data: [
               {
                 type: "betaGroups",
-                id: "34fbede5-3880-4560-b1bb-a45787249780",
+                id: PRO_TESTFLIGHT_GROUP_ID,
               },
             ],
           },
@@ -105,7 +107,7 @@ describe("TestFlight ASC service", () => {
     await enrollTester("exists@example.com");
 
     expect(ascFetch).toHaveBeenCalledWith(
-      "/v1/betaGroups/34fbede5-3880-4560-b1bb-a45787249780/relationships/betaTesters",
+      `/v1/betaGroups/${PRO_TESTFLIGHT_GROUP_ID}/relationships/betaTesters`,
       expect.objectContaining({ method: "POST" }),
     );
     const body = JSON.parse(String(callInit(3).body));
@@ -132,7 +134,7 @@ describe("TestFlight ASC service", () => {
           data: [
             {
               type: "betaGroups",
-              id: "34fbede5-3880-4560-b1bb-a45787249780",
+              id: PRO_TESTFLIGHT_GROUP_ID,
             },
           ],
         };
@@ -164,7 +166,7 @@ describe("TestFlight ASC service", () => {
     await removeTester("Leave@Example.com");
 
     expect(ascFetch).toHaveBeenCalledWith(
-      "/v1/betaGroups/34fbede5-3880-4560-b1bb-a45787249780/relationships/betaTesters",
+      `/v1/betaGroups/${PRO_TESTFLIGHT_GROUP_ID}/relationships/betaTesters`,
       expect.objectContaining({ method: "DELETE" }),
     );
     const body = JSON.parse(String(callInit(1).body));
@@ -183,7 +185,7 @@ describe("TestFlight ASC service", () => {
           data: [
             {
               type: "betaGroups",
-              id: "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+              id: FOUNDER_TESTFLIGHT_GROUP_ID,
             },
           ],
         };
@@ -192,7 +194,7 @@ describe("TestFlight ASC service", () => {
     });
 
     await removeTester("legacy@example.com", {
-      ownedLegacyGroupIDs: ["3ee84bfa-10ad-4f23-a45c-f9a3b037373e"],
+      ownedLegacyGroupIDs: [FOUNDER_TESTFLIGHT_GROUP_ID],
     });
 
     const deletePaths = (ascFetch as unknown as { mock: { calls: unknown[][] } })
@@ -200,8 +202,8 @@ describe("TestFlight ASC service", () => {
       .filter(([, init]) => (init as { method?: string } | undefined)?.method === "DELETE")
       .map(([path]) => String(path));
     expect(deletePaths).toEqual([
-      "/v1/betaGroups/34fbede5-3880-4560-b1bb-a45787249780/relationships/betaTesters",
-      "/v1/betaGroups/3ee84bfa-10ad-4f23-a45c-f9a3b037373e/relationships/betaTesters",
+      `/v1/betaGroups/${PRO_TESTFLIGHT_GROUP_ID}/relationships/betaTesters`,
+      `/v1/betaGroups/${FOUNDER_TESTFLIGHT_GROUP_ID}/relationships/betaTesters`,
     ]);
   });
 
@@ -215,11 +217,11 @@ describe("TestFlight ASC service", () => {
           data: [
             {
               type: "betaGroups",
-              id: "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+              id: FOUNDER_TESTFLIGHT_GROUP_ID,
             },
             {
               type: "betaGroups",
-              id: "34fbede5-3880-4560-b1bb-a45787249780",
+              id: PRO_TESTFLIGHT_GROUP_ID,
             },
           ],
         };
@@ -236,7 +238,7 @@ describe("TestFlight ASC service", () => {
       .filter(([, init]) => (init as { method?: string } | undefined)?.method === "DELETE")
       .map(([path]) => String(path));
     expect(deletePaths).toEqual([
-      "/v1/betaGroups/34fbede5-3880-4560-b1bb-a45787249780/relationships/betaTesters",
+      `/v1/betaGroups/${PRO_TESTFLIGHT_GROUP_ID}/relationships/betaTesters`,
     ]);
   });
 
@@ -250,7 +252,7 @@ describe("TestFlight ASC service", () => {
           { type: "betaGroups", id: "other" },
           {
             type: "betaGroups",
-            id: "34fbede5-3880-4560-b1bb-a45787249780",
+            id: PRO_TESTFLIGHT_GROUP_ID,
           },
         ],
       };
@@ -271,7 +273,7 @@ describe("TestFlight ASC service", () => {
         data: [
           {
             type: "betaGroups",
-            id: "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+            id: FOUNDER_TESTFLIGHT_GROUP_ID,
           },
         ],
       };
@@ -307,7 +309,7 @@ describe("TestFlight ASC service", () => {
         cmuxPlan: "pro",
         retained: { value: true },
         cmuxProTestflightOwnedLegacyGroupIDs: [
-          "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+          FOUNDER_TESTFLIGHT_GROUP_ID,
         ],
         cmuxProTestflightOwnedLegacyEmails: ["legacy@example.com"],
       },
@@ -413,7 +415,7 @@ describe("TestFlight ASC service", () => {
     const user = {
       clientReadOnlyMetadata: {
         cmuxProTestflightOwnedLegacyGroupIDs: [
-          "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+          FOUNDER_TESTFLIGHT_GROUP_ID,
         ],
         cmuxProTestflightOwnedLegacyEmails: ["legacy@example.com"],
       },
@@ -430,7 +432,7 @@ describe("TestFlight ASC service", () => {
     expect(proTestflightRemovalTargets("Current@Example.com", {
       cmuxProTestflightEnrollmentEmails: ["Joined@Example.com"],
       cmuxProTestflightOwnedLegacyGroupIDs: [
-        "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+        FOUNDER_TESTFLIGHT_GROUP_ID,
       ],
       cmuxProTestflightOwnedLegacyEmails: ["Legacy@Example.com"],
     })).toEqual([
@@ -445,7 +447,7 @@ describe("TestFlight ASC service", () => {
       {
         email: "legacy@example.com",
         ownedLegacyGroupIDs: [
-          "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+          FOUNDER_TESTFLIGHT_GROUP_ID,
         ],
       },
     ]);
@@ -454,7 +456,7 @@ describe("TestFlight ASC service", () => {
   test("does not infer legacy Founder ownership from group metadata alone", () => {
     expect(proTestflightRemovalTargets("current@example.com", {
       cmuxProTestflightOwnedLegacyGroupIDs: [
-        "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+        FOUNDER_TESTFLIGHT_GROUP_ID,
       ],
     })).toEqual([{
       email: "current@example.com",
@@ -465,13 +467,13 @@ describe("TestFlight ASC service", () => {
   test("removes a recorded legacy enrollment when the current email is absent", () => {
     expect(proTestflightRemovalTargets(null, {
       cmuxProTestflightOwnedLegacyGroupIDs: [
-        "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+        FOUNDER_TESTFLIGHT_GROUP_ID,
       ],
       cmuxProTestflightOwnedLegacyEmails: ["legacy@example.com"],
     })).toEqual([{
       email: "legacy@example.com",
       ownedLegacyGroupIDs: [
-        "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+        FOUNDER_TESTFLIGHT_GROUP_ID,
       ],
     }]);
   });
