@@ -146,6 +146,39 @@ struct AgentWaitCoordinatorTests {
     }
 
     @Test
+    func pinnedOccupantExitTerminatesWaitForNonExitState() {
+        let fixture = Fixture(state: .running)
+        let replacement = AgentLifecycleRecord(
+            agent: "codex",
+            state: .running,
+            sessionID: "session-new",
+            revision: fixture.original.revision + 1
+        )
+        var continuationChecks = 0
+        let coordinator = AgentWaitCoordinator(
+            eventBus: fixture.bus,
+            shouldContinue: {
+                continuationChecks += 1
+                return continuationChecks <= 2
+            }
+        )
+
+        let result = coordinator.wait(
+            until: .idle,
+            timeoutMilliseconds: nil,
+            prepare: {
+                fixture.preparation(occupant: fixture.original) {
+                    fixture.publish(record: fixture.original, state: .exit, previous: .running)
+                    fixture.publish(record: replacement, state: .running, previous: nil)
+                }
+            }
+        )
+
+        #expect(result == .failure(.noAgent))
+        #expect(continuationChecks == 1)
+    }
+
+    @Test
     func zeroTimeoutReturnsTimedOutWithoutPollingState() throws {
         let fixture = Fixture(state: .running)
 

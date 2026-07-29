@@ -645,6 +645,57 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
+    func staleClaudeTeardownCannotClearReplacementPIDRegisteredBeforeLifecycle() throws {
+        let fixture = try Fixture()
+        let sharedPIDKey = "claude_code"
+        let originalPID = getppid()
+        let replacementPID = getpid()
+        fixture.workspace.recordAgentPID(
+            key: sharedPIDKey,
+            pid: originalPID,
+            panelId: fixture.surfaceID,
+            refreshPorts: false
+        )
+        fixture.workspace.setAgentLifecycle(
+            key: sharedPIDKey,
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-old",
+            startsNewOccupant: true
+        )
+
+        // A replacement SessionStart registers the shared Claude PID before
+        // its queued lifecycle mutation establishes the new session.
+        fixture.workspace.recordAgentPID(
+            key: sharedPIDKey,
+            pid: replacementPID,
+            panelId: fixture.surfaceID,
+            refreshPorts: false
+        )
+        let didClear = fixture.workspace.clearAgentPID(
+            key: sharedPIDKey,
+            panelId: fixture.surfaceID,
+            clearStatus: true,
+            refreshPorts: false,
+            expectedLifecycleSessionID: "session-old"
+        )
+        fixture.workspace.setAgentLifecycle(
+            key: sharedPIDKey,
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-new",
+            startsNewOccupant: true
+        )
+
+        #expect(!didClear)
+        #expect(fixture.workspace.agentPIDs[sharedPIDKey] == replacementPID)
+        #expect(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?[sharedPIDKey]?
+                .sessionID == "session-new"
+        )
+    }
+
+    @Test
     func liveDetachAndReattachPreservesLifecycleWithoutExit() throws {
         let fixture = try Fixture()
         fixture.workspace.setAgentLifecycle(
@@ -783,6 +834,62 @@ struct AgentLifecycleEventTests {
         #expect(snapshot.paneID == paneID.id)
         #expect(snapshot.occupant?.sessionID == "session-dock")
         #expect(snapshot.occupant?.state == .idle)
+    }
+
+    @Test
+    func dockDwellDoesNotRestoreCachedLifecycleAsAuthoritative() throws {
+        let fixture = try Fixture()
+        let lifecycleKey = "claude_code"
+        fixture.workspace.setAgentLifecycle(
+            key: lifecycleKey,
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-before-dock",
+            startsNewOccupant: true
+        )
+        fixture.workspace.recordAgentPID(
+            key: lifecycleKey,
+            pid: getpid(),
+            panelId: fixture.surfaceID,
+            refreshPorts: false
+        )
+        let intoDock = try #require(
+            fixture.workspace.detachSurface(panelId: fixture.surfaceID)
+        )
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let dockPaneID = try #require(dock.bonsplitController.allPaneIds.first)
+        try #require(
+            dock.attachDetachedSurface(intoDock, inPane: dockPaneID, focus: false)
+        )
+
+        // The Dock has no structured lifecycle refresh path. A live PID keeps
+        // runtime routing alive, but must not make the entry-time lifecycle
+        // record authoritative after an arbitrary Dock dwell.
+        let outOfDock = try #require(
+            dock.detachSurface(panelId: fixture.surfaceID)
+        )
+        let destination = Workspace()
+        defer { destination.teardownAllPanels() }
+        let destinationPaneID = try #require(
+            destination.bonsplitController.allPaneIds.first
+        )
+        try #require(
+            destination.attachDetachedSurface(
+                outOfDock,
+                inPane: destinationPaneID,
+                focus: false
+            )
+        )
+
+        let snapshot = try #require(
+            destination.agentWaitSurfaceSnapshot(surfaceID: fixture.surfaceID)
+        )
+        #expect(destination.agentPIDs[lifecycleKey] == getpid())
+        #expect(snapshot.occupant == nil)
     }
 
     private struct Fixture {
