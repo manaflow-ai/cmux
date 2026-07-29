@@ -215,7 +215,12 @@ extension SessionRemoteWorkspaceSnapshot {
                 + arguments.dropFirst()
         }
         arguments.append(normalizedDestination)
-        arguments.append(contentsOf: remoteCommandArguments)
+        if let remoteCommand = Self.openSSHRemoteCommand(from: remoteCommandArguments) {
+            // OpenSSH flattens argv after the destination and the remote login
+            // shell parses that string again. Keep the whole remote invocation
+            // in one locally quoted argv element so its inner quoting survives.
+            arguments.append(remoteCommand)
+        }
         return arguments.map(Self.shellQuote).joined(separator: " ")
     }
 
@@ -324,6 +329,11 @@ extension SessionRemoteWorkspaceSnapshot {
         ]
     }
 
+    private static func openSSHRemoteCommand(from arguments: [String]) -> String? {
+        guard !arguments.isEmpty else { return nil }
+        return arguments.map(Self.shellQuote).joined(separator: " ")
+    }
+
     private func stagedSSHFallbackCommand(
         staging: RemoteBootstrapStagingCommandBuilder,
         sshArguments: [String],
@@ -335,7 +345,11 @@ extension SessionRemoteWorkspaceSnapshot {
             terminalArguments.append("-tt")
         }
         terminalArguments.append(destination)
-        terminalArguments.append(contentsOf: staging.remoteExecutionCommandArguments)
+        if let remoteCommand = Self.openSSHRemoteCommand(
+            from: staging.remoteExecutionCommandArguments
+        ) {
+            terminalArguments.append(remoteCommand)
+        }
         let invocation = terminalArguments.map(Self.shellQuote).joined(separator: " ")
         let script = [
             staging.preparationShellScript,
