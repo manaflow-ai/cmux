@@ -721,6 +721,7 @@ mod tests {
         let first = dispatch(&mux, request()).unwrap();
         let replay = dispatch(&mux, request()).unwrap();
         assert_eq!(first["value"]["kind"], "terminal");
+        assert_eq!(first["revision"], "1");
         assert_eq!(first["replayed"], false);
         assert_eq!(replay["value"], first["value"]);
         assert_eq!(replay["revision"], first["revision"]);
@@ -749,6 +750,10 @@ mod tests {
         assert_eq!(snapshot["panes"].as_array().unwrap().len(), 1);
         assert_eq!(snapshot["tabs"].as_array().unwrap().len(), 1);
         assert_eq!(snapshot["terminals"].as_array().unwrap().len(), 1);
+        assert_eq!(mux.resource_event_epoch(), 1);
+        let events = mux.resource_events_after(0).unwrap();
+        assert_eq!(events.batches.len(), 1);
+        assert_eq!(events.batches[0].revision, 1);
     }
 
     #[test]

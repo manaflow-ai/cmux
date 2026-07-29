@@ -6100,6 +6100,42 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<WorkspacePlacement> {
+        self.create_empty_workspace_with_mutation_inner(
+            name,
+            requested_key,
+            expected_generation,
+            expected_revision,
+            mutation,
+            true,
+        )
+    }
+
+    fn create_empty_workspace_for_resource_effect(
+        &self,
+        name: Option<String>,
+        requested_key: Option<String>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<WorkspacePlacement> {
+        self.create_empty_workspace_with_mutation_inner(
+            name,
+            requested_key,
+            None,
+            None,
+            mutation,
+            false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_empty_workspace_with_mutation_inner(
+        &self,
+        name: Option<String>,
+        requested_key: Option<String>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        project_resource: bool,
+    ) -> anyhow::Result<WorkspacePlacement> {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
@@ -6167,17 +6203,31 @@ impl Mux {
                 "key": key,
                 "index": index,
             });
-            let commit = registry.commit_with_active_workspace(
-                mutation,
-                &fingerprint,
-                expected_generation,
-                expected_revision,
-                "workspace-added",
-                &key,
-                &desired,
-                Some(&workspace_public_id),
-                &result,
-            )?;
+            let commit = if project_resource {
+                registry.commit_with_active_workspace(
+                    mutation,
+                    &fingerprint,
+                    expected_generation,
+                    expected_revision,
+                    "workspace-added",
+                    &key,
+                    &desired,
+                    Some(&workspace_public_id),
+                    &result,
+                )?
+            } else {
+                registry.commit_for_resource_effect(
+                    mutation,
+                    &fingerprint,
+                    expected_generation,
+                    expected_revision,
+                    "workspace-added",
+                    &key,
+                    &desired,
+                    Some(&workspace_public_id),
+                    &result,
+                )?
+            };
             let committed_workspace = commit.result["workspace"]
                 .as_u64()
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing workspace"))?;
@@ -6198,7 +6248,10 @@ impl Mux {
                     replayed: true,
                 });
             }
-            let resource_revision = registry.snapshot()?.resource_revision;
+            let resource_revision = project_resource
+                .then(|| registry.snapshot())
+                .transpose()?
+                .map(|snapshot| snapshot.resource_revision);
             state.push_workspace(Workspace {
                 id: ws_id,
                 public_id: workspace_public_id,
@@ -6209,7 +6262,9 @@ impl Mux {
             });
             state.active_workspace = state.workspaces.len() - 1;
             state.workspace_revision = commit.revision;
-            state.resource_revision = resource_revision;
+            if let Some(resource_revision) = resource_revision {
+                state.resource_revision = resource_revision;
+            }
             let revision = commit.revision;
             let entity = crate::server::tree_entity_json(
                 &state,
@@ -6234,7 +6289,9 @@ impl Mux {
             )
         };
         drop(registry);
-        self.publish_resource_event();
+        if project_resource {
+            self.publish_resource_event();
+        }
         self.emit_tree_delta(delta, selection_resync);
         Ok(placement)
     }

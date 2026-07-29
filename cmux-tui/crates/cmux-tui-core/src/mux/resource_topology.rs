@@ -2492,11 +2492,9 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         let (workspace_key, workspace_mutation) = self.effect_workspace_reservation(intent)?;
-        let placement = self.create_empty_workspace_with_mutation(
+        let placement = self.create_empty_workspace_for_resource_effect(
             workspace_name,
             Some(workspace_key),
-            None,
-            None,
             &workspace_mutation,
         )?;
         self.effect_create_terminal_in_workspace(
