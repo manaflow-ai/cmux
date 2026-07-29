@@ -11484,6 +11484,56 @@ mod tests {
     }
 
     #[test]
+    fn kitty_quota_worker_exhausts_deadline_pool_admission_rejections() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        {
+            let mut state = mux
+                .deadline_fanout_pool
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            assert_eq!(state.admitted_jobs, 0);
+            state.admitted_jobs = CELL_PIXEL_FANOUT_MAX_WORKERS;
+        }
+
+        assert!(mux.close_surface(second.id).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let (stopped, blocked) = {
+            let budget = mux.kitty_image_budget.lock().unwrap();
+            (!budget.worker_running, budget.blocked_surfaces.contains(&first.id))
+        };
+
+        {
+            let mut state = mux
+                .deadline_fanout_pool
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.admitted_jobs = 0;
+            mux.deadline_fanout_pool.inner.changed.notify_all();
+        }
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.kitty_image_budget.lock().unwrap().worker_running
+            && Instant::now() < cleanup_deadline
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert!(stopped, "Kitty quota worker retried pool admission forever");
+        assert!(blocked, "pool admission exhaustion did not fail closed for the surface");
+    }
+
+    #[test]
     fn cell_pixel_fanout_runs_concurrently_with_one_shared_deadline() {
         let pool = DeadlineFanoutPool::new();
         let (warm_tx, warm_rx) = std::sync::mpsc::sync_channel(1);
