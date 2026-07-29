@@ -263,22 +263,72 @@ struct CmxIrohClientSessionPoolTests {
         #expect(await endpoint.observedDialedAddresses().count == 2)
         #expect(await secondConnection.observedCloseCallCount() == 0)
 
-        for _ in 0 ..< 1_000 {
-            if await diagnosticLog.processedCount() >= 4 { break }
-            await Task.yield()
-        }
+        #expect(await waitForDiagnosticProcessedCount(diagnosticLog, atLeast: 5))
         let events = await diagnosticLog.snapshot().events
         #expect(events.map(\.code) == [
             .transportSessionLifecycle,
+            .transportCloseAttribution,
             .transportSessionLifecycle,
             .sessionClosed,
             .transportSessionLifecycle,
         ])
-        #expect(events[1].diagnosticSessionLifecycleKind == .remoteClosed)
-        #expect(events[1].diagnosticSessionPurpose == .foregroundControl)
+        #expect(events[2].diagnosticSessionLifecycleKind == .remoteClosed)
+        #expect(events[2].diagnosticSessionPurpose == .foregroundControl)
         #expect(events[1].diagnosticSessionID == events[2].diagnosticSessionID)
-        #expect(events[3].diagnosticSessionID != events[2].diagnosticSessionID)
+        #expect(events[2].diagnosticSessionID == events[3].diagnosticSessionID)
+        #expect(events[4].diagnosticSessionID != events[3].diagnosticSessionID)
         await replacement.close()
+    }
+
+    @Test
+    func remoteCloseEmitsAttributionAndPathEventsWithSessionCorrelation() async throws {
+        let fixture = try PoolFixture()
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            closeAttribution: .init(
+                initiator: .remote,
+                applicationErrorCode: 71,
+                failureKind: .connectionClosed
+            )
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let diagnosticLog = DiagnosticLog(capacity: 8)
+        let pool = try await fixture.pool(
+            endpoint: endpoint,
+            generation: 1,
+            diagnosticLog: diagnosticLog
+        )
+        let transport = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+        try await transport.connect()
+
+        await connection.emitPathEvent(.init(
+            kind: .selected,
+            pathKind: .privateNetwork
+        ))
+        #expect(await waitForDiagnosticProcessedCount(diagnosticLog, atLeast: 2))
+        await connection.close(errorCode: 71, reason: "peer_closed")
+
+        #expect(await waitForDiagnosticProcessedCount(diagnosticLog, atLeast: 5))
+        let events = await diagnosticLog.snapshot().events
+        #expect(events.map(\.code) == [
+            .transportSessionLifecycle,
+            .transportPathEvent,
+            .transportCloseAttribution,
+            .transportSessionLifecycle,
+            .sessionClosed,
+        ])
+        let sessionID = try #require(events.first?.diagnosticSessionID)
+        #expect(events.dropFirst().allSatisfy { $0.diagnosticSessionID == sessionID })
+        #expect(events[1].diagnosticPathKind == .privateNetwork)
+        #expect(events[1].a == CmxIrohConnectionPathEventKind.selected.rawValue)
+        #expect(events[2].a == CmxIrohConnectionCloseInitiator.remote.rawValue)
+        #expect(events[2].b == DiagnosticFailureKind.connectionClosed.rawValue)
+        #expect(events[2].ms == 71)
     }
 
     @Test
@@ -769,29 +819,30 @@ struct CmxIrohClientSessionPoolTests {
             .privateNetwork,
         ])
 
-        for _ in 0 ..< 1_000 {
-            if await diagnosticLog.processedCount() >= 4 { break }
-            await Task.yield()
-        }
+        #expect(await waitForDiagnosticProcessedCount(diagnosticLog, atLeast: 5))
         let events = await diagnosticLog.snapshot().events
         #expect(events.map(\.code) == [
             .transportSessionLifecycle,
+            .transportCloseAttribution,
             .transportSessionLifecycle,
             .sessionClosed,
             .transportSessionLifecycle,
         ])
         #expect(events.map(\.a) == [
             DiagnosticSessionLifecycleKind.established.rawValue,
+            CmxIrohConnectionCloseInitiator.local.rawValue,
             DiagnosticSessionLifecycleKind.controlOwnerReleased.rawValue,
             DiagnosticTransportKind.iroh.rawValue,
             DiagnosticSessionLifecycleKind.established.rawValue,
         ])
         #expect(events[0].b == Int(CmxTransportSessionPurpose.foregroundControl.rawValue))
-        #expect(events[1].b == Int(CmxTransportSessionPurpose.foregroundControl.rawValue))
-        #expect(events[2].b == DiagnosticFailureKind.none.rawValue)
+        #expect(events[1].b == DiagnosticFailureKind.cancelled.rawValue)
+        #expect(events[2].b == Int(CmxTransportSessionPurpose.foregroundControl.rawValue))
+        #expect(events[3].b == DiagnosticFailureKind.none.rawValue)
         #expect(events[0].c == events[1].c)
         #expect(events[1].c == events[2].c)
-        #expect(events[3].c != events[2].c)
+        #expect(events[2].c == events[3].c)
+        #expect(events[4].c != events[3].c)
 
         await replacement.close()
     }

@@ -18,7 +18,7 @@ extension Workspace {
         guard !isRetiredFromOwningTabManager else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         let todoPanel = WorkspaceTodoPanel(workspace: self)
         panels[todoPanel.id] = todoPanel

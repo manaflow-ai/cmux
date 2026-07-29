@@ -52,7 +52,7 @@ extension Workspace {
               !isRemoteTmuxMirror else { return nil }
         let shouldFocus = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
         let panel = SimulatorPanel(
             preferredDeviceID: preferredDeviceID,
             preferredRuntimeIdentifier: preferredRuntimeIdentifier,
@@ -142,7 +142,7 @@ extension Workspace {
         )
         bindSurface(tab.id, toPanelId: panel.id)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
