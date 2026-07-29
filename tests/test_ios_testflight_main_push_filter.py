@@ -165,6 +165,7 @@ def run_decision_scenario(
     schedule: Optional[str] = None,
     input_variant: str = "internal",
     prior_sha: Optional[str] = None,
+    prior_event: str = "schedule",
     prior_artifact: str = "ios-testflight-build-metadata",
     head_sha: str = "head-sha",
     changed_files: tuple[str, ...] = (),
@@ -181,6 +182,7 @@ def run_decision_scenario(
         "schedule": schedule,
         "inputVariant": input_variant,
         "priorSha": prior_sha,
+        "priorEvent": prior_event,
         "priorArtifact": prior_artifact,
         "headSha": head_sha,
         "changedFiles": changed_files,
@@ -200,7 +202,7 @@ const priorRuns = () => scenario.priorSha
   ? [{{
       id: 50,
       status: scenario.blockingPriorRun ? 'in_progress' : 'completed',
-      event: 'schedule',
+      event: scenario.priorEvent,
       head_sha: scenario.priorSha,
     }}]
   : [];
