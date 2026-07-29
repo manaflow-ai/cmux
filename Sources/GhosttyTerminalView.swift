@@ -16,7 +16,6 @@ import CoreText
 import Darwin
 import Carbon.HIToolbox
 import os
-import Sentry
 import Bonsplit
 import CMUXAgentLaunch
 import CMUXMobileCore
@@ -447,6 +446,7 @@ class GhosttyApp {
     private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
     private var runtimeColorSchemeSynchronizationDepth = 0
     private var reloadConfigurationDepth = 0
+    private var pendingAppearanceSynchronization: PendingAppearanceSynchronization?
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private(set) var hasUserGhosttyCommand = false
@@ -720,17 +720,16 @@ class GhosttyApp {
                 lastReportedUptime: lastScrollLagReportUptime,
                 cooldown: scrollLagReportCooldownSeconds
             ) {
-                if TelemetrySettings.enabledForCurrentLaunch {
-                    SentrySDK.capture(message: "Scroll lag detected") { scope in
-                        scope.setLevel(.warning)
-                        scope.setContext(value: [
-                            "samples": samples,
-                            "avg_ms": String(format: "%.2f", avgLag),
-                            "max_ms": String(format: "%.2f", maxLag),
-                            "threshold_ms": threshold
-                        ], key: "scroll_lag")
-                    }
-                }
+                sentryCaptureWarning(
+                    "Scroll lag detected",
+                    category: "scroll_lag",
+                    data: [
+                        "samples": samples,
+                        "avg_ms": String(format: "%.2f", avgLag),
+                        "max_ms": String(format: "%.2f", maxLag),
+                        "threshold_ms": threshold
+                    ]
+                )
                 lastScrollLagReportUptime = nowUptime
             }
             // Reset stats
@@ -1548,6 +1547,7 @@ class GhosttyApp {
 
     enum AppearanceSynchronizationPlan {
         case unchanged
+        case deferred(colorScheme: GhosttyConfig.ColorSchemePreference)
         case reload(
             colorScheme: GhosttyConfig.ColorSchemePreference,
             runtimeColorScheme: ghostty_color_scheme_e
@@ -1555,7 +1555,7 @@ class GhosttyApp {
 
         var shouldReloadConfiguration: Bool {
             switch self {
-            case .unchanged:
+            case .unchanged, .deferred:
                 return false
             case .reload:
                 return true
@@ -1581,8 +1581,13 @@ class GhosttyApp {
 
     static func appearanceSynchronizationPlan(
         previousColorScheme: GhosttyConfig.ColorSchemePreference?,
-        currentColorScheme: GhosttyConfig.ColorSchemePreference
+        currentColorScheme: GhosttyConfig.ColorSchemePreference,
+        isConfigurationReloadInProgress: Bool = false
     ) -> AppearanceSynchronizationPlan {
+        if isConfigurationReloadInProgress {
+            return .deferred(colorScheme: currentColorScheme)
+        }
+
         guard shouldReloadConfigurationForAppearanceChange(
             previousColorScheme: previousColorScheme,
             currentColorScheme: currentColorScheme
@@ -1780,7 +1785,10 @@ class GhosttyApp {
             return
         }
         reloadConfigurationDepth += 1
-        defer { reloadConfigurationDepth -= 1 }
+        defer {
+            reloadConfigurationDepth -= 1
+            drainPendingAppearanceSynchronization()
+        }
         if reloadSettingsFromFile {
             KeyboardShortcutSettings.settingsFileStore.reload()
         }
@@ -1881,9 +1889,28 @@ class GhosttyApp {
     func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
         let (currentColorScheme, colorSchemeSource) =
             GhosttyConfig.appearanceSyncColorSchemePreference(passedAppearance: appearance)
+        synchronizeThemeWithResolvedAppearance(
+            currentColorScheme,
+            colorSchemeSource: colorSchemeSource,
+            source: source
+        )
+    }
+
+    private struct PendingAppearanceSynchronization {
+        let colorScheme: GhosttyConfig.ColorSchemePreference
+        let colorSchemeSource: String
+        let source: String
+    }
+
+    private func synchronizeThemeWithResolvedAppearance(
+        _ currentColorScheme: GhosttyConfig.ColorSchemePreference,
+        colorSchemeSource: String,
+        source: String
+    ) {
         let plan = Self.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
-            currentColorScheme: currentColorScheme
+            currentColorScheme: currentColorScheme,
+            isConfigurationReloadInProgress: reloadConfigurationDepth > 0
         )
         if backgroundLogEnabled {
             let previousLabel: String
@@ -1900,17 +1927,41 @@ class GhosttyApp {
                 "appearance sync source=\(source) colorSchemeSource=\(colorSchemeSource) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
             )
         }
-        guard case let .reload(colorScheme, runtimeColorScheme) = plan else { return }
-        synchronizeGhosttyRuntimeColorScheme(
-            runtimeColorScheme,
-            colorScheme: colorScheme,
-            source: source
-        )
-        lastAppearanceColorScheme = colorScheme
-        reloadConfiguration(
-            source: "appearanceSync:\(source)",
-            reloadSettingsFromFile: false,
-            preferredColorScheme: colorScheme
+        switch plan {
+        case .unchanged:
+            return
+        case let .deferred(colorScheme):
+            pendingAppearanceSynchronization = PendingAppearanceSynchronization(
+                colorScheme: colorScheme,
+                colorSchemeSource: colorSchemeSource,
+                source: source
+            )
+            if backgroundLogEnabled {
+                logBackground("appearance sync deferred source=\(source)")
+            }
+            return
+        case let .reload(colorScheme, runtimeColorScheme):
+            synchronizeGhosttyRuntimeColorScheme(
+                runtimeColorScheme,
+                colorScheme: colorScheme,
+                source: source
+            )
+            reloadConfiguration(
+                source: "appearanceSync:\(source)",
+                reloadSettingsFromFile: false,
+                preferredColorScheme: colorScheme
+            )
+        }
+    }
+
+    private func drainPendingAppearanceSynchronization() {
+        guard reloadConfigurationDepth == 0,
+              let pendingAppearanceSynchronization else { return }
+        self.pendingAppearanceSynchronization = nil
+        synchronizeThemeWithResolvedAppearance(
+            pendingAppearanceSynchronization.colorScheme,
+            colorSchemeSource: pendingAppearanceSynchronization.colorSchemeSource,
+            source: pendingAppearanceSynchronization.source
         )
     }
 
@@ -2521,10 +2572,6 @@ class GhosttyApp {
 
     private func focusDirection(from direction: ghostty_action_goto_split_e) -> NavigationDirection? {
         switch direction {
-        // For previous/next, we use left/right as a reasonable default
-        // Bonsplit doesn't have cycle-based navigation
-        case GHOSTTY_GOTO_SPLIT_PREVIOUS: return .left
-        case GHOSTTY_GOTO_SPLIT_NEXT: return .right
         case GHOSTTY_GOTO_SPLIT_UP: return .up
         case GHOSTTY_GOTO_SPLIT_DOWN: return .down
         case GHOSTTY_GOTO_SPLIT_LEFT: return .left
@@ -2658,6 +2705,14 @@ class GhosttyApp {
             )
         }
 
+        if action.tag == GHOSTTY_ACTION_COMMAND_FINISHED {
+            return handleAgentSessionCommandFinishedAction(
+                tabId: callbackTabId,
+                surfaceId: callbackSurfaceId,
+                message: action.action.command_finished
+            )
+        }
+
         guard let surfaceView = callbackContext?.surfaceView else { return false }
         if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
             action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
@@ -2691,9 +2746,25 @@ class GhosttyApp {
             surfaceView.selectionAccessibilitySignal.request()
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
+            let gotoDirection = action.action.goto_split
+            // Previous/next use cycle-based navigation through all panes in tree order
+            if gotoDirection == GHOSTTY_GOTO_SPLIT_PREVIOUS || gotoDirection == GHOSTTY_GOTO_SPLIT_NEXT {
+                guard let tabId = surfaceView.tabId else { return false }
+                let forward = gotoDirection == GHOSTTY_GOTO_SPLIT_NEXT
+                return performOnMain {
+                    guard let app = AppDelegate.shared,
+                          let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else { return false }
+                    let result = tabManager.cycleSplitFocus(tabId: tabId, forward: forward)
+#if DEBUG
+                    app.recordGotoSplitCycleMoveIfNeeded(tabId: tabId, forward: forward)
+#endif
+                    return result
+                }
+            }
+            // Directional navigation uses spatial positioning
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
-                  let direction = focusDirection(from: action.action.goto_split) else {
+                  let direction = focusDirection(from: gotoDirection) else {
                 return false
             }
             return performOnMain {
@@ -6032,7 +6103,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         guard let termSurface = terminalSurface,
               let workspace = termSurface.owningWorkspace(),
-              !workspace.isRemoteTerminalSurface(termSurface.id) else { return nil }
+              workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+                  surfaceID: termSurface.id
+              ) else { return nil }
 
         guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface) else {
             return nil
@@ -6234,13 +6307,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return convert(window.mouseLocationOutsideOfEventStream, from: nil)
     }
 
+    private func wordPathSnapshotTerminalPanel(
+        workspace: Workspace,
+        terminalSurface: TerminalSurface
+    ) -> TerminalPanel? {
+        guard workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+            surfaceID: terminalSurface.id
+        ) else { return nil }
+        return workspace.controlTerminalPanel(for: terminalSurface.id)
+    }
+
+#if DEBUG
+    func debugWordPathSnapshotTerminalPanelID() -> UUID? {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace() else {
+            return nil
+        }
+        return wordPathSnapshotTerminalPanel(
+            workspace: workspace,
+            terminalSurface: terminalSurface
+        )?.id
+    }
+#endif
+
     private func resolveVisibleWordPathFromViewportOffset(
         _ viewportOffsetStart: Int,
         cwd: String,
         workspace: Workspace,
         terminalSurface: TerminalSurface
     ) -> WordPathResolution? {
-        guard let panel = workspace.terminalPanel(for: terminalSurface.id),
+        guard let panel = wordPathSnapshotTerminalPanel(
+            workspace: workspace,
+            terminalSurface: terminalSurface
+        ),
               let surface else {
             return nil
         }
@@ -6280,7 +6379,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         workspace: Workspace,
         terminalSurface: TerminalSurface
     ) -> WordPathResolution? {
-        guard let panel = workspace.terminalPanel(for: terminalSurface.id),
+        guard let panel = wordPathSnapshotTerminalPanel(
+            workspace: workspace,
+            terminalSurface: terminalSurface
+        ),
               let surface else {
             return nil
         }
@@ -6441,7 +6543,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // editor so the click never silently no-ops.
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
-           !workspace.isRemoteTerminalSurface(termSurface.id),
+           workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+               surfaceID: termSurface.id
+           ),
            CommandClickFileOpenRouter.openInCmux(
                workspace: workspace,
                sourcePanelId: termSurface.id,
@@ -7631,6 +7735,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
     private var hasVisibilityRevealRefreshScheduled = false
+    var onExplicitTerminalInput: (() -> Void)?
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -8997,7 +9102,7 @@ final class GhosttySurfaceScrollView: NSView {
               let workspace = manager.tabs.first(where: { $0.id == terminalSurface.tabId }) else {
             return false
         }
-        return workspace.focusedPanelId == terminalSurface.id
+        return workspace.isFocusedTerminalInputSurface(terminalSurface.id)
     }
 
     private func requestMountedSearchFieldFocus(
@@ -9644,6 +9749,10 @@ final class GhosttySurfaceScrollView: NSView {
         return overlay.superview === self && !overlay.isHidden
     }
 
+    func debugCanApplyMountedSearchFieldFocusRequest() -> Bool {
+        canApplyMountedSearchFieldFocusRequest()
+    }
+
     func debugSearchOverlayHostingViewForTesting() -> NSView? {
         guard let overlay = searchOverlayHostingView,
               overlay.superview === self else {
@@ -9847,21 +9956,9 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         guard let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
-              }) else {
+              tab.isFocusedTerminalInputSurface(surfaceId) else {
             scheduleAutomaticFirstResponderApply(
-                reason: "ensureFocus.missingPane",
-                focusTransactionId: focusTransactionId
-            )
-            return
-        }
-
-        guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
-              tab.bonsplitController.focusedPaneId == paneId else {
-            scheduleAutomaticFirstResponderApply(
-                reason: "ensureFocus.unfocusedPane",
+                reason: "ensureFocus.notInputTarget",
                 focusTransactionId: focusTransactionId
             )
             return
@@ -9970,16 +10067,10 @@ final class GhosttySurfaceScrollView: NSView {
         guard let delegate = AppDelegate.shared,
               let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
               tabManager.selectedTabId == tabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
-              }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
             return false
         }
-
-        return tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface &&
-            tab.bonsplitController.focusedPaneId == paneId
+        return tab.isFocusedTerminalInputSurface(surfaceId)
     }
 
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
