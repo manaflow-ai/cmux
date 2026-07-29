@@ -129,6 +129,39 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: [
+        "Connection closed by UNKNOWN port 65535",
+        "ssh_dispatch_run_fatal: Connection to UNKNOWN port 65535: Broken pipe",
+        """
+        channel 0: open failed: administratively prohibited: open failed
+        Connection closed by UNKNOWN port 65535
+        """,
+    ])
+    func leavesGenericProxyTransportClosureUnclassified(_ diagnostic: String) throws {
+        let result = try run("printf '%s\\n' '\(diagnostic)' >&2; exit 255")
+
+        #expect(result.status == 252)
+        for line in diagnostic.split(separator: "\n") {
+            #expect(result.stderr.contains(String(line)))
+        }
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
+    @Test func independentTransportDiagnosticMakesProxyClosureRetryable() throws {
+        let result = try run(
+            """
+            printf '%s\\n' 'connect failed: Connection refused' >&2
+            printf '%s\\n' 'Connection closed by UNKNOWN port 65535' >&2
+            exit 255
+            """
+        )
+
+        #expect(result.status == 254)
+        #expect(result.stderr.contains("Connection refused"))
+        #expect(result.stderr.contains("Connection closed by UNKNOWN port 65535"))
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
+    @Test(arguments: [
         "Warning: Identity file /tmp/missing-key not accessible: No such file or directory.",
         "debug1: load_hostkeys: fopen /tmp/missing-known-hosts: No such file or directory",
     ])
