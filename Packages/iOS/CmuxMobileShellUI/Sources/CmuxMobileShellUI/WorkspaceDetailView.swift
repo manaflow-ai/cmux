@@ -284,6 +284,12 @@ struct WorkspaceDetailView: View {
         .onChange(of: toasts.isEnabled) { _, _ in
             resignDisconnectedTerminalInput(status: connectionStatus)
         }
+        .onChange(of: store.selectedWorkspaceID) { _, _ in
+            // A retained detail can go unavailable while hidden (the
+            // selection guard skips it); when it becomes selected again,
+            // neither status nor flag changes, so re-check on selection.
+            resignDisconnectedTerminalInput(status: connectionStatus)
+        }
         #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topLeading) {

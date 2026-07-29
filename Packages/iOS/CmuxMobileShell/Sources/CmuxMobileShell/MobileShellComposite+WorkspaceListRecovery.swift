@@ -48,12 +48,13 @@ extension MobileShellComposite {
     /// makes it refresh or switch elsewhere), this redials the supplied Mac
     /// directly when it is the unavailable foreground target.
     public func reconnectToMac(macDeviceID: String?) async {
-        guard let macDeviceID, !macDeviceID.isEmpty else {
-            await reconnectOrRefresh()
-            return
-        }
-        if macDeviceID != foregroundMacDeviceID {
-            if await switchToMac(macDeviceID: macDeviceID) {
+        // A nil/empty target means the caller is showing the foreground
+        // connection's status (anonymous foreground, or no selected
+        // workspace), so the action must redial the foreground too — not the
+        // aggregate recovery, which a healthy secondary Mac would divert.
+        let targetMacDeviceID = (macDeviceID?.isEmpty == false) ? macDeviceID : nil
+        if let targetMacDeviceID, targetMacDeviceID != foregroundMacDeviceID {
+            if await switchToMac(macDeviceID: targetMacDeviceID) {
                 return
             }
             await reconnectOrRefresh()
@@ -73,10 +74,13 @@ extension MobileShellComposite {
         if connectionState == .connected {
             // The live event stream can fail before the RPC client's
             // transport closes. Tear down the stale client so switchToMac
-            // cannot take its already-connected fast path and skip the dial.
-            disconnectLiveConnection()
+            // cannot take its already-connected fast path and skip the dial,
+            // but keep secondary-Mac subscriptions and workspaces: this
+            // branch is reached exactly when a secondary may be healthy, and
+            // a failed foreground redial must not strand them.
+            disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }
-        if await switchToMac(macDeviceID: macDeviceID) {
+        if let targetMacDeviceID, await switchToMac(macDeviceID: targetMacDeviceID) {
             return
         }
         _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
