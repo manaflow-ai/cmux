@@ -195,6 +195,151 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
     }
 
     @MainActor
+    func testEndingDockTerminalKeepsConnectedSiblingAuthoritative() throws {
+        let workspace = Workspace()
+        let configuration = remoteConfiguration(preserveAfterTerminalExit: false)
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let firstSurfaceID = try seededTerminalSurfaceID(in: workspace)
+        let firstTerminal = try XCTUnwrap(
+            workspace.panels[firstSurfaceID] as? TerminalPanel
+        )
+        let secondTerminal = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: firstSurfaceID,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        for surfaceID in [firstSurfaceID, secondTerminal.id] {
+            let detached = try XCTUnwrap(
+                workspace.detachSurface(panelId: surfaceID)
+            )
+            XCTAssertNotNil(
+                dock.attachDetachedSurface(
+                    detached,
+                    inPane: dockPane,
+                    focus: false
+                )
+            )
+        }
+
+        XCTAssertTrue(
+            workspace.markDockRemoteTerminalSessionConnected(
+                surfaceId: firstSurfaceID,
+                authority: .relayPort(64007),
+                terminalLifecycleID: firstTerminal.surface.terminalLifecycleId,
+                dock: dock
+            )
+        )
+        XCTAssertTrue(
+            workspace.markDockRemoteTerminalSessionConnected(
+                surfaceId: secondTerminal.id,
+                authority: .relayPort(64007),
+                terminalLifecycleID: secondTerminal.surface.terminalLifecycleId,
+                dock: dock
+            )
+        )
+        workspace.applyRemoteConnectionStateUpdate(
+            .error,
+            detail: "Remote proxy to host unavailable: Remote daemon transport failed",
+            target: "host",
+            externalRemoteTerminalDocks: [dock]
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        XCTAssertTrue(
+            workspace.markDockRemoteTerminalSessionEnded(
+                surfaceId: firstSurfaceID,
+                authority: .relayPort(64007),
+                relayPort: 64007,
+                terminalLifecycleID: firstTerminal.surface.terminalLifecycleId,
+                dock: dock
+            )
+        )
+
+        XCTAssertTrue(
+            workspace.hasAuthoritativelyConnectedRemoteTerminal(in: [dock])
+        )
+        XCTAssertEqual(
+            dock.detachedSurfaceTransfersByPanelId[secondTerminal.id]?
+                .remoteTerminalSessionPhase,
+            .connected
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+    }
+
+    @MainActor
+    func testClosingEndedDockTerminalReleasesSourceLifecycleGeneration() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            remoteConfiguration(preserveAfterTerminalExit: false),
+            autoConnect: false
+        )
+        let surfaceID = try seededTerminalSurfaceID(in: workspace)
+        let terminal = try XCTUnwrap(
+            workspace.panels[surfaceID] as? TerminalPanel
+        )
+        let lifecycleID = terminal.surface.terminalLifecycleId
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        let detached = try XCTUnwrap(
+            workspace.detachSurface(panelId: surfaceID)
+        )
+        XCTAssertNotNil(
+            dock.attachDetachedSurface(detached, inPane: dockPane, focus: false)
+        )
+
+        XCTAssertTrue(
+            workspace.markDockRemoteTerminalSessionConnected(
+                surfaceId: surfaceID,
+                authority: .relayPort(64007),
+                terminalLifecycleID: lifecycleID,
+                dock: dock
+            )
+        )
+        XCTAssertTrue(
+            workspace.markDockRemoteTerminalSessionEnded(
+                surfaceId: surfaceID,
+                authority: .relayPort(64007),
+                relayPort: 64007,
+                terminalLifecycleID: lifecycleID,
+                dock: dock
+            )
+        )
+        XCTAssertFalse(
+            workspace.markDockRemoteTerminalSessionConnected(
+                surfaceId: surfaceID,
+                authority: .relayPort(64007),
+                terminalLifecycleID: lifecycleID,
+                dock: dock
+            )
+        )
+
+        let dockTabID = try XCTUnwrap(dock.surfaceId(forPanelId: surfaceID))
+        XCTAssertTrue(dock.bonsplitController.closeTab(dockTabID))
+        dock.reconcilePanels()
+
+        XCTAssertNil(dock.panels[surfaceID])
+        XCTAssertNil(dock.detachedSurfaceTransfersByPanelId[surfaceID])
+        XCTAssertNil(
+            workspace.endedRemoteTerminalLifecycleIDsBySurfaceId[surfaceID],
+            "A Dock-owned ended generation must retire with its permanent panel"
+        )
+    }
+
+    @MainActor
     func testClosingEndedTerminalRetiresItsLifecycleTombstone() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(
