@@ -43,6 +43,20 @@ struct HTMLPlainTextParserTests {
         #expect(parser.plainText(from: html) == "Visible")
     }
 
+    @Test("visibility visible descendants override a hidden ancestor")
+    func preservesVisibilityVisibleDescendants() {
+        let parser = HTMLPlainTextParser()
+        let html = """
+        <span style="visibility: hidden">
+        hidden parent
+        <span style="visibility: visible">Visible child</span>
+        hidden tail
+        </span>
+        """
+
+        #expect(parser.plainText(from: html) == "Visible child")
+    }
+
     @Test("does not hide text for CSS declaration substring matches")
     func ignoresInlineStyleSubstringFalsePositives() {
         let parser = HTMLPlainTextParser()

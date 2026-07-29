@@ -34,6 +34,44 @@ struct TerminalClipboardInputSequencerTests {
         #expect(delivered == ["paste", "suffix"])
     }
 
+    @Test("pre-admission overflow cancels paste before routing current input")
+    func preAdmissionOverflowCancelsPasteFirst() async {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 2
+        )
+        var delivered: [String] = []
+        let overflow: @MainActor @Sendable () -> Void = {
+            delivered.append("paste-cancelled")
+            sequencer.cancelReservedRequest(
+                id: 1,
+                currentEpoch: 0
+            ) {
+                delivered.append($0)
+            }
+        }
+
+        await Task.detached {
+            sequencer.reserveRequestAdmission(
+                id: 1,
+                onOverflow: overflow
+            )
+        }.value
+        #expect(sequencer.shouldDefer("first"))
+        #expect(sequencer.shouldDefer("second"))
+
+        #expect(!sequencer.shouldDefer("current"))
+        delivered.append("current")
+
+        #expect(
+            delivered == [
+                "paste-cancelled",
+                "first",
+                "second",
+                "current",
+            ]
+        )
+    }
+
     @Test("overlapping reservations hold input through every request")
     func overlappingReservationsHoldInputThroughEveryRequest() async {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
