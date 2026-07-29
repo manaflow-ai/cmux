@@ -116,7 +116,7 @@ jobs:
           printf 'MACOSX_DEPLOYMENT_TARGET=%s\n' "$target" >> "$GITHUB_ENV"
 
       - name: Install cargo-zigbuild
-        if: matrix.cross == true
+        if: matrix.cross == true && runner.os != 'macOS'
         shell: bash
         run: cargo install --locked cargo-zigbuild@0.20.0
 
@@ -148,7 +148,11 @@ jobs:
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
-          cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
+          else
+            cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
+          fi
 
       - name: Stage binary
         shell: bash
