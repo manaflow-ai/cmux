@@ -361,6 +361,7 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.tabManagerFor(windowId: windowCId) === managerC)
         #expect(!app.focusMainWindow(windowId: windowCId))
+        #expect(!app.focusScriptableMainWindow(windowId: windowCId, bringToFront: true))
         #expect(app.tabManager === managerA)
         #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
         #expect(!app.workspaceMoveTargets(
@@ -408,6 +409,8 @@ struct ClosedMainWindowRoutingTests {
         let workspace = try #require(manager.selectedWorkspace)
         let terminalPanel = try #require(workspace.focusedTerminalPanel)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+        let originalWorkspaceId = workspace.id
+        let originalTerminalId = terminalPanel.id
 
         app.unregisterMainWindowContextForTesting(windowId: windowId)
         if let originalWindow {
@@ -416,20 +419,35 @@ struct ClosedMainWindowRoutingTests {
             originalWindow.close()
         }
         originalWindow = nil
+        let replacementManager = TabManager()
+        app.registerMainWindow(
+            replacementWindow,
+            windowId: windowId,
+            tabManager: replacementManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
         replacementWindow.makeKeyAndOrderFront(nil)
 
         defer {
             app.unregisterMainWindowContextForTesting(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
+            replacementManager.tabs.forEach { $0.teardownAllPanels() }
             replacementWindow.orderOut(nil)
             replacementWindow.close()
             TerminalController.shared.setActiveTabManager(previousManager)
             AppDelegate.shared = previousAppDelegate
         }
 
+        let replacementWorkspace = try #require(replacementManager.selectedWorkspace)
+        let replacementTerminal = try #require(replacementWorkspace.focusedTerminalPanel)
         #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
-        #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowId })
-        #expect(app.tabManagerFor(windowId: windowId) == nil)
+        #expect(app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(app.tabManagerFor(windowId: windowId) === replacementManager)
+        #expect(replacementWorkspace.id != originalWorkspaceId)
+        #expect(replacementTerminal.id != originalTerminalId)
+        #expect(!replacementManager.tabs.contains { $0.id == originalWorkspaceId })
     }
 }
 

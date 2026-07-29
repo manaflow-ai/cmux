@@ -227,6 +227,33 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(mutationCount, 0)
     }
 
+    func testHotkeyDoesNotHideUnavailableVisibleWindow() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        var hideCount = 0
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                windowAvailability: { _ in
+                    .init(isAvailable: false, windowId: nil, workspaceId: nil, owner: "close-committed")
+                },
+                setActiveMainWindow: { _ in },
+                isApplicationActive: { true },
+                isApplicationHidden: { false },
+                hideApplication: { hideCount += 1 },
+                windowOperations: makeWindowOperations(
+                    isVisible: { _ in true },
+                    isMiniaturized: { _ in false }
+                )
+            )
+        )
+
+        controller.toggleApplicationVisibility(windows: [window], reason: .globalHotkey)
+
+        XCTAssertEqual(hideCount, 0)
+    }
+
     func testRevealFiltersUnavailableWindowsAtOrderingBoundary() {
         let unavailableWindow = makeWindow()
         let availableWindow = makeWindow()
