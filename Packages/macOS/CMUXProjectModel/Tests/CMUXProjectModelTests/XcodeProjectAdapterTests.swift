@@ -92,7 +92,7 @@ struct XcodeProjectAdapterTests {
         let adapter = XcodeProjectAdapter()
         let model = try adapter.load(at: temporaryWorkspace)
         #expect(model.modules.count == 1)
-        #expect(model.modules.first?.name == projectURL.deletingPathExtension().lastPathComponent)
+        #expect(model.modules.first?.displayName == projectURL.deletingPathExtension().lastPathComponent)
     }
 
     @Test
