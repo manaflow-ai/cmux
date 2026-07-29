@@ -141,6 +141,50 @@ import Testing
         #expect(!session.hasMarkedText)
     }
 
+    @Test func continuousTransformationsHaveFiniteProvisionalWindow() {
+        var session = TerminalTextInputEditSession()
+        var committedText: [String] = []
+
+        for index in 0..<128 {
+            let nativeText = "native-\(index)"
+            session.beginEvent(
+                translatedText: nativeText,
+                rawText: nativeText
+            )
+            #expect(session.insertText(
+                "transformed-\(index)",
+                replacementRange: NSRange(
+                    location: NSNotFound,
+                    length: 0
+                )
+            ).isEmpty)
+            committedText.append(contentsOf: session.finishEvent(
+                consumedByTextInput: true
+            ))
+            if !committedText.isEmpty {
+                break
+            }
+        }
+
+        #expect(!committedText.isEmpty)
+    }
+
+    @Test func oneLargeTransformationHasFiniteProvisionalSize() {
+        var session = TerminalTextInputEditSession()
+        let transformedText = String(repeating: "Ω", count: 65_537)
+        session.beginEvent(translatedText: "x", rawText: "x")
+        #expect(session.insertText(
+            transformedText,
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        ).isEmpty)
+
+        #expect(
+            session.finishEvent(consumedByTextInput: true)
+                == [transformedText]
+        )
+        #expect(!session.hasMarkedText)
+    }
+
     @Test func consumedReplacementEditsRemainProvisionalUntilCommit() {
         var session = TerminalTextInputEditSession()
 

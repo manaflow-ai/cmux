@@ -411,6 +411,31 @@ struct CJKIMEMarkedSelectionTests {
         #expect(submittedKey.text == nil)
     }
 
+    @Test func outOfEventPreeditCommitUsesOneNonphysicalKeyEvent() async throws {
+        let terminal = try await makeHostedCallbackTerminal()
+        defer { tearDown(terminal) }
+        var forwarded: [(keyCode: UInt32, text: String?)] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwarded.append((
+                keyCode: keyEvent.keycode,
+                text: keyEvent.text.map(String.init(cString:))
+            ))
+        }
+
+        terminal.surfaceView.setMarkedText(
+            "line\n",
+            selectedRange: NSRange(location: 5, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        terminal.surfaceView.unmarkText()
+
+        #expect(forwarded.count == 1)
+        let commit = try #require(forwarded.first)
+        #expect(commit.keyCode == 0)
+        #expect(commit.text == "line\n")
+    }
+
     private func makeHostedCallbackTerminal() async throws
         -> HostedCallbackTerminal {
         _ = NSApplication.shared
