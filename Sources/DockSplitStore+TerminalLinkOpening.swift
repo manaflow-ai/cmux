@@ -11,17 +11,32 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
-        guard !terminalLinkIsRemoteTerminal(sourcePanelId),
-              let terminal = panels[sourcePanelId] as? TerminalPanel else {
-            return nil
-        }
+        guard let terminal = panels[sourcePanelId] as? TerminalPanel else { return nil }
         let transfer = detachedSurfaceTransfersByPanelId[sourcePanelId]
-        return TerminalWorkingDirectoryResolver.firstAvailable([
-            terminal.surface.reportedWorkingDirectory,
+        if transfer?.isRemoteTerminal == true {
+            return TerminalWorkingDirectoryResolver.firstAvailable([
+                transfer?.directory,
+                terminal.directory,
+                terminal.requestedWorkingDirectory,
+            ])
+        }
+
+        let cachedCandidates = [
             terminal.directory,
             transfer?.directory,
             terminal.requestedWorkingDirectory,
-        ])
+        ]
+        let reportedDirectory = terminal.surface.reportedWorkingDirectory
+        if restoredAgentLifecycle.resumeStatesByPanelId[sourcePanelId] == .autoResumeCommandRunning {
+            return TerminalWorkingDirectoryResolver.firstAvailable([
+                restoredResumeSessionWorkingDirectoriesByPanelId[sourcePanelId],
+            ] + cachedCandidates + [
+                reportedDirectory,
+            ])
+        }
+        return TerminalWorkingDirectoryResolver.firstAvailable([
+            reportedDirectory,
+        ] + cachedCandidates)
     }
 
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
