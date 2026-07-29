@@ -114,6 +114,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the last applied state from the byte stream and hide the overlay to
     /// match. Defaults to visible (a normal shell shows its cursor).
     private var hostCursorVisible: Bool = true
+    /// Whether Ghostty's viewport currently includes the live bottom row.
+    /// The cursor is a UIKit overlay, so it must be suppressed independently
+    /// while the terminal renderer is showing historical scrollback.
+    var viewportIsAtScrollbackBottom = true
     var needsDraw: Bool = false
     /// Countdown of extra draw requests after a geometry change, so the
     /// renderer (which presents a frame behind) produces a frame at the final
@@ -2874,6 +2878,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func initializeSurface() {
+        viewportIsAtScrollbackBottom = true
         guard let app = runtime?.app else { return }
         surface = makeSurface(app: app)
         if let surface {
@@ -3174,6 +3179,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         guard let surface,
               hostCursorVisible,
+              viewportIsAtScrollbackBottom,
               verifiedReplayFrozenPresentationLayer == nil,
               window != nil,
               !isHidden,
