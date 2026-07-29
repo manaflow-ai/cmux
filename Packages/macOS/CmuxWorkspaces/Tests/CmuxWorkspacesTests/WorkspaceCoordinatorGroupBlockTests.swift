@@ -130,7 +130,6 @@ struct WorkspaceCoordinatorGroupBlockTests {
     @Test
     func inGroupAdjacentBlockDropAtOwnBoundaryIsAcceptedNoOp() throws {
         let (model, host, reorder, groupId, _, m1, m2, m3, _, _, _) = try makeGroupWorld()
-        _ = host
         _ = m3
 
         // Grabbed m1 with {m1, m2} selected; drop at the gap directly below
@@ -139,6 +138,7 @@ struct WorkspaceCoordinatorGroupBlockTests {
         // drop was still accepted at a painted gap and must report success,
         // not a refusal (a false here makes AppKit animate a snap-back).
         let before = model.tabs.map(\.id)
+        let orderChangesBefore = host.orderChanges.count
         #expect(reorder.reorderSidebarWorkspaces(
             tabIds: [m1.id, m2.id],
             draggedTabId: m1.id,
@@ -147,6 +147,7 @@ struct WorkspaceCoordinatorGroupBlockTests {
             explicitGroupId: groupId
         ))
         #expect(model.tabs.map(\.id) == before)
+        #expect(host.orderChanges.count == orderChangesBefore)
     }
 
     @Test

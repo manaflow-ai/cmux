@@ -118,9 +118,7 @@ extension VerticalTabsSidebar {
                         clickedAnchorId: anchorId,
                         anchorIds: anchorIds
                     )
-                    selectedTabIds.wrappedValue = toggledSelection.isEmpty
-                        ? [anchorId]
-                        : toggledSelection
+                    selectedTabIds.wrappedValue = toggledSelection
                     tabManager.selectWorkspace(anchorTab)
                 } else {
                     tabManager.selectWorkspace(anchorTab)
@@ -397,9 +395,7 @@ extension VerticalTabsSidebar {
                         clickedAnchorId: anchorId,
                         anchorIds: anchorIds
                     )
-                    selectedTabIds.wrappedValue = toggledSelection.isEmpty
-                        ? [anchorId]
-                        : toggledSelection
+                    selectedTabIds.wrappedValue = toggledSelection
                     tabManager.selectWorkspace(anchorTab)
                 } else {
                     tabManager.selectWorkspace(anchorTab)
