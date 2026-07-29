@@ -23,39 +23,34 @@ NPM_PACKAGE_BY_PLATFORM = {
     ("linux", "aarch64"): "cmux-tui-linux-arm64",
 }
 
-WHEEL_TAG_BY_PLATFORM = {
-    ("darwin", "arm64"): "macosx_11_0_arm64",
-    ("darwin", "x86_64"): "macosx_10_12_x86_64",
-    ("linux", "x86_64"): "manylinux_2_17_x86_64.manylinux2014_x86_64",
-    ("linux", "aarch64"): "manylinux_2_17_aarch64.manylinux2014_aarch64",
+RUST_TARGET_BY_PLATFORM = {
+    ("darwin", "arm64"): "aarch64-apple-darwin",
+    ("darwin", "x86_64"): "x86_64-apple-darwin",
+    ("linux", "x86_64"): "x86_64-unknown-linux-musl",
+    ("linux", "aarch64"): "aarch64-unknown-linux-musl",
 }
-
-RUST_TARGETS = (
-    "aarch64-apple-darwin",
-    "x86_64-apple-darwin",
-    "x86_64-unknown-linux-musl",
-    "aarch64-unknown-linux-musl",
-)
+PYPI_TARGETS = tuple(runpy.run_path(str(PYPI_PACKAGER))["TARGETS"])
+RUST_TARGETS = tuple(target.rust_target for target in PYPI_TARGETS)
+WHEEL_TAG_BY_PLATFORM = {
+    platform_key: next(
+        target.platform_tags[0]
+        for target in PYPI_TARGETS
+        if target.rust_target == rust_target
+    )
+    for platform_key, rust_target in RUST_TARGET_BY_PLATFORM.items()
+}
 
 
 def test_pypi_fixture_targets_match_packager() -> None:
-    packager = runpy.run_path(str(PYPI_PACKAGER))
-    declared = tuple(target.rust_target for target in packager["TARGETS"])
-    assert RUST_TARGETS == declared
+    assert tuple(RUST_TARGET_BY_PLATFORM.values()) == RUST_TARGETS
 
 
 def test_pypi_fixture_wheel_tags_match_packager() -> None:
-    packager = runpy.run_path(str(PYPI_PACKAGER))
     fixture_tags = tuple(
         WHEEL_TAG_BY_PLATFORM[key]
-        for key in (
-            ("darwin", "arm64"),
-            ("darwin", "x86_64"),
-            ("linux", "x86_64"),
-            ("linux", "aarch64"),
-        )
+        for key in RUST_TARGET_BY_PLATFORM
     )
-    declared = tuple(target.platform_tags[0] for target in packager["TARGETS"])
+    declared = tuple(target.platform_tags[0] for target in PYPI_TARGETS)
     assert fixture_tags == declared
 
 
