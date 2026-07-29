@@ -12,6 +12,37 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CJKIMEMarkedSelectionTests {
+    private final class CallbackSurfaceView: GhosttyNSView {
+        var textInputEventHandler: ((NSEvent) -> Bool)?
+
+        override func handleTextInputEvent(_ event: NSEvent) -> Bool {
+            textInputEventHandler?(event)
+                ?? super.handleTextInputEvent(event)
+        }
+    }
+
+    private struct CallbackSurfaceViewFactory:
+        TerminalSurfaceViewProviding {
+        func makeSurfaceViews(
+            initialFrame: NSRect
+        ) -> (
+            surfaceView: any TerminalSurfaceNativeViewing,
+            paneHost: any TerminalSurfacePaneHosting
+        ) {
+            let surfaceView = CallbackSurfaceView(frame: initialFrame)
+            return (
+                surfaceView,
+                GhosttySurfaceScrollView(surfaceView: surfaceView)
+            )
+        }
+    }
+
+    private struct HostedCallbackTerminal {
+        let surface: TerminalSurface
+        let surfaceView: CallbackSurfaceView
+        let window: NSWindow
+    }
+
     @Test func selectedRangeTracksMarkedTextSelection() {
         let view = GhosttyNSView(frame: .zero)
 
@@ -185,4 +216,249 @@ struct CJKIMEMarkedSelectionTests {
         #expect(view.keyTextAccumulatorForTesting == ["Ω"])
     }
 
+    @Test func consumedReplacementEditsStayProvisionalUntilFullReplacement() async throws {
+        let terminal = try await makeHostedCallbackTerminal()
+        defer { tearDown(terminal) }
+
+        terminal.surfaceView.textInputEventHandler = { event in
+            switch event.keyCode {
+            case UInt16(kVK_ANSI_1):
+                terminal.surfaceView.insertText(
+                    "α",
+                    replacementRange: NSRange(
+                        location: NSNotFound,
+                        length: 0
+                    )
+                )
+            case UInt16(kVK_ANSI_2):
+                terminal.surfaceView.insertText(
+                    "β",
+                    replacementRange: NSRange(
+                        location: NSNotFound,
+                        length: 0
+                    )
+                )
+            case UInt16(kVK_ANSI_3):
+                terminal.surfaceView.insertText(
+                    "γ",
+                    replacementRange: NSRange(location: 1, length: 1)
+                )
+            case UInt16(kVK_Return):
+                terminal.surfaceView.insertText(
+                    "Ω",
+                    replacementRange: NSRange(location: 0, length: 2)
+                )
+            default:
+                return false
+            }
+            return true
+        }
+
+        var forwardedText: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS,
+                  let text = keyEvent.text else {
+                return
+            }
+            forwardedText.append(String(cString: text))
+        }
+
+        try sendKey(text: "1", keyCode: UInt16(kVK_ANSI_1), to: terminal)
+        #expect(terminal.surfaceView.attributedString().string == "α")
+        #expect(terminal.surfaceView.hasMarkedText())
+        #expect(forwardedText.isEmpty)
+
+        try sendKey(text: "2", keyCode: UInt16(kVK_ANSI_2), to: terminal)
+        #expect(terminal.surfaceView.attributedString().string == "αβ")
+        #expect(forwardedText.isEmpty)
+
+        try sendKey(text: "3", keyCode: UInt16(kVK_ANSI_3), to: terminal)
+        #expect(terminal.surfaceView.attributedString().string == "αγ")
+        #expect(forwardedText.isEmpty)
+
+        try sendKey(text: "\r", keyCode: UInt16(kVK_Return), to: terminal)
+        #expect(!terminal.surfaceView.hasMarkedText())
+        #expect(forwardedText == ["Ω"])
+    }
+
+    @Test func consumedPreeditCaretMovementAlsoReachesTerminal() async throws {
+        let terminal = try await makeHostedCallbackTerminal()
+        defer { tearDown(terminal) }
+        terminal.surfaceView.setMarkedText(
+            "opaque",
+            selectedRange: NSRange(location: 3, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        terminal.surfaceView.textInputEventHandler = { event in
+            guard event.keyCode == UInt16(kVK_RightArrow) else {
+                return false
+            }
+            terminal.surfaceView.setMarkedText(
+                "opaque",
+                selectedRange: NSRange(location: 4, length: 0),
+                replacementRange: NSRange(
+                    location: NSNotFound,
+                    length: 0
+                )
+            )
+            return true
+        }
+
+        var forwardedKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedKeyCodes.append(keyEvent.keycode)
+        }
+
+        try sendKey(
+            text: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+            keyCode: UInt16(kVK_RightArrow),
+            to: terminal
+        )
+
+        #expect(
+            terminal.surfaceView.selectedRange()
+                == NSRange(location: 4, length: 0)
+        )
+        #expect(forwardedKeyCodes == [UInt32(kVK_RightArrow)])
+    }
+
+    @Test func literalPreeditCommitAlsoReachesTerminalSubmit() async throws {
+        let terminal = try await makeHostedCallbackTerminal()
+        defer { tearDown(terminal) }
+        terminal.surfaceView.setMarkedText(
+            "opaque",
+            selectedRange: NSRange(location: 6, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        terminal.surfaceView.textInputEventHandler = { event in
+            guard event.keyCode == UInt16(kVK_Return) else {
+                return false
+            }
+            terminal.surfaceView.insertText(
+                "opaque",
+                replacementRange: NSRange(
+                    location: NSNotFound,
+                    length: 0
+                )
+            )
+            return true
+        }
+
+        var forwarded: [(keyCode: UInt32, text: String?)] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwarded.append((
+                keyCode: keyEvent.keycode,
+                text: keyEvent.text.map(String.init(cString:))
+            ))
+        }
+
+        try sendKey(
+            text: "\r",
+            keyCode: UInt16(kVK_Return),
+            to: terminal
+        )
+
+        #expect(!terminal.surfaceView.hasMarkedText())
+        #expect(forwarded.count == 2)
+        let committedText = try #require(forwarded.first)
+        let submittedKey = try #require(forwarded.last)
+        #expect(committedText.keyCode == 0)
+        #expect(committedText.text == "opaque")
+        #expect(submittedKey.keyCode == UInt32(kVK_Return))
+        #expect(submittedKey.text == nil)
+    }
+
+    private func makeHostedCallbackTerminal() async throws
+        -> HostedCallbackTerminal {
+        _ = NSApplication.shared
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil,
+            initialCommand: "/bin/cat",
+            dependencies: callbackRuntimeDependencies()
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = try #require(window.contentView)
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        let surfaceDeadline = Date().addingTimeInterval(5)
+        while surface.surface == nil, Date() < surfaceDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        _ = try #require(surface.surface)
+
+        return HostedCallbackTerminal(
+            surface: surface,
+            surfaceView: try #require(
+                findGhosttyNSView(in: hostedView) as? CallbackSurfaceView
+            ),
+            window: window
+        )
+    }
+
+    private func callbackRuntimeDependencies()
+        -> TerminalSurfaceRuntimeDependencies {
+        let live = GhosttyApp.terminalSurfaceRuntimeDependencies
+        return TerminalSurfaceRuntimeDependencies(
+            registry: live.registry,
+            engine: live.engine,
+            viewProvider: CallbackSurfaceViewFactory(),
+            spawnPolicy: live.spawnPolicy,
+            byteTee: live.byteTee,
+            rendererRealization: live.rendererRealization,
+            hibernationRecorder: live.hibernationRecorder,
+            runtimeTeardown: live.runtimeTeardown,
+            restoreSpawnScheduler: live.restoreSpawnScheduler,
+            runtimeFilesystem: live.runtimeFilesystem,
+            sessionPortBase: live.sessionPortBase,
+            sessionPortRangeSize: live.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey:
+                live.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent:
+                live.globalFontMagnificationPercent
+        )
+    }
+
+    private func sendKey(
+        text: String,
+        keyCode: UInt16,
+        to terminal: HostedCallbackTerminal
+    ) throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: terminal.window.windowNumber,
+            context: nil,
+            characters: text,
+            charactersIgnoringModifiers: text,
+            isARepeat: false,
+            keyCode: keyCode
+        ))
+        #expect(terminal.window.makeFirstResponder(terminal.surfaceView))
+        terminal.surfaceView.keyDown(with: event)
+    }
+
+    private func tearDown(_ terminal: HostedCallbackTerminal) {
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+        terminal.window.orderOut(nil)
+        withExtendedLifetime(terminal.surface) {}
+    }
 }
