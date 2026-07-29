@@ -274,6 +274,28 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        let commit = self.commit_resource_topology_operation(
+            operation,
+            selectors,
+            fields,
+            expected_revision,
+            mutation,
+        )?;
+        if !commit.replayed {
+            self.emit_resource_topology_legacy_events(operation, &commit);
+        }
+        Ok(commit)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn commit_resource_topology_operation(
+        self: &Arc<Self>,
+        operation: ResourceOperation,
+        selectors: ResourceSelectors,
+        fields: Map<String, Value>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
         let fingerprint_fields = if is_created_path_operation(operation) {
             semantic_creation_fields(&fields)
         } else {
@@ -371,35 +393,38 @@ impl Mux {
             )?,
             _ => anyhow::bail!("unsupported topology operation {}", operation_name(operation)),
         };
-        if !commit.replayed {
-            self.emit(MuxEvent::TreeChanged);
-            if matches!(
-                operation,
-                ResourceOperation::PaneSwap
-                    | ResourceOperation::PaneZoom
-                    | ResourceOperation::PaneSplitRatioSet
-                    | ResourceOperation::PaneViewportWidthSet
-                    | ResourceOperation::WorkspaceLayoutApply
-                    | ResourceOperation::ScreenLayoutUndo
-                    | ResourceOperation::PaneCreate
-                    | ResourceOperation::PaneSplit
-                    | ResourceOperation::PaneClose
-            ) {
-                if let Some(screen) = commit
-                    .result
-                    .get("screen")
-                    .or_else(|| commit.result.get("screen_id"))
-                    .and_then(Value::as_str)
-                    .and_then(|id| ScreenPublicId::parse(id.to_string()).ok())
-                    .and_then(|id| {
-                        self.with_state(|state| state.resource_indexes.screens.get(&id).copied())
-                    })
-                {
-                    self.emit(MuxEvent::LayoutChanged(screen));
-                }
-            }
-        }
         Ok(commit)
+    }
+
+    pub(super) fn emit_resource_topology_legacy_events(
+        &self,
+        operation: ResourceOperation,
+        commit: &ResourcePatchCommit,
+    ) {
+        self.emit(MuxEvent::TreeChanged);
+        if matches!(
+            operation,
+            ResourceOperation::PaneSwap
+                | ResourceOperation::PaneZoom
+                | ResourceOperation::PaneSplitRatioSet
+                | ResourceOperation::PaneViewportWidthSet
+                | ResourceOperation::WorkspaceLayoutApply
+                | ResourceOperation::ScreenLayoutUndo
+                | ResourceOperation::PaneCreate
+                | ResourceOperation::PaneSplit
+                | ResourceOperation::PaneClose
+        ) && let Some(screen) = commit
+            .result
+            .get("screen")
+            .or_else(|| commit.result.get("screen_id"))
+            .and_then(Value::as_str)
+            .and_then(|id| ScreenPublicId::parse(id.to_string()).ok())
+            .and_then(|id| {
+                self.with_state(|state| state.resource_indexes.screens.get(&id).copied())
+            })
+        {
+            self.emit(MuxEvent::LayoutChanged(screen));
+        }
     }
 
     fn resource_focus_workspace(
@@ -761,10 +786,49 @@ impl Mux {
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        self.resource_select_tab_impl(
+            "tab.focus",
+            selectors,
+            true,
+            expected_revision,
+            mutation,
+            fingerprint,
+        )
+    }
+
+    pub(super) fn commit_ordinary_tab_selection(
+        self: &Arc<Self>,
+        selectors: ResourceSelectors,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let fingerprint = json!({
+            "operation":"tab.select",
+            "selectors":&selectors,
+            "fields":{},
+        });
+        self.resource_select_tab_impl(
+            "tab.select",
+            selectors,
+            false,
+            None,
+            &WorkspaceMutation::local("cmux-tui"),
+            &fingerprint,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn resource_select_tab_impl(
+        self: &Arc<Self>,
+        operation: &'static str,
+        selectors: ResourceSelectors,
+        focus_target_pane: bool,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
         let mux = Arc::clone(self);
         self.commit_resource_mutation_plan(
             mutation,
-            "tab.focus",
+            operation,
             fingerprint,
             None,
             expected_revision,
@@ -780,7 +844,17 @@ impl Mux {
                 let surface = resolved.tab.context("tab selector has no live surface")?;
                 let tab_id = resolved.path.tab.context("tab selector has no public id")?;
                 let pane = state.pane_of(surface).context("resolved tab has no pane")?;
-                let mut plan = focus_pane_plan(&mux, state, registry, pane)?;
+                let focus_path = focus_target_pane || state.active_pane() == Some(pane);
+                let mut plan = if focus_path {
+                    focus_pane_plan(&mux, state, registry, pane)?
+                } else {
+                    ResourceMutationPlan::new(
+                        ResourcePatch { changes: Vec::new() },
+                        json!({}),
+                        json!([]),
+                        |_| {},
+                    )
+                };
                 let topology = registry.resource_topology_snapshot()?;
                 let pane_id = state.resource_indexes.pane_ids[&pane].clone();
                 let mut durable = topology_pane(&topology, &pane_id)?.clone();
@@ -821,8 +895,14 @@ impl Mux {
                     ),
                 );
                 let ResourceMutationPlan { patch, result, deltas, metrics, .. } = prior_apply;
+                let apply_mux = Arc::clone(&mux);
                 Ok(ResourceMutationPlan::new(patch, result, deltas, move |state| {
-                    apply_focus_path(&mux, state, pane);
+                    if focus_path {
+                        apply_focus_path(&apply_mux, state, pane);
+                    } else {
+                        state.panes.get_mut(&pane).expect("planned pane remains live").active_at =
+                            apply_mux.next_active_at();
+                    }
                     state.panes.get_mut(&pane).expect("planned pane remains live").active_tab =
                         index;
                 })
@@ -2921,7 +3001,12 @@ fn effect_target(operation: ResourceOperation, selectors: &ResourceSelectors) ->
             }
         }
         ResourceOperation::PaneCreate => {
-            if selectors.screen.is_some() {
+            // The public operation creates a pane within a selected screen.
+            // Ordinary mux callers additionally carry the exact existing pane
+            // whose auto-layout column should receive the new pane.
+            if selectors.pane.is_some() {
+                ResourceTarget::Pane
+            } else if selectors.screen.is_some() {
                 ResourceTarget::Screen
             } else if selectors.workspace.is_some() {
                 ResourceTarget::Workspace
