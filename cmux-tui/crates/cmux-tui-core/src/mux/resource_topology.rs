@@ -4526,6 +4526,86 @@ mod creation_recovery_tests {
     use super::*;
 
     #[test]
+    fn restart_reconciles_absent_effects_for_every_created_path_operation() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-created-path-recovery-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let operations = [
+            ResourceOperation::WorkspaceCreate,
+            ResourceOperation::WorkspaceRun,
+            ResourceOperation::ScreenCreate,
+            ResourceOperation::PaneCreate,
+            ResourceOperation::PaneSplit,
+            ResourceOperation::PaneRun,
+            ResourceOperation::TabCreateTerminal,
+            ResourceOperation::TabCreateBrowser,
+        ];
+        {
+            let mut registry = WorkspaceRegistry::open(&root, "creation-recovery").unwrap();
+            for (index, operation) in operations.into_iter().enumerate() {
+                let operation_name = operation_name(operation);
+                let correlation_key = format!("correlation-{index}");
+                let idempotency_key = format!("attempt-{index}");
+                let fingerprint = json!({"operation":operation_name});
+                let intent = match created_identity_kind(operation).unwrap() {
+                    CreatedIdentityKind::Terminal => json!({
+                        "terminal_reservation":{
+                            "terminal_id":TerminalId::random().unwrap().to_hex(),
+                        },
+                    }),
+                    CreatedIdentityKind::Browser => json!({
+                        "browser_reservation":{
+                            "tab_id":TabPublicId::random().unwrap(),
+                            "browser_id":BrowserPublicId::random().unwrap(),
+                        },
+                    }),
+                };
+                registry
+                    .prepare_resource_creation(
+                        &correlation_key,
+                        &idempotency_key,
+                        &operation_name,
+                        &fingerprint,
+                        &intent,
+                        true,
+                        None,
+                        None,
+                    )
+                    .unwrap();
+                registry
+                    .mark_resource_effect_executing(&idempotency_key, &operation_name, &fingerprint)
+                    .unwrap();
+            }
+        }
+
+        let registry = WorkspaceRegistry::open(&root, "creation-recovery").unwrap();
+        let mux = Mux::from_workspace_registry(
+            "creation-recovery".into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        for (index, operation) in operations.into_iter().enumerate() {
+            assert_eq!(
+                mux.resource_creation_resolution(&format!("correlation-{index}")).unwrap(),
+                json!({
+                    "correlation_key":format!("correlation-{index}"),
+                    "operation":operation_name(operation),
+                    "idempotency_key":format!("attempt-{index}"),
+                    "state":"not_applied",
+                    "recovery":"retry_new_idempotency_key",
+                })
+            );
+        }
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn all_created_path_operations_have_restart_evidence_identity() {
         let operations = [
             (ResourceOperation::WorkspaceCreate, CreatedIdentityKind::Terminal),
