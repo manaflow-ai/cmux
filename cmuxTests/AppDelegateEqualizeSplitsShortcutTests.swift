@@ -1986,8 +1986,28 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                                 .fontSizeChangeTokens
                                 ?? []
                         )
-                    )
+                )
             )
+        )
+        _ = restoredPanel.surface.runtimeCreationConfigTemplate()
+        let resnapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty
+        )
+        let restoredTerminal = try XCTUnwrap(
+            resnapshot.panels.first {
+                $0.id == restoredPanel.id
+            }?.terminal
+        )
+        XCTAssertEqual(
+            restoredTerminal.fontSize,
+            19,
+            "A second snapshot before promotion must not project the deferred change twice"
+        )
+        XCTAssertFalse(
+            restoredTerminal.fontSizeChangeTokens?.isEmpty
+                ?? true,
+            "Runtime creation must retain snapshot-visible deferred provenance"
         )
 
         finishConfigurationBarrier?()

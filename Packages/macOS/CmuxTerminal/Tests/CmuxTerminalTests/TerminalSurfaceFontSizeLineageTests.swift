@@ -173,10 +173,21 @@ private func setFontBindingResult(_ result: Bool)
         #expect(surface.sessionFontSizeOverrideBasePoints() == 510)
     }
 
-    @Test func ghosttyFontSizeActionUsesProtocolDecimalSeparator() {
+    @Test func ghosttyFontSizeActionUsesInvariantRoundTripEncoding() throws {
+        let points = Float32(10.12345)
+        let action =
+            GhosttyFontSizeBindingAction.setFontSize(points)
+        let encodedPoints = try #require(
+            Float32(
+                action.dropFirst(
+                    "set_font_size:".count
+                )
+            )
+        )
+
+        #expect(!action.contains(","))
         #expect(
-            GhosttyFontSizeBindingAction.setFontSize(24.5)
-                == "set_font_size:24.500"
+            encodedPoints.bitPattern == points.bitPattern
         )
     }
 
