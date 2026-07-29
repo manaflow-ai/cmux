@@ -1795,6 +1795,8 @@ impl Surface {
         drop(pty.slave);
         let killer = child.clone_killer();
         let process = LocalPtyProcess::new(pid, killer);
+        #[cfg(test)]
+        crate::process_session::fail_after_pty_spawn_for_test()?;
         let reader_process = process.clone();
         let mut reader = pty.master.try_clone_reader()?;
         let writer = pty.master.take_writer()?;
@@ -4082,6 +4084,45 @@ mod tests {
         let _ = surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(1));
 
         assert_eq!(observed, baseline, "PTY descriptors were created outside the process barrier");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_local_pty_initialization_reaps_spawned_child() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-local-spawn-failure-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let ready = root.join("ready");
+        let _failure = crate::process_session::force_post_spawn_failure_for_test(ready.clone());
+        let mux = Mux::new_for_test("local-spawn-failure", SurfaceOptions::default());
+        let options = SurfaceOptions {
+            command: Some(vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                format!("trap '' HUP TERM; echo $$ > {}; exec /bin/sleep 60", ready.display()),
+            ]),
+            ..SurfaceOptions::default()
+        };
+
+        let error = Surface::spawn(1, options, Arc::downgrade(&mux))
+            .expect_err("forced local PTY initialization failure unexpectedly succeeded");
+        assert!(error.to_string().contains("forced post-spawn PTY initialization failure"));
+        let pid = std::fs::read_to_string(&ready).unwrap().trim().parse::<libc::pid_t>().unwrap();
+        let mut status = 0;
+        // SAFETY: the marker contains the exact child PID spawned by this test.
+        let result = unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) };
+        let wait_error = std::io::Error::last_os_error();
+        if result == 0 {
+            // SAFETY: the child is still owned by this test process.
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+                libc::waitpid(pid, &raw mut status, 0);
+            }
+        }
+        let _ = std::fs::remove_dir_all(root);
+
+        assert_eq!(result, -1, "failed local PTY initialization left child {pid} unreaped");
+        assert_eq!(wait_error.raw_os_error(), Some(libc::ECHILD));
     }
 
     #[derive(Clone, Default)]

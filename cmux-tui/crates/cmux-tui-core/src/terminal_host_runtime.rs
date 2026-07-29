@@ -3253,6 +3253,8 @@ mod unix {
             command.cwd(cwd);
         }
         let mut child = pty.slave.spawn_command(command)?;
+        #[cfg(test)]
+        crate::process_session::fail_after_pty_spawn_for_test()?;
         drop(process_creation);
         let pid = child.process_id();
         let Some(session) = pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
@@ -4127,6 +4129,68 @@ mod unix {
                 observed, baseline,
                 "host PTY descriptors were created outside the process barrier"
             );
+        }
+
+        #[test]
+        fn failed_host_pty_initialization_reaps_spawned_child() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-spawn-failure-{}",
+                crate::workspace_registry::new_uuid_v4()
+            ));
+            fs::create_dir_all(&root).unwrap();
+            let ready = root.join("ready");
+            let _failure = crate::process_session::force_post_spawn_failure_for_test(ready.clone());
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: root.join("host.sock").to_string_lossy().into_owned(),
+                record_path: root.join("host.json").to_string_lossy().into_owned(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    format!("trap '' HUP TERM; echo $$ > {}; exec /bin/sleep 60", ready.display()),
+                ],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+            };
+
+            let error = match spawn_host_runtime(&launch, &bootstrapped) {
+                Ok(_) => panic!("forced hosted PTY initialization failure unexpectedly succeeded"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("forced post-spawn PTY initialization failure"));
+            let pid = fs::read_to_string(&ready).unwrap().trim().parse::<libc::pid_t>().unwrap();
+            let mut status = 0;
+            // SAFETY: the marker contains the exact child PID spawned by this test.
+            let result = unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) };
+            let wait_error = std::io::Error::last_os_error();
+            if result == 0 {
+                // SAFETY: the child is still owned by this test process.
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
+                    libc::waitpid(pid, &raw mut status, 0);
+                }
+            }
+            let _ = fs::remove_dir_all(root);
+
+            assert_eq!(result, -1, "failed hosted PTY initialization left child {pid} unreaped");
+            assert_eq!(wait_error.raw_os_error(), Some(libc::ECHILD));
         }
 
         #[cfg(target_os = "linux")]

@@ -39,6 +39,8 @@ static STABLE_PROCESS_SIGNALING: OnceLock<()> = OnceLock::new();
 thread_local! {
     static FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE: std::cell::Cell<bool> =
         const { std::cell::Cell::new(false) };
+    static POST_SPAWN_FAILURE_MARKER: std::cell::RefCell<Option<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
@@ -49,6 +51,45 @@ pub(crate) fn dedicated_natural_reap_workers_for_test() -> usize {
 #[cfg(test)]
 pub(crate) fn set_process_session_preflight_failure_for_test(enabled: bool) {
     FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE.set(enabled);
+}
+
+#[cfg(test)]
+pub(crate) struct ForcedPostSpawnFailure {
+    previous: Option<std::path::PathBuf>,
+}
+
+#[cfg(test)]
+impl Drop for ForcedPostSpawnFailure {
+    fn drop(&mut self) {
+        POST_SPAWN_FAILURE_MARKER.with_borrow_mut(|marker| {
+            *marker = self.previous.take();
+        });
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn force_post_spawn_failure_for_test(
+    marker: std::path::PathBuf,
+) -> ForcedPostSpawnFailure {
+    let previous = POST_SPAWN_FAILURE_MARKER.replace(Some(marker));
+    ForcedPostSpawnFailure { previous }
+}
+
+#[cfg(test)]
+pub(crate) fn fail_after_pty_spawn_for_test() -> io::Result<()> {
+    let marker = POST_SPAWN_FAILURE_MARKER.with_borrow(Clone::clone);
+    let Some(marker) = marker else { return Ok(()) };
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !marker.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    if !marker.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "forced post-spawn failure marker was not published",
+        ));
+    }
+    Err(io::Error::other("forced post-spawn PTY initialization failure"))
 }
 
 /// Synchronization shared by a WNOWAIT child observer and explicit PTY
