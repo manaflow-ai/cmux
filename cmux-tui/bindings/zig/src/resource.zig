@@ -969,6 +969,30 @@ pub const OwnedResourceError = struct {
     }
 };
 
+pub const MutationTransportCause = enum {
+    timeout,
+    connection_closed,
+};
+
+/// A mutation request was fully written, but its response was lost. The
+/// server may have committed the mutation.
+pub const MutationTransportUncertain = struct {
+    operation: Operation,
+    idempotency_key: []const u8,
+    cause: MutationTransportCause,
+    recovery: MutationRecovery,
+};
+
+pub const OwnedMutationTransportUncertain = struct {
+    arena: std.heap.ArenaAllocator,
+    value: MutationTransportUncertain,
+
+    pub fn deinit(self: *OwnedMutationTransportUncertain) void {
+        self.arena.deinit();
+        self.* = undefined;
+    }
+};
+
 const OwnedResult = struct {
     owned: raw.wire.OwnedValue,
     value: raw.wire.Value,
@@ -1756,6 +1780,14 @@ fn maybeParseCreatedPath(value: raw.wire.Value) !?CreatedPath {
     return try parseCreatedPath(value);
 }
 
+fn mutationTransportCause(
+    failure: anyerror,
+) ?MutationTransportCause {
+    if (failure == error.Timeout) return .timeout;
+    if (failure == error.ConnectionClosed) return .connection_closed;
+    return null;
+}
+
 pub const Client = struct {
     allocator: std.mem.Allocator,
     connection: raw.transport.Connection,
@@ -1769,6 +1801,7 @@ pub const Client = struct {
     mutex: std.Thread.Mutex = .{},
     close_mutex: std.Thread.Mutex = .{},
     last_error: ?OwnedResourceError = null,
+    last_mutation_uncertain: ?OwnedMutationTransportUncertain = null,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -1814,6 +1847,7 @@ pub const Client = struct {
         self.connection.deinit();
         self.inbound.deinit(self.allocator);
         self.clearError();
+        self.clearMutationTransportUncertain();
         if (self.owned_socket_path) |path| self.allocator.free(path);
         self.* = undefined;
     }
@@ -1830,9 +1864,60 @@ pub const Client = struct {
         return result;
     }
 
+    /// Borrowed until the next client call, transfer, or deinitialization.
+    pub fn lastMutationTransportUncertain(
+        self: *const Client,
+    ) ?MutationTransportUncertain {
+        return if (self.last_mutation_uncertain) |failure|
+            failure.value
+        else
+            null;
+    }
+
+    /// Transfers the uncertainty record to the caller.
+    pub fn takeMutationTransportUncertain(
+        self: *Client,
+    ) ?OwnedMutationTransportUncertain {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        const result = self.last_mutation_uncertain orelse return null;
+        self.last_mutation_uncertain = null;
+        return result;
+    }
+
     fn clearError(self: *Client) void {
         if (self.last_error) |*failure| failure.deinit();
         self.last_error = null;
+    }
+
+    fn clearMutationTransportUncertain(self: *Client) void {
+        if (self.last_mutation_uncertain) |*failure| failure.deinit();
+        self.last_mutation_uncertain = null;
+    }
+
+    fn setMutationTransportUncertain(
+        self: *Client,
+        operation: Operation,
+        idempotency_key: []const u8,
+        cause: MutationTransportCause,
+    ) !void {
+        self.clearMutationTransportUncertain();
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        errdefer arena.deinit();
+        const owned_key = try arena.allocator().dupe(
+            u8,
+            idempotency_key,
+        );
+        self.last_mutation_uncertain = .{
+            .arena = arena,
+            .value = .{
+                .operation = operation,
+                .idempotency_key = owned_key,
+                .cause = cause,
+                .recovery = .inspect_state_then_retry_with_new_key,
+            },
+        };
+        arena = undefined;
     }
 
     fn setError(self: *Client, value: raw.wire.Value) !void {
@@ -2035,11 +2120,24 @@ pub const Client = struct {
         mutation: ?MutationOptions,
     ) !OwnedResult {
         self.clearError();
+        self.clearMutationTransportUncertain();
         const request_id = try self.requestId();
         defer self.allocator.free(request_id);
         try self.sendRequest(request_id, operation, params, mutation);
         while (true) {
-            var message = try self.readMessage();
+            var message = self.readMessage() catch |failure| {
+                if (mutation) |options| {
+                    if (mutationTransportCause(failure)) |cause| {
+                        try self.setMutationTransportUncertain(
+                            operation,
+                            options.key(),
+                            cause,
+                        );
+                        return error.MutationTransportUncertain;
+                    }
+                }
+                return failure;
+            };
             errdefer message.deinit();
             const object = switch (message.value) {
                 .object => |item| item,
@@ -6786,6 +6884,8 @@ const FakeMode = enum {
     success,
     remote_error,
     typed_catalog,
+    dropped_mutation_timeout,
+    dropped_mutation_disconnect,
 };
 
 const fake_layout_json =
@@ -6880,6 +6980,12 @@ const FakeShared = struct {
             };
             const id = try objectString(object, "id");
             const operation = try objectString(object, "operation");
+            if ((self.mode == .dropped_mutation_timeout or
+                self.mode == .dropped_mutation_disconnect) and
+                object.get("idempotency_key") != null)
+            {
+                continue;
+            }
             if (self.mode == .remote_error) {
                 const response = try std.fmt.allocPrint(
                     self.allocator,
@@ -7223,6 +7329,9 @@ const FakeConnection = struct {
     ) !usize {
         _ = timeout_ms;
         if (self.shared.read_cursor == self.shared.input.items.len) {
+            if (self.shared.mode == .dropped_mutation_timeout) {
+                return error.Timeout;
+            }
             return error.ConnectionClosed;
         }
         const count = @min(
@@ -8060,6 +8169,126 @@ test "typed catalogs reject malformed snapshots without leaking ownership" {
             std.testing.allocator,
             result,
             "machines",
+        ),
+    );
+}
+
+test "dropped mutation response retains supplied key without retry" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .dropped_mutation_disconnect,
+    };
+    defer shared.deinit();
+
+    var uncertain = blk: {
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &shared,
+        );
+        var client = Client.init(
+            std.testing.allocator,
+            connection,
+            .{},
+        );
+        defer client.deinit();
+        const workspace_id = try WorkspaceId.parse(
+            "ws_0123456789abcdef0123456789abcdef",
+        );
+        try std.testing.expectError(
+            error.MutationTransportUncertain,
+            client.workspace(workspace_id).rename(
+                "possibly-committed",
+                try MutationOptions.withKey("supplied-uncertain-key"),
+            ),
+        );
+        try std.testing.expect(client.lastResourceError() == null);
+        const borrowed = client.lastMutationTransportUncertain().?;
+        try std.testing.expectEqual(
+            Operation.workspace_rename,
+            borrowed.operation,
+        );
+        try std.testing.expectEqual(
+            MutationTransportCause.connection_closed,
+            borrowed.cause,
+        );
+        try std.testing.expectEqualStrings(
+            "supplied-uncertain-key",
+            borrowed.idempotency_key,
+        );
+        try std.testing.expectEqualStrings(
+            "inspect_state_then_retry_with_new_key",
+            borrowed.recovery.wireName(),
+        );
+        break :blk client.takeMutationTransportUncertain() orelse
+            return error.MissingMutationTransportUncertain;
+    };
+    defer uncertain.deinit();
+
+    try std.testing.expectEqualStrings(
+        "supplied-uncertain-key",
+        uncertain.value.idempotency_key,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            "\"operation\":\"workspace.rename\"",
+        ),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            "\"idempotency_key\":\"supplied-uncertain-key\"",
+        ),
+    );
+}
+
+test "dropped mutation timeout retains exact generated key" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .dropped_mutation_timeout,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+    const workspace_id = try WorkspaceId.parse(
+        "ws_0123456789abcdef0123456789abcdef",
+    );
+    const options = MutationOptions.random();
+    try std.testing.expectError(
+        error.MutationTransportUncertain,
+        client.workspace(workspace_id).rename(
+            "possibly-committed",
+            options,
+        ),
+    );
+    const borrowed = client.lastMutationTransportUncertain().?;
+    try std.testing.expectEqual(
+        MutationTransportCause.timeout,
+        borrowed.cause,
+    );
+    try std.testing.expectEqualStrings(
+        options.key(),
+        borrowed.idempotency_key,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            "\"operation\":\"workspace.rename\"",
+        ),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            options.key(),
         ),
     );
 }

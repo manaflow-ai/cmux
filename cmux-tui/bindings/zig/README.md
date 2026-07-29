@@ -44,6 +44,14 @@ key. Creation results expose typed workspace, terminal, or browser paths.
 `JsonMutationResult` exists only for provider actions whose catalog result is
 arbitrary `JsonValue`.
 
+If a fully written mutation loses its response to a timeout or disconnect,
+the call returns `error.MutationTransportUncertain`. Inspect
+`client.lastMutationTransportUncertain()` or transfer ownership with
+`client.takeMutationTransportUncertain()`. The typed value contains the
+operation, transport cause, exact generated or supplied idempotency key, and
+recovery instruction. The SDK never retries automatically because the server
+may have committed the mutation.
+
 The socket binds a client to its current machine and session. `Client.session`
 accepts ID, current, and name selectors. `Client.workspace(id)` includes
 current machine and session selectors. Nested handles retain every ancestor,

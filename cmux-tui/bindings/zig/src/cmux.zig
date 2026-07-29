@@ -27,6 +27,11 @@ pub const CreatedBrowserPath = resource.CreatedBrowserPath;
 pub const JsonMutationResult = resource.JsonMutationResult;
 pub const ResourceError = resource.ResourceError;
 pub const OwnedResourceError = resource.OwnedResourceError;
+pub const MutationTransportCause = resource.MutationTransportCause;
+pub const MutationTransportUncertain =
+    resource.MutationTransportUncertain;
+pub const OwnedMutationTransportUncertain =
+    resource.OwnedMutationTransportUncertain;
 pub const ResourceErrorDetails = resource.ResourceErrorDetails;
 pub const ErrorResourceScope = resource.ErrorResourceScope;
 pub const ErrorResourceId = resource.ErrorResourceId;
