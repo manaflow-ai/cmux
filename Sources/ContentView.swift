@@ -10928,12 +10928,9 @@ struct VerticalTabsSidebar: View, Equatable {
             tabs: tabs,
             groupsById: workspaceGroupById
         )
-        var numberedWorkspaceIndexById: [UUID: Int] = [:]
-        numberedWorkspaceIndexById.reserveCapacity(workspaceRenderItems.count)
-        for item in workspaceRenderItems {
-            guard case .workspace(let workspaceId) = item else { continue }
-            numberedWorkspaceIndexById[workspaceId] = numberedWorkspaceIndexById.count
-        }
+        let numberedWorkspaceIndexById = SidebarWorkspaceRenderItem.numberedWorkspaceIndexById(
+            from: workspaceRenderItems
+        )
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         let draggedSidebarTabId = dragState.draggedTabId
         let dropIndicatorScope = dragState.dropIndicatorScope

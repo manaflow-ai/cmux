@@ -86,6 +86,18 @@ enum SidebarWorkspaceRenderItem {
         }
     }
 
+    static func numberedWorkspaceIndexById(
+        from renderItems: [SidebarWorkspaceRenderItem]
+    ) -> [UUID: Int] {
+        var result: [UUID: Int] = [:]
+        result.reserveCapacity(renderItems.count)
+        for item in renderItems {
+            guard case .workspace(let workspaceId) = item else { continue }
+            result[workspaceId] = result.count
+        }
+        return result
+    }
+
     static func numberedWorkspaceIds(
         tabs: [Workspace],
         groupsById: [UUID: WorkspaceGroup]
