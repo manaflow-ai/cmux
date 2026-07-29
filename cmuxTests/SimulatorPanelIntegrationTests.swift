@@ -122,6 +122,57 @@ struct SimulatorPanelIntegrationTests {
         flags.setOverride(true, for: simulatorFlag)
     }
 
+    @Test("Selecting another Simulator invalidates the session autosave fingerprint")
+    func selectedDeviceInvalidatesSessionAutosaveFingerprint() async throws {
+        let flags = CmuxFeatureFlags.shared
+        let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+        let previousOverride = flags.overrideValue(for: simulatorFlag)
+        flags.setOverride(true, for: simulatorFlag)
+        defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let first = SimulatorDevice(
+            id: "first-simulator",
+            name: "First Simulator",
+            runtimeIdentifier: "first-runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "first-type",
+            family: .iPhone,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let second = SimulatorDevice(
+            id: "second-simulator",
+            name: "Second Simulator",
+            runtimeIdentifier: "second-runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "second-type",
+            family: .iPad,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let panel = SimulatorPanel(
+            preferredDeviceID: first.id,
+            preferredRuntimeIdentifier: first.runtimeIdentifier,
+            preferredDeviceTypeIdentifier: first.deviceTypeIdentifier,
+            client: SimulatorFeatureFlagPaneClient(devices: [first, second])
+        )
+        workspace.panels[panel.id] = panel
+        defer { workspace.teardownAllPanels() }
+
+        try await panel.coordinator.selectDeviceAndWait(id: first.id)
+        let initialFingerprint = manager.sessionAutosaveFingerprint()
+        #expect(manager.sessionAutosaveFingerprint() == initialFingerprint)
+
+        try await panel.coordinator.selectDeviceAndWait(id: second.id)
+
+        #expect(panel.selectedDeviceID == second.id)
+        #expect(manager.sessionAutosaveFingerprint() != initialFingerprint)
+    }
+
     @Test("Remote tmux mirror workspaces reject local Simulator surfaces")
     func remoteMirrorRejection() throws {
         let workspace = Workspace()
