@@ -48,7 +48,8 @@ extension ShortcutAction {
               resolved == normalizedDefault,
               let legacyAction = legacyActionDisplacingBuiltInDefault,
               let legacyShortcut = explicitlyConfiguredShortcut(legacyAction),
-              bindingsConflict(resolved, legacyAction, legacyShortcut) else {
+              legacyShortcut.isUnbound
+                || bindingsConflict(resolved, legacyAction, legacyShortcut) else {
             return resolved
         }
         return nil

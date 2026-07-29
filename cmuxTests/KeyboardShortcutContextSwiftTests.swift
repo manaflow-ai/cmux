@@ -82,6 +82,12 @@ struct KeyboardShortcutContextSwiftTests {
             for: reopenLastClosedAction,
             explicitlyConfiguredShortcut: { _ in nil }
         ) == commandShiftT)
+        #expect(KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
+            for: reopenLastClosedAction,
+            explicitlyConfiguredShortcut: { action in
+                action == workspaceAction ? .unbound : nil
+            }
+        ) == nil)
     }
 
     @Test("markdown and view zoom contexts do not collide")
