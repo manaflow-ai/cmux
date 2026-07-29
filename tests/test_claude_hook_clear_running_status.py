@@ -12,7 +12,9 @@ import tempfile
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 
 def resolve_cmux_cli() -> str:
@@ -217,6 +219,21 @@ def hook_environment(
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     return env
+
+
+@contextmanager
+def live_process_pid() -> Iterator[int]:
+    process = subprocess.Popen(
+        ["/bin/cat"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        yield process.pid
+    finally:
+        process.terminate()
+        process.wait(timeout=2)
 
 
 def verify_stale_start_preserves_pending_clear_handoff(cli_path: str) -> None:
@@ -1352,15 +1369,9 @@ def verify_new_generation_resumes_same_session(cli_path: str) -> None:
                 f"duplicate_commands={duplicate_commands!r}"
             )
 
-        replacement_process = subprocess.Popen(
-            ["/bin/cat"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        try:
+        with live_process_pid() as replacement_pid:
             replacement_env = env.copy()
-            replacement_env["CMUX_CLAUDE_PID"] = str(replacement_process.pid)
+            replacement_env["CMUX_CLAUDE_PID"] = str(replacement_pid)
             replacement_start = len(server.commands)
             run_claude_hook(
                 cli_path,
@@ -1382,14 +1393,118 @@ def verify_new_generation_resumes_same_session(cli_path: str) -> None:
 
             state = json.loads(state_path.read_text())
             record = state["sessions"][session_id]
-            if record.get("pid") != replacement_process.pid:
+            if record.get("pid") != replacement_pid:
                 raise RuntimeError(
                     "The resumed session kept its stale process identity:\n"
                     f"record={record!r}"
                 )
-        finally:
-            replacement_process.terminate()
-            replacement_process.wait(timeout=2)
+
+
+def verify_new_generation_resume_discards_source_handoff(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    session_id = f"source-generation-resume-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "source-generation-resume-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": session_id, "turn_id": "retired-turn", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": session_id,
+                "turn_id": "retired-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": session_id, "reason": "clear", "cwd": "/tmp"},
+            env,
+        )
+
+        with live_process_pid() as replacement_pid:
+            replacement_env = env.copy()
+            replacement_env["CMUX_CLAUDE_PID"] = str(replacement_pid)
+            resume_start = len(server.commands)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "session-start",
+                {"session_id": session_id, "source": "resume", "cwd": "/tmp"},
+                replacement_env,
+            )
+            resume_commands = server.commands[resume_start:]
+            if not has_command_with(
+                resume_commands,
+                f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+                f"--panel={surface_id}",
+            ):
+                raise RuntimeError(
+                    "A new process generation could not resume the cleared source:\n"
+                    f"resume_commands={resume_commands!r}"
+                )
+            if has_command_with(
+                resume_commands,
+                f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+                f"--panel={surface_id}",
+            ):
+                raise RuntimeError(
+                    "A new process generation inherited retired background work:\n"
+                    f"resume_commands={resume_commands!r}"
+                )
+
+            state = json.loads(state_path.read_text())
+            transfers = state.get("clearBackgroundWorkTransfersBySurface", {})
+            if surface_id in transfers:
+                raise RuntimeError(
+                    "A new process generation left the retired handoff blocking hooks:\n"
+                    f"state={state!r}"
+                )
+            record = state["sessions"][session_id]
+            if record.get("pid") != replacement_pid:
+                raise RuntimeError(
+                    "The cleared-source resume kept its retired process identity:\n"
+                    f"record={record!r}"
+                )
+
+            prompt_start = len(server.commands)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "prompt-submit",
+                {
+                    "session_id": session_id,
+                    "turn_id": "replacement-turn",
+                    "cwd": "/tmp",
+                },
+                replacement_env,
+            )
+            prompt_commands = server.commands[prompt_start:]
+            if not has_command_with(
+                prompt_commands,
+                f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+                f"--panel={surface_id}",
+            ):
+                raise RuntimeError(
+                    "The cleared-source resume remained blocked by its old handoff:\n"
+                    f"prompt_commands={prompt_commands!r}"
+                )
 
 
 def verify_late_resume_cannot_replace_clear_successor(cli_path: str) -> None:
@@ -1726,6 +1841,7 @@ def main() -> int:
         verify_unproven_process_cannot_consume_clear_handoff(cli_path)
         verify_vacant_surface_accepts_authoritative_resume(cli_path)
         verify_new_generation_resumes_same_session(cli_path)
+        verify_new_generation_resume_discards_source_handoff(cli_path)
         verify_late_resume_cannot_replace_clear_successor(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
