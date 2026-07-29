@@ -1788,15 +1788,18 @@ mod tests {
     }
 
     #[test]
-    fn replay_command_preserves_quoted_and_empty_arguments() {
+    fn replay_command_omits_payload_arguments_from_guidance() {
         assert_eq!(
             replay_command_from("cmux-tui".to_string(), std::iter::empty::<&str>()),
             "cmux-tui"
         );
-        assert_eq!(
-            replay_command_from("cmux-tui".to_string(), ["--session", "two words", "", "it's"]),
-            "cmux-tui --session 'two words' '' 'it'\"'\"'s'"
+        let secret = "cmux-review-secret-do-not-print";
+        let replay = replay_command_from(
+            "cmux-tui".to_string(),
+            ["--socket", "/tmp/cmux.sock", "send", "--text", secret],
         );
+        assert_eq!(replay, "cmux-tui");
+        assert!(!replay.contains(secret));
     }
 
     #[cfg(unix)]
