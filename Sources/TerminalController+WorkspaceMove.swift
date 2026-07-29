@@ -3,13 +3,18 @@ import Foundation
 extension TerminalController {
     /// Mobile-gated workspace reorder/group move.
     func v2MobileWorkspaceMove(params: [String: Any]) -> V2CallResult {
+        let hasMoveGroup = v2HasNonNullParam(params, "move_group")
+        let parsedMoveGroup = v2Bool(params, "move_group")
 #if DEBUG
+        let moveGroupDescription = hasMoveGroup
+            ? parsedMoveGroup.map(String.init) ?? "invalid"
+            : "omitted"
         cmuxDebugLog(
             "mobile.move request workspace=\(v2RawString(params, "workspace_id") ?? "nil") " +
             "group=\(v2RawString(params, "group_id") ?? "nil") " +
             "before=\(v2RawString(params, "before_workspace_id") ?? "nil") " +
             "window=\(v2RawString(params, "window_id") ?? "nil") " +
-            "moveGroup=\(v2Bool(params, "move_group") ?? false)"
+            "moveGroup=\(moveGroupDescription)"
         )
 #endif
         if let error = mobileWorkspaceIDValidationError(params: params) {
@@ -42,10 +47,10 @@ extension TerminalController {
                 data: nil
             )
         }
-        if v2HasNonNullParam(params, "move_group"), v2Bool(params, "move_group") == nil {
+        if hasMoveGroup, parsedMoveGroup == nil {
             return .err(code: "invalid_params", message: "move_group must be a boolean", data: nil)
         }
-        let moveGroup = v2Bool(params, "move_group") ?? false
+        let moveGroup = parsedMoveGroup ?? false
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }

@@ -246,8 +246,10 @@ extension MobileShellComposite {
         switch result {
         case .success:
             MobileDebugLog.anchormux("move.sent ok id=\(id.rawValue.suffix(6))")
-        case .failure(let failure):
-            MobileDebugLog.anchormux("move.sent FAILED id=\(id.rawValue.suffix(6)) failure=\(failure)")
+        case .failure:
+            // Failure payloads include the user-visible Mac name. The event and
+            // scoped workspace suffix are sufficient for move diagnostics.
+            MobileDebugLog.anchormux("move.sent FAILED id=\(id.rawValue.suffix(6))")
         }
         return result
     }

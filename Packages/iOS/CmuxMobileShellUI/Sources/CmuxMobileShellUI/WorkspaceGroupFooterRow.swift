@@ -13,13 +13,13 @@ struct WorkspaceGroupFooterRow: View {
     var body: some View {
         ZStack {
             Color.clear
-            if showsBoundary {
-                Capsule()
-                    .fill(Color(uiColor: .separator))
-                    .frame(height: 2)
-            }
+            Capsule()
+                .fill(Color(uiColor: .separator))
+                .frame(height: 2)
+                .opacity(showsBoundary ? 1 : 0)
         }
         .frame(height: 16)
+        .animation(.easeOut(duration: 0.12), value: showsBoundary)
         .contentShape(Rectangle())
         .accessibilityElement()
         .accessibilityLabel(footerAccessibilityLabel)

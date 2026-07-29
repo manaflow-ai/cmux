@@ -46,7 +46,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
-    private(set) var isDragSessionActive = false
+    private var isDragSessionActive = false
     private var dropIntoTarget: (
         sessionIdentifier: ObjectIdentifier,
         headerIndexPath: IndexPath,
@@ -159,17 +159,22 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         dataSource.apply(snapshot, animatingDifferences: false)
     }
 
-    private func setDragSessionActive(_ active: Bool) {
-        guard isDragSessionActive != active, let dataSource else { return }
+    private func setDragSessionActive(_ active: Bool, in tableView: UITableView) {
+        guard isDragSessionActive != active else { return }
         isDragSessionActive = active
-        var snapshot = dataSource.snapshot()
-        let footerItems = snapshot.itemIdentifiers.filter { item in
-            if case .groupFooter = item { return true }
-            return false
+
+        // Updating visible footer cells directly preserves UIKit's drag
+        // lifecycle. Applying even a payload-only diffable snapshot during a
+        // lift invalidates UITableViewDropItem.sourceIndexPath and can flash or
+        // replace the source cell underneath the native preview.
+        for indexPath in tableView.indexPathsForVisibleRows ?? [] {
+            guard
+                let item = dataSource?.itemIdentifier(for: indexPath),
+                case .groupFooter = item,
+                let cell = tableView.cellForRow(at: indexPath)
+            else { continue }
+            configure(cell, for: configuredItemsByID[item.id] ?? item)
         }
-        guard !footerItems.isEmpty else { return }
-        snapshot.reconfigureItems(footerItems)
-        dataSource.apply(snapshot, animatingDifferences: false)
     }
 
     func tableView(
@@ -189,14 +194,28 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         return [dragItem]
     }
 
+    func tableView(
+        _ tableView: UITableView,
+        dragPreviewParametersForRowAt indexPath: IndexPath
+    ) -> UIDragPreviewParameters? {
+        workspacePreviewParameters(in: tableView, at: indexPath)
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        dropPreviewParametersForRowAt indexPath: IndexPath
+    ) -> UIDragPreviewParameters? {
+        workspacePreviewParameters(in: tableView, at: indexPath)
+    }
+
     func tableView(_ tableView: UITableView, dragSessionWillBegin session: UIDragSession) {
         dropIntoTarget = nil
-        setDragSessionActive(true)
+        setDragSessionActive(true, in: tableView)
     }
 
     func tableView(_ tableView: UITableView, dragSessionDidEnd session: UIDragSession) {
         dropIntoTarget = nil
-        setDragSessionActive(false)
+        setDragSessionActive(false, in: tableView)
     }
 
     func tableView(
@@ -302,21 +321,29 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
            configuration.items.contains(draggedItem),
            dataSource?.itemIdentifier(for: destinationIndexPath)
                == .groupHeader(intoTarget.groupID),
+           configuration.canDropIntoGroup?(workspaceID, intoTarget.groupID) == true,
            isMovable(draggedItem) {
-            let cellBounds = tableView.cellForRow(at: destinationIndexPath)?.bounds
-                ?? CGRect(origin: .zero, size: tableView.rectForRow(at: destinationIndexPath).size)
-            let targetRect = CGRect(
-                x: cellBounds.midX - 1,
-                y: cellBounds.midY - 1,
-                width: 2,
-                height: 2
-            )
+            if let landingIndexPath = applyLocalGroupDrop(
+                workspaceID: workspaceID,
+                groupID: intoTarget.groupID
+            ) {
+                coordinator.drop(dropItem.dragItem, toRowAt: landingIndexPath)
+            } else {
+                // A collapsed group has no visible child slot. Land on the
+                // header's real content bounds instead of shrinking the row to
+                // the former 2×2-point target.
+                let cellBounds = tableView.cellForRow(at: destinationIndexPath)?.bounds
+                    ?? CGRect(
+                        origin: .zero,
+                        size: tableView.rectForRow(at: destinationIndexPath).size
+                    )
+                coordinator.drop(
+                    dropItem.dragItem,
+                    intoRowAt: destinationIndexPath,
+                    rect: cellBounds.insetBy(dx: 12, dy: 6)
+                )
+            }
             dropIntoGroup(workspaceID, intoTarget.groupID)
-            coordinator.drop(
-                dropItem.dragItem,
-                intoRowAt: destinationIndexPath,
-                rect: targetRect
-            )
             return
         }
 
@@ -386,6 +413,60 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 section: destinationIndexPath.section
             )
         )
+    }
+
+    private func workspacePreviewParameters(
+        in tableView: UITableView,
+        at indexPath: IndexPath
+    ) -> UIDragPreviewParameters? {
+        guard
+            let item = dataSource?.itemIdentifier(for: indexPath),
+            case .workspace = item,
+            let cell = tableView.cellForRow(at: indexPath)
+        else { return nil }
+
+        let parameters = UIDragPreviewParameters()
+        let contentRect = cell.bounds.inset(
+            by: UIEdgeInsets(
+                top: 4,
+                left: item.isIndentedWorkspace ? 32 : 12,
+                bottom: 4,
+                right: 12
+            )
+        )
+        parameters.visiblePath = UIBezierPath(
+            roundedRect: contentRect,
+            cornerRadius: 14
+        )
+        parameters.backgroundColor = .systemBackground
+        return parameters
+    }
+
+    private func applyLocalGroupDrop(
+        workspaceID: MobileWorkspacePreview.ID,
+        groupID: MobileWorkspaceGroupPreview.ID
+    ) -> IndexPath? {
+        guard let dataSource else { return nil }
+
+        var items = configuration.items
+        guard let sourceRow = items.firstIndex(where: { $0.workspaceID == workspaceID }) else {
+            return nil
+        }
+        items.remove(at: sourceRow)
+        guard let footerRow = items.firstIndex(of: .groupFooter(groupID)) else {
+            return nil
+        }
+
+        let landedItem = WorkspaceListTableItem.workspace(workspaceID, indented: true)
+        items.insert(landedItem, at: footerRow)
+        configuredItemsByID[landedItem.id] = landedItem
+
+        var snapshot = NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>()
+        snapshot.appendSections([Self.section])
+        snapshot.appendItems(items, toSection: Self.section)
+        snapshot.reconfigureItems([landedItem])
+        dataSource.apply(snapshot, animatingDifferences: false)
+        return IndexPath(row: footerRow, section: Self.section)
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -560,6 +641,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         cell.contentView.backgroundColor = .clear
         cell.selectionStyle = .none
         cell.isAccessibilityElement = false
+        cell.accessibilityIdentifier = nil
         cell.accessibilityCustomActions = nil
         let content = hostedView(for: item)
         var hosting = UIHostingConfiguration { content }
@@ -583,6 +665,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .margins(.trailing, 12)
                 .minSize(width: 0, height: 0)
         case .groupFooter:
+            cell.accessibilityIdentifier = isDragSessionActive
+                ? "MobileWorkspaceGroupFooterBoundary-active"
+                : "MobileWorkspaceGroupFooterBoundary-inactive"
             hosting = hosting
                 .margins(.leading, 32)
                 .margins(.trailing, 12)
