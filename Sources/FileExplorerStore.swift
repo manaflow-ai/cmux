@@ -711,6 +711,7 @@ final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
     @Published var rootNodes: [FileExplorerNode] = [] {
         didSet {
+            rootNodesRevision &+= 1
             for node in oldValue where nodesByPath[node.path] === node {
                 nodesByPath.removeValue(forKey: node.path)
             }
@@ -1390,7 +1391,6 @@ final class FileExplorerStore: ObservableObject {
     }
 
     private func setRootNodes(_ nodes: [FileExplorerNode]) {
-        rootNodesRevision &+= 1
         rootNodes = nodes
     }
 

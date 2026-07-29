@@ -120,6 +120,7 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
     private(set) var reloadRowsCallCount = 0
     private(set) var lastReloadedRowCount = 0
     private(set) var itemAtRowCallCount = 0
+    private(set) var itemAtRowCallCountAtLastReloadRows = 0
     private(set) var cellViewLookupCallCount = 0
     var performsActualOutlineMutations = true
 
@@ -143,6 +144,7 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
     ) {
         reloadRowsCallCount += 1
         lastReloadedRowCount = rowIndexes.count
+        itemAtRowCallCountAtLastReloadRows = itemAtRowCallCount
         if performsActualOutlineMutations {
             super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
         }
@@ -180,6 +182,7 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
         reloadRowsCallCount = 0
         lastReloadedRowCount = 0
         itemAtRowCallCount = 0
+        itemAtRowCallCountAtLastReloadRows = 0
         cellViewLookupCallCount = 0
     }
 }
@@ -700,7 +703,7 @@ struct FileExplorerStoreTests {
         #expect(outlineView.reloadRowsCallCount == 1)
         #expect(outlineView.lastReloadedRowCount == visibleRowCount)
         #expect(outlineView.reloadItemCallCount == 0)
-        #expect(outlineView.itemAtRowCallCount == visibleRowCount)
+        #expect(outlineView.itemAtRowCallCountAtLastReloadRows == 0)
     }
 
     @Test
