@@ -201,12 +201,13 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
     @Test("Mosh restore without a relay preserves the configured remote command")
     func moshWithoutRelayPreservesConfiguredRemoteCommand() throws {
         let configuredRemoteCommand = "printf configured-mosh-command"
+        let currentHostRemoteCommand = "printf current-host-command"
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             terminalTransport: .mosh,
             configuredRemoteCommand: configuredRemoteCommand,
             destination: "dev@example.com",
-            sshOptions: []
+            sshOptions: ["RemoteCommand=\(currentHostRemoteCommand)"]
         )
 
         let configuration = try #require(snapshot.workspaceConfiguration())
@@ -214,7 +215,12 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
 
         #expect(configuration.terminalTransport == .mosh)
         #expect(configuration.relayPort == nil)
+        #expect(configuration.sshOptions.contains("RemoteCommand=\(currentHostRemoteCommand)"))
         #expect(command.contains("cmux-remote-command"), "\(command)")
         #expect(command.contains(configuredRemoteCommand), "\(command)")
+        #expect(
+            !command.contains(currentHostRemoteCommand),
+            "Mosh and its SSH fallback must execute the same snapshotted command: \(command)"
+        )
     }
 }

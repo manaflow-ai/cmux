@@ -300,6 +300,10 @@ struct SSHConfiguredRemoteCommandHostTests {
                 as? [String: Any]
         )
         #expect(configureParams["configured_remote_command"] == nil)
+        #expect(
+            configureParams["terminal_transport"] as? String == "ssh",
+            "An unmanaged OpenSSH fallback must persist the transport it actually launched: \(configureParams)"
+        )
     }
 
     /// `cmux ssh` bootstrap-install flow (ControlMaster disabled → staged
