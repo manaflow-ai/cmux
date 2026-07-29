@@ -20,6 +20,27 @@ struct RendererRealizationMemoryPressureReclaimResult: Equatable, Sendable {
     }
 }
 
+/// The narrow renderer lifecycle surface consumed by the reclamation policy.
+/// Keeping this seam independent of the concrete terminal model lets scheduler
+/// tests exercise real notifications, cancellation, and deadlines without
+/// constructing a Ghostty runtime.
+@MainActor
+protocol RendererRealizationSurface: AnyObject {
+    var id: UUID { get }
+    var hasLiveSurface: Bool { get }
+    var isRendererPortalVisible: Bool { get }
+    var isRendererRealized: Bool { get }
+    var isRendererPresented: Bool { get }
+    var rendererLastVisibleAt: TimeInterval { get }
+
+    func noteBecameVisibleForRendererReclamation()
+    func ensureRendererPresented()
+    func releaseRenderer() -> Bool
+    func retryRendererPresentationAfterActivity()
+}
+
+extension TerminalSurface: RendererRealizationSurface {}
+
 /// Releases the GPU renderer (Metal swap chain / IOSurface, ~40MB each) of
 /// terminal surfaces that have been offscreen and idle, while keeping their PTY
 /// and terminal state alive. The renderer is rebuilt on re-show via
@@ -31,6 +52,13 @@ struct RendererRealizationMemoryPressureReclaimResult: Equatable, Sendable {
 final class RendererRealizationController {
     static let shared = RendererRealizationController()
 
+    private let notificationCenter: NotificationCenter
+    private let surfaceProvider: () -> [any RendererRealizationSurface]
+    private let surfaceLookup: (UUID) -> (any RendererRealizationSurface)?
+    private let settingsProvider: () -> RendererRealizationSettings.Values
+    private let nowProvider: () -> Date
+    private let sleepFor: @MainActor (Duration) async throws -> Void
+    private let safetyTimerEnabled: Bool
     private let timerQueue = DispatchQueue(label: "com.cmux.renderer-realization", qos: .utility)
     private let systemMemoryPressureRetryPasses = 2
     private var timer: DispatchSourceTimer?
@@ -42,7 +70,44 @@ final class RendererRealizationController {
     private var portalVisibilityEvaluationTask: Task<Void, Never>?
     private var systemMemoryPressureRetryTask: Task<Void, Never>?
 
-    private init() {}
+    private convenience init() {
+        self.init(
+            notificationCenter: .default,
+            surfaceProvider: {
+                GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces()
+            },
+            surfaceLookup: { id in
+                GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: id)
+            },
+            settingsProvider: {
+                RendererRealizationSettings.values()
+            },
+            nowProvider: Date.init,
+            sleepFor: { duration in
+                try await ContinuousClock().sleep(for: duration)
+            },
+            safetyTimerEnabled: true
+        )
+    }
+
+    /// Injectable composition seam for deterministic scheduler tests.
+    init(
+        notificationCenter: NotificationCenter,
+        surfaceProvider: @escaping () -> [any RendererRealizationSurface],
+        surfaceLookup: @escaping (UUID) -> (any RendererRealizationSurface)?,
+        settingsProvider: @escaping () -> RendererRealizationSettings.Values,
+        nowProvider: @escaping () -> Date,
+        sleepFor: @escaping @MainActor (Duration) async throws -> Void,
+        safetyTimerEnabled: Bool = false
+    ) {
+        self.notificationCenter = notificationCenter
+        self.surfaceProvider = surfaceProvider
+        self.surfaceLookup = surfaceLookup
+        self.settingsProvider = settingsProvider
+        self.nowProvider = nowProvider
+        self.sleepFor = sleepFor
+        self.safetyTimerEnabled = safetyTimerEnabled
+    }
 
     func start() {
         if settingsObserver == nil {
@@ -50,13 +115,14 @@ final class RendererRealizationController {
             // cmux.json post this). The always-on timer below is the safety net
             // for write paths that do NOT post it (the Settings-window toggle
             // writes the default directly), so re-enabling always takes effect.
-            settingsObserver = NotificationCenter.default.addObserver(
+            settingsObserver = notificationCenter.addObserver(
                 forName: RendererRealizationSettings.didChangeNotification,
                 object: nil,
                 queue: .main
-            ) { _ in
-                Task { @MainActor in
-                    RendererRealizationController.shared.evaluate(now: Date())
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.evaluate(now: self.nowProvider())
                 }
             }
         }
@@ -65,18 +131,20 @@ final class RendererRealizationController {
             // events for renderer idleness. Evaluate immediately so an older
             // hidden surface can leave the warm set, then arm the exact next
             // idle deadline instead of waiting for the coarse safety timer.
-            portalVisibilityObserver = NotificationCenter.default.addObserver(
+            portalVisibilityObserver = notificationCenter.addObserver(
                 forName: .terminalPortalVisibilityDidChange,
                 object: nil,
                 queue: .main
-            ) { _ in
-                Task { @MainActor in
-                    RendererRealizationController.shared.schedulePortalVisibilityEvaluation()
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.schedulePortalVisibilityEvaluation()
                 }
             }
         }
-        ensureTimerRunning()
-        evaluate(now: Date())
+        if safetyTimerEnabled {
+            ensureTimerRunning()
+        }
+        evaluate(now: nowProvider())
     }
 
     func stop() {
@@ -88,11 +156,11 @@ final class RendererRealizationController {
         systemMemoryPressureRetryTask?.cancel()
         systemMemoryPressureRetryTask = nil
         if let settingsObserver {
-            NotificationCenter.default.removeObserver(settingsObserver)
+            notificationCenter.removeObserver(settingsObserver)
             self.settingsObserver = nil
         }
         if let portalVisibilityObserver {
-            NotificationCenter.default.removeObserver(portalVisibilityObserver)
+            notificationCenter.removeObserver(portalVisibilityObserver)
             self.portalVisibilityObserver = nil
         }
     }
@@ -107,10 +175,10 @@ final class RendererRealizationController {
         guard timer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(deadline: .now() + 10, repeating: 20)
-        timer.setEventHandler {
-            let now = Date()
-            Task { @MainActor in
-                RendererRealizationController.shared.evaluate(now: now)
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.evaluate(now: self.nowProvider())
             }
         }
         timer.resume()
@@ -120,7 +188,7 @@ final class RendererRealizationController {
     /// Repairs only the surface whose renderer reported activity after a
     /// compatibility rebuild was not acknowledged.
     func scheduleRendererPresentationRepair(surfaceID: UUID) {
-        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else { return }
+        guard let surface = surfaceLookup(surfaceID) else { return }
         surface.retryRendererPresentationAfterActivity()
     }
 
@@ -175,7 +243,7 @@ final class RendererRealizationController {
         // visibility: each TerminalSurface carries its own authoritative
         // on-screen flag (driven by setVisibleInUI, the same signal that drives
         // occlusion), so we never misclassify a visible surface as offscreen.
-        let surfaces = GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces()
+        let surfaces = surfaceProvider()
 
         // Keep currently-visible surfaces ranked at the top of the warm set, and
         // ensure every visible renderer has completed presentation. This covers
@@ -190,7 +258,7 @@ final class RendererRealizationController {
             }
         }
 
-        let settings = RendererRealizationSettings.values()
+        let settings = settingsProvider()
         guard settings.enabled else { return .empty }
 
         let inputs = surfaces.compactMap { surface -> RendererRealizationPlannerInput? in
@@ -249,22 +317,22 @@ final class RendererRealizationController {
             guard let self, !Task.isCancelled else { return }
             self.systemMemoryPressureRetryTask = nil
             let retryResult = self.evaluate(
-                now: Date(),
+                now: self.nowProvider(),
                 trigger: .systemMemoryPressure,
                 remainingSystemMemoryPressureRetries: remainingRetries,
                 onSystemMemoryPressureRetryResult: onRetryResult
             )
             guard !Task.isCancelled else { return }
             if retryResult.reclaimedCount > 0 {
-                onRetryResult?(retryResult, Date())
+                onRetryResult?(retryResult, self.nowProvider())
             }
-            self.scheduleNextReclaimDeadline(now: Date())
+            self.scheduleNextReclaimDeadline(now: self.nowProvider())
         }
     }
 
     private func scheduleNextReclaimDeadline(now: Date) {
-        let settings = RendererRealizationSettings.values()
-        let inputs = GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces().compactMap {
+        let settings = settingsProvider()
+        let inputs = surfaceProvider().compactMap {
             surface -> RendererRealizationPlannerInput? in
             guard surface.hasLiveSurface else { return nil }
             return RendererRealizationPlannerInput(
@@ -294,7 +362,8 @@ final class RendererRealizationController {
         scheduledReclaimDeadline = deadline
         reclaimDeadlineTask = Task { @MainActor [weak self] in
             do {
-                try await ContinuousClock().sleep(for: .seconds(delay))
+                guard let self else { return }
+                try await self.sleepFor(.seconds(delay))
             } catch {
                 return
             }
@@ -303,7 +372,7 @@ final class RendererRealizationController {
                   self.scheduledReclaimDeadline == deadline else { return }
             self.reclaimDeadlineTask = nil
             self.scheduledReclaimDeadline = nil
-            self.evaluate(now: Date())
+            self.evaluate(now: self.nowProvider())
         }
     }
 
@@ -317,7 +386,7 @@ final class RendererRealizationController {
             await Task.yield()
             guard let self, !Task.isCancelled else { return }
             self.portalVisibilityEvaluationTask = nil
-            self.evaluate(now: Date())
+            self.evaluate(now: self.nowProvider())
         }
     }
 
