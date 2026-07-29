@@ -3978,12 +3978,23 @@
     "ConfirmationRequiredDetails": {
       "kind": "object",
       "fields": {
+        "confirmation_token": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Opaque stale-state fence for the exact preview. This is not an authentication credential."
+        },
         "revision": {
           "required": true,
           "type": {
             "kind": "primitive",
             "name": "decimal"
-          }
+          },
+          "description": "Global session revision captured by the read-only preview."
         },
         "closes_panes": {
           "required": true,
@@ -3994,10 +4005,15 @@
               "resource": "pane"
             },
             "min_items": 1
-          }
+          },
+          "description": "Created panes that the previewed undo would close, in stable layout traversal order."
         }
       },
-      "extra": false
+      "extra": false,
+      "constraints": [
+        "confirmation_token is deterministic over the session generation, screen public ID, layout revision, closes_panes IDs, and each closing pane's live tab IDs in displayed order.",
+        "The token encoding is implementation-private. Clients treat it as opaque and never use it as authentication."
+      ]
     },
     "NotificationLevel": {
       "kind": "enum",
@@ -7461,6 +7477,16 @@
               "name": "boolean"
             },
             "default": false
+          },
+          "confirmation_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Exact opaque token returned by the read-only confirmation preview."
           }
         },
         "extra": false
@@ -7488,8 +7514,12 @@
         "validation.invalid"
       ],
       "constraints": [
-        "If undo would close panes and confirm_close is false, return confirmation.required before journaling or idempotency commit.",
-        "Retry with confirm_close true, expected_revision from the error details, and a new idempotency key."
+        "If undo would close created panes and confirm_close is false, return confirmation.required before changing the global revision, layout journal, topology, or idempotency state.",
+        "The read-only preview returns confirmation_token, the global revision, and closes_panes.",
+        "Retry with confirm_close true, the exact confirmation_token and expected_revision from the preview, and a new idempotency key.",
+        "Under the mutation lock, re-evaluate the candidate undo and accept confirmation only when the token exactly matches the deterministic token for the locked session generation, screen public ID, layout revision, created pane IDs, and live ordered tab IDs.",
+        "A missing or stale token returns confirmation.required with a fresh read-only preview and closes nothing.",
+        "confirmation_token is a stale-state fence, not an authentication credential."
       ]
     },
     "screen.list": {

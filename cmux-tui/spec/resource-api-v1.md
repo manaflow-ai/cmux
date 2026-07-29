@@ -317,10 +317,19 @@ Sidebar plugin installation and selection are local filesystem operations.
 Transported sidebar view operations never send a `sidebar_plugin_` ID.
 Optional install names are filesystem slugs matching `[a-z0-9-_]+`.
 
-`screen.layout.undo` accepts `confirm_close`, default false. If the undo would
-close panes, false returns `confirmation.required` with the revision and pane
-IDs before journaling or idempotency commit. A confirmed retry uses that
-revision and a new mutation key.
+`screen.layout.undo` accepts `confirm_close`, default false, and an optional
+opaque `confirmation_token` of 1 through 128 UTF-8 bytes. If the undo would
+close created panes, false returns `confirmation.required` with the token,
+global revision, and pane IDs without changing revision, layout, topology,
+journal, or idempotency state. A confirmed retry uses that exact token,
+revision, and a new mutation key.
+
+The token is deterministic over the session generation, screen public ID,
+layout revision, created pane IDs, and every closing pane's live tab IDs in
+displayed order. Under the mutation lock, the server re-evaluates the undo and
+accepts only an exact token for the locked state. A missing or stale token
+returns a fresh read-only preview and closes nothing. The token is a
+stale-state fence, not authentication.
 
 Fields marked `sensitive: true` must be redacted from SDK Debug, `toString`,
 exceptions, and logs. Pairing codes and renderer grant tokens are sensitive.

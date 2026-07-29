@@ -699,11 +699,44 @@ class ContractRegistryTests(unittest.TestCase):
                 "default": False,
             },
         )
+        self.assertEqual(
+            undo["params"]["fields"]["confirmation_token"],
+            {
+                "required": False,
+                "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1,
+                    "max_length": 128,
+                },
+                "description": (
+                    "Exact opaque token returned by the read-only "
+                    "confirmation preview."
+                ),
+            },
+        )
+        details = catalog["types"]["ConfirmationRequiredDetails"]["fields"]
+        self.assertEqual(
+            details["confirmation_token"]["type"],
+            {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 128,
+            },
+        )
+        self.assertEqual(
+            set(details),
+            {"confirmation_token", "revision", "closes_panes"},
+        )
         self.assertIn("confirmation.required", undo["errors"])
         self.assertTrue(
-            any("before journaling or idempotency commit" in value for value in undo["constraints"])
+            any("before changing the global revision" in value for value in undo["constraints"])
         )
         self.assertTrue(any("new idempotency key" in value for value in undo["constraints"]))
+        self.assertTrue(any("Under the mutation lock" in value for value in undo["constraints"]))
+        self.assertTrue(any("live ordered tab IDs" in value for value in undo["constraints"]))
+        self.assertTrue(any("stale-state fence" in value for value in undo["constraints"]))
 
     def test_live_inventory_schema_types_dotted_resource_operations(self) -> None:
         schema_path = SCRIPT.parents[1] / "spec/inventory.schema.json"

@@ -201,8 +201,11 @@ sidebar plugin list|install|use|update|remove
 
 Workspace creation starts with one terminal unless `--empty` is present.
 `screen layout undo` requires `--confirm-close` when the recorded change would
-close panes. The unconfirmed response includes the current revision and pane
-IDs; a confirmed retry uses that revision and a new idempotency key.
+close created panes. The read-only response includes an opaque confirmation
+token, the current global revision, and pane IDs. A confirmed retry sends that
+exact token and revision with a new idempotency key. The server revalidates the
+token under the mutation lock, so tab or layout changes make it stale and
+close nothing.
 
 Terminal and sidebar attachments stream styled render snapshots and patches.
 Browser attachments stream browser state and frames. Public attachments never

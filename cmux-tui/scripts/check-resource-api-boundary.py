@@ -2485,14 +2485,51 @@ def _operation_catalog(
     if isinstance(undo, dict):
         undo_fields = undo.get("params", {}).get("fields", {})
         confirmation = undo_fields.get("confirm_close")
+        confirmation_token = undo_fields.get("confirmation_token")
         confirmation_error = errors.get("confirmation.required")
         confirmation_type = types.get("ConfirmationRequiredDetails")
         constraints = undo.get("constraints", [])
+        expected_token_type = {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128,
+        }
+        expected_details_fields = {
+            "confirmation_token": {
+                "required": True,
+                "type": expected_token_type,
+                "description": (
+                    "Opaque stale-state fence for the exact preview. "
+                    "This is not an authentication credential."
+                ),
+            },
+            "revision": {
+                "required": True,
+                "type": {"kind": "primitive", "name": "decimal"},
+                "description": "Global session revision captured by the read-only preview.",
+            },
+            "closes_panes": {
+                "required": True,
+                "type": {
+                    "kind": "array",
+                    "items": {"kind": "resource_id", "resource": "pane"},
+                    "min_items": 1,
+                },
+                "description": (
+                    "Created panes that the previewed undo would close, "
+                    "in stable layout traversal order."
+                ),
+            },
+        }
         if (
             not isinstance(confirmation, dict)
             or confirmation.get("required") is not False
             or confirmation.get("type") != {"kind": "primitive", "name": "boolean"}
             or confirmation.get("default") is not False
+            or not isinstance(confirmation_token, dict)
+            or confirmation_token.get("required") is not False
+            or confirmation_token.get("type") != expected_token_type
             or "confirmation.required" not in undo.get("errors", [])
             or confirmation_error
             != {
@@ -2500,14 +2537,18 @@ def _operation_catalog(
                 "details": {"kind": "ref", "name": "ConfirmationRequiredDetails"},
             }
             or not isinstance(confirmation_type, dict)
-            or not any("before journaling or idempotency commit" in value for value in constraints)
+            or confirmation_type.get("fields") != expected_details_fields
+            or not any("before changing the global revision" in value for value in constraints)
             or not any("new idempotency key" in value for value in constraints)
+            or not any("Under the mutation lock" in value for value in constraints)
+            or not any("live ordered tab IDs" in value for value in constraints)
+            or not any("stale-state fence" in value for value in constraints)
         ):
             _catalog_diagnostic(
                 diagnostics,
                 path,
                 text,
-                "screen.layout.undo must require explicit close confirmation without committing a rejected attempt",
+                "screen.layout.undo must use a read-only, state-bound close confirmation token",
                 "screen.layout.undo",
             )
 
