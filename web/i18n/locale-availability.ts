@@ -35,6 +35,10 @@ const fallbackContentRoutes = [
     path: "/blog/claude-code-best-worktree-manager",
     locales: fallbackContentLocales,
   },
+  {
+    path: "/blog/367-billion-tokens",
+    locales: fallbackContentLocales,
+  },
   { path: "/blog/cmux-ssh", locales: fallbackContentLocales },
   {
     path: "/blog/cmux-claude-teams",
