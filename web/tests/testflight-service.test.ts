@@ -381,6 +381,33 @@ describe("TestFlight ASC service", () => {
     expect(remover).not.toHaveBeenCalled();
   });
 
+  test("retires a grant-ledger email even when legacy enrollment metadata is absent", async () => {
+    const removedEmails: string[] = [];
+    const remover = async (email: string): Promise<void> => {
+      removedEmails.push(email);
+    };
+    const updates: unknown[] = [];
+
+    await (removeProTesterAccess as unknown as (
+      currentEmail: string | null,
+      metadata: unknown,
+      remover: typeof removeTester,
+      options: { updateMetadata: (next: unknown) => Promise<void> },
+    ) => Promise<number>)(null, {
+      retained: true,
+      cmuxProTestflightGrants: [
+        { email: "grant@example.com", source: "user" },
+      ],
+    }, remover, {
+      updateMetadata: async (next) => {
+        updates.push(next);
+      },
+    });
+
+    expect(removedEmails).toEqual(["grant@example.com"]);
+    expect(updates).toEqual([{ retained: true }]);
+  });
+
   test("legacy Pro ownership backfill is idempotent", async () => {
     const update = mock(async () => undefined);
     const user = {

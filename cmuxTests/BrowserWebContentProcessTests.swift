@@ -94,7 +94,7 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func browserAppSessionStoreOwnershipSurvivesRelaunch() throws {
+    func browserAppSessionStoreOwnershipDoesNotClaimPersistentProfiles() throws {
         let suiteName = "BrowserAppSessionStoreOwnershipTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -120,16 +120,8 @@ struct BrowserWebContentProcessTests {
             defaultsKey: defaultsKey,
             environment: environment
         )
-        #expect(
-            relaunched.persistedIdentities == [
-                .persistent(persistentStoreID),
-            ]
-        )
-        #expect(
-            relaunched.storesForCleanup().contains {
-                $0.identifier == persistentStoreID
-            }
-        )
+        #expect(relaunched.persistedIdentities.isEmpty)
+        #expect(relaunched.storesForCleanup().isEmpty)
     }
 
     @Test
@@ -175,12 +167,12 @@ struct BrowserWebContentProcessTests {
             projectID: "project-b"
         )
 
-        let firstLaunch = BrowserAppSessionStoreRegistry(
-            defaults: defaults,
-            defaultsKey: defaultsKey,
-            environment: oldEnvironment
-        )
-        firstLaunch.register(WKWebsiteDataStore(forIdentifier: persistentStoreID))
+        let encodedOwnership = try JSONSerialization.data(withJSONObject: [[
+            "identity": "persistent:\(persistentStoreID.uuidString.lowercased())",
+            "webOrigin": oldEnvironment.webOrigin.absoluteString,
+            "projectID": oldEnvironment.projectID,
+        ]])
+        defaults.set(encodedOwnership, forKey: defaultsKey)
 
         let switched = BrowserAppSessionStoreRegistry(
             defaults: defaults,
@@ -188,9 +180,7 @@ struct BrowserWebContentProcessTests {
             environment: newEnvironment
         )
         #expect(switched.hasStaleEnvironmentOwnership)
-        let target = try #require(switched.staleEnvironmentStoresForCleanup().first)
-        #expect(target.environment == oldEnvironment)
-        #expect(target.store.identifier == persistentStoreID)
+        #expect(switched.staleEnvironmentStoresForCleanup().isEmpty)
 
         switched.removeStaleEnvironmentOwnership()
         #expect(!switched.hasStaleEnvironmentOwnership)
@@ -223,9 +213,11 @@ struct BrowserWebContentProcessTests {
 
         #expect(registry.hasStaleEnvironmentOwnership)
         #expect(defaults.object(forKey: legacyKey) == nil)
-        let target = try #require(registry.staleEnvironmentStoresForCleanup().first)
-        #expect(target.environment.projectID == "project-a")
-        #expect(target.store.identifier == persistentStoreID)
+        #expect(registry.staleEnvironmentStoresForCleanup().isEmpty)
+
+        registry.removeStaleEnvironmentOwnership()
+        #expect(!registry.hasStaleEnvironmentOwnership)
+        #expect(registry.persistedIdentities.isEmpty)
     }
 
     @Test

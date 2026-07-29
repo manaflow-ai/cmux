@@ -213,7 +213,6 @@ describe("isTestflightEligible", () => {
 
     await expect(isTestflightEligible(user, {
       hasActiveStripeSubscription: async () => false,
-      hasActiveTeamSubscription: async () => true,
     })).resolves.toBe(false);
     expect(user.updates).toEqual([]);
   });

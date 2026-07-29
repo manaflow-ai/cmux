@@ -429,7 +429,7 @@ export async function applySubscriptionUpdate(
   );
   if ("skipped" in lockedResult) return { skipped: true };
 
-  await syncStackUserMetadataWithAccountDeletionGuard({
+  const metadataSynced = await syncStackUserMetadataWithAccountDeletionGuard({
     db,
     stackUserId: lockedResult.stackUserId,
     stackApp: dependencies.stackApp ?? stackServerApp,
@@ -437,8 +437,18 @@ export async function applySubscriptionUpdate(
       await syncProPlanMetadata(freshUser, isActive);
     },
   });
-  if (!isActive) {
-    await removeUserFromTestflightOnLapse(lockedResult.user, lockedResult.stackUserId, dependencies);
+  if (!isActive && metadataSynced) {
+    const freshUser = await loadOptionalStackUser(
+      lockedResult.stackUserId,
+      dependencies.stackApp,
+    );
+    if (freshUser) {
+      await removeUserFromTestflightOnLapse(
+        freshUser,
+        lockedResult.stackUserId,
+        dependencies,
+      );
+    }
   }
   return { scope: "user", stackUserId: lockedResult.stackUserId, isActive };
 }
@@ -563,15 +573,6 @@ export function isCmuxCheckoutSession(
   return Boolean(session.client_reference_id && session.metadata?.plan === "pro");
 }
 
-async function loadStackUser(
-  stackUserId: string,
-  stackApp: StackBillingApp | null | undefined,
-): Promise<StackBillingUser> {
-  const user = await loadOptionalStackUser(stackUserId, stackApp);
-  if (!user) throw new Error(`Stack user not found for Stripe purchase: ${stackUserId}`);
-  return user;
-}
-
 async function loadOptionalStackUser(
   stackUserId: string,
   stackApp: StackBillingApp | null | undefined,
@@ -611,6 +612,11 @@ async function removeUserFromTestflightOnLapse(
       user.primaryEmail,
       user.clientReadOnlyMetadata,
       dependencies.testflight?.removeTester ?? removeTester,
+      {
+        updateMetadata: (clientReadOnlyMetadata) => user.update({
+          clientReadOnlyMetadata,
+        }),
+      },
     );
   } catch (error) {
     (dependencies.testflight?.captureAscError ?? captureAscError)(error, {

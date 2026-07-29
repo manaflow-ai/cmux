@@ -142,7 +142,7 @@ struct MacAuthComposition {
         self.coordinator = coordinator
         let browserAppSession = BrowserAppSessionController(
             coordinator: coordinator,
-            webOrigin: AuthEnvironment.appWebOrigin,
+            webOrigin: AuthEnvironment.appSessionHandoffOrigin,
             projectID: stackProjectID,
             defaults: defaults
         )

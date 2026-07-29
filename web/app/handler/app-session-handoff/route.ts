@@ -222,9 +222,40 @@ function setStackSessionCookies(
 async function parseHandoffBody(request: NextRequest): Promise<URLSearchParams | null> {
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("application/x-www-form-urlencoded")) return null;
-  const body = await request.text();
-  if (new TextEncoder().encode(body).byteLength > MAX_BODY_BYTES) return null;
+  if (contentLengthExceedsLimit(request)) return null;
+  const body = await readBodyWithLimit(request, MAX_BODY_BYTES);
+  if (body === null) return null;
   return new URLSearchParams(body);
+}
+
+function contentLengthExceedsLimit(request: NextRequest): boolean {
+  const value = request.headers.get("content-length")?.trim();
+  if (!value || !/^\d+$/.test(value)) return false;
+  const length = Number(value);
+  return !Number.isSafeInteger(length) || length > MAX_BODY_BYTES;
+}
+
+async function readBodyWithLimit(
+  request: NextRequest,
+  limit: number,
+): Promise<string | null> {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+
+  const decoder = new TextDecoder();
+  let byteLength = 0;
+  let body = "";
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    byteLength += chunk.value.byteLength;
+    if (byteLength > limit) {
+      await reader.cancel();
+      return null;
+    }
+    body += decoder.decode(chunk.value, { stream: true });
+  }
+  return body + decoder.decode();
 }
 
 export function makeAppSessionHandoffHandler(
@@ -233,6 +264,18 @@ export function makeAppSessionHandoffHandler(
   return async function POST(request: NextRequest) {
     if (!isNativeAppHandoff(request)) {
       return NextResponse.redirect(new URL("/", request.url), 303);
+    }
+
+    if (contentLengthExceedsLimit(request)) {
+      return NextResponse.redirect(new URL("/", request.url), 303);
+    }
+
+    const app = dependencies.stackServerApp;
+    const projectId = dependencies.projectId;
+    if (!app || !projectId) return handoffFailure(request, "/", 503);
+    if (isRateLimited(request)) return handoffFailure(request, "/", 429);
+    if (await isDurablyRateLimited(request, dependencies)) {
+      return handoffFailure(request, "/", 429);
     }
 
     let form: URLSearchParams | null;
@@ -244,14 +287,6 @@ export function makeAppSessionHandoffHandler(
     const afterPath = sanitizedAfterPath(form?.get("after") ?? null);
     if (!form || !afterPath) {
       return NextResponse.redirect(new URL("/", request.url), 303);
-    }
-
-    const app = dependencies.stackServerApp;
-    const projectId = dependencies.projectId;
-    if (!app || !projectId) return handoffFailure(request, afterPath, 503);
-    if (isRateLimited(request)) return handoffFailure(request, afterPath, 429);
-    if (await isDurablyRateLimited(request, dependencies)) {
-      return handoffFailure(request, afterPath, 429);
     }
 
     const refreshToken = form.get("refresh_token")?.trim();

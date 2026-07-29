@@ -101,6 +101,7 @@ describe("TestFlight route", () => {
     currentUser = createTestflightUser();
     user = currentUser;
     getUser.mockClear();
+    mockImplementation(getUser, async () => user);
     isTestflightEligible.mockClear();
     mockImplementation(isTestflightEligible, async (candidate: unknown) =>
       testflightUserEligibility(candidate) ?? false,
@@ -152,6 +153,9 @@ describe("TestFlight route", () => {
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: {
         cmuxProTestflightEnrollmentEmails: ["pro@example.com"],
+        cmuxProTestflightGrants: [
+          { email: "pro@example.com", source: "user" },
+        ],
       },
     });
     expect(

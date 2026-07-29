@@ -4,6 +4,10 @@ import {
 } from "./client";
 import {
   FOUNDER_TESTFLIGHT_GROUP_ID,
+  metadataAfterProTestflightRemoval,
+  proOwnedLegacyTestflightEmails,
+  proTestflightEnrollmentEmails,
+  proTestflightGrants,
   proTestflightRemovalTargets,
 } from "./testflightOwnership";
 import { env } from "../../app/env";
@@ -13,10 +17,12 @@ export {
   proOwnedLegacyTestflightEmails,
   proOwnedLegacyTestflightGroupIDs,
   proTestflightEnrollmentEmails,
+  proTestflightGrants,
   proTestflightRemovalTargets,
   recordProOwnedLegacyTestflightGroup,
   recordProTestflightEnrollmentEmail,
   type ProTestflightRemovalTarget,
+  type ProTestflightGrant,
   type ProTestflightOwnershipUser,
 } from "./testflightOwnership";
 
@@ -149,12 +155,29 @@ export async function removeProTesterAccess(
   currentEmail: string | null | undefined,
   metadata: unknown,
   remover: typeof removeTester = removeTester,
+  options: {
+    readonly updateMetadata?: (metadata: unknown) => Promise<unknown>;
+  } = {},
 ): Promise<number> {
   const targets = proTestflightRemovalTargets(currentEmail, metadata);
+  let workingMetadata = metadata;
   for (const target of targets) {
     await remover(target.email, {
       ownedLegacyGroupIDs: target.ownedLegacyGroupIDs,
     });
+    const ownsRecordedEmail =
+      proTestflightEnrollmentEmails(workingMetadata).includes(target.email) ||
+      proTestflightGrants(workingMetadata).some(
+        (grant) => grant.email === target.email,
+      ) ||
+      proOwnedLegacyTestflightEmails(workingMetadata).includes(target.email);
+    if (ownsRecordedEmail && options.updateMetadata) {
+      workingMetadata = metadataAfterProTestflightRemoval(
+        workingMetadata,
+        target.email,
+      );
+      await options.updateMetadata(workingMetadata);
+    }
   }
   return targets.length;
 }

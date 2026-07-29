@@ -136,7 +136,7 @@
         "upsellTitle": "Upgrade when you need cloud agents or team billing.",
         "upsellBody": "Choose Pro for personal cloud features, or Team for shared billing and seats.",
         "testflightTitle": "Get the cmux iOS app",
-        "testflightBody": "The iOS beta is available through TestFlight for active Pro users and Team members.",
+        "testflightBody": "The iOS beta is available through TestFlight for active Pro users.",
         "testflightCta": "Join the iOS beta"
       },
       "pro": {
@@ -187,13 +187,13 @@
         "joined": "Apple will email your TestFlight invite shortly.",
         "left": "You have left the iOS TestFlight group.",
         "error": "TestFlight could not be updated. Try again shortly.",
-        "ineligible": "An active Pro or Team subscription is required for iOS TestFlight.",
+        "ineligible": "An active personal Pro subscription is required for iOS TestFlight.",
         "needs_email": "Add a verified primary email before joining iOS TestFlight.",
         "unavailable": "TestFlight enrollment is not available right now."
       },
       "notEligible": {
         "title": "Subscription required",
-        "body": "iOS TestFlight access is available to active Pro users and members of a Team subscription."
+        "body": "iOS TestFlight access is available to active personal Pro subscribers."
       },
       "needsEmail": {
         "title": "Verified email required",

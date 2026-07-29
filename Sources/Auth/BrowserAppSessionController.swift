@@ -124,9 +124,10 @@ final class BrowserAppSessionWeakReference<Value: AnyObject> {
     }
 }
 
-/// Persists only the exact WebKit stores that received cmux app-session
-/// cookies. Persistent store identifiers survive an app relaunch; ephemeral
-/// stores remain process-local because WebKit discards their data on exit.
+/// Tracks only live, isolated WebKit stores that received cmux app-session
+/// cookies. Older releases persisted shared profile identifiers; those markers
+/// are retained only long enough to retire them without touching a later web
+/// account that may now own the shared profile's Stack cookies.
 @MainActor
 final class BrowserAppSessionStoreRegistry {
     private let defaults: UserDefaults
@@ -190,16 +191,11 @@ final class BrowserAppSessionStoreRegistry {
     }
 
     func register(_ store: WKWebsiteDataStore) {
+        // Credential handoffs must use a dedicated non-persistent store. Never
+        // claim or later sweep a user's shared persistent browser profile.
+        guard Self.identity(for: store) == nil else { return }
         liveStores = liveStores.filter { $0.value.value != nil }
         liveStores[ObjectIdentifier(store)] = BrowserAppSessionWeakReference(store)
-        guard let identity = Self.identity(for: store),
-              ownerships.insert(BrowserAppSessionStoreOwnership(
-                  identity: identity,
-                  environment: environment
-              )).inserted else {
-            return
-        }
-        persist()
     }
 
     func storesForCleanup() -> [WKWebsiteDataStore] {
@@ -223,16 +219,6 @@ final class BrowserAppSessionStoreRegistry {
                     environment: environment
                 )
             }
-        }
-        for ownership in ownerships {
-            let store = Self.store(for: ownership.identity)
-            targets[CleanupTargetIdentity(
-                store: ObjectIdentifier(store),
-                environment: ownership.environment
-            )] = BrowserAppSessionStoreCleanupTarget(
-                store: store,
-                environment: ownership.environment
-            )
         }
         return Array(targets.values)
     }
@@ -318,17 +304,6 @@ final class BrowserAppSessionStoreRegistry {
         return store.identifier.map(BrowserAppSessionStoreIdentity.persistent)
     }
 
-    private static func store(
-        for identity: BrowserAppSessionStoreIdentity
-    ) -> WKWebsiteDataStore {
-        switch identity {
-        case .defaultStore:
-            WKWebsiteDataStore.default()
-        case let .persistent(identifier):
-            WKWebsiteDataStore(forIdentifier: identifier)
-        }
-    }
-
     private struct CleanupTargetIdentity: Hashable {
         let store: ObjectIdentifier
         let environment: BrowserAppSessionEnvironment
@@ -405,10 +380,10 @@ final class BrowserAppSessionController {
     }
 
     func request(
-        destinationURL: URL,
-        websiteDataStore: WKWebsiteDataStore
+        destinationURL: URL
     ) async -> BrowserAppSessionRequestOutcome {
         guard acceptsHandoffs else { return .failed }
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
         let requestGeneration = generation
         let operationID = UUID()
         let task = Task { @MainActor [weak self] in
@@ -465,9 +440,9 @@ final class BrowserAppSessionController {
         storeRegistry.removeAllOwnership()
     }
 
-    /// Deletes app-owned cookies from persisted stores associated with a prior
-    /// Stack project or web origin. Ownership is removed only after cleanup, so
-    /// an interrupted launch retries instead of forgetting live credentials.
+    /// Clears any live isolated stores from a prior auth environment, then
+    /// retires historical persistent-store markers without reopening those
+    /// shared profiles or touching cookies that may belong to another account.
     func clearStaleEnvironmentWebSessions() async {
         let targets = storeRegistry.staleEnvironmentStoresForCleanup()
         for target in targets {

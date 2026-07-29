@@ -3785,8 +3785,7 @@ final class Workspace: Identifiable, ObservableObject {
                 return
             }
             var outcome = await auth.browserAppSession.request(
-                destinationURL: destinationURL,
-                websiteDataStore: sourcePanel.websiteDataStore
+                destinationURL: destinationURL
             )
             if outcome.shouldRetry {
                 guard let retrySource = self.panels[sourcePanel.id] as? BrowserPanel,
@@ -3794,8 +3793,7 @@ final class Workspace: Identifiable, ObservableObject {
                     return
                 }
                 outcome = await auth.browserAppSession.request(
-                    destinationURL: destinationURL,
-                    websiteDataStore: retrySource.websiteDataStore
+                    destinationURL: destinationURL
                 )
             }
             if outcome.recoveryAction == .beginSignIn {
