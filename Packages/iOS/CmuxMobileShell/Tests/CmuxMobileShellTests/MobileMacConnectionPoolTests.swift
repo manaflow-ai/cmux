@@ -1476,7 +1476,7 @@ import Testing
         shell.setSelectedWorkspaceID(
             shell.workspaces.first(where: { $0.macDeviceID == "mac-a" })?.id
         )
-        shell.secondaryMacSubscriptions["mac-b"] = SecondaryMacSubscription(
+        let displacedControl = SecondaryMacSubscription(
             macDeviceID: "mac-b",
             client: displacedControlClient,
             route: targetRoute,
@@ -1487,6 +1487,15 @@ import Testing
             actionCapabilities: .none,
             displayName: "Mac B"
         )
+        shell.secondaryMacSubscriptions["mac-b"] = displacedControl
+        shell.startSecondaryEventConsumer(
+            displacedControl,
+            displayName: "Mac B"
+        )
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 1
+        ))
 
         let connectTask = Task { @MainActor in
             try await shell.connect(
@@ -1513,6 +1522,8 @@ import Testing
         #expect(shell.selectedWorkspace?.macDeviceID == "mac-b")
         #expect(shell.selectedWorkspace?.rpcWorkspaceID.rawValue == "live-workspace")
         #expect(shell.secondaryMacSubscriptions["mac-b"] == nil)
+        #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
+        #expect(shell.workspacesByMac["mac-b"]?.status == .connected)
         #expect(shell.connections["mac-b"]?.supportedHostCapabilities
             == Set(targetCapabilities))
         #expect(shell.connections["mac-b"]?.actionCapabilities.supportsCloseActions == true)

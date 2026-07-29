@@ -2697,6 +2697,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         liveForegroundRestoreBaseline: MobilePairedMac?
     ) async -> Bool {
         defer { finishMacSwitchAttempt(switchAttemptID) }
+        // Promotion becomes destructive before its final snapshot request.
+        // Publish the live rollback target before entering that fast path so
+        // cancellation can restore it from every post-handoff await.
+        if let liveForegroundRestoreBaseline {
+            macSwitchRestoreBaseline = liveForegroundRestoreBaseline
+        }
         // FAST PATH: if a live read-only connection to this Mac already exists,
         // promote it to the foreground (reuse the client) instead of re-dialing.
         if instanceTag == nil
@@ -6545,6 +6551,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         hint: pairedMacDeviceID
                     )
                     let authenticatedCapabilities = Set(status.capabilities)
+                    var displacedControlReservation:
+                        SecondaryMacSubscription?
+                    defer {
+                        if let displacedControlReservation,
+                           secondaryMacSubscriptions[
+                               displacedControlReservation.macDeviceID
+                           ] === displacedControlReservation {
+                            displacedControlReservation.detachKeepingClient()
+                            secondaryMacSubscriptions[
+                                displacedControlReservation.macDeviceID
+                            ] = nil
+                            markSecondaryMacUnavailable(
+                                displacedControlReservation.macDeviceID
+                            )
+                            scheduleSecondaryPresenceAggregation(
+                                forMacDeviceID:
+                                    displacedControlReservation.macDeviceID
+                            )
+                        }
+                    }
                     // A fresh dial may race an already-live control connection
                     // for the target. Stop and close that owner while leaving
                     // its registry slot occupied; the final atomic transition
@@ -6552,6 +6578,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // install a control owner in the handoff gap.
                     if !resolvedForegroundMacID.isEmpty,
                        let displaced = secondaryMacSubscriptions[resolvedForegroundMacID] {
+                        displaced.isTransitioningToFocus = true
+                        displacedControlReservation = displaced
                         displaced.detachKeepingClient()
                         await displaced.client.disconnect()
                         guard isConnectCurrent() else {

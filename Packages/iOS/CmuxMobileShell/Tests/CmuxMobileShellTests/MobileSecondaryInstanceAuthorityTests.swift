@@ -455,6 +455,7 @@ import Testing
         #expect(shell.selectedWorkspace?.macDeviceID == "mac-b")
         #expect(shell.selectedWorkspace?.rpcWorkspaceID.rawValue
             == "live-workspace")
+        #expect(shell.macSwitchRestoreBaseline?.macDeviceID == "mac-a")
         let targetTransport = try #require(targetTransportBox.get())
         await targetTransport.deliver(
             try promotionWorkspaceUpdatedEventFrame()
