@@ -42,9 +42,9 @@ class ContractTests(unittest.TestCase):
             ("python", "typescript", "rust", "go", "java", "cpp", "zig"),
         )
 
-    def test_catalog_is_public_v1_and_has_122_transported_operations(self) -> None:
+    def test_catalog_is_public_v1_and_has_124_transported_operations(self) -> None:
         self.assertEqual(self.catalog["protocol"], PROTOCOL)
-        self.assertEqual(len(self.catalog["operations"]), 122)
+        self.assertEqual(len(self.catalog["operations"]), 124)
         self.assertEqual(
             self.catalog["operations"]["workspace.rename"]["class"], "mutation"
         )
