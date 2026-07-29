@@ -1758,21 +1758,16 @@ struct ComputerUseUXTests {
     }
 
     @Test
-    func applicationSurfaceHealthDoesNotShareTheInputConnection() {
-        let inputConnection = PersistentSocketLineConnection()
-
-        #expect(
-            ComputerUseRuntimeService.applicationSurfacePersistentConnection(
-                for: .health,
-                inputConnection: inputConnection
-            ) == nil
-        )
-        #expect(
-            ComputerUseRuntimeService.applicationSurfacePersistentConnection(
-                for: .input,
-                inputConnection: inputConnection
-            ) === inputConnection
-        )
+    func applicationSurfaceAttachmentRequiresHelperAcknowledgment() {
+        #expect(ComputerUseRuntimeService.applicationSurfaceAttachmentWasAcknowledged([
+            "ok": true,
+            "result": ["attached": true],
+        ]))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceAttachmentWasAcknowledged([
+            "ok": true,
+            "result": ["attached": false],
+        ]))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceAttachmentWasAcknowledged(nil))
     }
 
     @Test

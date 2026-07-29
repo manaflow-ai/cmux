@@ -68,6 +68,66 @@ struct ApplicationSurfaceTests {
         #expect(!view.isReleasingForwardedInput)
     }
 
+    @Test func applicationCaptureFocusCanBeRecognizedAndYielded() async {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let view = panel.captureView(windowID: 42, processID: 43)
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            panel.close()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+        window.contentView = view
+        panel.focus()
+
+        #expect(panel.ownedFocusIntent(for: view, in: window) == .panel)
+        #expect(panel.yieldFocusIntent(.panel, in: window))
+        #expect(window.firstResponder !== view)
+        #expect(view.isReleasingForwardedInput)
+        await view.waitUntilForwardedInputReleased()
+    }
+
+    @Test func applicationInputConnectionsAreScopedToEachSession() {
+        let registry = ApplicationSurfaceInputConnectionRegistry(
+            transport: SocketTransport()
+        )
+
+        let first = registry.connection(for: "first")
+        let repeatedFirst = registry.connection(for: "first")
+        let second = registry.connection(for: "second")
+
+        #expect(first === repeatedFirst)
+        #expect(first !== second)
+        registry.removeConnection(for: "first")
+        #expect(first !== registry.connection(for: "first"))
+    }
+
+    @Test func helperFailureFansOutWithoutPerSurfacePolling() async {
+        let registry = ApplicationSurfaceFailureEventRegistry()
+        var first = registry.events(for: "first").makeAsyncIterator()
+        var second = registry.events(for: "second").makeAsyncIterator()
+
+        registry.failAll(with: .helperUnavailable)
+
+        #expect(await first.next() == .helperUnavailable)
+        #expect(await first.next() == nil)
+        #expect(await second.next() == .helperUnavailable)
+        #expect(await second.next() == nil)
+    }
+
     @Test func captureRequiresBothPaneIntentAndVisibleHostWindow() {
         #expect(ApplicationCaptureView.shouldCapture(
             captureDesired: true,
@@ -918,11 +978,6 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String
     ) async {}
-
-    func checkApplicationSurfaceHealth(
-        lease: ApplicationSurfaceRuntimeLease,
-        sessionID: String
-    ) async throws {}
 
     func sendApplicationSurfaceEvent(
         lease: ApplicationSurfaceRuntimeLease,

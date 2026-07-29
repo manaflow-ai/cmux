@@ -29,4 +29,16 @@ struct SimulatorFrameSharedMemoryLayoutTests {
             _ = try SimulatorFrameSharedMemoryLayout(descriptor: descriptor)
         }
     }
+
+    @Test("Producer failure is distinct from every frame publication")
+    func producerFailureWord() throws {
+        let layout = try SimulatorFrameSharedMemoryLayout(width: 2, height: 2)
+
+        #expect(layout.publishedWordReportsSourceFailure(Int64.min))
+        #expect(layout.decodePublishedWord(Int64.min) == nil)
+        #expect(!layout.publishedWordReportsSourceFailure(0))
+        #expect(!layout.publishedWordReportsSourceFailure(
+            layout.publishedWord(frameSequence: 1, slot: 0)!
+        ))
+    }
 }
