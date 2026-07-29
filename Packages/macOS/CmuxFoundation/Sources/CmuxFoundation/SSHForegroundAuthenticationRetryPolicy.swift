@@ -66,10 +66,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// allowing a noisy remote command to grow memory or a diagnostic file.
     /// Temporary state is removed on normal completion and signals.
     ///
-    /// - Parameter command: Shell command to execute under zsh.
+    /// The command must contain only the foreground authentication attempt and
+    /// its required preflight, lock, and cleanup work. Callers execute unrelated
+    /// local commands after this wrapper returns so their statuses are not
+    /// interpreted as SSH authentication failures.
+    ///
+    /// - Parameter command: Foreground authentication command to execute under zsh.
     /// - Returns: A zsh command suitable for embedding in a startup script.
     public func classifyingTransientFailure(in command: String) -> String {
-        let nestedCommand = "/bin/zsh -fc \(shellQuote(command))"
+        let nestedCommand = "/usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command))"
         let classifierProgram = """
         {
           cmux_ssh_auth_line = tolower(cmux_ssh_auth_overlap $0)

@@ -32,6 +32,26 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.temporaryFiles.isEmpty)
     }
 
+    @Test func preservesNonSSHFailureStatus() throws {
+        let result = try run("exit 3")
+
+        #expect(result.status == 3)
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
+    @Test func pinsDiagnosticLocaleForWrappedAuthenticationCommand() throws {
+        let result = try run(
+            """
+            if [ "${LC_ALL:-}" != C ] || [ "${LANG:-}" != C ]; then exit 3; fi
+            printf '%s\\n' 'ssh: connect to host example.test port 22: Network is unreachable' >&2
+            exit 255
+            """
+        )
+
+        #expect(result.status == 254)
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
     @Test func permanentFailureTakesPrecedenceOverEarlierTransportDiagnostic() throws {
         let result = try run(
             """
