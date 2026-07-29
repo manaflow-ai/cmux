@@ -93,7 +93,7 @@ final class FixedStatusResetRunner:
     RemoteSessionProcessRunning,
     @unchecked Sendable
 {
-    // lint:allow lock - process calls increment one test counter.
+    // lint:allow lock - guards one counter and the broadcast test gate.
     private let lock = NSLock()
     private let status: Int32
     private var count = 0
@@ -174,7 +174,8 @@ final class BlockingResolvingResetRunner:
     private let resolvedPath: String
     private let resolutionContinuation: AsyncStream<Void>.Continuation
     private let exitContinuation: AsyncStream<Void>.Continuation
-    private let exitRelease = DispatchSemaphore(value: 0)
+    private let exitCondition = NSCondition()
+    private var exitFinished = false
     private var _exitCount = 0
 
     init(resolvedPath: String) {
@@ -205,12 +206,19 @@ final class BlockingResolvingResetRunner:
                 _exitCount += 1
             }
             exitContinuation.yield()
-            exitRelease.wait()
+            exitCondition.lock()
+            while !exitFinished {
+                exitCondition.wait()
+            }
+            exitCondition.unlock()
         }
         return RemoteCommandResult(status: 0, stdout: "", stderr: "")
     }
 
     func finishExit() {
-        exitRelease.signal()
+        exitCondition.lock()
+        exitFinished = true
+        exitCondition.broadcast()
+        exitCondition.unlock()
     }
 }

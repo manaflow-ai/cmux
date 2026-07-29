@@ -180,7 +180,8 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
                 connectedVMNoProxyFormat: "%@",
                 suspendedDetailFormat: "%@",
                 reverseRelayUnavailableRetrying: "",
-                reverseRelayPortUnavailableRetrying: ""
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }

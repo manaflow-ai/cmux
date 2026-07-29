@@ -68,6 +68,30 @@ struct NativeSSHConnectionBrokerTests {
         #expect(recorder.requests.isEmpty)
     }
 
+    @Test("An exact cmux ControlPath is owned as soon as the workspace is retained")
+    func exactPathRetainsProcessOwnershipImmediately() {
+        let registry =
+            PermissiveNativeSSHControlMasterOwnershipRegistry()
+        let broker = NativeSSHConnectionBroker(
+            sharingOptions: sharingOptions,
+            clock: RecordingImmediateClock(),
+            jitterMilliseconds: { 200 },
+            cleanupLauncher: { _ in },
+            controlMasterOwnershipRegistry: registry
+        )
+        let expectedPath =
+            "/tmp/cmux-ssh-501-" +
+            "0123456789abcdef0123456789abcdef01234567"
+
+        let lease = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            sshOptions: resolvedOwnedSSHOptions
+        ))
+
+        #expect(registry.retainedControlPaths == [expectedPath])
+        broker.releaseWorkspace(lease)
+    }
+
     @Test("Unresolved templates authorize reset but not last-owner cleanup")
     func unresolvedTemplatesOnlyAuthorizeReset() {
         let recorder = CleanupRequestRecorder()

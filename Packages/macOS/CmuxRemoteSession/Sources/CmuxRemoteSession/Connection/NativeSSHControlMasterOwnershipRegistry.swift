@@ -120,40 +120,43 @@ final class NativeSSHControlMasterOwnershipRegistry:
         controlPath: String,
         purpose: ExclusiveUsePurpose
     ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
-        guard let authenticationPath =
-            sharingOptions.resolvedControlMasterAuthenticationLockPath(
-                controlPath: controlPath
-            ),
-              let authenticationDescriptor = openLockFile(
-                  authenticationPath
-              ) else {
-            return nil
-        }
-        guard acquireAuthenticationLock(authenticationDescriptor) else {
-            _ = Darwin.close(authenticationDescriptor)
-            return nil
-        }
-
         let exclusiveUseID = UUID()
-        let authorized = lock.withLock {
+        let authenticationDescriptor = lock.withLock { () -> Int32? in
+            guard entries[controlPath]?.exclusiveUseID == nil,
+                  let authenticationPath =
+                  sharingOptions
+                  .resolvedControlMasterAuthenticationLockPath(
+                      controlPath: controlPath
+                  ),
+                  let descriptor = openLockFile(authenticationPath) else {
+                return nil
+            }
+            guard acquireAuthenticationLock(descriptor) else {
+                _ = Darwin.close(descriptor)
+                return nil
+            }
+
+            let authorized: Bool
             switch purpose {
             case .conflictedMasterReset:
-                beginOwnershipResetLocked(
+                authorized = beginOwnershipResetLocked(
                     controlPath: controlPath,
                     exclusiveUseID: exclusiveUseID
                 )
             case .ordinaryCleanup:
-                beginOwnershipCleanupLocked(
+                authorized = beginOwnershipCleanupLocked(
                     controlPath: controlPath,
                     exclusiveUseID: exclusiveUseID
                 )
             }
+            guard authorized else {
+                releaseAuthenticationLock(descriptor)
+                _ = Darwin.close(descriptor)
+                return nil
+            }
+            return descriptor
         }
-        guard authorized else {
-            releaseAuthenticationLock(authenticationDescriptor)
-            _ = Darwin.close(authenticationDescriptor)
-            return nil
-        }
+        guard let authenticationDescriptor else { return nil }
 
         return NativeSSHControlMasterExclusiveUseAuthorization { [self] in
             finishExclusiveUse(
@@ -245,9 +248,9 @@ final class NativeSSHControlMasterOwnershipRegistry:
             } else {
                 removeEntryLocked(controlPath)
             }
+            releaseAuthenticationLock(authenticationDescriptor)
+            _ = Darwin.close(authenticationDescriptor)
         }
-        releaseAuthenticationLock(authenticationDescriptor)
-        _ = Darwin.close(authenticationDescriptor)
     }
 
     private func removeLeaseLocked(
@@ -296,7 +299,8 @@ final class NativeSSHControlMasterOwnershipRegistry:
         return descriptor
     }
 
-    /// Matches the POSIX record locks used by zsh's `zsystem flock`.
+    /// Conflicts with zsh's POSIX `zsystem flock`, but stays bound to this
+    /// descriptor so another registry in the same process cannot release it.
     private func acquireAuthenticationLock(_ descriptor: Int32) -> Bool {
         var fileLock = Darwin.flock(
             l_start: 0,
@@ -305,7 +309,7 @@ final class NativeSSHControlMasterOwnershipRegistry:
             l_type: Int16(F_WRLCK),
             l_whence: Int16(SEEK_SET)
         )
-        return fcntl(descriptor, F_SETLK, &fileLock) == 0
+        return fcntl(descriptor, F_OFD_SETLK, &fileLock) == 0
     }
 
     private func releaseAuthenticationLock(_ descriptor: Int32) {
@@ -316,6 +320,6 @@ final class NativeSSHControlMasterOwnershipRegistry:
             l_type: Int16(F_UNLCK),
             l_whence: Int16(SEEK_SET)
         )
-        _ = fcntl(descriptor, F_SETLK, &fileLock)
+        _ = fcntl(descriptor, F_OFD_SETLK, &fileLock)
     }
 }

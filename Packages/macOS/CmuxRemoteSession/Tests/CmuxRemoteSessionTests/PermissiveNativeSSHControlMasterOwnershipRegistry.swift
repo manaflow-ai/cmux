@@ -4,13 +4,24 @@ import Foundation
 /// Test fake that authorizes ownership without opening process-global locks.
 final class PermissiveNativeSSHControlMasterOwnershipRegistry:
     NativeSSHControlMasterOwnershipTracking,
-    Sendable
+    @unchecked Sendable
 {
+    // lint:allow lock - test assertions read the retained-path snapshot.
+    private let lock = NSLock()
+    private var _retainedControlPaths: [String] = []
+
+    var retainedControlPaths: [String] {
+        lock.withLock { _retainedControlPaths }
+    }
+
     func retain(
         controlPath: String,
         lease: NativeSSHControlMasterLeaseIdentity
     ) -> Bool {
-        true
+        lock.withLock {
+            _retainedControlPaths.append(controlPath)
+        }
+        return true
     }
 
     func release(lease: NativeSSHControlMasterLeaseIdentity) {}

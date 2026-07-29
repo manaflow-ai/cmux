@@ -136,7 +136,8 @@ struct RemotePTYIntentionalCleanupTests {
                 connectedVMNoProxyFormat: "%@",
                 suspendedDetailFormat: "%@",
                 reverseRelayUnavailableRetrying: "",
-                reverseRelayPortUnavailableRetrying: ""
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }

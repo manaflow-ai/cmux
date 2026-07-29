@@ -401,7 +401,8 @@ struct RemoteRelaySlotTeardownTests {
                 connectedVMNoProxyFormat: "%@",
                 suspendedDetailFormat: "%@",
                 reverseRelayUnavailableRetrying: "",
-                reverseRelayPortUnavailableRetrying: ""
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }

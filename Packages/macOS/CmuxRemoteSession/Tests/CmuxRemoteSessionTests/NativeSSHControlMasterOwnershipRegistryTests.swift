@@ -165,6 +165,53 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         cleanup.release()
     }
 
+    @Test("A rejected local operation preserves the active authentication lock")
+    func rejectedOperationPreservesAuthenticationLock() throws {
+        let scratchDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-control-exclusive-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: scratchDirectory) }
+        let sharingOptions = SSHConnectionSharingOptions(
+            userID: Int(getuid()),
+            authenticationLockDirectoryPath: scratchDirectory.path
+        )
+        let first = NativeSSHControlMasterOwnershipRegistry(
+            sharingOptions: sharingOptions
+        )
+        let second = NativeSSHControlMasterOwnershipRegistry(
+            sharingOptions: sharingOptions
+        )
+        let controlPath = resolvedControlPath(userID: Int(getuid()))
+        let authenticationPath = try #require(
+            sharingOptions.resolvedControlMasterAuthenticationLockPath(
+                controlPath: controlPath
+            )
+        )
+
+        let reset = try #require(
+            first.beginReset(controlPath: controlPath)
+        )
+        #expect(second.beginCleanup(controlPath: controlPath) == nil)
+        #expect(
+            try childCanAcquireAuthenticationLock(
+                at: authenticationPath
+            ) == false
+        )
+
+        reset.release()
+        let cleanup = try #require(
+            second.beginCleanup(controlPath: controlPath)
+        )
+        cleanup.release()
+        #expect(
+            try childCanAcquireAuthenticationLock(
+                at: authenticationPath
+            )
+        )
+    }
+
     @Test("Authorization deinit restores the process shared lease")
     func authorizationDeinitRestoresSharedLease() throws {
         let scratchDirectory = FileManager.default.temporaryDirectory
@@ -204,5 +251,27 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
 
     private func resolvedControlPath(userID: Int) -> String {
         "/tmp/cmux-ssh-\(userID)-0123456789abcdef0123456789abcdef01234567"
+    }
+
+    private func childCanAcquireAuthenticationLock(
+        at path: String
+    ) throws -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-fc",
+            """
+            zmodload zsh/system || exit 1
+            zsystem flock -t 0 -e "$1"
+            """,
+            "cmux-auth-lock-probe",
+            path,
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus == 0
     }
 }

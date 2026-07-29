@@ -343,7 +343,8 @@ struct RemotePortScanGatingTests {
                 connectedVMNoProxyFormat: "%@",
                 suspendedDetailFormat: "%@",
                 reverseRelayUnavailableRetrying: "",
-                reverseRelayPortUnavailableRetrying: ""
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }

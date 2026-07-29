@@ -83,7 +83,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var reverseRelayStartupPhase = ReverseRelayStartupPhase.recoveryAvailable
     var reverseRelayProcess: (any RemoteReverseRelayProcess)?
     var reverseRelayControlMasterForwardSpec: String?
-    var reverseRelayResolvedControlMasterSSHOptions: [String]?
+    var resolvedControlMasterSSHOptions: [String]?
     var conflictedControlMasterResetObservation: NativeSSHControlMasterResetObservation?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
@@ -245,7 +245,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
     func beginConnectionAttemptLocked() {
         guard !isStopping else { return }
-
         Self.killOrphanedRemoteSSHProcesses(
             destination: configuration.destination,
             relayPort: configuration.relayPort,
@@ -279,6 +278,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         publishState(connectionState, detail: connectDetail)
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
+            try prepareControlMasterOwnershipLocked()
             let requiredCapabilities = requiredDaemonCapabilities
             let hello: DaemonHello
             if configuration.skipDaemonBootstrap {

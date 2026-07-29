@@ -314,7 +314,8 @@ struct RemoteReconnectPolicyTests {
                 connectedVMNoProxyFormat: "%@",
                 suspendedDetailFormat: "%@",
                 reverseRelayUnavailableRetrying: "",
-                reverseRelayPortUnavailableRetrying: ""
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }

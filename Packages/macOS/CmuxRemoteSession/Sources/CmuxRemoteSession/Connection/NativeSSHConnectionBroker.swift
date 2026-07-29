@@ -147,6 +147,14 @@ public final class NativeSSHConnectionBroker {
             )
         }
         guard let nextKey else { return leasedConfiguration }
+        if let lease = NativeSSHControlMasterLeaseIdentity(
+            configuration: leasedConfiguration
+        ) {
+            _ = controlMasterOwnershipRegistry.retain(
+                controlPath: nextKey.controlPath,
+                lease: lease
+            )
+        }
         cancelCleanup(for: nextKey)
         var leases = ownerLeases[ownerWorkspaceID] ?? [:]
         let isNewMaster = leases[nextKey] == nil

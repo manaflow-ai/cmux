@@ -170,7 +170,9 @@ struct RemoteSessionReverseRelayStartupTests {
         relayPort: Int = 64_044,
         sshOptions: [String]? = nil,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
-        providesResolvedControlPath: Bool = true
+        providesResolvedControlPath: Bool = true,
+        ownershipRegistry: any NativeSSHControlMasterOwnershipTracking =
+            PermissiveNativeSSHControlMasterOwnershipRegistry()
     ) throws -> (coordinator: RemoteSessionCoordinator, scratchDirectory: URL) {
         let scratchDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -208,8 +210,7 @@ struct RemoteSessionReverseRelayStartupTests {
             jitterMilliseconds: { 200 },
             cleanupLauncher: { _ in },
             conflictedMasterResetRunner: effectiveRunner,
-            controlMasterOwnershipRegistry:
-                PermissiveNativeSSHControlMasterOwnershipRegistry()
+            controlMasterOwnershipRegistry: ownershipRegistry
         )
         let configuration = connectionBroker.retainWorkspace(rawConfiguration)
         let coordinator = RemoteSessionCoordinator(
@@ -235,7 +236,9 @@ struct RemoteSessionReverseRelayStartupTests {
                 reverseRelayUnavailableRetrying:
                     "test relay unavailable",
                 reverseRelayPortUnavailableRetrying:
-                    "test relay port unavailable"
+                    "test relay port unavailable",
+                controlMasterOwnershipUnavailable:
+                    "test control master unavailable"
             ),
             clock: clock
         )

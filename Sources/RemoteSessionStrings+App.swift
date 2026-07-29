@@ -27,6 +27,12 @@ extension RemoteSessionStrings {
                     "remoteSession.reverseRelay.portUnavailableRetrying",
                 defaultValue:
                     "Remote SSH relay port unavailable; retrying in 2 seconds"
+            ),
+            controlMasterOwnershipUnavailable: String(
+                localized:
+                    "remoteSession.controlMaster.ownershipUnavailable",
+                defaultValue:
+                    "SSH connection is busy in another cmux process."
             )
         )
     }

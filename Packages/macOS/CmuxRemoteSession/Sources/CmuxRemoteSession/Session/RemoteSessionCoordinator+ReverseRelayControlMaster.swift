@@ -12,9 +12,24 @@ enum ReverseRelayControlMasterStartOutcome: Sendable {
 extension RemoteSessionCoordinator {
     /// Matches the connection-sharing defaults used by foreground authentication.
     var reverseRelayControlMasterSSHOptions: [String] {
-        SSHConnectionSharingOptions().mergingDefaults(
+        connectionBroker.sharingOptions.mergingDefaults(
             into: configuration.sshOptions
         )
+    }
+
+    /// Claims the exact cmux-owned socket before background SSH can reuse it.
+    func prepareControlMasterOwnershipLocked() throws {
+        guard configuration.transport != .ssh ||
+                resolvedControlMasterSSHOptionsLocked() != nil else {
+            throw NSError(
+                domain: "cmux.remote.control-master",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        strings.controlMasterOwnershipUnavailable,
+                ]
+            )
+        }
     }
 
     /// Prefers the already-authenticated shared transport without creating one.
@@ -23,7 +38,7 @@ extension RemoteSessionCoordinator {
         relayPort: Int
     ) -> ReverseRelayControlMasterStartOutcome {
         guard let effectiveSSHOptions =
-            resolvedReverseRelayControlMasterSSHOptionsLocked() else {
+            resolvedControlMasterSSHOptionsLocked() else {
             return .unavailable
         }
         guard let arguments = configuration.reverseRelayControlMasterArguments(
@@ -75,7 +90,7 @@ extension RemoteSessionCoordinator {
         guard let forwardSpec = reverseRelayControlMasterForwardSpec else { return }
         reverseRelayControlMasterForwardSpec = nil
         guard let effectiveSSHOptions =
-            reverseRelayResolvedControlMasterSSHOptions else {
+            resolvedControlMasterSSHOptions else {
             return
         }
         guard let arguments = configuration.reverseRelayControlMasterArguments(
@@ -88,19 +103,19 @@ extension RemoteSessionCoordinator {
         _ = try? sshExec(arguments: arguments, timeout: 4)
     }
 
-    /// Resolves cmux's `%C` template before adopting a shared master.
+    /// Resolves cmux's `%C` template before any background SSH command can
+    /// adopt the shared master.
     ///
-    /// The exact socket path is both the command target and the reset-event
-    /// identity. If OpenSSH cannot produce that identity, relay startup falls
-    /// back to its standalone transport without touching the unresolved
-    /// master.
-    private func resolvedReverseRelayControlMasterSSHOptionsLocked() -> [String]? {
-        if let reverseRelayResolvedControlMasterSSHOptions {
-            let sharingOptions = SSHConnectionSharingOptions()
+    /// The exact socket path is both the process-ownership lease and reset
+    /// identity. Custom paths remain user-managed. If OpenSSH cannot resolve a
+    /// cmux-owned path, the connection attempt fails before daemon bootstrap.
+    func resolvedControlMasterSSHOptionsLocked() -> [String]? {
+        if let resolvedControlMasterSSHOptions {
+            let sharingOptions = connectionBroker.sharingOptions
             guard let resolvedPath = sharingOptions.cmuxOwnedControlPath(
-                in: reverseRelayResolvedControlMasterSSHOptions
+                in: resolvedControlMasterSSHOptions
             ) else {
-                return reverseRelayResolvedControlMasterSSHOptions
+                return resolvedControlMasterSSHOptions
             }
             guard connectionBroker.retainResolvedControlMasterLease(
                 for: configuration,
@@ -108,18 +123,18 @@ extension RemoteSessionCoordinator {
             ) else {
                 return nil
             }
-            return reverseRelayResolvedControlMasterSSHOptions
+            return resolvedControlMasterSSHOptions
         }
 
         let effectiveOptions = reverseRelayControlMasterSSHOptions
-        let sharingOptions = SSHConnectionSharingOptions()
+        let sharingOptions = connectionBroker.sharingOptions
         let resolver = NativeSSHControlPathResolver(
             sharingOptions: sharingOptions
         )
         guard let ownedPath = sharingOptions.cmuxOwnedControlPath(
             in: effectiveOptions
         ) else {
-            reverseRelayResolvedControlMasterSSHOptions = effectiveOptions
+            resolvedControlMasterSSHOptions = effectiveOptions
             return effectiveOptions
         }
 
@@ -183,7 +198,7 @@ extension RemoteSessionCoordinator {
             return nil
         }
         conflictedControlMasterResetObservation = observation
-        reverseRelayResolvedControlMasterSSHOptions = resolvedOptions
+        resolvedControlMasterSSHOptions = resolvedOptions
         return resolvedOptions
     }
 

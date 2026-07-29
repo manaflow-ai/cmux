@@ -14,6 +14,8 @@ public struct RemoteSessionStrings: Sendable, Equatable {
     public let reverseRelayUnavailableRetrying: String
     /// Retry detail when a live owner prevents relay-port recovery.
     public let reverseRelayPortUnavailableRetrying: String
+    /// Detail when another cmux process temporarily owns the SSH master.
+    public let controlMasterOwnershipUnavailable: String
 
     /// Creates the app-resolved strings bundle.
     ///
@@ -22,11 +24,13 @@ public struct RemoteSessionStrings: Sendable, Equatable {
     ///   - suspendedDetailFormat: Suspended reconnect detail format.
     ///   - reverseRelayUnavailableRetrying: Generic relay retry detail.
     ///   - reverseRelayPortUnavailableRetrying: Port-conflict retry detail.
+    ///   - controlMasterOwnershipUnavailable: Cross-process ownership detail.
     public init(
         connectedVMNoProxyFormat: String,
         suspendedDetailFormat: String,
         reverseRelayUnavailableRetrying: String,
-        reverseRelayPortUnavailableRetrying: String
+        reverseRelayPortUnavailableRetrying: String,
+        controlMasterOwnershipUnavailable: String
     ) {
         self.connectedVMNoProxyFormat = connectedVMNoProxyFormat
         self.suspendedDetailFormat = suspendedDetailFormat
@@ -34,5 +38,7 @@ public struct RemoteSessionStrings: Sendable, Equatable {
             reverseRelayUnavailableRetrying
         self.reverseRelayPortUnavailableRetrying =
             reverseRelayPortUnavailableRetrying
+        self.controlMasterOwnershipUnavailable =
+            controlMasterOwnershipUnavailable
     }
 }

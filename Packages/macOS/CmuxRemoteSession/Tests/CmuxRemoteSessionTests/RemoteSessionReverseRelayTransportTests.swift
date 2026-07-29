@@ -53,6 +53,47 @@ struct RemoteSessionReverseRelayTransportTests {
         )
     }
 
+    @Test("Connection preparation owns the resolved path before shared SSH use")
+    func connectionPreparationRetainsResolvedPath() async throws {
+        let runner = RecordingProcessRunner { request in
+            if request.arguments.first == "-G" {
+                return RemoteCommandResult(
+                    status: 0,
+                    stdout: "controlpath \(ResolvedControlPathFixture.path)\n",
+                    stderr: ""
+                )
+            }
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+        let registry = PermissiveNativeSSHControlMasterOwnershipRegistry()
+        let fixture = try await RemoteSessionReverseRelayStartupTests
+            .makeCoordinator(
+                runner: runner,
+                providesResolvedControlPath: false,
+                ownershipRegistry: registry
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+        #expect(registry.retainedControlPaths.isEmpty)
+
+        try coordinator.queue.sync {
+            try coordinator.prepareControlMasterOwnershipLocked()
+        }
+        let options = coordinator.queue.sync {
+            coordinator.resolvedControlMasterSSHOptions
+        }
+
+        #expect(options?.contains(
+            "ControlPath=\(ResolvedControlPathFixture.path)"
+        ) == true)
+        #expect(
+            registry.retainedControlPaths ==
+                [ResolvedControlPathFixture.path]
+        )
+        #expect(runner.requests.first?.arguments.first == "-G")
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     @Test("An explicitly disabled ControlMaster uses the standalone fallback")
     func disabledControlMasterUsesStandaloneFallback() async throws {
         let runner = RecordingProcessRunner()
@@ -374,8 +415,8 @@ struct RemoteSessionReverseRelayTransportTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
-    @Test("A late standalone bind failure triggers owned-master recovery")
-    func lateStandaloneConflictTriggersRecovery() async throws {
+    @Test("A standalone bind failure never exits a shared master")
+    func standaloneConflictFailsClosed() async throws {
         let relayPort = 64_047
         let clock = ManualBrokerClock()
         let runner = RecordingProcessRunner { request in
@@ -422,7 +463,7 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(await clock.nextRequestedDelay() == 2_000)
         coordinator.queue.sync {}
         #expect(!runner.requests.contains(where: Self.isMetadataInstallRequest))
-        #expect(runner.requests.contains(where: {
+        #expect(!runner.requests.contains(where: {
             Self.isControlCommand("exit", in: $0.arguments)
         }))
         #expect(coordinator.queue.sync {

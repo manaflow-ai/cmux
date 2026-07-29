@@ -208,14 +208,6 @@ extension RemoteSessionCoordinator {
 
         let detail = stderrDetail ?? "status=\(process.terminationStatus)"
         debugLog("remote.relay.exit \(detail)")
-        if let relayPort = configuration.relayPort,
-           beginConflictedControlMasterExitIfNeededLocked(
-               startupFailure: detail,
-               remotePath: remotePath,
-               relayPort: relayPort
-           ) {
-            return
-        }
         publishReverseRelayFailureLocked(remotePath: remotePath)
     }
 
