@@ -2292,21 +2292,25 @@ final class Workspace: Identifiable, ObservableObject {
     /// request spans multiple event-loop turns.
     var activeTerminalFontSizeChangeInheritanceContext:
         TerminalFontSizeChangeInheritanceContext?
-    /// Dependency wiring only. The observer forwards a coordinator replacement
-    /// to an already-created Dock; it does not publish workspace model state.
     weak var terminalFontSizeChangeCoordinator:
-        WorkspaceTerminalFontSizeCoordinator? {
-        didSet {
-            _dockSplit?.terminalFontSizeChangeCoordinator =
-                terminalFontSizeChangeCoordinator
-        }
-    }
+        WorkspaceTerminalFontSizeCoordinator?
     weak var terminalFontSizeChangeArbiter:
-        WorkspaceTerminalFontSizeArbiter? {
-        didSet {
-            _dockSplit?.terminalFontSizeChangeArbiter =
-                terminalFontSizeChangeArbiter
-        }
+        WorkspaceTerminalFontSizeArbiter?
+
+    /// Wires a coordinator into the workspace and its already-created Dock.
+    func setTerminalFontSizeChangeCoordinator(
+        _ coordinator: WorkspaceTerminalFontSizeCoordinator?
+    ) {
+        terminalFontSizeChangeCoordinator = coordinator
+        _dockSplit?.terminalFontSizeChangeCoordinator = coordinator
+    }
+
+    /// Wires an arbiter into the workspace and its already-created Dock.
+    func setTerminalFontSizeChangeArbiter(
+        _ arbiter: WorkspaceTerminalFontSizeArbiter?
+    ) {
+        terminalFontSizeChangeArbiter = arbiter
+        _dockSplit?.terminalFontSizeChangeArbiter = arbiter
     }
 
     /// Callback used by TabManager to capture browser panels for closed-item restore.

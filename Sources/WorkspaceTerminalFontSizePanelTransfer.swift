@@ -19,9 +19,7 @@ final class WorkspaceTerminalFontSizePanelTransfer {
 
     func attach(to workspace: Workspace) {
         guard let arbiter else { return }
-        workspace.terminalFontSizeChangeArbiter = arbiter
-        workspace._dockSplit?.terminalFontSizeChangeArbiter =
-            arbiter
+        workspace.setTerminalFontSizeChangeArbiter(arbiter)
         arbiter.associatePanelTransfer(
             self,
             with: workspace

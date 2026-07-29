@@ -1066,9 +1066,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         workspace: Workspace,
         windowDockSlot: WindowDockSlot
     ) {
-        workspace.terminalFontSizeChangeArbiter = arbiter
-        workspace._dockSplit?.terminalFontSizeChangeArbiter =
-            arbiter
+        workspace.setTerminalFontSizeChangeArbiter(arbiter)
         windowDockSlot.value?.terminalFontSizeChangeArbiter =
             arbiter
     }
@@ -1363,7 +1361,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         }
         guard coordinator.hasOutstandingWork(for: workspace) else {
             if workspace.terminalFontSizeChangeCoordinator === coordinator {
-                workspace.terminalFontSizeChangeCoordinator = nil
+                workspace.setTerminalFontSizeChangeCoordinator(nil)
             }
             return nil
         }
@@ -1558,11 +1556,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
     func claimWorkspace(_ workspace: Workspace) {
-        workspace.terminalFontSizeChangeArbiter = arbiter
-        workspace.terminalFontSizeChangeCoordinator = self
-        workspace._dockSplit?.terminalFontSizeChangeArbiter =
-            arbiter
-        workspace._dockSplit?.terminalFontSizeChangeCoordinator = self
+        workspace.setTerminalFontSizeChangeArbiter(arbiter)
+        workspace.setTerminalFontSizeChangeCoordinator(self)
         workspace._dockSplit?.terminalFontSizeOwningWorkspace = workspace
     }
 
@@ -1686,7 +1681,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
               !hasOutstandingWork(for: workspace) else {
             return
         }
-        workspace.terminalFontSizeChangeCoordinator = nil
+        workspace.setTerminalFontSizeChangeCoordinator(nil)
         arbiter.promoteDeferredCoordinatorJoins()
     }
 
@@ -1726,7 +1721,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         sealedRequests.elements.forEach(collect)
         for workspace in workspacesByIdentity.values
         where workspace.terminalFontSizeChangeCoordinator === self {
-            workspace.terminalFontSizeChangeCoordinator = nil
+            workspace.setTerminalFontSizeChangeCoordinator(nil)
         }
         for slot in dockSlotsByIdentity.values
         where slot.coordinator === self {
