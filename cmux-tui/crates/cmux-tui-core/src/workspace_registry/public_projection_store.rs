@@ -419,6 +419,23 @@ impl WorkspaceRegistry {
             })
             .collect()
     }
+
+    #[cfg(test)]
+    pub(crate) fn insert_corrupt_terminal_defaults_for_test(&self) {
+        self.connection
+            .execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(
+                   'corrupt-terminal-defaults', 'test',
+                   'session.terminal_defaults.update', '{}',
+                   '{\"foreground\":\"red\"}', 9223372036854775807
+                 )",
+                [],
+            )
+            .unwrap();
+    }
 }
 
 fn agent_id(terminal_id: &TerminalPublicId) -> anyhow::Result<AgentPublicId> {

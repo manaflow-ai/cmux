@@ -1,11 +1,13 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod public_projections;
 mod resource_content;
 mod resource_topology;
 
 pub(crate) use resource_content::ResourceEffectProjection;
 
+use public_projections::{RestoredPublicProjections, restore_public_projections};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::Path;
@@ -982,6 +984,7 @@ pub struct Mux {
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
+    durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -1210,6 +1213,14 @@ impl Mux {
         let topology = registry.resource_topology_snapshot()?;
         let RestoredResourceState { mut state, next_id, contents } =
             restore_resource_state(snapshot, topology)?;
+        let RestoredPublicProjections {
+            default_colors,
+            has_terminal_defaults,
+            next_notification_id,
+            agent_records,
+            surface_notifications,
+            notification_ledger,
+        } = restore_public_projections(&state, registry.public_projections()?)?;
         surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
@@ -1217,7 +1228,7 @@ impl Mux {
             state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
             next_id: AtomicU64::new(next_id),
-            next_notification_id: AtomicU64::new(1),
+            next_notification_id: AtomicU64::new(next_notification_id),
             next_active_at: AtomicU64::new(1),
             next_in_process_resize_owner: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
@@ -1256,11 +1267,12 @@ impl Mux {
             resource_mutation_metrics: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
-            default_colors: Mutex::new(DefaultColors::default()),
+            default_colors: Mutex::new(default_colors),
+            durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
-            agent_records: Mutex::new(HashMap::new()),
-            surface_notifications: Mutex::new(HashMap::new()),
-            notification_ledger: Mutex::new(VecDeque::new()),
+            agent_records: Mutex::new(agent_records),
+            surface_notifications: Mutex::new(surface_notifications),
+            notification_ledger: Mutex::new(notification_ledger),
             resource_machine_service: OnceLock::new(),
             resource_event_epoch: Mutex::new(0),
             resource_event_changed: Condvar::new(),
@@ -5892,6 +5904,22 @@ impl Mux {
         }
     }
 
+    pub fn seed_default_colors_if_no_durable_override(&self, colors: DefaultColors) {
+        let state = self.state.lock().unwrap();
+        let surfaces = {
+            let mut current = self.default_colors.lock().unwrap();
+            if self.durable_terminal_defaults.load(Ordering::Acquire) || *current == colors {
+                return;
+            }
+            *current = colors;
+            state.surfaces.values().cloned().collect::<Vec<_>>()
+        };
+        for surface in surfaces {
+            surface.set_default_colors(colors);
+            self.emit(MuxEvent::SurfaceOutput(surface.id));
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn resource_update_terminal_defaults_selected(
         &self,
@@ -5939,6 +5967,7 @@ impl Mux {
             &Value::Array(Vec::new()),
         )?;
         state.resource_revision = commit.revision;
+        self.durable_terminal_defaults.store(true, Ordering::Release);
         *self.default_colors.lock().unwrap() = colors;
         for surface in surfaces {
             surface.set_default_colors(colors);
@@ -11554,6 +11583,26 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
+    fn public_request(
+        mux: &Arc<Mux>,
+        id: &str,
+        operation: &str,
+        params: Value,
+        idempotency_key: Option<&str>,
+    ) -> Value {
+        let mut request = serde_json::json!({
+            "protocol":"cmux.protocol/1",
+            "type":"request",
+            "id":id,
+            "operation":operation,
+            "params":params,
+        });
+        if let Some(idempotency_key) = idempotency_key {
+            request["idempotency_key"] = Value::String(idempotency_key.to_string());
+        }
+        crate::resource_router::handle_resource_message(mux, &request.to_string()).unwrap()
+    }
+
     fn state_topology_fingerprint(state: &State) -> String {
         let workspaces = state
             .workspaces
@@ -12579,6 +12628,230 @@ mod tests {
         });
         mux.shutdown();
         drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn persistent_mux_restart_restores_auxiliary_resources_and_exact_replay() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-resource-auxiliary-restart-{}",
+            WorkspacePublicId::random().unwrap()
+        ));
+        let session = "auxiliary-restart";
+        let selectors = serde_json::json!({"machine":"current","session":"current"});
+        let create_params = serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Durable resources",
+            "initial_content":"terminal",
+        });
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+
+        let created = public_request(
+            &mux,
+            "create",
+            "workspace.create",
+            create_params.clone(),
+            Some("auxiliary-restart-create"),
+        );
+        let created_value = created["result"]["value"].clone();
+        let terminal_id = created_value["terminal_id"].as_str().unwrap().to_string();
+        let notification_params = serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "title":"Durable build",
+            "body":"All checks passed",
+            "level":"warning",
+            "terminal_id":terminal_id,
+        });
+        let notification = public_request(
+            &mux,
+            "notification",
+            "notification.create",
+            notification_params.clone(),
+            Some("auxiliary-restart-notification"),
+        );
+        let notification_value = notification["result"]["value"].clone();
+        let agent_params = serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal_id":terminal_id,
+            "state":"working",
+            "source":"hook",
+            "source_session":"worker-7",
+        });
+        let agent = public_request(
+            &mux,
+            "agent",
+            "agent.report",
+            agent_params.clone(),
+            Some("auxiliary-restart-agent"),
+        );
+        let agent_value = agent["result"]["value"].clone();
+        let defaults_params = serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "foreground":"#123456",
+            "background":"#654321",
+            "cursor_style":"bar",
+            "cursor_blink":true,
+            "palette":{"1":"#abcdef"},
+            "complete":true,
+        });
+        let defaults = public_request(
+            &mux,
+            "defaults",
+            "session.terminal_defaults.update",
+            defaults_params.clone(),
+            Some("auxiliary-restart-defaults"),
+        );
+        let defaults_value = defaults["result"]["value"].clone();
+        let projection_id = "projection_00000000000000000000000000000001";
+        let projection_params = serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "frontend_projection":projection_id,
+            "projection":{
+                "schema":"cmux.sidebar.test/1",
+                "revision":"7",
+                "rows":[{"label":"build","state":"working"}],
+            },
+        });
+        let projection = public_request(
+            &mux,
+            "projection",
+            "frontend_projection.put",
+            projection_params.clone(),
+            Some("auxiliary-restart-projection"),
+        );
+        let projection_value = projection["result"]["value"].clone();
+
+        let before = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert!(before["notifications"].as_array().unwrap().contains(&notification_value));
+        assert!(before["agents"].as_array().unwrap().contains(&agent_value));
+        assert!(before["frontend_projections"].as_array().unwrap().contains(&projection_value));
+        let durable_colors = mux.default_colors();
+        assert_eq!(defaults_value["foreground"], "#123456");
+        assert_eq!(defaults_value["background"], "#654321");
+        assert_eq!(defaults_value["cursor_style"], "bar");
+        assert_eq!(defaults_value["cursor_blink"], true);
+        assert_eq!(defaults_value["palette"]["1"], "#abcdef");
+        mux.shutdown();
+        drop(mux);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        assert_eq!(reopened.default_colors(), durable_colors);
+        let mut config_colors = DefaultColors::default();
+        config_colors.fg = Some(crate::Rgb { r: 0xee, g: 0xdd, b: 0xcc });
+        reopened.seed_default_colors_if_no_durable_override(config_colors);
+        assert_eq!(
+            reopened.default_colors(),
+            durable_colors,
+            "startup config must not overwrite an explicit durable update"
+        );
+
+        let after = crate::resource_api::public_session_snapshot(&reopened).unwrap();
+        assert!(after["notifications"].as_array().unwrap().contains(&notification_value));
+        assert!(after["agents"].as_array().unwrap().contains(&agent_value));
+        assert!(after["frontend_projections"].as_array().unwrap().contains(&projection_value));
+        let notifications = public_request(
+            &reopened,
+            "notifications",
+            "notification.list",
+            selectors.clone(),
+            None,
+        );
+        assert_eq!(notifications["result"], serde_json::json!([notification_value]));
+        let agents = public_request(&reopened, "agents", "agent.list", selectors.clone(), None);
+        assert_eq!(agents["result"], serde_json::json!([agent_value]));
+        let snapshot =
+            public_request(&reopened, "snapshot", "session.snapshot", selectors.clone(), None);
+        assert_eq!(snapshot["result"]["notifications"], after["notifications"]);
+        assert_eq!(snapshot["result"]["agents"], after["agents"]);
+        assert_eq!(snapshot["result"]["frontend_projections"], after["frontend_projections"]);
+
+        for (id, operation, params, key, original) in [
+            (
+                "create-replay",
+                "workspace.create",
+                create_params,
+                "auxiliary-restart-create",
+                created_value,
+            ),
+            (
+                "notification-replay",
+                "notification.create",
+                notification_params,
+                "auxiliary-restart-notification",
+                notification_value,
+            ),
+            ("agent-replay", "agent.report", agent_params, "auxiliary-restart-agent", agent_value),
+            (
+                "defaults-replay",
+                "session.terminal_defaults.update",
+                defaults_params,
+                "auxiliary-restart-defaults",
+                defaults_value,
+            ),
+            (
+                "projection-replay",
+                "frontend_projection.put",
+                projection_params,
+                "auxiliary-restart-projection",
+                projection_value,
+            ),
+        ] {
+            let replay = public_request(&reopened, id, operation, params, Some(key));
+            assert_eq!(replay["result"]["value"], original, "{operation}");
+            assert_eq!(replay["result"]["replayed"], true, "{operation}");
+        }
+        assert_eq!(reopened.resource_notifications(256).len(), 1);
+        assert_eq!(reopened.list_agents(None, None).len(), 1);
+        assert_eq!(
+            reopened
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .public_frontend_projections()
+                .unwrap()
+                .len(),
+            1
+        );
+
+        reopened.shutdown();
+        drop(reopened);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry.insert_corrupt_terminal_defaults_for_test();
+        let error = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .err()
+        .expect("corrupt durable terminal defaults must fail startup");
+        assert!(
+            error.to_string().contains("omitted background"),
+            "unexpected startup error: {error:#}"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
