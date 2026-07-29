@@ -321,11 +321,19 @@ extension MobileShellComposite {
               foregroundMacDeviceID == macID else {
             return false
         }
+        guard let authoritativePreviews else {
+            stopTerminalRefreshPolling()
+            if let promotedConnection = connections[macID] {
+                invalidateFocusedConnectionAfterAbortedHandoff(
+                    promotedConnection
+                )
+            }
+            return false
+        }
         // A workspace event that raced the fetch already owns a fresh
         // foreground refetch. Never overwrite its result with this older
         // response.
-        if workspaceListEventGeneration == snapshotEventGeneration,
-           let authoritativePreviews {
+        if workspaceListEventGeneration == snapshotEventGeneration {
             workspacesByMac[macID] = MacWorkspaceState(
                 macDeviceID: macID,
                 displayName: displayName,

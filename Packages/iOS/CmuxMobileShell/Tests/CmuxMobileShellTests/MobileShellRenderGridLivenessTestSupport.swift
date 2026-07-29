@@ -35,6 +35,7 @@ actor LivenessHostRouter {
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
+    private var failedWorkspaceListRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var invalidSubscribeRequestNumbers: Set<Int> = []
@@ -257,6 +258,10 @@ actor LivenessHostRouter {
         heldWorkspaceListRequestNumbers.insert(number)
     }
 
+    func failWorkspaceListRequest(number: Int) {
+        failedWorkspaceListRequestNumbers.insert(number)
+    }
+
     func scriptWorkspaceListTitles(_ titles: [String]) {
         workspaceListTitles.append(contentsOf: titles)
     }
@@ -359,6 +364,13 @@ actor LivenessHostRouter {
                 await park()
             }
             workspaceListResponseHook?()
+            if failedWorkspaceListRequestNumbers.contains(workspaceListRequestCount) {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: "workspace_list_failed",
+                    message: "scripted workspace list failure"
+                )
+            }
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
                     [

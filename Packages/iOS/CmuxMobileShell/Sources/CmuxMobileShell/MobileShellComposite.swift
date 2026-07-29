@@ -2485,21 +2485,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func applyPresenceUpdate(_ update: PresenceUpdate, scope: MobileShellScopeSnapshot) {
         guard let update = compatiblePresenceUpdate(update) else { return }
         presenceMap.apply(update)
+        let pushedRouteSyncTask: Task<Void, Never>?
         switch update {
         case .routes(let instance), .online(let instance):
             // Both events can carry fresh attach routes (online = a host that
             // re-announced after moving networks while the phone was watching).
-            syncPushedRoutes(from: instance, scope: scope)
+            pushedRouteSyncTask = syncPushedRoutes(
+                from: instance,
+                scope: scope
+            )
         case .snapshot(let snapshot):
             // The snapshot is the reconcile-on-(re)subscribe path: a port that
             // changed while the phone was offline lands here. One batch (not
             // one task per instance) so a multi-tag Mac syncs routes in
             // deterministic order and kicks at most one reconnect.
-            syncPushedRoutes(from: snapshot.devices.flatMap { device in
-                device.instances.filter(\.online)
-            }, scope: scope)
+            pushedRouteSyncTask = syncPushedRoutes(
+                from: snapshot.devices.flatMap { device in
+                    device.instances.filter(\.online)
+                },
+                scope: scope
+            )
         case .offline, .seen:
-            break
+            pushedRouteSyncTask = nil
         }
         // Presence is the pool's membership authority. Reconcile on every
         // online/offline/snapshot/routes transition so offline Macs stop
@@ -2509,15 +2516,54 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .seen:
                 break
             case .snapshot:
-                scheduleSecondaryAggregation()
+                scheduleSecondaryAggregationAfterPushedRoutes(
+                    pushedRouteSyncTask,
+                    macDeviceID: nil,
+                    scope: scope
+                )
             case .online(let instance), .routes(let instance):
-                scheduleSecondaryPresenceAggregation(
-                    forMacDeviceID: instance.deviceId
+                scheduleSecondaryAggregationAfterPushedRoutes(
+                    pushedRouteSyncTask,
+                    macDeviceID: instance.deviceId,
+                    scope: scope
                 )
             case .offline(let instance, _):
                 scheduleSecondaryPresenceAggregation(
                     forMacDeviceID: instance.deviceId
                 )
+            }
+        }
+    }
+
+    private func scheduleSecondaryAggregationAfterPushedRoutes(
+        _ pushedRouteSyncTask: Task<Void, Never>?,
+        macDeviceID: String?,
+        scope: MobileShellScopeSnapshot
+    ) {
+        guard let pushedRouteSyncTask else {
+            if let macDeviceID {
+                scheduleSecondaryPresenceAggregation(
+                    forMacDeviceID: macDeviceID
+                )
+            } else {
+                scheduleSecondaryAggregation()
+            }
+            return
+        }
+        Task { @MainActor [weak self] in
+            await pushedRouteSyncTask.value
+            guard let self,
+                  await self.isScopeCurrent(scope),
+                  self.presence != nil,
+                  self.multiMacAggregationEnabled else {
+                return
+            }
+            if let macDeviceID {
+                self.scheduleSecondaryPresenceAggregation(
+                    forMacDeviceID: macDeviceID
+                )
+            } else {
+                self.scheduleSecondaryAggregation()
             }
         }
     }
@@ -6443,19 +6489,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         let resolvesToSameMac = !resolvedForegroundMacID.isEmpty
                             && cmxCanonicalDeviceID(previousFocusedConnection.macDeviceID)
                                 == cmxCanonicalDeviceID(resolvedForegroundMacID)
-                        let retainPreviousAsControl: Bool
-                        if resolvesToSameMac {
-                            retainPreviousAsControl = false
-                        } else {
-                            retainPreviousAsControl =
-                                await canRetainFocusedConnectionInControlPool(
-                                    previousFocusedConnection
-                                )
-                        }
-                        guard isConnectCurrent() else {
-                            await client.disconnect()
-                            return nil
-                        }
                         // Remove the old terminal registration before exposing
                         // the new focused client. A different or anonymous
                         // target can retain the old client as control-only; a
@@ -6465,6 +6498,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         let terminalStopped = await prepareFocusedConnectionForHandoff(
                             previousFocusedConnection
                         )
+                        guard isConnectCurrent() else {
+                            await client.disconnect()
+                            invalidateFocusedConnectionAfterAbortedHandoff(
+                                previousFocusedConnection
+                            )
+                            return nil
+                        }
+                        let retainPreviousAsControl =
+                            terminalStopped && !resolvesToSameMac
+                                ? await canRetainFocusedConnectionInControlPool(
+                                    previousFocusedConnection
+                                )
+                                : false
                         guard isConnectCurrent() else {
                             await client.disconnect()
                             invalidateFocusedConnectionAfterAbortedHandoff(

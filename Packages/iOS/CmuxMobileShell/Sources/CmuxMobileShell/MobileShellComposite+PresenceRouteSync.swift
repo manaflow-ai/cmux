@@ -76,15 +76,23 @@ struct MobilePresenceReconnectEvidence: Equatable, Sendable {
 @MainActor
 extension MobileShellComposite {
     /// Writes one presence instance through its paired Mac's route authority.
-    func syncPushedRoutes(from instance: PresenceInstance, scope: MobileShellScopeSnapshot) {
+    @discardableResult
+    func syncPushedRoutes(
+        from instance: PresenceInstance,
+        scope: MobileShellScopeSnapshot
+    ) -> Task<Void, Never>? {
         syncPushedRoutes(from: [instance], scope: scope)
     }
 
     /// Serializes every host instance in one delivery so registry state and
     /// recovery signals stay current even when route persistence has no authority.
-    func syncPushedRoutes(from instances: [PresenceInstance], scope: MobileShellScopeSnapshot) {
+    @discardableResult
+    func syncPushedRoutes(
+        from instances: [PresenceInstance],
+        scope: MobileShellScopeSnapshot
+    ) -> Task<Void, Never>? {
         let hostInstances = instances.filter { $0.platform.lowercased() != "ios" }
-        guard !hostInstances.isEmpty else { return }
+        guard !hostInstances.isEmpty else { return nil }
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self] in
@@ -153,6 +161,7 @@ extension MobileShellComposite {
             }
         }
         pushedRouteSyncTask = task
+        return task
     }
 
     /// Updates live registry routes, then persists only a nonempty authority payload.

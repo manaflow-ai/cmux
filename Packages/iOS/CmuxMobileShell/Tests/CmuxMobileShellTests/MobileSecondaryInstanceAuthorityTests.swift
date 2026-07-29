@@ -144,7 +144,10 @@ import Testing
         #expect(foregroundStillWarm != nil)
     }
 
-    @Test func promotionFailsClosedWhenTerminalSubscriptionIsRejected() async throws {
+    @Test(arguments: [true, false])
+    func promotionFailsClosedWhenRequiredFocusRepairFails(
+        rejectsTerminalSubscription: Bool
+    ) async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
@@ -171,7 +174,11 @@ import Testing
             now: Date()
         )
         let router = LivenessHostRouter()
-        await router.invalidateSubscribeRequest(number: 1)
+        if rejectsTerminalSubscription {
+            await router.invalidateSubscribeRequest(number: 1)
+        } else {
+            await router.failWorkspaceListRequest(number: 2)
+        }
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(
                 router: router,
