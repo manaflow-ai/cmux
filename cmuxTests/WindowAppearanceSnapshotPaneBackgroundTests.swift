@@ -2,7 +2,6 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
-import CoreImage
 import SwiftUI
 import Testing
 
@@ -86,7 +85,7 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
 
     private func sharedBackdropCutout(in host: NSView) -> NSView? {
         host.subviews.first {
-            ($0.compositingFilter as? CIFilter)?.name == "terminalSharedBackdropCutout"
+            $0.compositingFilter?.name == "terminalSharedBackdropCutout"
         }
     }
 
