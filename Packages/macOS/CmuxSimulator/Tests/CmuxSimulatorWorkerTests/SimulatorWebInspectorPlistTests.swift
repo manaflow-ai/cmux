@@ -34,7 +34,6 @@ struct SimulatorWebInspectorPlistTests {
 
     @Test("Socket buffering has an explicit aggregate byte ceiling")
     func socketQueueCap() {
-        #expect(SimulatorWebInspectorSocket.maximumBufferedBodyCount == 1)
         #expect(
             SimulatorWebInspectorSocket.maximumBufferedBodyBytes
                 == frameCodec.maximumBodyLength
