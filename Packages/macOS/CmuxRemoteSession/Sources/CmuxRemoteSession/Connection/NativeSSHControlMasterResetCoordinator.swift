@@ -19,7 +19,7 @@ enum NativeSSHControlMasterResetOutcome: Sendable, Equatable {
 final class NativeSSHControlMasterResetCoordinator {
     private struct InFlightReset {
         let id: UUID
-        let authorizationKey: NativeSSHControlMasterResetKey
+        var authorizationKeys: Set<NativeSSHControlMasterResetKey>
         let task: Task<NativeSSHControlMasterResetOutcome, Never>
     }
 
@@ -71,10 +71,12 @@ final class NativeSSHControlMasterResetCoordinator {
         } else {
             leases[ownerWorkspaceID] = ownerLeases
         }
-        let remainsOwned = leases.values.contains { $0[key] != nil }
-        if !remainsOwned {
-            for reset in inFlightResets.values
-                where reset.authorizationKey == key {
+        for reset in inFlightResets.values {
+            let remainsOwned = reset.authorizationKeys.contains {
+                authorizationKey in
+                leases.values.contains { $0[authorizationKey] != nil }
+            }
+            if !remainsOwned {
                 reset.task.cancel()
             }
         }
@@ -137,7 +139,9 @@ final class NativeSSHControlMasterResetCoordinator {
         ) else {
             return .ignored("workspace no longer owns this cmux SSH master")
         }
-        if let inFlight = inFlightResets[resolvedControlPath] {
+        if var inFlight = inFlightResets[resolvedControlPath] {
+            inFlight.authorizationKeys.insert(key)
+            inFlightResets[resolvedControlPath] = inFlight
             return await inFlight.task.value
         }
 
@@ -176,7 +180,7 @@ final class NativeSSHControlMasterResetCoordinator {
         }
         inFlightResets[resolvedControlPath] = InFlightReset(
             id: resetID,
-            authorizationKey: key,
+            authorizationKeys: [key],
             task: task
         )
         let outcome = await task.value
@@ -256,15 +260,21 @@ final class NativeSSHControlMasterResetCoordinator {
                 request: request,
                 processRunner: processRunner
             )
-            guard !Task.isCancelled else {
-                return .deferred("control-master reset cancelled")
-            }
             switch attempt {
             case .reset:
+                // The exit command already succeeded. Always publish
+                // invalidation even if the initiating lease disappeared while
+                // the process was completing.
                 return .reset
             case .ignored(let detail):
+                guard !Task.isCancelled else {
+                    return .deferred("control-master reset cancelled")
+                }
                 return .ignored(detail)
             case .retry(let detail):
+                guard !Task.isCancelled else {
+                    return .deferred("control-master reset cancelled")
+                }
                 guard attemptIndex + 1 < maximumAttempts else {
                     return .deferred(detail)
                 }

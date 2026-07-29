@@ -233,6 +233,78 @@ struct NativeSSHControlMasterResetTests {
         #expect(runner.exitCount == 1)
     }
 
+    @Test("A coalesced alias keeps its resolved-socket reset alive")
+    func coalescedAliasKeepsResetAlive() async throws {
+        let runner = BlockingResolvingResetRunner(
+            resolvedPath: firstResolvedPath
+        )
+        let recorder = ResetEventRecorder()
+        let broker = makeBroker(processRunner: runner)
+        let first = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            destination: "first-alias",
+            options: unresolvedOptions
+        ))
+        let second = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            destination: "second-alias",
+            options: unresolvedOptions
+        ))
+        let observation = try #require(
+            broker.observeControlMasterResets(controlPath: firstResolvedPath) {
+                recorder.record()
+            }
+        )
+
+        let firstReset = Task { @MainActor in
+            await broker.resetConflictedControlMaster(for: first)
+        }
+        var resolutions = runner.resolutions.makeAsyncIterator()
+        #expect(await resolutions.next() != nil)
+        var exits = runner.exits.makeAsyncIterator()
+        #expect(await exits.next() != nil)
+        let secondReset = Task { @MainActor in
+            await broker.resetConflictedControlMaster(for: second)
+        }
+        #expect(await resolutions.next() != nil)
+        await Task.yield()
+        broker.releaseWorkspace(first)
+        runner.finishExit()
+
+        #expect(await firstReset.value == .reset)
+        #expect(await secondReset.value == .reset)
+        #expect(recorder.count == 1)
+        _ = observation
+    }
+
+    @Test("A successful exit still invalidates after its lease is released")
+    func successfulExitAfterReleaseStillInvalidates() async throws {
+        let runner = BlockingControlMasterResetRunner()
+        let recorder = ResetEventRecorder()
+        let broker = makeBroker(processRunner: runner)
+        let lease = broker.retainWorkspace(configuration(
+            owner: UUID(),
+            options: resolvedOptions
+        ))
+        let observation = try #require(
+            broker.observeControlMasterResets(controlPath: firstResolvedPath) {
+                recorder.record()
+            }
+        )
+
+        let reset = Task { @MainActor in
+            await broker.resetConflictedControlMaster(for: lease)
+        }
+        var starts = runner.starts.makeAsyncIterator()
+        #expect(await starts.next() != nil)
+        broker.releaseWorkspace(lease)
+        runner.finish()
+
+        #expect(await reset.value == .reset)
+        #expect(recorder.count == 1)
+        _ = observation
+    }
+
     @Test("ControlPath resolution failure never exits a master")
     func resolutionFailureFailsClosed() async {
         let runner = RecordingProcessRunner { request in
