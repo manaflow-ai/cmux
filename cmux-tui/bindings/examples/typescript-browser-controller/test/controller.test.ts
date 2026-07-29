@@ -3,8 +3,12 @@ import test from "node:test";
 import {
   Client,
   CmuxConnectionError,
+  MAX_STREAM_MESSAGES,
   browserId,
+  paneId,
+  screenId,
   tabId,
+  workspaceId,
   type BrowserSnapshot,
   type Transport,
   type Unsubscribe,
@@ -18,7 +22,10 @@ import {
 
 const BROWSER_ID = "browser_" + "1".repeat(32);
 const TAB_ID = "tab_" + "2".repeat(32);
-const STREAM_ID = "stream_" + "3".repeat(32);
+const STREAM_ID = "stream_" + "a".repeat(32);
+const WORKSPACE_ID = "ws_" + "4".repeat(32);
+const SCREEN_ID = "screen_" + "5".repeat(32);
+const PANE_ID = "pane_" + "6".repeat(32);
 const GENERATION = "fake-generation";
 
 class FakeTransport implements Transport {
@@ -85,7 +92,7 @@ class FakeTransport implements Transport {
 
   end(
     streamId: string,
-    reason: "completed" | "gap",
+    reason: "completed" | "canceled" | "gap",
     recovery?: string,
   ): void {
     this.emit({
@@ -111,6 +118,10 @@ class BrowserServer {
   readonly requests: Array<Record<string, unknown>> = [];
   attachAttempts = 0;
 
+  constructor(
+    private readonly attachmentMode: "normal" | "hold" | "overflow" = "normal",
+  ) {}
+
   client(): Client {
     return new Client({
       transport: new FakeTransport((transport, request) => {
@@ -132,13 +143,34 @@ class BrowserServer {
       case "browser.list":
         transport.respond(
           request,
-          this.attachAttempts < 2 ? [browserSnapshot()] : [],
+          this.attachmentMode !== "overflow" && this.attachAttempts < 2
+            ? [browserSnapshot()]
+            : [],
         );
         return;
       case "browser.attach": {
         this.attachAttempts += 1;
         const streamId = String(params.stream_id);
         transport.respond(request, { stream_id: streamId });
+        if (this.attachmentMode === "hold") {
+          transport.stream(streamId, "1", {
+            kind: "snapshot",
+            browser: browserSnapshot(),
+            size: { width_px: 1200, height_px: 800 },
+          });
+          return;
+        }
+        if (this.attachmentMode === "overflow") {
+          for (let index = 0; index <= MAX_STREAM_MESSAGES; index += 1) {
+            transport.stream(streamId, String(index + 1), {
+              kind: "state",
+              url: `https://cmux.dev/${index}`,
+              title: "overflow",
+              loading: false,
+            });
+          }
+          return;
+        }
         if (this.attachAttempts === 1) {
           transport.stream(streamId, "1", {
             kind: "snapshot",
@@ -181,9 +213,14 @@ class BrowserServer {
       case "browser.input.wheel":
         transport.respond(request, mutation({}));
         return;
-      case "stream.cancel":
-        transport.respond(request, {});
+      case "tab.create_browser":
+        transport.respond(request, mutation(browserCreatedPath()));
         return;
+      case "stream.cancel": {
+        transport.respond(request, {});
+        transport.end(String(params.stream), "canceled");
+        return;
+      }
       default:
         throw new Error(`unexpected operation ${operation}`);
     }
@@ -269,6 +306,105 @@ test("drives every browser control through public resource handles", async () =>
   await controller.close();
 });
 
+test("creates a browser tab with explicit correlation and idempotency", async () => {
+  const server = new BrowserServer();
+  const controller = new BrowserController({
+    createClient: () => server.client(),
+  });
+  const creation = await controller.createBrowserTab({
+    location: {
+      workspaceId: workspaceId(WORKSPACE_ID),
+      screenId: screenId(SCREEN_ID),
+      paneId: paneId(PANE_ID),
+    },
+    url: "https://example.com",
+    name: "docs",
+    widthPx: 1200,
+    heightPx: 800,
+    correlationKey: "browser-docs",
+    idempotencyKey: "browser-docs-attempt-1",
+  });
+
+  assert.equal(creation.recovered, false);
+  assert.equal(creation.replayed, false);
+  assert.equal(creation.browser.id, BROWSER_ID);
+  assert.equal(creation.path.tab?.id, TAB_ID);
+  const request = server.requests[0];
+  assert.equal(request?.operation, "tab.create_browser");
+  assert.equal(request?.idempotency_key, "browser-docs-attempt-1");
+  const params = request?.params as Record<string, unknown>;
+  assert.equal(params.correlation_key, "browser-docs");
+  assert.equal(params.workspace, WORKSPACE_ID);
+  assert.equal(params.screen, SCREEN_ID);
+  assert.equal(params.pane, PANE_ID);
+  await controller.close();
+});
+
+test("resolves a correlated browser path after losing the create response", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  let clients = 0;
+  const controller = new BrowserController({
+    createClient: () => {
+      clients += 1;
+      const ordinal = clients;
+      return new Client({
+        timeoutMs: 100,
+        randomHex128: () => `${ordinal}`.repeat(32),
+        transport: new FakeTransport((transport, request) => {
+          requests.push(request);
+          if (ordinal === 1 && request.operation === "tab.create_browser") {
+            transport.fail(new CmuxConnectionError("create response lost"));
+            return;
+          }
+          if (
+            ordinal === 2
+            && request.operation === "session.creation.resolve"
+          ) {
+            transport.respond(request, {
+              correlation_key: "recovered-browser",
+              state: "created",
+              recovery: "none",
+              operation: "tab.create_browser",
+              idempotency_key: "recovered-browser-attempt-1",
+              created_path: browserCreatedPath(),
+              generation: GENERATION,
+              revision: "9",
+            });
+            return;
+          }
+          throw new Error(`unexpected operation ${String(request.operation)}`);
+        }),
+      });
+    },
+  });
+
+  const creation = await controller.createBrowserTab({
+    location: {
+      workspaceId: workspaceId(WORKSPACE_ID),
+      screenId: screenId(SCREEN_ID),
+      paneId: paneId(PANE_ID),
+    },
+    url: "https://cmux.dev",
+    correlationKey: "recovered-browser",
+    idempotencyKey: "recovered-browser-attempt-1",
+  });
+
+  assert.equal(clients, 2);
+  assert.equal(creation.recovered, true);
+  assert.equal(creation.replayed, undefined);
+  assert.equal(creation.browser.id, BROWSER_ID);
+  assert.deepEqual(
+    requests.map((request) => request.operation),
+    ["tab.create_browser", "session.creation.resolve"],
+  );
+  assert.equal(requests[0]?.idempotency_key, "recovered-browser-attempt-1");
+  assert.equal(
+    (requests[1]?.params as Record<string, unknown>).correlation_key,
+    "recovered-browser",
+  );
+  await controller.close();
+});
+
 test("resyncs after a gap and stops when the browser disappears", async () => {
   const server = new BrowserServer();
   const frames: BrowserFrameSnapshot[] = [];
@@ -338,6 +474,62 @@ test("replaces a failed command client with a fresh resource client", async () =
   await controller.close();
 });
 
+test("AbortSignal cancels a live browser attachment", async () => {
+  const server = new BrowserServer("hold");
+  const controller = new BrowserController({
+    createClient: () => server.client(),
+    recoveryDelayMs: 0,
+  });
+  const abort = new AbortController();
+
+  await controller.followBrowser(browserId(BROWSER_ID), {
+    onSnapshot: () => abort.abort(),
+  }, { signal: abort.signal });
+
+  assert.deepEqual(
+    server.requests.map((request) => request.operation),
+    ["browser.attach", "stream.cancel"],
+  );
+  assert.equal(
+    (server.requests[1]?.params as Record<string, unknown>).stream,
+    STREAM_ID,
+  );
+  await controller.close();
+});
+
+test("bounded SDK stream purges overflow and resyncs from a snapshot", async () => {
+  const server = new BrowserServer("overflow");
+  const recoveries: BrowserRecovery[] = [];
+  let delivered = 0;
+  const controller = new BrowserController({
+    createClient: () => server.client(),
+    recoveryDelayMs: 0,
+  });
+
+  await controller.followBrowser(browserId(BROWSER_ID), {
+    onEvent: () => {
+      delivered += 1;
+    },
+    onRecovery: (recovery) => {
+      recoveries.push(recovery);
+    },
+  }, { maxRecoveries: 1 });
+
+  assert.equal(delivered, 0);
+  assert.deepEqual(
+    recoveries.map(({ reason, browserPresent }) => ({
+      reason,
+      browserPresent,
+    })),
+    [{ reason: "gap", browserPresent: false }],
+  );
+  assert.deepEqual(
+    server.requests.map((request) => request.operation),
+    ["browser.attach", "stream.cancel", "browser.list"],
+  );
+  await controller.close();
+});
+
 function browserSnapshot(): Record<string, unknown> {
   return {
     id: BROWSER_ID,
@@ -350,6 +542,17 @@ function browserSnapshot(): Record<string, unknown> {
     error: null,
     frames_stalled: false,
     size: { cols: 120, rows: 40 },
+  };
+}
+
+function browserCreatedPath(): Record<string, unknown> {
+  return {
+    kind: "browser",
+    workspace_id: WORKSPACE_ID,
+    screen_id: SCREEN_ID,
+    pane_id: PANE_ID,
+    tab_id: TAB_ID,
+    browser_id: BROWSER_ID,
   };
 }
 

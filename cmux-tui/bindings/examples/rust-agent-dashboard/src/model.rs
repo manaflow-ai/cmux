@@ -1,4 +1,7 @@
-use cmux::{AgentId, AgentState, SessionSnapshot, WorkspaceSnapshot};
+use cmux::{
+    AgentId, AgentSnapshot, AgentSnapshotSource, AgentState, SessionSnapshot, TerminalId,
+    WorkspaceSnapshot,
+};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
@@ -6,7 +9,7 @@ use std::fmt::Write as _;
 pub struct ServerSummary {
     pub id: cmux::SessionId,
     pub name: Option<String>,
-    pub revision: Option<u64>,
+    pub revision: u64,
 }
 
 impl From<SessionSnapshot> for ServerSummary {
@@ -23,15 +26,27 @@ pub struct WorkspaceSummary {
 
 impl From<WorkspaceSnapshot> for WorkspaceSummary {
     fn from(snapshot: WorkspaceSnapshot) -> Self {
-        let name = snapshot.name.clone().unwrap_or_else(|| snapshot.id.to_string());
-        Self { id: snapshot.id, name }
+        Self { id: snapshot.id, name: snapshot.name }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSummary {
     pub id: AgentId,
+    pub terminal_id: TerminalId,
     pub state: AgentState,
+    pub source: AgentSnapshotSource,
+}
+
+impl From<AgentSnapshot> for AgentSummary {
+    fn from(snapshot: AgentSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            terminal_id: snapshot.terminal_id,
+            state: snapshot.state,
+            source: snapshot.source,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +78,13 @@ impl DashboardModel {
             agents: BTreeMap::new(),
             status: "connected".to_string(),
         }
+    }
+
+    pub fn replace_server(&mut self, snapshot: SessionSnapshot) -> bool {
+        let next = ServerSummary::from(snapshot);
+        let changed = self.server != next;
+        self.server = next;
+        changed
     }
 
     pub fn replace_workspaces(&mut self, snapshots: Vec<WorkspaceSnapshot>) -> bool {
@@ -101,14 +123,12 @@ impl DashboardModel {
         let done = self.agents.values().filter(|agent| agent.state == AgentState::Done).count();
         let mut output = String::new();
         let session_name = self.server.name.as_deref().unwrap_or("<unnamed>");
-        let revision =
-            self.server.revision.map_or_else(|| "-".to_string(), |value| value.to_string());
         let _ = writeln!(
             output,
             "cmux agents | session {} ({}) | revision {}",
             flatten(session_name),
             self.server.id,
-            revision
+            self.server.revision
         );
         let _ = writeln!(
             output,
@@ -135,10 +155,11 @@ impl DashboardModel {
         for agent in agents {
             let _ = writeln!(
                 output,
-                "{} {:<7} {}",
+                "{} {:<7} {} [{}]",
                 state_marker(agent.state),
                 state_name(agent.state),
-                agent.id
+                agent.id,
+                agent.terminal_id
             );
         }
         let _ = writeln!(output, "status: {}", flatten(&self.status));

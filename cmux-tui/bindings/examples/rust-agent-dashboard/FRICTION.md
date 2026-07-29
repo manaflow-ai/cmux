@@ -1,20 +1,29 @@
 # Rust SDK consumer friction
 
-1. Rust resource snapshots currently expose only typed IDs, ancestry, name,
-   revision, and a forward-compatible `extra` map. The dashboard deliberately
-   avoids that map, so it learns agent state by issuing one typed `agent.list`
-   filter per `AgentState`.
-2. `Agent` lacks the `id()` convenience method implemented by most other
-   resource handles. The consumer matches its public `Selector` to recover the
-   ID returned by `agent.list`.
-3. Filtered agents do not expose a typed terminal ID. Blocked notifications
-   therefore target the session rather than the agent terminal.
-4. Reconnect remains application-owned. A failed request recreates `Client`,
-   reselects the current session, and refreshes all dashboard resources.
-5. `session.events()` provides typed event categories, but resource upsert
-   values remain `Document`. This consumer polls typed list/filter operations
-   instead of decoding generic delta documents.
+## Findings fixed during the simulation
 
-The consumer imports only the `cmux` crate root. It uses no `cmux::raw`,
-protocol command names, private modules, generic request method, or
-`Document::deserialize`.
+1. `ResourceSnapshot` now carries exact `AgentSnapshot` values with agent,
+   terminal, state, source, and timestamp fields. One `session.snapshot` call
+   replaces five filtered agent queries and one query per workspace.
+2. Blocked notifications now target the agent's typed terminal ID.
+3. Resource event upserts are typed `ResourceEntitySnapshot` variants, so
+   consumers can apply known deltas without decoding protocol-shaped values.
+4. All creation option types accept a validated correlation key.
+   `session.creation().resolve` recovers the exact created path after an
+   uncertain transport result.
+5. `terminal.wait_exit` and `TerminalSnapshot` expose strict pending, running,
+   exited, exit-code, signal, and unknown-outcome variants. The example checks
+   the recovered terminal's durable exit without parsing terminal text.
+
+## Remaining SDK friction
+
+None found by this simulation.
+
+## Application concerns
+
+Reconnect timing, command correlation keys, idempotency keys, and how long to
+wait for a terminal are application policy. The dashboard keeps those choices
+explicit.
+
+The consumer imports only the `cmux` crate root and uses no low-level protocol
+client or private module.

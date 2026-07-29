@@ -1,7 +1,9 @@
 import {
   Client,
   CmuxConnectionError,
+  CmuxProtocolError,
   CmuxTimeoutError,
+  MutationTransportUncertainError,
   StreamError,
   selectCurrent,
   type Browser,
@@ -12,9 +14,14 @@ import {
   type BrowserId,
   type BrowserMouseOptions,
   type BrowserSnapshot,
+  type CreatedPath,
+  type CreationResolution,
   type DecimalString,
+  type PaneId,
+  type ScreenId,
   type SelectorInput,
   type SessionId,
+  type WorkspaceId,
 } from "cmux/browser";
 
 export type BrowserTab = BrowserSnapshot;
@@ -22,7 +29,7 @@ export type BrowserTab = BrowserSnapshot;
 export interface BrowserKeyInput {
   readonly key: string;
   readonly kind?: "down" | "up" | "press";
-  readonly modifiers?: readonly string[];
+  readonly modifiers?: readonly ("shift" | "control" | "alt" | "meta")[];
 }
 
 export interface BrowserWheelInput {
@@ -78,6 +85,41 @@ export interface BrowserControllerOptions {
   readonly sleep?: (milliseconds: number) => Promise<void>;
 }
 
+export interface BrowserLocation {
+  readonly workspaceId: WorkspaceId;
+  readonly screenId: ScreenId;
+  readonly paneId: PaneId;
+}
+
+export interface CreateBrowserTabInput {
+  readonly location: BrowserLocation;
+  readonly url: string;
+  readonly name?: string;
+  readonly widthPx?: number;
+  readonly heightPx?: number;
+  readonly correlationKey: string;
+  readonly idempotencyKey: string;
+}
+
+export interface BrowserCreation {
+  readonly path: CreatedPath;
+  readonly browser: Browser;
+  readonly generation: string;
+  readonly revision: DecimalString;
+  /** Undefined when recovered from creation.resolve, which has no replay flag. */
+  readonly replayed: boolean | undefined;
+  readonly recovered: boolean;
+}
+
+export class BrowserCreationRecoveryError extends Error {
+  constructor(readonly resolution: CreationResolution) {
+    super(
+      `browser creation is ${resolution.state}; recovery is ${resolution.recovery}`,
+    );
+    this.name = "BrowserCreationRecoveryError";
+  }
+}
+
 /** Browser automation composed only from public cmux resource handles. */
 export class BrowserController {
   private readonly createClient: () => Client;
@@ -126,6 +168,72 @@ export class BrowserController {
 
   async findBrowserTab(browserId: BrowserId): Promise<BrowserTab | undefined> {
     return (await this.listBrowserTabs()).find((tab) => tab.id === browserId);
+  }
+
+  /**
+   * Creates one browser tab and resolves its exact path after an uncertain
+   * transport result. Callers own both stable keys.
+   */
+  async createBrowserTab(
+    input: CreateBrowserTabInput,
+  ): Promise<BrowserCreation> {
+    try {
+      const result = await this.withClient((client) => {
+        const session = client.session(this.sessionSelector);
+        const pane = session
+          .workspace(input.location.workspaceId)
+          .screen(input.location.screenId)
+          .pane(input.location.paneId);
+        return pane.createBrowserTab({
+          url: input.url,
+          ...(input.name === undefined ? {} : { name: input.name }),
+          ...(input.widthPx === undefined ? {} : { widthPx: input.widthPx }),
+          ...(input.heightPx === undefined ? {} : { heightPx: input.heightPx }),
+        }, {
+          correlationKey: input.correlationKey,
+          idempotencyKey: input.idempotencyKey,
+        });
+      });
+      return browserCreation(
+        result.value,
+        result.generation,
+        result.revision,
+        result.replayed,
+        false,
+      );
+    } catch (error) {
+      if (!(error instanceof MutationTransportUncertainError)) throw error;
+      if (
+        error.operation !== "tab.create_browser"
+        || error.idempotencyKey !== input.idempotencyKey
+      ) {
+        throw error;
+      }
+      const resolution = await this.withClient((client) => (
+        client
+          .session(this.sessionSelector)
+          .creation
+          .resolve(input.correlationKey)
+      ));
+      if (resolution.state !== "created") {
+        throw new BrowserCreationRecoveryError(resolution);
+      }
+      if (
+        resolution.operation !== undefined
+        && resolution.operation !== "tab.create_browser"
+      ) {
+        throw new CmuxProtocolError(
+          `browser correlation resolved to ${resolution.operation}`,
+        );
+      }
+      return browserCreation(
+        resolution.createdPath,
+        resolution.generation,
+        resolution.revision,
+        undefined,
+        true,
+      );
+    }
   }
 
   async navigate(browserId: BrowserId, url: string): Promise<void> {
@@ -296,6 +404,28 @@ export class BrowserController {
     if (this.client === client) this.client = undefined;
     client.close();
   }
+}
+
+function browserCreation(
+  path: CreatedPath,
+  generation: string,
+  revision: DecimalString,
+  replayed: boolean | undefined,
+  recovered: boolean,
+): BrowserCreation {
+  if (path.kind !== "browser" || path.browser === undefined) {
+    throw new CmuxProtocolError(
+      `tab.create_browser returned a ${path.kind} created path`,
+    );
+  }
+  return Object.freeze({
+    path,
+    browser: path.browser,
+    generation,
+    revision,
+    replayed,
+    recovered,
+  });
 }
 
 export function browserTabsFromSnapshots(

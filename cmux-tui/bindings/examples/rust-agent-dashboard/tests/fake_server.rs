@@ -1,5 +1,7 @@
-use cmux::Config;
-use cmux_rust_agent_dashboard::{NotificationTracker, RunOptions, run_connection};
+use cmux::{Config, RunCommand, TerminalExitOutcome, TerminalLifecycle, TerminalWaitExitResult};
+use cmux_rust_agent_dashboard::{
+    CommandCheckOptions, NotificationTracker, RunOptions, run_command_check, run_connection,
+};
 use serde_json::{Value, json};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -14,6 +16,11 @@ const SESSION_ID: &str = "session_11111111111111111111111111111111";
 const WORKSPACE_ID: &str = "ws_22222222222222222222222222222222";
 const AGENT_ID: &str = "agent_33333333333333333333333333333333";
 const NOTIFICATION_ID: &str = "notification_44444444444444444444444444444444";
+const MACHINE_ID: &str = "machine_55555555555555555555555555555555";
+const TERMINAL_ID: &str = "term_66666666666666666666666666666666";
+const SCREEN_ID: &str = "screen_77777777777777777777777777777777";
+const PANE_ID: &str = "pane_88888888888888888888888888888888";
+const TAB_ID: &str = "tab_99999999999999999999999999999999";
 
 #[test]
 fn public_resource_handles_drive_snapshots_filters_and_notification() {
@@ -52,15 +59,14 @@ fn public_resource_handles_drive_snapshots_filters_and_notification() {
     assert!(output.contains(&format!("build [{WORKSPACE_ID}]")));
     let requests = requests.lock().expect("requests");
     assert!(requests.iter().any(|request| operation(request) == "session.get"));
-    assert!(requests.iter().any(|request| operation(request) == "workspace.list"));
-    assert!(requests.iter().any(|request| operation(request) == "workspace.get"));
-    assert_eq!(requests.iter().filter(|request| operation(request) == "agent.list").count(), 5);
+    assert!(requests.iter().any(|request| operation(request) == "session.snapshot"));
+    assert!(!requests.iter().any(|request| operation(request) == "agent.list"));
     let notification = requests
         .iter()
         .find(|request| operation(request) == "notification.create")
         .expect("notification request");
     assert_eq!(notification["params"]["level"], "warning");
-    assert_eq!(notification["params"].get("terminal_id"), None);
+    assert_eq!(notification["params"]["terminal_id"], TERMINAL_ID);
     assert!(requests.iter().all(|request| request.get("cmd").is_none()));
 }
 
@@ -106,6 +112,110 @@ fn reconnects_after_resource_transport_loss() {
     assert!(shutdown.load(Ordering::Acquire));
 }
 
+#[test]
+fn recovers_correlated_command_creation_and_decodes_durable_exit() {
+    let socket = temp_socket();
+    let listener = UnixListener::bind(&socket).expect("bind fake server");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let server_requests = Arc::clone(&requests);
+    let server = thread::spawn(move || {
+        let (first, _) = listener.accept().expect("accept uncertain mutation connection");
+        let mut first_reader = BufReader::new(first);
+        let mut line = String::new();
+        first_reader.read_line(&mut line).expect("read workspace.run");
+        let request: Value = serde_json::from_str(line.trim()).expect("workspace.run JSON");
+        server_requests.lock().expect("request log").push(request);
+        drop(first_reader);
+
+        let (second, _) = listener.accept().expect("accept recovery connection");
+        let mut reader = BufReader::new(second.try_clone().expect("clone recovery connection"));
+        let mut writer = second;
+        for _ in 0..3 {
+            line.clear();
+            reader.read_line(&mut line).expect("read recovery request");
+            let request: Value = serde_json::from_str(line.trim()).expect("recovery JSON");
+            server_requests.lock().expect("request log").push(request.clone());
+            let result = match operation(&request) {
+                "session.creation.resolve" => json!({
+                    "correlation_key": "dashboard-check",
+                    "state": "created",
+                    "recovery": "none",
+                    "operation": "workspace.run",
+                    "idempotency_key": "dashboard-check-attempt-1",
+                    "created_path": terminal_created_path(),
+                    "generation": "fake-generation",
+                    "revision": "11"
+                }),
+                "terminal.wait_exit" => json!({
+                    "state": "exited",
+                    "terminal_id": TERMINAL_ID,
+                    "lifecycle": "exited",
+                    "outcome": {"kind": "exit", "code": 17},
+                    "exited_at": "1700000000123",
+                    "revision": "12"
+                }),
+                "terminal.get" => exited_terminal_snapshot(),
+                other => panic!("unexpected recovery operation {other}"),
+            };
+            writeln!(
+                writer,
+                "{}",
+                json!({
+                    "protocol": "cmux.protocol/1",
+                    "type": "response",
+                    "id": request["id"],
+                    "ok": true,
+                    "result": result
+                })
+            )
+            .expect("write recovery response");
+        }
+    });
+
+    let client = cmux::Client::connect(
+        Config::from_socket_path(&socket).with_timeout(Duration::from_secs(1)),
+    )
+    .expect("connect");
+    let session = client.current_session();
+    let result = run_command_check(
+        &session,
+        &session.current_workspace(),
+        CommandCheckOptions {
+            command: RunCommand::argv(["sh", "-c", "exit 17"]).expect("command"),
+            correlation_key: "dashboard-check".to_string(),
+            idempotency_key: "dashboard-check-attempt-1".to_string(),
+            exit_timeout_ms: Some(1_000),
+        },
+    )
+    .expect("recover command check");
+
+    assert!(result.recovered_creation);
+    assert_eq!(result.terminal_id.as_str(), TERMINAL_ID);
+    let TerminalWaitExitResult::Exited(exit) = result.wait else {
+        panic!("expected exited wait result");
+    };
+    assert_eq!(exit.outcome, TerminalExitOutcome::Exit { code: 17 });
+    assert_eq!(result.snapshot.lifecycle, TerminalLifecycle::Exited);
+    assert!(!result.snapshot.running);
+    assert_eq!(
+        result.snapshot.exit.as_ref().map(|exit| &exit.outcome),
+        Some(&TerminalExitOutcome::Exit { code: 17 })
+    );
+    client.close().expect("close client");
+    server.join().expect("fake recovery server");
+    let _ = fs::remove_file(&socket);
+
+    let requests = requests.lock().expect("requests");
+    assert_eq!(
+        requests.iter().map(operation).collect::<Vec<_>>(),
+        ["workspace.run", "session.creation.resolve", "terminal.wait_exit", "terminal.get"]
+    );
+    assert_eq!(requests[0]["idempotency_key"], "dashboard-check-attempt-1");
+    assert_eq!(requests[0]["params"]["correlation_key"], "dashboard-check");
+    assert_eq!(requests[1]["params"]["correlation_key"], "dashboard-check");
+    assert_eq!(requests[2]["params"]["timeout_ms"], "1000");
+}
+
 fn serve(
     stream: UnixStream,
     requests: Arc<Mutex<Vec<Value>>>,
@@ -115,7 +225,7 @@ fn serve(
     let mut reader = BufReader::new(reader);
     let mut writer = stream;
     let mut line = String::new();
-    let mut agent_queries = 0;
+    let mut snapshots = 0;
     while reader.read_line(&mut line).expect("read request") != 0 {
         let request: Value = serde_json::from_str(line.trim()).expect("request JSON");
         requests.lock().expect("request log").push(request.clone());
@@ -124,32 +234,15 @@ fn serve(
         let result = match operation {
             "session.get" => json!({
                 "id": SESSION_ID,
+                "machine_id": MACHINE_ID,
                 "name": "fake",
-                "revision": "7"
+                "generation": "fake-generation",
+                "revision": "7",
+                "connected": true
             }),
-            "workspace.list" => json!([{
-                "id": WORKSPACE_ID,
-                "name": "build",
-                "session_id": SESSION_ID,
-                "revision": "7"
-            }]),
-            "workspace.get" => json!({
-                "id": WORKSPACE_ID,
-                "name": "build",
-                "session_id": SESSION_ID,
-                "revision": "7"
-            }),
-            "agent.list" => {
-                agent_queries += 1;
-                if request["params"]["state"] == "blocked" {
-                    json!([{
-                        "id": AGENT_ID,
-                        "session_id": SESSION_ID,
-                        "revision": "7"
-                    }])
-                } else {
-                    json!([])
-                }
+            "session.snapshot" => {
+                snapshots += 1;
+                resource_snapshot()
             }
             "notification.create" => json!({
                 "value": {
@@ -158,6 +251,7 @@ fn serve(
                     "title": "Agent needs input",
                     "body": format!("Agent {AGENT_ID} is blocked."),
                     "level": "warning",
+                    "terminal_id": TERMINAL_ID,
                     "created_at_ms": "100",
                     "unread": true
                 },
@@ -176,12 +270,92 @@ fn serve(
         });
         writeln!(writer, "{response}").expect("write response");
         line.clear();
-        if agent_queries == 5
+        if snapshots == 1
             && let Some(shutdown) = &shutdown_after_refresh
         {
             shutdown.store(true, Ordering::Release);
         }
     }
+}
+
+fn terminal_created_path() -> Value {
+    json!({
+        "kind": "terminal",
+        "workspace_id": WORKSPACE_ID,
+        "screen_id": SCREEN_ID,
+        "pane_id": PANE_ID,
+        "tab_id": TAB_ID,
+        "terminal_id": TERMINAL_ID
+    })
+}
+
+fn exited_terminal_snapshot() -> Value {
+    json!({
+        "id": TERMINAL_ID,
+        "tab_id": TAB_ID,
+        "title": "health check",
+        "cwd": "/tmp",
+        "cols": 80,
+        "rows": 24,
+        "running": false,
+        "lifecycle": "exited",
+        "exit": {
+            "outcome": {"kind": "exit", "code": 17},
+            "exited_at": "1700000000123",
+            "revision": "12"
+        }
+    })
+}
+
+fn resource_snapshot() -> Value {
+    json!({
+        "machine": {
+            "id": MACHINE_ID,
+            "name": "local",
+            "origin": "local",
+            "status": "running",
+            "connectable": true,
+            "deleted": false,
+            "recoverable": false
+        },
+        "session": {
+            "id": SESSION_ID,
+            "machine_id": MACHINE_ID,
+            "name": "fake",
+            "generation": "fake-generation",
+            "revision": "7",
+            "connected": true
+        },
+        "workspaces": [{
+            "id": WORKSPACE_ID,
+            "session_id": SESSION_ID,
+            "name": "build",
+            "index": 0,
+            "focused": true
+        }],
+        "screens": [],
+        "panes": [],
+        "tabs": [],
+        "terminals": [],
+        "browsers": [],
+        "clients": [],
+        "notifications": [],
+        "agents": [{
+            "id": AGENT_ID,
+            "session_id": SESSION_ID,
+            "terminal_id": TERMINAL_ID,
+            "state": "blocked",
+            "source": "socket",
+            "updated_at_ms": "100",
+            "source_session": "codex-test"
+        }],
+        "frontend_projections": [],
+        "sidebar_views": [],
+        "cursor": {
+            "generation": "fake-generation",
+            "revision": "7"
+        }
+    })
 }
 
 fn operation(request: &Value) -> &str {

@@ -6,8 +6,9 @@ pub use model::{
 };
 
 use cmux::{
-    AgentId, AgentListOptions, AgentState, Client, Config, Error, NotificationLevel,
-    NotificationOptions, Selector, Session,
+    AgentId, AgentState, Client, Config, CreationState, Error, MutationOptions, NotificationLevel,
+    NotificationOptions, RunCommand, RunOptions as CmuxRunOptions, Session, TerminalId,
+    TerminalSnapshot, TerminalWaitExitResult, Workspace,
 };
 use std::collections::BTreeSet;
 use std::fmt;
@@ -80,6 +81,22 @@ impl NotificationTracker {
             model.agents.get(id).is_some_and(|agent| agent.state == AgentState::Blocked)
         });
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct CommandCheckOptions {
+    pub command: RunCommand,
+    pub correlation_key: String,
+    pub idempotency_key: String,
+    pub exit_timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandCheckResult {
+    pub terminal_id: TerminalId,
+    pub recovered_creation: bool,
+    pub wait: TerminalWaitExitResult,
+    pub snapshot: TerminalSnapshot,
 }
 
 pub fn run_connection(
@@ -184,44 +201,19 @@ fn refresh(
     options: &RunOptions,
     tracker: &mut NotificationTracker,
 ) -> Result<bool> {
-    let workspaces = session
-        .workspaces()?
-        .into_iter()
-        .map(|workspace| workspace.refresh())
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    let workspace_changed = model.replace_workspaces(workspaces);
-    let update = model.replace_agents(load_agents(session)?);
+    let snapshot = session.snapshot()?;
+    let server_changed = model.replace_server(snapshot.session);
+    let workspace_changed = model.replace_workspaces(snapshot.workspaces);
+    let update =
+        model.replace_agents(snapshot.agents.into_iter().map(AgentSummary::from).collect());
     tracker.reconcile(model);
-    notify_newly_blocked(session, &update.transitions, options.notify_blocked, tracker)?;
-    Ok(workspace_changed || update.changed)
-}
-
-fn load_agents(session: &Session) -> Result<Vec<AgentSummary>> {
-    let mut result = Vec::new();
-    for state in [
-        AgentState::Working,
-        AgentState::Blocked,
-        AgentState::Idle,
-        AgentState::Done,
-        AgentState::Unknown,
-    ] {
-        for agent in session.agents(AgentListOptions { terminal_id: None, state: Some(state) })? {
-            let id = match agent.selector() {
-                Selector::Id(id) => id.clone(),
-                Selector::Current(_) | Selector::Name(_) => {
-                    return Err(DashboardError::Invariant(
-                        "agent.list returned a non-ID resource handle".to_string(),
-                    ));
-                }
-            };
-            result.push(AgentSummary { id, state });
-        }
-    }
-    Ok(result)
+    notify_newly_blocked(session, model, &update.transitions, options.notify_blocked, tracker)?;
+    Ok(server_changed || workspace_changed || update.changed)
 }
 
 fn notify_newly_blocked(
     session: &Session,
+    model: &DashboardModel,
     transitions: &[AgentTransition],
     enabled: bool,
     tracker: &mut NotificationTracker,
@@ -230,19 +222,97 @@ fn notify_newly_blocked(
         return Ok(());
     }
     for transition in transitions {
-        if transition.current != AgentState::Blocked
-            || !tracker.blocked.insert(transition.id.clone())
-        {
+        if transition.current != AgentState::Blocked || tracker.blocked.contains(&transition.id) {
             continue;
         }
+        let terminal_id =
+            model.agents.get(&transition.id).map(|agent| agent.terminal_id.clone()).ok_or_else(
+                || {
+                    DashboardError::Invariant(format!(
+                        "blocked agent {} disappeared before notification",
+                        transition.id
+                    ))
+                },
+            )?;
         session.create_notification(NotificationOptions {
             title: "Agent needs input".to_string(),
             body: format!("Agent {} is blocked.", transition.id),
             level: Some(NotificationLevel::Warning),
-            terminal_id: None,
+            terminal_id: Some(terminal_id),
         })?;
+        tracker.blocked.insert(transition.id.clone());
     }
     Ok(())
+}
+
+/// Runs one command with reconnect-safe creation recovery and returns its exact
+/// lifecycle snapshot after a bounded server-side exit wait.
+pub fn run_command_check(
+    session: &Session,
+    workspace: &Workspace,
+    options: CommandCheckOptions,
+) -> Result<CommandCheckResult> {
+    let run = CmuxRunOptions::command(options.command)
+        .correlation_key(options.correlation_key.clone())?;
+    let mutation = MutationOptions::new(options.idempotency_key.clone())?;
+    let (terminal, recovered_creation) = match workspace.run_with(run, mutation) {
+        Ok(created) => (created.resource, false),
+        Err(error) => {
+            let Error::MutationTransport { operation, idempotency_key, .. } = &error else {
+                return Err(error.into());
+            };
+            if operation != "workspace.run" || idempotency_key != &options.idempotency_key {
+                return Err(DashboardError::Invariant(format!(
+                    "unexpected uncertain mutation {operation} with key {idempotency_key}"
+                )));
+            }
+            let resolution = session.creation().resolve(options.correlation_key)?;
+            if resolution.operation.as_deref().is_some_and(|value| value != "workspace.run") {
+                return Err(DashboardError::Invariant(
+                    "creation correlation resolved to a different operation".to_string(),
+                ));
+            }
+            if resolution.state != CreationState::Created {
+                return Err(DashboardError::Invariant(format!(
+                    "creation is {:?}; recovery is {:?}",
+                    resolution.state, resolution.recovery
+                )));
+            }
+            let terminal_id = resolution
+                .created_path
+                .as_ref()
+                .and_then(cmux::CreatedPath::terminal_id)
+                .cloned()
+                .ok_or_else(|| {
+                    DashboardError::Invariant(
+                        "created workspace.run resolution lacks a terminal path".to_string(),
+                    )
+                })?;
+            (session.terminal(terminal_id), true)
+        }
+    };
+
+    let terminal_id = terminal.id().cloned().ok_or_else(|| {
+        DashboardError::Invariant("created terminal handle lacks an opaque ID".to_string())
+    })?;
+    let wait = terminal.wait_exit(options.exit_timeout_ms)?;
+    let waited_id = match &wait {
+        TerminalWaitExitResult::Pending(result) => &result.terminal_id,
+        TerminalWaitExitResult::Exited(result) => &result.terminal_id,
+    };
+    if waited_id != &terminal_id {
+        return Err(DashboardError::Invariant(format!(
+            "terminal wait returned {waited_id} for {terminal_id}"
+        )));
+    }
+    let snapshot = terminal.refresh()?;
+    if snapshot.id != terminal_id {
+        return Err(DashboardError::Invariant(format!(
+            "terminal refresh returned {} for {terminal_id}",
+            snapshot.id
+        )));
+    }
+    Ok(CommandCheckResult { terminal_id, recovered_creation, wait, snapshot })
 }
 
 fn write_dashboard(output: &mut dyn Write, model: &DashboardModel, clear: bool) -> Result<()> {

@@ -50,7 +50,10 @@ import {
   Client,
   WebSocketTransport,
   browserId,
+  paneId,
+  screenId,
   selectCurrent,
+  workspaceId,
   type WebSocketConstructor,
 } from "cmux/browser";
 
@@ -60,10 +63,25 @@ const transport = new WebSocketTransport("ws://127.0.0.1:7681", {
   authToken: "token",
 });
 const client = new Client({ transport });
-const browser = client
-  .session(selectCurrent())
+const session = client.session(selectCurrent());
+const pane = session
+  .workspace(workspaceId("ws_11111111111111111111111111111111"))
+  .screen(screenId("screen_22222222222222222222222222222222"))
+  .pane(paneId("pane_33333333333333333333333333333333"));
+void pane.createBrowserTab(
+  { url: "https://example.com" },
+  {
+    correlationKey: "packaged-browser",
+    idempotencyKey: "packaged-browser-attempt-1",
+  },
+);
+void session.creation.resolve("packaged-browser");
+const browser = session
   .browser(browserId("browser_ffffffffffffffffffffffffffffffff"));
 void browser.navigate("https://example.com");
+void browser.attach({ signal: new AbortController().signal }).then((stream) => (
+  stream.cancel()
+));
 `);
   execFileSync("npm", [
     "install",
