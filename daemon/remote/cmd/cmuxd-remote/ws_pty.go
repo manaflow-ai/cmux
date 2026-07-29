@@ -150,6 +150,7 @@ type wsPTYAttachment struct {
 	conn            *websocket.Conn
 	persistent      bool
 	inputSeqAck     bool
+	replayBytes     int
 	lastAcceptedSeq uint64
 	ackMu           sync.Mutex
 	ackQueued       bool
@@ -1177,6 +1178,7 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 	// connection. Once published, the attachment follows the connection
 	// lifetime and can be canceled independently by its identity token.
 	attachmentCtx, cancel := context.WithCancel(attachmentLifetimeCtx)
+	replay := append([]byte(nil), session.scrollback...)
 	clientToken = strings.TrimSpace(clientToken)
 	attachment := &wsPTYAttachment{
 		sessionKey:  sessionKey,
@@ -1189,8 +1191,8 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 		conn:        conn,
 		persistent:  persistent,
 		inputSeqAck: inputSeqAck,
+		replayBytes: len(replay),
 	}
-	replay := append([]byte(nil), session.scrollback...)
 	if ok := attachment.enqueueReady(sessionID); !ok {
 		cancel()
 		if ownsInitialClaim {

@@ -159,9 +159,11 @@ extension RemoteDaemonRPCClient {
             let returnedToken = (result["attachment_token"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 ?? clientAttachmentToken
+            let replayByteCount = max(0, (result["replay_bytes"] as? Int) ?? 0)
             return RemotePTYBridgeAttachment(
                 attachmentID: returnedAttachmentID,
-                token: returnedToken
+                token: returnedToken,
+                replayByteCount: replayByteCount
             )
         } catch {
             unregisterPTY(

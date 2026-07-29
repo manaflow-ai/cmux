@@ -31,7 +31,7 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         client.transportExecutableOverride = executable
 
         try client.start()
-        _ = try client.attachPTY(
+        let existingAttachment = try client.attachPTY(
             sessionID: "existing-session",
             attachmentID: "existing-attachment",
             cols: 80,
@@ -44,6 +44,7 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
                 existingPTYEvent.signal()
             }
         }
+        #expect(existingAttachment.replayByteCount == 11)
 
         do {
             _ = try client.call(
@@ -206,7 +207,7 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         if IFS= read -r line; then
           id=$(read_id "$line")
           existing_token=$(printf '%s\\n' "$line" | sed -n 's/.*"client_attachment_token":"\\([^"]*\\)".*/\\1/p')
-          printf '{"id":%s,"ok":true,"result":{"attachment_id":"existing-attachment","attachment_token":"%s"}}\\n' "$id" "$existing_token"
+          printf '{"id":%s,"ok":true,"result":{"attachment_id":"existing-attachment","attachment_token":"%s","replay_bytes":11}}\\n' "$id" "$existing_token"
         else
           exit 1
         fi

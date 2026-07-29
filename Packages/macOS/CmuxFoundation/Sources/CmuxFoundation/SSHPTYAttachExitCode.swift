@@ -13,7 +13,7 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// Temporary daemon-side admission pressure that should retry without reauthentication.
     case retryableWithoutReauthentication = 251
 
-    /// A rapidly closed bridge that produced no remote PTY output.
+    /// A rapidly closed bridge that produced no live remote PTY output.
     case bridgeClosedWithoutProgress = 252
 
     /// A persistent PTY session that no longer exists and must be respawned.
@@ -38,16 +38,17 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// Determines whether a bridge closed before demonstrating useful progress.
     ///
     /// - Parameters:
-    ///   - receivedOutput: Whether the bridge delivered any remote PTY output.
+    ///   - receivedLiveOutput: Whether the bridge delivered output after its
+    ///     initial scrollback replay.
     ///   - bridgeUptime: The number of seconds the ready bridge remained open.
-    /// - Returns: `true` for a rapid, zero-output closure.
+    /// - Returns: `true` for a rapid closure with no live output.
     public static func bridgeClosureMadeNoProgress(
-        receivedOutput: Bool,
+        receivedLiveOutput: Bool,
         bridgeUptime: Double
     ) -> Bool {
         // A bridge that remains connected through an ordinary idle interval is
         // healthy even when the remote shell has not emitted output.
-        !receivedOutput && bridgeUptime >= 0 && bridgeUptime < healthyBridgeUptime
+        !receivedLiveOutput && bridgeUptime >= 0 && bridgeUptime < healthyBridgeUptime
     }
 
     /// Determines whether another no-progress retry remains in the bounded budget.

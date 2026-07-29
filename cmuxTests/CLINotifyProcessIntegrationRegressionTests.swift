@@ -4010,7 +4010,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 252, result.stderr)
         XCTAssertTrue(
-            result.stderr.contains("bridge closed without receiving output"),
+            result.stderr.contains("bridge closed without receiving new output"),
             result.stderr
         )
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }

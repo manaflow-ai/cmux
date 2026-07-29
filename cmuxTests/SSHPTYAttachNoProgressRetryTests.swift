@@ -33,19 +33,19 @@ struct SSHPTYAttachNoProgressRetryTests {
     func bridgeProgressClassification() {
         #expect(
             SSHPTYAttachExitCode.bridgeClosureMadeNoProgress(
-                receivedOutput: false,
+                receivedLiveOutput: false,
                 bridgeUptime: 1
             )
         )
         #expect(
             !SSHPTYAttachExitCode.bridgeClosureMadeNoProgress(
-                receivedOutput: true,
+                receivedLiveOutput: true,
                 bridgeUptime: 1
             )
         )
         #expect(
             !SSHPTYAttachExitCode.bridgeClosureMadeNoProgress(
-                receivedOutput: false,
+                receivedLiveOutput: false,
                 bridgeUptime: 30
             )
         )

@@ -50486,13 +50486,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-pty-attach: bridge closed without receiving output while the remote PTY session is still running"
+            "value": "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-pty-attach: 出力を受信しないままブリッジが閉じましたが、リモート PTY セッションは引き続き実行中です"
+            "value": "ssh-pty-attach: 新しい出力を受信しないままブリッジが閉じましたが、リモート PTY セッションは引き続き実行中です"
           }
         }
       }

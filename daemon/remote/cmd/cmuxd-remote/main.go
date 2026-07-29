@@ -116,11 +116,11 @@ type rpcServer struct {
 }
 
 type rpcRequestDispatcher struct {
-	ctx               context.Context
-	cancelConnection  context.CancelFunc
-	interruptRead     func()
-	server            *rpcServer
-	ptyAttachSlots    chan struct{}
+	ctx              context.Context
+	cancelConnection context.CancelFunc
+	interruptRead    func()
+	server           *rpcServer
+	ptyAttachSlots   chan struct{}
 	// Request cancellation is separate from attachment lifetime: completed
 	// attachments remain connection-owned after their request leaves this map.
 	ptyAttachMu       sync.Mutex
@@ -2457,6 +2457,7 @@ func (s *rpcServer) handlePTYAttachContextWithReservation(
 			"session_id":       strings.TrimSpace(sessionID),
 			"attachment_id":    attachment.id,
 			"attachment_token": attachment.clientToken,
+			"replay_bytes":     attachment.replayBytes,
 			"attached":         true,
 		},
 	}

@@ -12616,6 +12616,7 @@ struct CMUXCLI {
         var connectedFD: Int32?
         var bridgeHandshakeSize = Self.currentCLITerminalSize()
         var bridgeReadyUptime: TimeInterval = 0
+        var bridgeReplayBytes = 0
         do {
             let host = (bridge["host"] as? String) ?? "127.0.0.1"
             guard let port = cliStrictInt(bridge["port"]), port > 0, port <= 65535 else {
@@ -12637,7 +12638,9 @@ struct CMUXCLI {
             ], options: [])
             handshakeData.append(0x0A)
             try Self.writeAll(fd: fd, data: handshakeData)
-            attachmentToken = try readSSHPTYBridgeReady(fd: fd)
+            let ready = try readSSHPTYBridgeReady(fd: fd)
+            attachmentToken = ready.attachmentToken
+            bridgeReplayBytes = ready.replayBytes
             bridgeReachedReady = true
             bridgeReadyUptime = ProcessInfo.processInfo.systemUptime
         } catch {
@@ -12698,13 +12701,13 @@ struct CMUXCLI {
             throw CLIError(message: "ssh-pty-attach: bridge write failed")
         }
         var reconnectInputFilterStopRequested = false
-        var receivedOutput = false
+        var outputProgress = SSHPTYAttachOutputProgress(replayBytes: bridgeReplayBytes)
 
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
-                receivedOutput = true
+                outputProgress.recordOutput(byteCount: count)
                 reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
@@ -12712,7 +12715,7 @@ struct CMUXCLI {
                 _ = try reconcileBridgeEnd(
                     intentionalOnly: false,
                     sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
-                        receivedOutput: receivedOutput,
+                        receivedLiveOutput: outputProgress.receivedLiveOutput,
                         readyUptime: bridgeReadyUptime
                     )
                 )
@@ -12724,7 +12727,7 @@ struct CMUXCLI {
                     _ = try reconcileBridgeEnd(
                         intentionalOnly: false,
                         sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
-                            receivedOutput: receivedOutput,
+                            receivedLiveOutput: outputProgress.receivedLiveOutput,
                             readyUptime: bridgeReadyUptime
                         )
                     )
