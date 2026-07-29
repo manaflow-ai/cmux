@@ -1051,13 +1051,26 @@ final class TerminalControllerSocketSecurityTests {
         manager.closeWorkspace(sourceWorkspace)
         #expect(!manager.tabs.contains(where: { $0.id == sourceWorkspace.id }))
 
+        let attemptID = UUID()
+        guard case .resolved = TerminalController.shared
+            .controlWorkspaceRemoteTerminalSessionLaunching(
+                workspaceID: sourceWorkspace.id,
+                surfaceID: surfaceID,
+                terminalLifecycleID: terminalLifecycleID,
+                attemptID: attemptID
+            ) else {
+            Issue.record("window Dock lost launch-attempt ownership with its launch workspace")
+            return
+        }
+
         #expect(TerminalController.shared.controlWorkspaceRemoteTerminalSessionConnected(
             workspaceID: sourceWorkspace.id,
             surfaceID: surfaceID,
             authority: .relayPort(
                 64_012,
                 terminalLifecycleID: terminalLifecycleID
-            )
+            ),
+            attemptID: attemptID
         ) == .notFound)
 
         guard case .resolved(
@@ -1070,7 +1083,8 @@ final class TerminalControllerSocketSecurityTests {
             authority: .relayPort(
                 64_011,
                 terminalLifecycleID: terminalLifecycleID
-            )
+            ),
+            attemptID: attemptID
         ) else {
             Issue.record("window Dock lost readiness ownership with its launch workspace")
             return
