@@ -957,17 +957,20 @@ struct ComputerUseUXTests {
         #expect(!presentationState.onboardingComplete)
     }
 
-    /// The dogfood companion was an overly wide 472×112 strip with only eight
-    /// points of vertical breathing room. Keep the next composition compact
-    /// enough to sit beside System Settings while giving its two rows a native
-    /// panel proportion and full macOS control spacing.
-    @Test func permissionCompanionUsesBalancedNativeProportions() {
+    /// Regression: the v20 redesign made the permission companion taller and
+    /// visually heavier than the compact reference the user had approved.
+    /// Keep the original two-row composition and its exact alignment grid.
+    @Test func permissionCompanionUsesTheApprovedCompactProportions() {
         let size = ComputerUsePermissionCompanionLayout.size
 
-        #expect(size == CGSize(width: 456, height: 138))
-        #expect(size.width / size.height < 3.5)
-        #expect(ComputerUsePermissionCompanionLayout.horizontalInset >= 16)
-        #expect(ComputerUsePermissionCompanionLayout.verticalInset >= 14)
+        #expect(size == CGSize(width: 472, height: 112))
+        #expect(ComputerUsePermissionCompanionLayout.horizontalInset == 12)
+        #expect(ComputerUsePermissionCompanionLayout.verticalInset == 8)
+        #expect(ComputerUsePermissionCompanionLayout.leadingColumnWidth == 40)
+        #expect(ComputerUsePermissionCompanionLayout.headerHeight == 48)
+        #expect(ComputerUsePermissionCompanionLayout.dragRowHeight == 40)
+        #expect(ComputerUsePermissionCompanionLayout.columnSpacing == 8)
+        #expect(ComputerUsePermissionCompanionLayout.rowSpacing == 8)
     }
 
     @Test func permissionCompanionUsesOneAlignmentGrid() {
@@ -1135,10 +1138,24 @@ struct ComputerUseUXTests {
 
     @Test func permissionAdvancementWaitsForEachExplicitAllowAndDirectCapture() {
         #expect(ComputerUseOnboardingAdvance.resolve(
+            activeStep: .overview,
+            statusIsKnown: true,
+            accessibilityGranted: true,
+            screenRecordingGranted: true,
+            directCaptureReady: false
+        ) == .none)
+        #expect(ComputerUseOnboardingAdvance.resolve(
             activeStep: .accessibility,
             statusIsKnown: true,
             accessibilityGranted: true,
             screenRecordingGranted: false,
+            directCaptureReady: false
+        ) == .requestSecondAllow)
+        #expect(ComputerUseOnboardingAdvance.resolve(
+            activeStep: .accessibility,
+            statusIsKnown: true,
+            accessibilityGranted: true,
+            screenRecordingGranted: true,
             directCaptureReady: false
         ) == .requestSecondAllow)
         #expect(ComputerUseOnboardingAdvance.resolve(
