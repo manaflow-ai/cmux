@@ -24884,6 +24884,7 @@ struct CMUXCLI {
                         surfaceId: surfaceId,
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
+                        pid: claudePid,
                         isRestorable: true,
                         // Pending background work keeps the pane out of the
                         // hibernatable .idle state so the planner cannot SIGTERM
