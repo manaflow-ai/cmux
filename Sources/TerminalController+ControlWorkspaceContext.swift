@@ -732,22 +732,20 @@ extension TerminalController: ControlWorkspaceContext {
         let app = AppDelegate.shared
         let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
         let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
-        if let app,
-           let dock = DockSplitStore.liveStore(containingPanel: surfaceId),
-           let dockOwner = controlRemoteTerminalDockOwner(
-               app: app,
-               dock: dock,
-               requestedWorkspaceID: workspaceId
-           ),
-           dockOwner.workspace.markRemoteTerminalSessionConnected(
-               surfaceId: surfaceId,
-               authority: terminalAuthority,
-               allowUntracked: true
-           ),
-           dock.markRemoteTerminalSessionConnected(
-               panelId: surfaceId,
-               authority: terminalAuthority
-           ) {
+        if let dock = DockSplitStore.liveStore(containingPanel: surfaceId) {
+            guard let app,
+                  let dockOwner = controlRemoteTerminalDockOwner(
+                      app: app,
+                      dock: dock,
+                      requestedWorkspaceID: workspaceId
+                  ),
+                  dockOwner.workspace.markDockRemoteTerminalSessionConnected(
+                      surfaceId: surfaceId,
+                      authority: terminalAuthority,
+                      dock: dock
+                  ) else {
+                return .notFound
+            }
             let windowId = app.windowId(for: dockOwner.tabManager)
             return .resolved(
                 windowID: windowId,

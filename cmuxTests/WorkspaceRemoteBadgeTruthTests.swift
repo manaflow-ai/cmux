@@ -149,12 +149,6 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
         )
         workspace.configureRemoteConnection(firstConfiguration, autoConnect: false)
         let surfaceId = try seededTerminalSurfaceID(in: workspace)
-        XCTAssertTrue(
-            workspace.markRemoteTerminalSessionConnected(
-                surfaceId: surfaceId,
-                relayPort: firstConfiguration.relayPort
-            )
-        )
 
         let dock = DockSplitStore(
             workspaceId: UUID(),
@@ -168,6 +162,13 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
             dock.attachDetachedSurface(detached, inPane: dockPane, focus: false)
         )
 
+        XCTAssertTrue(
+            workspace.markDockRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                authority: .relayPort(64007),
+                dock: dock
+            )
+        )
         XCTAssertTrue(
             workspace.hasAuthoritativelyConnectedRemoteTerminal(in: [dock])
         )
@@ -203,6 +204,44 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
         )
         XCTAssertTrue(
             workspace.hasAuthoritativelyConnectedRemoteTerminal(in: [dock])
+        )
+    }
+
+    @MainActor
+    func testWindowDockReadinessCannotRetargetAnotherWorkspacePresentation() throws {
+        let sourceWorkspace = Workspace()
+        let configuration = remoteConfiguration(
+            preserveAfterTerminalExit: false,
+            relayPort: 64007
+        )
+        sourceWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let surfaceId = try seededTerminalSurfaceID(in: sourceWorkspace)
+
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: surfaceId))
+        XCTAssertNotNil(
+            dock.attachDetachedSurface(detached, inPane: dockPane, focus: false)
+        )
+
+        let unrelatedWorkspace = Workspace()
+        unrelatedWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        XCTAssertFalse(
+            unrelatedWorkspace.markDockRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                authority: .relayPort(64007),
+                dock: dock
+            )
+        )
+        XCTAssertEqual(unrelatedWorkspace.remoteConnectionState, .disconnected)
+        XCTAssertFalse(
+            unrelatedWorkspace.hasAuthoritativelyConnectedRemoteTerminal(in: [dock])
         )
     }
 

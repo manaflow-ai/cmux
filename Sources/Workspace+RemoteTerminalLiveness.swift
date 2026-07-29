@@ -35,6 +35,11 @@ struct PendingWorkspaceRemoteTerminalConnection: Equatable {
     let authority: WorkspaceRemoteTerminalAuthority
 }
 
+private enum WorkspaceRemoteTerminalConnectionTarget {
+    case pending
+    case configured(isTracked: Bool)
+}
+
 @MainActor
 extension Workspace {
     var hasAuthoritativelyConnectedRemoteTerminal: Bool {
@@ -95,24 +100,85 @@ extension Workspace {
         authority: WorkspaceRemoteTerminalAuthority,
         allowUntracked: Bool = false
     ) -> Bool {
+        guard let target = remoteTerminalConnectionTarget(
+            surfaceId: surfaceId,
+            authority: authority,
+            allowUntracked: allowUntracked
+        ) else {
+            return false
+        }
+        applyRemoteTerminalSessionConnected(
+            target: target,
+            surfaceId: surfaceId,
+            authority: authority
+        )
+        return true
+    }
+
+    func markDockRemoteTerminalSessionConnected(
+        surfaceId: UUID,
+        authority: WorkspaceRemoteTerminalAuthority,
+        dock: DockSplitStore
+    ) -> Bool {
+        guard dock.ownsRemoteTerminalTransfer(
+                  panelId: surfaceId,
+                  presentationWorkspaceID: id
+              ),
+              let target = remoteTerminalConnectionTarget(
+                  surfaceId: surfaceId,
+                  authority: authority,
+                  allowUntracked: true
+              ),
+              dock.markRemoteTerminalSessionConnected(
+                  panelId: surfaceId,
+                  authority: authority
+              ) else {
+            return false
+        }
+        applyRemoteTerminalSessionConnected(
+            target: target,
+            surfaceId: surfaceId,
+            authority: authority
+        )
+        return true
+    }
+
+    private func remoteTerminalConnectionTarget(
+        surfaceId: UUID,
+        authority: WorkspaceRemoteTerminalAuthority,
+        allowUntracked: Bool
+    ) -> WorkspaceRemoteTerminalConnectionTarget? {
         guard let configuration = remoteConfiguration else {
-            guard panels[surfaceId] is TerminalPanel else { return false }
-            pendingRemoteTerminalConnectionsBySurfaceId[surfaceId] =
-                PendingWorkspaceRemoteTerminalConnection(authority: authority)
-            return true
+            guard panels[surfaceId] is TerminalPanel else { return nil }
+            return .pending
         }
         let isTracked = activeRemoteTerminalSurfaceIds.contains(surfaceId)
         guard isTracked || allowUntracked,
               authority.matches(configuration) else {
-            return false
+            return nil
         }
+        return .configured(isTracked: isTracked)
+    }
 
-        if isTracked {
-            remoteTerminalSessionStatesBySurfaceId[surfaceId] =
-                WorkspaceRemoteTerminalSessionState(phase: .connected, authority: authority)
+    private func applyRemoteTerminalSessionConnected(
+        target: WorkspaceRemoteTerminalConnectionTarget,
+        surfaceId: UUID,
+        authority: WorkspaceRemoteTerminalAuthority
+    ) {
+        switch target {
+        case .pending:
+            pendingRemoteTerminalConnectionsBySurfaceId[surfaceId] =
+                PendingWorkspaceRemoteTerminalConnection(authority: authority)
+        case .configured(let isTracked):
+            if isTracked {
+                remoteTerminalSessionStatesBySurfaceId[surfaceId] =
+                    WorkspaceRemoteTerminalSessionState(
+                        phase: .connected,
+                        authority: authority
+                    )
+            }
+            applyRemoteTerminalConnectedPresentation()
         }
-        applyRemoteTerminalConnectedPresentation()
-        return true
     }
 
     private func applyRemoteTerminalConnectedPresentation() {
