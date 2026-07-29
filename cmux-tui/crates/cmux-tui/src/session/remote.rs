@@ -614,6 +614,7 @@ pub struct RemoteSession {
     writer: Mutex<Box<dyn RemoteMessageWriter>>,
     pending: Mutex<HashMap<u64, PendingRemoteRequest>>,
     next_id: AtomicU64,
+    attach_progress: AtomicU64,
     shutdown: AtomicBool,
     surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
     exited_surfaces: Mutex<HashSet<SurfaceId>>,
@@ -863,6 +864,7 @@ impl RemoteSession {
             writer: Mutex::new(writer),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
+            attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(HashSet::new()),
@@ -1053,19 +1055,32 @@ impl RemoteSession {
     fn report_read_progress(&self, partial: &[u8]) {
         let Some(target) = remote_progress_target(partial) else { return };
         let pending = self.pending.lock().unwrap();
-        match target {
+        let attach_progressed = match target {
             RemoteProgressTarget::Request(id) => {
                 if let Some(request) = pending.get(&id) {
                     request.progress.fetch_add(1, Ordering::Release);
+                    request.attach_surface.is_some()
+                } else {
+                    false
                 }
             }
             RemoteProgressTarget::AttachSurface(surface) => {
+                let mut progressed = false;
                 for request in
                     pending.values().filter(|request| request.attach_surface == Some(surface))
                 {
                     request.progress.fetch_add(1, Ordering::Release);
+                    progressed = true;
                 }
+                progressed
             }
+        };
+        drop(pending);
+        if attach_progressed {
+            // A JSON-lines transport serializes complete messages. An attach
+            // queued behind this progressing snapshot cannot receive its own
+            // bytes yet, so its pre-response idle window follows this epoch.
+            self.attach_progress.fetch_add(1, Ordering::Release);
         }
     }
 
@@ -1528,6 +1543,8 @@ impl RemoteSession {
     ) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let progress = Arc::new(AtomicU64::new(0));
+        let attach_progress = matches!(deadline, RequestDeadline::Attach)
+            .then(|| self.attach_progress.load(Ordering::Acquire));
         let attach_surface = matches!(deadline, RequestDeadline::Attach)
             .then(|| cmd.get("surface").and_then(Value::as_u64))
             .flatten();
@@ -1560,7 +1577,7 @@ impl RemoteSession {
             return Err(RemoteRequestError::Shutdown.into());
         }
 
-        let response = match self.wait_for_response(rx, deadline, progress) {
+        let response = match self.wait_for_response(rx, deadline, progress, attach_progress) {
             Ok(response) => response,
             Err(error) => {
                 // Drop the pending entry so a half-open session does not
@@ -1592,6 +1609,7 @@ impl RemoteSession {
         rx: Receiver<Value>,
         deadline: RequestDeadline,
         progress: Arc<AtomicU64>,
+        attach_progress: Option<u64>,
     ) -> Result<Value, RemoteRequestError> {
         if matches!(deadline, RequestDeadline::Standard) {
             return match rx.recv_timeout(REMOTE_REQUEST_TIMEOUT) {
@@ -1608,6 +1626,7 @@ impl RemoteSession {
         let maximum_deadline = started + REMOTE_ATTACH_MAX_TIMEOUT;
         let mut idle_deadline = started + REMOTE_ATTACH_IDLE_TIMEOUT;
         let mut observed_progress = progress.load(Ordering::Acquire);
+        let mut observed_attach_progress = attach_progress;
         loop {
             let now = Instant::now();
             if now >= maximum_deadline {
@@ -1630,6 +1649,16 @@ impl RemoteSession {
                 observed_progress = current_progress;
                 idle_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT;
                 continue;
+            }
+            if observed_progress == 0
+                && let Some(observed) = observed_attach_progress.as_mut()
+            {
+                let current = self.attach_progress.load(Ordering::Acquire);
+                if current != *observed {
+                    *observed = current;
+                    idle_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT;
+                    continue;
+                }
             }
             if Instant::now() >= idle_deadline {
                 return Err(RemoteRequestError::Timeout);
@@ -2453,6 +2482,7 @@ fn test_session_with_writer(
         writer: Mutex::new(writer),
         pending: Mutex::new(HashMap::new()),
         next_id: AtomicU64::new(1),
+        attach_progress: AtomicU64::new(0),
         shutdown: AtomicBool::new(false),
         surfaces: Mutex::new(HashMap::new()),
         exited_surfaces: Mutex::new(HashSet::new()),
@@ -3072,6 +3102,7 @@ mod tests {
             writer: Mutex::new(writer),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
+            attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(HashSet::new()),
@@ -3667,6 +3698,7 @@ mod tests {
     fn queued_attach_waits_while_an_earlier_snapshot_is_progressing() {
         let (client, server) = UnixStream::pair().unwrap();
         let (first_seen_tx, first_seen_rx) = channel();
+        let (release_tx, release_rx) = channel();
         let peer = std::thread::spawn(move || {
             let mut peer = BufReader::new(server);
             for expected_command in ["identify", "set-client-info", "subscribe"] {
@@ -3699,15 +3731,10 @@ mod tests {
             assert_eq!(second["cmd"], "attach-surface");
 
             let first_surface = first["surface"].as_u64().unwrap();
-            let event = json!({
-                "event": "vt-state",
-                "surface": first_surface,
-                "cols": 80,
-                "rows": 24,
-                "data": "",
-                "padding": "x".repeat(768),
-            })
-            .to_string();
+            let event = format!(
+                "{{\"event\":\"vt-state\",\"surface\":{first_surface},\"cols\":80,\"rows\":24,\"data\":\"\",\"padding\":\"{}\"}}",
+                "x".repeat(768)
+            );
             let splits = [64, 256, 512, event.len()];
             let mut copied = 0;
             for (index, end) in splits.into_iter().enumerate() {
@@ -3737,6 +3764,7 @@ mod tests {
             .unwrap();
             writeln!(peer.get_mut(), "{}", json!({"id": second["id"], "ok": true, "data": null}))
                 .unwrap();
+            release_rx.recv().unwrap();
         });
         let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
 
@@ -3753,6 +3781,7 @@ mod tests {
         assert!(first.join().unwrap().unwrap().is_some());
         assert!(second.join().unwrap().unwrap().is_some());
         assert!(!session.shutdown.load(Ordering::Acquire));
+        release_tx.send(()).unwrap();
         peer.join().unwrap();
     }
 

@@ -833,17 +833,38 @@ struct SurfaceResizeClaim {
 struct SurfaceAttachClaim {
     claims: Arc<Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>>,
     surface: SurfaceId,
+    active: bool,
+}
+
+impl SurfaceAttachClaim {
+    fn snapshot(&self) -> Option<SurfaceAttachClaimState> {
+        self.claims.lock().unwrap().get(&self.surface).copied()
+    }
+
+    fn complete_if_revision(&mut self, revision: u64) -> bool {
+        let mut claims = self.claims.lock().unwrap();
+        if claims.get(&self.surface).is_none_or(|claim| claim.revision != revision) {
+            return false;
+        }
+        claims.remove(&self.surface);
+        self.active = false;
+        true
+    }
 }
 
 impl Drop for SurfaceAttachClaim {
     fn drop(&mut self) {
-        self.claims.lock().unwrap().remove(&self.surface);
+        if self.active {
+            self.claims.lock().unwrap().remove(&self.surface);
+        }
     }
 }
 
 #[derive(Clone, Copy, Default)]
 struct SurfaceAttachClaimState {
     retired: bool,
+    requested_size: Option<(u16, u16)>,
+    revision: u64,
 }
 
 #[cfg(test)]
@@ -898,6 +919,8 @@ fn surface_sync_failure_blocks(state: SurfaceSyncFailureState) -> bool {
 
 struct SurfaceAttachResult {
     outcome: SessionMutationOutcome,
+    surface: Option<SurfaceHandle>,
+    requested_size: Option<(u16, u16)>,
 }
 
 fn perform_surface_attach(
@@ -915,20 +938,32 @@ fn perform_surface_attach(
             || attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired)
     };
     if retired_before_attach {
-        return SurfaceAttachResult { outcome: SessionMutationOutcome::Success { tree: None } };
+        return SurfaceAttachResult {
+            outcome: SessionMutationOutcome::Success { tree: None },
+            surface: None,
+            requested_size: size,
+        };
     }
     after_obsolete_check();
     let result = session.try_surface_sized(id, size);
     let attach_claims = attach_claims.lock().unwrap();
     let retired = attach_claims.get(&id).is_some_and(|claim| claim.retired);
     match result {
-        Ok(Some(_)) => {
+        Ok(Some(surface)) => {
             attach_failures.lock().unwrap().remove(&id);
-            SurfaceAttachResult { outcome: SessionMutationOutcome::Success { tree: None } }
+            SurfaceAttachResult {
+                outcome: SessionMutationOutcome::Success { tree: None },
+                surface: Some(surface),
+                requested_size: size,
+            }
         }
         Ok(None) if retired => {
             attach_failures.lock().unwrap().remove(&id);
-            SurfaceAttachResult { outcome: SessionMutationOutcome::Success { tree: None } }
+            SurfaceAttachResult {
+                outcome: SessionMutationOutcome::Success { tree: None },
+                surface: None,
+                requested_size: size,
+            }
         }
         Ok(None) => {
             let mut failures = attach_failures.lock().unwrap();
@@ -941,11 +976,17 @@ fn perform_surface_attach(
                     error: format!("surface {id} is unavailable"),
                     reconnect_required: false,
                 },
+                surface: None,
+                requested_size: size,
             }
         }
         Err(error) if retired && is_remote_surface_unavailable(&error, id) => {
             attach_failures.lock().unwrap().remove(&id);
-            SurfaceAttachResult { outcome: SessionMutationOutcome::Success { tree: None } }
+            SurfaceAttachResult {
+                outcome: SessionMutationOutcome::Success { tree: None },
+                surface: None,
+                requested_size: size,
+            }
         }
         Err(error) => {
             let timed_out = is_remote_timeout(&error);
@@ -962,6 +1003,8 @@ fn perform_surface_attach(
                     error: message,
                     reconnect_required: timed_out,
                 },
+                surface: None,
+                requested_size: size,
             }
         }
     }
@@ -976,9 +1019,9 @@ struct RemoteSurfaceAttachJob {
     exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
     attach_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>>,
     attach_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>>,
+    resize_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeFailure>>>,
     events: SessionEventSender,
     id: SurfaceId,
-    size: Option<(u16, u16)>,
     #[cfg(test)]
     after_obsolete_check: SurfaceAttachAfterObsoleteCheckHook,
 }
@@ -986,25 +1029,25 @@ struct RemoteSurfaceAttachJob {
 impl RemoteSurfaceAttachJob {
     fn run(self) {
         let Self {
-            claim,
+            mut claim,
             session,
             exited_surfaces,
             attach_claims,
             attach_failures,
+            resize_failures,
             events,
             id,
-            size,
             #[cfg(test)]
             after_obsolete_check,
         } = self;
-        let _claim = claim;
-        let result = perform_surface_attach(
+        let initial = claim.snapshot().unwrap_or_default();
+        let mut result = perform_surface_attach(
             &session,
             &exited_surfaces,
             &attach_claims,
             &attach_failures,
             id,
-            size,
+            initial.requested_size,
             || {
                 #[cfg(test)]
                 if let Some(hook) = { after_obsolete_check.lock().unwrap().clone() } {
@@ -1012,6 +1055,46 @@ impl RemoteSurfaceAttachJob {
                 }
             },
         );
+        let mut applied_revision = initial.revision;
+        loop {
+            let Some(latest) = claim.snapshot() else { break };
+            if latest.revision != applied_revision {
+                if !latest.retired
+                    && latest.requested_size != result.requested_size
+                    && let (Some(surface), Some((cols, rows))) =
+                        (result.surface.as_ref(), latest.requested_size)
+                {
+                    match surface.resize(cols, rows) {
+                        Ok(_) => {
+                            resize_failures.lock().unwrap().remove(&id);
+                        }
+                        Err(error) => {
+                            let transient =
+                                is_remote_timeout(&error) || is_remote_transport_failure(&error);
+                            let mut failures = resize_failures.lock().unwrap();
+                            let previous = failures
+                                .get(&id)
+                                .filter(|failure| failure.desired == (cols, rows))
+                                .map(|failure| failure.state);
+                            let state = next_surface_sync_failure(previous, transient, false);
+                            failures
+                                .insert(id, SurfaceResizeFailure { desired: (cols, rows), state });
+                            result.outcome = SessionMutationOutcome::SurfaceSyncFailed {
+                                surface: id,
+                                operation: "resize",
+                                error: error.to_string(),
+                                reconnect_required: state.sticky_until_reconnect,
+                            };
+                        }
+                    }
+                    result.requested_size = latest.requested_size;
+                }
+                applied_revision = latest.revision;
+            }
+            if claim.complete_if_revision(applied_revision) {
+                break;
+            }
+        }
         let _ = events.send(AppEvent::SurfaceAttachSettled { outcome: result.outcome });
     }
 
@@ -1035,6 +1118,8 @@ impl RemoteSurfaceAttachJob {
 struct RemoteSurfaceAttachQueue {
     visible: VecDeque<RemoteSurfaceAttachJob>,
     background: VecDeque<RemoteSurfaceAttachJob>,
+    background_running: usize,
+    background_limit: usize,
     stopped: bool,
 }
 
@@ -1051,29 +1136,43 @@ enum RemoteSurfaceAttachAdmission {
 impl RemoteSurfaceAttachExecutor {
     fn new() -> std::io::Result<Self> {
         let shared = Arc::new((Mutex::new(RemoteSurfaceAttachQueue::default()), Condvar::new()));
-        let mut worker_count = 0;
+        let mut worker_count: usize = 0;
         for worker in 0..REMOTE_ATTACH_WORKER_LIMIT {
             let worker_shared = shared.clone();
             let spawned = std::thread::Builder::new()
                 .name(format!("surface-attach-{worker}"))
                 .spawn(move || {
                     loop {
-                        let job = {
+                        let (job, background) = {
                             let (queue, ready) = &*worker_shared;
                             let mut queue = queue.lock().unwrap();
-                            while !queue.stopped
-                                && queue.visible.is_empty()
-                                && queue.background.is_empty()
-                            {
+                            while !queue.stopped && queue.visible.is_empty() && {
+                                queue.background.is_empty()
+                                    || queue.background_running >= queue.background_limit
+                            } {
                                 queue = ready.wait(queue).unwrap();
                             }
                             if queue.stopped {
                                 return;
                             }
-                            queue.visible.pop_front().or_else(|| queue.background.pop_front())
+                            if let Some(job) = queue.visible.pop_front() {
+                                (Some(job), false)
+                            } else {
+                                let job = queue.background.pop_front();
+                                if job.is_some() {
+                                    queue.background_running += 1;
+                                }
+                                (job, true)
+                            }
                         };
                         if let Some(job) = job {
                             job.run();
+                        }
+                        if background {
+                            let (queue, ready) = &*worker_shared;
+                            let mut queue = queue.lock().unwrap();
+                            queue.background_running = queue.background_running.saturating_sub(1);
+                            ready.notify_all();
                         }
                     }
                 });
@@ -1082,6 +1181,12 @@ impl RemoteSurfaceAttachExecutor {
                 Err(error) if worker_count == 0 => return Err(error),
                 Err(_) => break,
             }
+        }
+        {
+            let (queue, ready) = &*shared;
+            let mut queue = queue.lock().unwrap();
+            queue.background_limit = worker_count.saturating_sub(1).max(1);
+            ready.notify_all();
         }
         Ok(Self { shared, worker_count })
     }
@@ -1116,6 +1221,17 @@ impl RemoteSurfaceAttachExecutor {
         }
         ready.notify_one();
         RemoteSurfaceAttachAdmission::Enqueued { displaced }
+    }
+
+    fn promote(&self, surface: SurfaceId) {
+        let (queue, ready) = &*self.shared;
+        let mut queue = queue.lock().unwrap();
+        let Some(index) = queue.background.iter().position(|job| job.id == surface) else {
+            return;
+        };
+        let job = queue.background.remove(index).expect("the located attach job must exist");
+        queue.visible.push_back(job);
+        ready.notify_one();
     }
 
     fn shutdown(&self) {
@@ -1489,6 +1605,27 @@ impl OrderedSession {
     }
 
     fn attach_surface(&self, id: SurfaceId, size: Option<(u16, u16)>) {
+        if self.remote
+            && let Some(size) = size
+        {
+            let promoted = {
+                let mut claims = self.surface_attach_claims.lock().unwrap();
+                claims.get_mut(&id).is_some_and(|claim| {
+                    if claim.retired {
+                        return false;
+                    }
+                    claim.requested_size = Some(size);
+                    claim.revision = claim.revision.wrapping_add(1).max(1);
+                    true
+                })
+            };
+            if promoted {
+                if let Some(executor) = self.remote_surface_attaches.lock().unwrap().as_ref() {
+                    executor.promote(id);
+                }
+                return;
+            }
+        }
         if !self.can_attach_surface(id) {
             return;
         }
@@ -1501,9 +1638,16 @@ impl OrderedSession {
             if attach_claims.contains_key(&id) {
                 return;
             }
-            attach_claims.insert(id, SurfaceAttachClaimState::default());
+            attach_claims.insert(
+                id,
+                SurfaceAttachClaimState { retired: false, requested_size: size, revision: 1 },
+            );
         }
-        let claim = SurfaceAttachClaim { claims: self.surface_attach_claims.clone(), surface: id };
+        let claim = SurfaceAttachClaim {
+            claims: self.surface_attach_claims.clone(),
+            surface: id,
+            active: true,
+        };
         let attach_claims = self.surface_attach_claims.clone();
         let session = self.inner.clone();
         let exited_surfaces = self.exited_surfaces.clone();
@@ -1522,9 +1666,9 @@ impl OrderedSession {
                 exited_surfaces,
                 attach_claims,
                 attach_failures,
+                resize_failures: self.surface_resize_failures.clone(),
                 events: self.events.clone(),
                 id,
-                size,
                 #[cfg(test)]
                 after_obsolete_check: attach_after_obsolete_check,
             };
@@ -21840,6 +21984,30 @@ mod tests {
                 AppEvent::SurfaceAttachSettled { .. }
             ));
         }
+    }
+
+    #[test]
+    fn visible_remote_attach_updates_a_running_prefetch_size() {
+        let (session, attach_started, release_attach) = test_remote_session_with_deferred_attach();
+        let (app, events) = test_app_with_events(session);
+        let surface_id = 7;
+
+        app.session.attach_surface(surface_id, None);
+        attach_started.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.session.attach_surface(surface_id, Some((100, 30)));
+        release_attach.send(()).unwrap();
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::SurfaceAttachSettled {
+                outcome: super::SessionMutationOutcome::Success { .. }
+            }
+        ));
+        let surface = app.session.surface(surface_id).unwrap();
+        assert!(
+            !surface.resize_needed(100, 30, false),
+            "the promoted size was not reported by the running attach"
+        );
     }
 
     #[test]

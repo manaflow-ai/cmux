@@ -3665,8 +3665,11 @@ fn kitty_replay_placement_at(
     let row = relative_row.min(u64::from(terminal_rows.saturating_sub(1))).saturating_add(1);
     let col = u32::from(anchor.col).saturating_add(1);
     let placement_id = if placement.is_internal { 0 } else { placement.placement_id };
+    // The interleaved row break or final replay suffix positions the cursor
+    // after this command. DECSC/DECRC would overwrite the application's one
+    // saved-cursor slot while providing no additional replay state.
     let mut command = format!(
-        "\x1b7\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={},y={},w={},h={},X={},Y={}",
+        "\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={},y={},w={},h={},X={},Y={}",
         placement.image_id,
         placement_id,
         placement.source_x,
@@ -3682,7 +3685,7 @@ fn kitty_replay_placement_at(
     if placement.rows > 0 {
         command.push_str(&format!(",r={}", placement.rows));
     }
-    command.push_str(&format!(",z={},C=1,q=2;\x1b\\\x1b8", placement.z));
+    command.push_str(&format!(",z={},C=1,q=2;\x1b\\", placement.z));
     Some(command.into_bytes())
 }
 
@@ -3791,7 +3794,7 @@ fn kitty_replay_placement(placement: &KittyPlacement, cell_pixels: (u32, u32)) -
     let y_offset = u32::try_from(visible_top).ok()? % cell_height;
     let placement_id = if placement.is_internal { 0 } else { placement.placement_id };
     let mut command = format!(
-        "\x1b7\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={source_x},y={source_y},w={source_width},h={source_height},X={x_offset},Y={y_offset}",
+        "\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={source_x},y={source_y},w={source_width},h={source_height},X={x_offset},Y={y_offset}",
         placement.image_id, placement_id
     );
     if let Some(columns) = columns {
@@ -3800,7 +3803,7 @@ fn kitty_replay_placement(placement: &KittyPlacement, cell_pixels: (u32, u32)) -
     if let Some(rows) = rows {
         command.push_str(&format!(",r={rows}"));
     }
-    command.push_str(&format!(",z={},C=1,q=2;\x1b\\\x1b8", placement.z));
+    command.push_str(&format!(",z={},C=1,q=2;\x1b\\", placement.z));
     Some(command.into_bytes())
 }
 
