@@ -240,6 +240,33 @@ import Testing
         #expect(returnedPromptly)
     }
 
+    @Test func cancellationNotifiesWhileLaunchIsStillBlocked() {
+        let latch = CommandCancellationLatch()
+        let launchEntered = DispatchSemaphore(value: 0)
+        let releaseLaunch = DispatchSemaphore(value: 0)
+        let launchFinished = DispatchSemaphore(value: 0)
+        let cancellationNotified = DispatchSemaphore(value: 0)
+        latch.notifyOnCancel {
+            cancellationNotified.signal()
+        }
+
+        Thread.detachNewThread {
+            _ = latch.launch({
+                launchEntered.signal()
+                releaseLaunch.wait()
+                return 4_243
+            }, onCancel: { _ in })
+            launchFinished.signal()
+        }
+        #expect(launchEntered.wait(timeout: .now() + 5) == .success)
+
+        latch.cancel()
+        #expect(cancellationNotified.wait(timeout: .now() + 0.1) == .success)
+
+        releaseLaunch.signal()
+        #expect(launchFinished.wait(timeout: .now() + 5) == .success)
+    }
+
     @Test func taskCancellationTerminatesDescendantProcessGroup() async throws {
         let pidFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-command-runner-child-\(UUID().uuidString)")

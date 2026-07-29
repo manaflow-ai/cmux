@@ -120,12 +120,15 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
     private(set) var reloadRowsCallCount = 0
     private(set) var lastReloadedRowCount = 0
     private(set) var itemAtRowCallCount = 0
-    private(set) var itemAtRowCallCountAtLastReloadRows = 0
     private(set) var cellViewLookupCallCount = 0
+    private(set) var reloadedNodeIdentifiers: Set<ObjectIdentifier> = []
     var performsActualOutlineMutations = true
 
     override func reloadItem(_ item: Any?, reloadChildren: Bool) {
         reloadItemCallCount += 1
+        if let node = item as? FileExplorerNode {
+            reloadedNodeIdentifiers.insert(ObjectIdentifier(node))
+        }
         if performsActualOutlineMutations {
             super.reloadItem(item, reloadChildren: reloadChildren)
         }
@@ -144,7 +147,6 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
     ) {
         reloadRowsCallCount += 1
         lastReloadedRowCount = rowIndexes.count
-        itemAtRowCallCountAtLastReloadRows = itemAtRowCallCount
         if performsActualOutlineMutations {
             super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
         }
@@ -182,8 +184,8 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
         reloadRowsCallCount = 0
         lastReloadedRowCount = 0
         itemAtRowCallCount = 0
-        itemAtRowCallCountAtLastReloadRows = 0
         cellViewLookupCallCount = 0
+        reloadedNodeIdentifiers.removeAll(keepingCapacity: false)
     }
 }
 
@@ -540,14 +542,15 @@ struct FileExplorerStoreTests {
         outlineView.performsActualOutlineMutations = false
 
         for node in nodes {
+            store.expand(node: node)
             coordinator.enqueueOutlineChange(.expansionChanged(node: node, isExpanded: true))
         }
 
         try await waitFor("bounded scoped outline batches") {
-            outlineView.reloadItemCallCount == nodes.count
+            outlineView.reloadedNodeIdentifiers.count == nodes.count
         }
         #expect(outlineView.reloadDataCallCount == 0)
-        #expect(outlineView.reloadItemCallCount == nodes.count)
+        #expect(outlineView.reloadedNodeIdentifiers.count == nodes.count)
     }
 
     @Test
@@ -703,7 +706,7 @@ struct FileExplorerStoreTests {
         #expect(outlineView.reloadRowsCallCount == 1)
         #expect(outlineView.lastReloadedRowCount == visibleRowCount)
         #expect(outlineView.reloadItemCallCount == 0)
-        #expect(outlineView.itemAtRowCallCountAtLastReloadRows == 0)
+        #expect(coordinator.lastGitStatusVisibleRowInspectionCount == 0)
     }
 
     @Test
