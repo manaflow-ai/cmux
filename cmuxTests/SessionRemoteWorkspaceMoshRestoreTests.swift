@@ -197,4 +197,24 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(configuration.configuredRemoteCommand == configuredRemoteCommand)
         #expect(configuration.terminalStartupCommand?.contains(expectedBootstrapBase64) == true)
     }
+
+    @Test("Mosh restore without a relay preserves the configured remote command")
+    func moshWithoutRelayPreservesConfiguredRemoteCommand() throws {
+        let configuredRemoteCommand = "printf configured-mosh-command"
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .mosh,
+            configuredRemoteCommand: configuredRemoteCommand,
+            destination: "dev@example.com",
+            sshOptions: []
+        )
+
+        let configuration = try #require(snapshot.workspaceConfiguration())
+        let command = try #require(configuration.terminalStartupCommand)
+
+        #expect(configuration.terminalTransport == .mosh)
+        #expect(configuration.relayPort == nil)
+        #expect(command.contains("cmux-remote-command"), "\(command)")
+        #expect(command.contains(configuredRemoteCommand), "\(command)")
+    }
 }

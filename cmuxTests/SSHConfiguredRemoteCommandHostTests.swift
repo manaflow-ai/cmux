@@ -208,7 +208,7 @@ struct SSHConfiguredRemoteCommandHostTests {
     }
 
     @Test
-    func sshStartupPreservesExplicitRemoteCommandWhenConfigurationResolutionIsUnavailable() throws {
+    func sshStartupFallsBackToUnmanagedSessionWhenConfigurationResolutionIsUnavailable() throws {
         let cliPath = try processSupport.bundledCLIPath()
         let socketPath = processSupport.makeSocketPath("ssh-config-unavailable")
         let listenerFD = try processSupport.bindUnixSocket(at: socketPath)
@@ -273,11 +273,18 @@ struct SSHConfiguredRemoteCommandHostTests {
         let methods = requests.compactMap { $0["method"] as? String }
         #expect(methods.contains("workspace.create"), "\(methods)")
         #expect(methods.contains("workspace.remote.configure"), "\(methods)")
+        let createParams = try #require(
+            requests.first { $0["method"] as? String == "workspace.create" }?["params"]
+                as? [String: Any]
+        )
+        let startupCommand = try #require(createParams["initial_command"] as? String)
+        #expect(startupCommand.contains("RemoteCommand=printf explicit-fallback"), "\(startupCommand)")
+        #expect(!startupCommand.contains("ssh-pty-attach"), "\(startupCommand)")
         let configureParams = try #require(
             requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"]
                 as? [String: Any]
         )
-        #expect(configureParams["configured_remote_command"] as? String == "printf explicit-fallback")
+        #expect(configureParams["configured_remote_command"] == nil)
     }
 
     /// `cmux ssh` bootstrap-install flow (ControlMaster disabled → staged
