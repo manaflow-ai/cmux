@@ -1143,6 +1143,133 @@ def verify_authoritative_resume_supersedes_clear_tombstone(cli_path: str) -> Non
             )
 
 
+def verify_late_resume_cannot_replace_clear_successor(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    retired_session_id = f"late-resume-retired-{uuid.uuid4().hex}"
+    successor_session_id = f"late-resume-successor-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "late-resume-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": retired_session_id,
+                "turn_id": "retired-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": retired_session_id,
+                "turn_id": "retired-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {
+                "session_id": retired_session_id,
+                "reason": "clear",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {
+                "session_id": successor_session_id,
+                "source": "clear",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": successor_session_id,
+                "turn_id": "successor-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+
+        late_resume_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {
+                "session_id": retired_session_id,
+                "source": "resume",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        late_resume_commands = server.commands[late_resume_start:]
+        if has_command_with(
+            late_resume_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "A delayed resume made the active clear successor idle:\n"
+                f"late_resume_commands={late_resume_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        surface_owner = state["activeSessionsBySurface"][surface_id]
+        if surface_owner.get("sessionId") != successor_session_id:
+            raise RuntimeError(
+                "A delayed resume replaced the active clear successor:\n"
+                f"surface_owner={surface_owner!r}\nstate={state!r}"
+            )
+
+        successor_stop_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": successor_session_id,
+                "turn_id": "successor-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "successor turn completed",
+                "background_tasks": [],
+                "session_crons": [],
+            },
+            env,
+        )
+        successor_stop_commands = server.commands[successor_stop_start:]
+        if not has_command_with(
+            successor_stop_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "The clear successor lost ownership after a delayed resume:\n"
+                f"successor_stop_commands={successor_stop_commands!r}"
+            )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -1347,6 +1474,7 @@ def main() -> int:
         verify_repeated_clear_end_does_not_retire_replacement(cli_path)
         verify_guessed_clear_end_uses_stored_surface(cli_path)
         verify_authoritative_resume_supersedes_clear_tombstone(cli_path)
+        verify_late_resume_cannot_replace_clear_successor(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
         return 1
