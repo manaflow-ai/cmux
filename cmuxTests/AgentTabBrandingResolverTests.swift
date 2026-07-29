@@ -63,20 +63,28 @@ import Testing
 
     @Test func cliOwnedTitleWinsAfterLaunch() {
         // Claude Code replaces the title right after launch and keeps
-        // updating it with task summaries; those always win verbatim.
+        // updating it with task summaries; those win, with the redundant
+        // state glyph dropped since the tab already shows the brand icon.
         #expect(
             resolver.displayTitle(
                 processTitle: "✳ Claude Code",
                 titleAtAgentAttach: "~",
                 for: definition("claude")
-            ) == "✳ Claude Code"
+            ) == "Claude Code"
         )
         #expect(
             resolver.displayTitle(
                 processTitle: "✳ Add Codex and Grok CLI support",
                 titleAtAgentAttach: "~",
                 for: definition("claude")
-            ) == "✳ Add Codex and Grok CLI support"
+            ) == "Add Codex and Grok CLI support"
+        )
+        #expect(
+            resolver.displayTitle(
+                processTitle: "✶ Thinking through the plan",
+                titleAtAgentAttach: nil,
+                for: definition("claude")
+            ) == "Thinking through the plan"
         )
         #expect(
             resolver.displayTitle(
@@ -84,6 +92,15 @@ import Testing
                 titleAtAgentAttach: "~",
                 for: definition("codex")
             ) == "Codex — fixing tests"
+        )
+        // A title that is only a state glyph keeps its original form rather
+        // than collapsing to nothing.
+        #expect(
+            resolver.displayTitle(
+                processTitle: "✳",
+                titleAtAgentAttach: "~",
+                for: definition("claude")
+            ) == "✳"
         )
     }
 

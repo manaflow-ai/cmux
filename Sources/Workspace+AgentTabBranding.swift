@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 /// Attach-time snapshot for one panel's agent tab branding: which agent
@@ -17,19 +18,74 @@ extension Workspace {
     /// source of truth as the sidebar status pill, so the tab branding and the
     /// pill can never disagree about which agent a panel is running.
     func currentCodingAgentDefinition(panelId: UUID) -> CmuxTaskManagerCodingAgentDefinition? {
+        // PID-backed keys only: hook-recorded lifecycle entries can outlive the
+        // agent process (not every agent CLI reports a session end), while PID
+        // records are validated against the live process and pruned by
+        // `clearStaleAgentPIDs`, so the branding always detaches on exit.
         var statusKeys = Set<String>()
         for key in agentPIDKeysByPanelId[panelId] ?? [] {
             statusKeys.insert(agentStatusKey(forAgentPIDKey: key))
         }
-        for key in (agentLifecycleStatesByPanelId[panelId] ?? [:]).keys
-        where !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
-            statusKeys.insert(key)
+        if !statusKeys.isEmpty,
+           let definition = AgentTabBrandingResolver().definition(
+               forStatusKeys: statusKeys,
+               in: CmuxTaskManagerCodingAgentDefinition.builtIns
+           ) {
+            return definition
         }
-        guard !statusKeys.isEmpty else { return nil }
-        return AgentTabBrandingResolver().definition(
-            forStatusKeys: statusKeys,
-            in: CmuxTaskManagerCodingAgentDefinition.builtIns
-        )
+        // Launch fast-path: hooks report only once the agent starts a session
+        // (codex/grok stay silent until the first prompt), so a foreground
+        // process match recorded at command start brands the tab immediately.
+        if let provisionalID = provisionalAgentTabBrandingIDsByPanelId[panelId] {
+            return CmuxTaskManagerCodingAgentDefinition.builtIns.first { $0.id == provisionalID }
+        }
+        return nil
+    }
+
+    /// Re-evaluates the launch fast-path when a panel's shell activity changes:
+    /// a starting command is probed for a known agent binary, and returning to
+    /// the prompt drops the provisional brand.
+    func updateProvisionalAgentTabBranding(panelId: UUID, shellState: PanelShellActivityState) {
+        agentTabBrandingProbeTasks[panelId]?.cancel()
+        agentTabBrandingProbeTasks.removeValue(forKey: panelId)
+        if shellState == .commandRunning {
+            probeProvisionalAgentTabBranding(panelId: panelId, allowsReprobe: true)
+        } else {
+            clearProvisionalAgentTabBranding(panelId: panelId)
+        }
+    }
+
+    private func probeProvisionalAgentTabBranding(panelId: UUID, allowsReprobe: Bool) {
+        guard let terminalPanel = panels[panelId] as? TerminalPanel else { return }
+        let definition = terminalPanel.surface.foregroundProcessID()
+            .flatMap { CmuxTopProcessSnapshot.codingAgentDefinition(foregroundPID: $0) }
+        if let definition {
+            if provisionalAgentTabBrandingIDsByPanelId[panelId] != definition.id {
+                provisionalAgentTabBrandingIDsByPanelId[panelId] = definition.id
+                refreshAgentTabBranding(panelId: panelId)
+            }
+            return
+        }
+        clearProvisionalAgentTabBranding(panelId: panelId)
+        guard allowsReprobe else { return }
+        // One bounded, cancellable re-probe: the shell reports command start
+        // before the launcher/wrapper exec()s the agent binary, so the
+        // immediate probe can observe the not-yet-exec'd wrapper. The delay is
+        // the intended grace period, not a poll; the task is cancelled on the
+        // next shell-activity transition and in deinit.
+        agentTabBrandingProbeTasks[panelId] = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard !Task.isCancelled else { return }
+            self?.agentTabBrandingProbeTasks.removeValue(forKey: panelId)
+            self?.probeProvisionalAgentTabBranding(panelId: panelId, allowsReprobe: false)
+        }
+    }
+
+    private func clearProvisionalAgentTabBranding(panelId: UUID) {
+        if provisionalAgentTabBrandingIDsByPanelId.removeValue(forKey: panelId) != nil {
+            cmuxDebugLog("agentTabBranding.provisional.clear panel=\(panelId.uuidString.prefix(5))")
+            refreshAgentTabBranding(panelId: panelId)
+        }
     }
 
     /// Starts observing the agent runtime maps so tab branding follows agent
@@ -44,6 +100,11 @@ extension Workspace {
             }
         }
         refreshAgentTabBranding()
+        // Panels restored mid-command never see a shell-activity transition,
+        // so sweep them once for an already-running agent binary.
+        for (panelId, state) in panelShellActivityStates where state == .commandRunning {
+            updateProvisionalAgentTabBranding(panelId: panelId, shellState: state)
+        }
     }
 
     /// Re-applies agent branding for every terminal panel in the workspace.
@@ -51,6 +112,9 @@ extension Workspace {
     func refreshAgentTabBranding() {
         guard !isRemoteTmuxMirror else { return }
         agentTabBrandingAttachState = agentTabBrandingAttachState.filter {
+            panels[$0.key] != nil
+        }
+        provisionalAgentTabBrandingIDsByPanelId = provisionalAgentTabBrandingIDsByPanelId.filter {
             panels[$0.key] != nil
         }
         for (panelId, panel) in panels where panel is TerminalPanel {
@@ -65,6 +129,9 @@ extension Workspace {
               let panel = panels[panelId], panel is TerminalPanel,
               let tabId = surfaceIdFromPanelId(panelId),
               let existing = bonsplitController.tab(tabId) else { return }
+        // Drop records of agent processes that already exited so the brand
+        // detaches as soon as anything triggers a refresh for this panel.
+        clearStaleAgentPIDs(panelId: panelId, refreshPorts: false)
         let definition = currentCodingAgentDefinition(panelId: panelId)
         reconcileAgentTabBrandingAttachState(panelId: panelId, definition: definition)
         let iconAsset = definition?.assetName
@@ -90,13 +157,18 @@ extension Workspace {
         definition: CmuxTaskManagerCodingAgentDefinition?
     ) {
         guard let definition else {
-            agentTabBrandingAttachState.removeValue(forKey: panelId)
+            if agentTabBrandingAttachState.removeValue(forKey: panelId) != nil {
+                cmuxDebugLog("agentTabBranding.detach panel=\(panelId.uuidString.prefix(5))")
+            }
             return
         }
         if agentTabBrandingAttachState[panelId]?.definitionID != definition.id {
             agentTabBrandingAttachState[panelId] = AgentTabBrandingAttachState(
                 definitionID: definition.id,
                 processTitleAtAttach: panelTitles[panelId]
+            )
+            cmuxDebugLog(
+                "agentTabBranding.attach panel=\(panelId.uuidString.prefix(5)) agent=\(definition.id)"
             )
         }
     }

@@ -66,6 +66,20 @@ struct AgentTabBrandingResolver {
             || definition.directBasenames.contains(normalized) {
             return definition.displayName
         }
-        return trimmed
+        return Self.strippingAgentStateGlyphPrefix(from: trimmed)
+    }
+
+    /// Leading state glyphs some agents prepend to their terminal titles
+    /// (Claude Code cycles "✳"/"✶"/"✻"/"✽"). With the brand icon on the tab
+    /// the glyph is redundant, so branded titles drop it.
+    private static let agentStateGlyphPrefixes: Set<Character> = ["✳", "✶", "✻", "✽", "✢", "∗"]
+
+    private static func strippingAgentStateGlyphPrefix(from title: String) -> String {
+        var remainder = Substring(title)
+        while let first = remainder.first, agentStateGlyphPrefixes.contains(first) {
+            remainder = remainder.dropFirst().drop(while: { $0 == " " || $0 == "\u{FE0F}" })
+        }
+        let stripped = remainder.trimmingCharacters(in: .whitespaces)
+        return stripped.isEmpty ? title : stripped
     }
 }

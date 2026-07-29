@@ -3361,8 +3361,16 @@ final class Workspace: Identifiable, ObservableObject {
     /// `refreshAgentTabBranding(panelId:)`.
     var agentTabBrandingAttachState: [UUID: AgentTabBrandingAttachState] = [:]
 
+    /// Launch fast-path agent ids per panel, from foreground-process probes at
+    /// command start; superseded by hook-recorded PID keys when those arrive.
+    var provisionalAgentTabBrandingIDsByPanelId: [UUID: String] = [:]
+
+    /// Pending one-shot re-probe tasks for the launch fast-path.
+    var agentTabBrandingProbeTasks: [UUID: Task<Void, Never>] = [:]
+
     deinit {
         agentTabBrandingObservationTask?.cancel()
+        for task in agentTabBrandingProbeTasks.values { task.cancel() }
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
@@ -4827,6 +4835,7 @@ final class Workspace: Identifiable, ObservableObject {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
         if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+        updateProvisionalAgentTabBranding(panelId: panelId, shellState: state)
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
