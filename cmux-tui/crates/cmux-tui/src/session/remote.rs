@@ -2509,6 +2509,7 @@ struct DeferredAttachTestWriter {
     session: Arc<Mutex<Option<std::sync::Weak<RemoteSession>>>>,
     attach_started: std::sync::mpsc::SyncSender<()>,
     release_attach: Option<Receiver<()>>,
+    first_resize_failure: Option<(std::sync::mpsc::SyncSender<()>, Receiver<()>)>,
 }
 
 #[cfg(test)]
@@ -2542,9 +2543,21 @@ impl RemoteMessageWriter for DeferredAttachTestWriter {
             });
             return Ok(());
         }
+        let reject_resize = if request.get("cmd").and_then(Value::as_str) == Some("resize-surface")
+        {
+            if let Some((started, release)) = self.first_resize_failure.take() {
+                started.send(()).map_err(io::Error::other)?;
+                release.recv().map_err(io::Error::other)?;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         let session =
             session.upgrade().ok_or_else(|| io::Error::other("test remote session was dropped"))?;
-        let response = session
+        let pending_response = session
             .pending
             .lock()
             .unwrap()
@@ -2555,9 +2568,14 @@ impl RemoteMessageWriter for DeferredAttachTestWriter {
         } else {
             Value::Null
         };
-        response
+        let response = if reject_resize {
+            json!({"id": id, "ok": false, "error": "scripted promoted resize failure"})
+        } else {
+            json!({"id": id, "ok": true, "data": data})
+        };
+        pending_response
             .response
-            .send(json!({"id": id, "ok": true, "data": data}))
+            .send(response)
             .map_err(|_| io::Error::other("remote response receiver was dropped"))
     }
 
@@ -2569,6 +2587,13 @@ impl RemoteMessageWriter for DeferredAttachTestWriter {
 #[cfg(test)]
 pub(super) fn test_session_with_deferred_attach() -> (Arc<RemoteSession>, Receiver<()>, Sender<()>)
 {
+    test_session_with_deferred_attach_control(None)
+}
+
+#[cfg(test)]
+fn test_session_with_deferred_attach_control(
+    first_resize_failure: Option<(std::sync::mpsc::SyncSender<()>, Receiver<()>)>,
+) -> (Arc<RemoteSession>, Receiver<()>, Sender<()>) {
     let session_slot = Arc::new(Mutex::new(None));
     let (attach_started_tx, attach_started_rx) = std::sync::mpsc::sync_channel(1);
     let (release_attach_tx, release_attach_rx) = channel();
@@ -2577,6 +2602,7 @@ pub(super) fn test_session_with_deferred_attach() -> (Arc<RemoteSession>, Receiv
             session: session_slot.clone(),
             attach_started: attach_started_tx,
             release_attach: Some(release_attach_rx),
+            first_resize_failure,
         }),
         None,
         HashSet::new(),
@@ -2584,6 +2610,16 @@ pub(super) fn test_session_with_deferred_attach() -> (Arc<RemoteSession>, Receiv
     *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
     session.tree_stale.store(false, Ordering::Release);
     (session, attach_started_rx, release_attach_tx)
+}
+
+#[cfg(test)]
+pub(super) fn test_session_with_deferred_attach_and_first_resize_failure()
+-> (Arc<RemoteSession>, Receiver<()>, Sender<()>, Receiver<()>, Sender<()>) {
+    let (resize_started_tx, resize_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_resize_tx, release_resize_rx) = channel();
+    let (session, attach_started, release_attach) =
+        test_session_with_deferred_attach_control(Some((resize_started_tx, release_resize_rx)));
+    (session, attach_started, release_attach, resize_started_rx, release_resize_tx)
 }
 
 #[cfg(test)]

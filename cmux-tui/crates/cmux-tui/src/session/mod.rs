@@ -1825,6 +1825,19 @@ pub(crate) fn test_remote_session_with_deferred_attach()
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_with_deferred_attach_and_first_resize_failure() -> (
+    Session,
+    std::sync::mpsc::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+    std::sync::mpsc::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+) {
+    let (session, attach_started, release_attach, resize_started, release_resize) =
+        remote::test_session_with_deferred_attach_and_first_resize_failure();
+    (Session::Remote(session), attach_started, release_attach, resize_started, release_resize)
+}
+
+#[cfg(test)]
 pub(crate) fn test_remote_session_with_blocked_attach_transport_failure(
     reached: Arc<std::sync::Barrier>,
     release: Arc<std::sync::Barrier>,

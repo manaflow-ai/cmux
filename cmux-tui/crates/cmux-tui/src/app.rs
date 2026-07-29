@@ -14875,6 +14875,7 @@ mod tests {
     use crate::session::{
         ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceHandle,
         TreeView, test_remote_session_with_deferred_attach,
+        test_remote_session_with_deferred_attach_and_first_resize_failure,
     };
 
     #[test]
@@ -22008,6 +22009,35 @@ mod tests {
             !surface.resize_needed(100, 30, false),
             "the promoted size was not reported by the running attach"
         );
+    }
+
+    #[test]
+    fn latest_promoted_resize_success_supersedes_an_earlier_failure() {
+        let (session, attach_started, release_attach, resize_started, release_resize) =
+            test_remote_session_with_deferred_attach_and_first_resize_failure();
+        let (app, events) = test_app_with_events(session);
+        let surface_id = 7;
+
+        app.session.attach_surface(surface_id, None);
+        attach_started.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.session.attach_surface(surface_id, Some((100, 30)));
+        release_attach.send(()).unwrap();
+        resize_started.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.session.attach_surface(surface_id, Some((120, 40)));
+        release_resize.send(()).unwrap();
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::SurfaceAttachSettled {
+                outcome: super::SessionMutationOutcome::Success { .. }
+            }
+        ));
+        let surface = app.session.surface(surface_id).unwrap();
+        assert!(
+            !surface.resize_needed(120, 40, false),
+            "the latest promoted size was not reported after recovery"
+        );
+        assert!(!app.session.surface_resize_failures.lock().unwrap().contains_key(&surface_id));
     }
 
     #[test]
