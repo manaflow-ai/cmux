@@ -545,11 +545,36 @@ namespace detail {
 
 }  // namespace detail
 
-struct SessionEvent {
-    std::string event;
-    Json data;
-    Json extra;
+enum class SessionResetReason {
+    initial,
+    generation_changed,
+    cursor_expired,
 };
+
+struct SessionSnapshotEvent {
+    Cursor cursor;
+    std::optional<SessionResetReason> reset_reason;
+    Json snapshot;
+};
+
+struct SessionDeltaEvent {
+    Cursor cursor;
+    std::uint64_t previous_revision = 0;
+    std::uint64_t revision = 0;
+    Json::Array changes;
+};
+
+// Open unions retain the discriminator and complete object so newer servers
+// remain observable without turning malformed known variants into Unknown.
+struct Unknown {
+    std::string kind;
+    Json raw;
+};
+
+using SessionEvent = std::variant<
+    SessionSnapshotEvent,
+    SessionDeltaEvent,
+    Unknown>;
 
 struct TerminalAttachmentItem {
     std::string kind;
@@ -584,34 +609,44 @@ struct TypedStreamItem {
 
 namespace detail {
 
+[[nodiscard]] Result<SessionEvent> decode_session_event(
+    const Json& value,
+    const std::optional<Cursor>& envelope_cursor);
+
 template <typename T>
-[[nodiscard]] Result<T> decode_stream_domain(const Json& value) {
-    auto object = value.as_object();
-    if (!object) {
-        return make_error(ErrorCode::decode, "stream item must be an object");
+[[nodiscard]] Result<T> decode_stream_domain(
+    const Json& value,
+    const std::optional<Cursor>& envelope_cursor) {
+    if constexpr (std::same_as<T, SessionEvent>) {
+        return decode_session_event(value, envelope_cursor);
+    } else {
+        auto object = value.as_object();
+        if (!object) {
+            return make_error(ErrorCode::decode, "stream item must be an object");
+        }
+        std::string kind = "unknown";
+        if (const Json* event = value.find("event")) {
+            auto text = event->as_string();
+            if (!text) {
+                return make_error(ErrorCode::decode, "stream event must be a string");
+            }
+            kind = std::string(text.value());
+        } else if (const Json* type = value.find("type")) {
+            auto text = type->as_string();
+            if (!text) {
+                return make_error(ErrorCode::decode, "stream item type must be a string");
+            }
+            kind = std::string(text.value());
+        } else if (const Json* named_kind = value.find("kind")) {
+            auto text = named_kind->as_string();
+            if (!text) {
+                return make_error(ErrorCode::decode, "stream item kind must be a string");
+            }
+            kind = std::string(text.value());
+        }
+        Json data = value.find("data") ? *value.find("data") : value;
+        return T{std::move(kind), std::move(data), value};
     }
-    std::string kind = "unknown";
-    if (const Json* event = value.find("event")) {
-        auto text = event->as_string();
-        if (!text) {
-            return make_error(ErrorCode::decode, "stream event must be a string");
-        }
-        kind = std::string(text.value());
-    } else if (const Json* type = value.find("type")) {
-        auto text = type->as_string();
-        if (!text) {
-            return make_error(ErrorCode::decode, "stream item type must be a string");
-        }
-        kind = std::string(text.value());
-    } else if (const Json* named_kind = value.find("kind")) {
-        auto text = named_kind->as_string();
-        if (!text) {
-            return make_error(ErrorCode::decode, "stream item kind must be a string");
-        }
-        kind = std::string(text.value());
-    }
-    Json data = value.find("data") ? *value.find("data") : value;
-    return T{std::move(kind), std::move(data), value};
 }
 
 }  // namespace detail
@@ -637,7 +672,8 @@ public:
         if (!raw.value()) {
             return std::optional<TypedStreamItem<T>>{};
         }
-        auto decoded = detail::decode_stream_domain<T>(raw.value()->value);
+        auto decoded = detail::decode_stream_domain<T>(
+            raw.value()->value, raw.value()->cursor);
         if (!decoded) {
             return std::move(decoded).error();
         }

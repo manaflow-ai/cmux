@@ -116,6 +116,16 @@ std::string response(
 static_assert(!std::is_copy_constructible_v<cmux::ResourceStream>);
 static_assert(std::is_nothrow_move_constructible_v<cmux::ResourceStream>);
 static_assert(!std::is_copy_constructible_v<cmux::TerminalAttachmentStream>);
+static_assert(std::variant_size_v<cmux::SessionEvent> == 3);
+static_assert(std::is_same_v<
+              std::variant_alternative_t<0, cmux::SessionEvent>,
+              cmux::SessionSnapshotEvent>);
+static_assert(std::is_same_v<
+              std::variant_alternative_t<1, cmux::SessionEvent>,
+              cmux::SessionDeltaEvent>);
+static_assert(std::is_same_v<
+              std::variant_alternative_t<2, cmux::SessionEvent>,
+              cmux::Unknown>);
 static_assert(std::is_same_v<
               decltype(std::declval<cmux::raw::Client&>().identify()),
               cmux::Result<cmux::raw::IdentifyResult>>);
@@ -469,8 +479,8 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"sequence\":\"1\",\"cursor\":{\"generation\":\"g\","
-                "\"revision\":\"9\"},\"item\":{\"event\":\"future.event\","
-                "\"data\":{\"x\":1},\"future\":true}}");
+                "\"revision\":\"9\"},\"item\":{\"kind\":\"future.event\","
+                "\"payload\":{\"x\":1},\"future\":true}}");
         enqueue(stream_state, response(request_id));
 
         wait_for_writes(stream_state, 2);
@@ -510,8 +520,12 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
     CHECK(item);
     CHECK(item.value().has_value());
     CHECK_EQ(item.value()->sequence, 1U);
-    CHECK_EQ(item.value()->value.event, std::string("future.event"));
-    CHECK(item.value()->value.extra.find("future") != nullptr);
+    const auto* unknown =
+        std::get_if<cmux::Unknown>(&item.value()->value);
+    CHECK(unknown != nullptr);
+    CHECK_EQ(unknown->kind, std::string("future.event"));
+    CHECK(unknown->raw.find("future") != nullptr);
+    CHECK(unknown->raw.find("payload") != nullptr);
 
     auto ended = stream.value().cancel();
     CHECK(ended);
@@ -520,4 +534,125 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
     server.join();
     CHECK(open_route_ok.load(std::memory_order_acquire));
     CHECK(cancel_route_ok.load(std::memory_order_acquire));
+}
+
+TEST("session stream events discriminate snapshot and delta at compile time") {
+    auto control = std::make_shared<FakeState>();
+    auto stream_state = std::make_shared<FakeState>();
+    auto client = client_for(control, stream_state);
+
+    std::thread server([stream_state] {
+        wait_for_writes(stream_state, 1);
+        cmux::Json open;
+        {
+            std::lock_guard lock(stream_state->mutex);
+            open =
+                cmux::Json::parse(stream_state->outgoing.at(0)).value();
+        }
+        const auto request_id =
+            std::string(open.find("id")->as_string().value());
+        const auto* params = open.find("params")->as_object().value();
+        const auto stream_id =
+            std::string(params->at("stream_id").as_string().value());
+        enqueue(
+            stream_state,
+            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "\"stream_id\":\"" +
+                stream_id +
+                "\",\"sequence\":\"1\",\"cursor\":{\"generation\":\"g\","
+                "\"revision\":\"1\"},\"item\":{\"kind\":\"snapshot\","
+                "\"cursor\":{\"generation\":\"g\",\"revision\":\"1\"},"
+                "\"reset_reason\":\"initial\",\"snapshot\":{\"workspaces\":[]}}}");
+        enqueue(
+            stream_state,
+            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "\"stream_id\":\"" +
+                stream_id +
+                "\",\"sequence\":\"2\",\"cursor\":{\"generation\":\"g\","
+                "\"revision\":\"2\"},\"item\":{\"kind\":\"delta\","
+                "\"cursor\":{\"generation\":\"g\",\"revision\":\"2\"},"
+                "\"previous_revision\":\"1\",\"revision\":\"2\","
+                "\"changes\":[]}}");
+        enqueue(
+            stream_state,
+            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+            "\"stream_id\":\"" +
+                stream_id + "\",\"reason\":\"completed\"}");
+        enqueue(stream_state, response(request_id));
+    });
+
+    auto stream = client.open_session_events();
+    CHECK(stream);
+    auto snapshot_item = stream.value().next();
+    CHECK(snapshot_item);
+    CHECK(snapshot_item.value().has_value());
+    const auto* snapshot =
+        std::get_if<cmux::SessionSnapshotEvent>(
+            &snapshot_item.value()->value);
+    CHECK(snapshot != nullptr);
+    CHECK_EQ(snapshot->cursor.revision, 1U);
+    CHECK(snapshot->reset_reason.has_value());
+    CHECK_EQ(
+        *snapshot->reset_reason,
+        cmux::SessionResetReason::initial);
+    CHECK(snapshot->snapshot.find("workspaces") != nullptr);
+
+    auto delta_item = stream.value().next();
+    CHECK(delta_item);
+    CHECK(delta_item.value().has_value());
+    const auto* delta =
+        std::get_if<cmux::SessionDeltaEvent>(&delta_item.value()->value);
+    CHECK(delta != nullptr);
+    CHECK_EQ(delta->previous_revision, 1U);
+    CHECK_EQ(delta->revision, 2U);
+    CHECK(delta->changes.empty());
+
+    auto end = stream.value().next();
+    CHECK(end);
+    CHECK(!end.value().has_value());
+    CHECK(stream.value().end().has_value());
+    CHECK_EQ(
+        stream.value().end()->reason,
+        cmux::StreamEndReason::completed);
+    server.join();
+}
+
+TEST("malformed known session events never downgrade to Unknown") {
+    auto control = std::make_shared<FakeState>();
+    auto stream_state = std::make_shared<FakeState>();
+    auto client = client_for(control, stream_state);
+
+    std::thread server([stream_state] {
+        wait_for_writes(stream_state, 1);
+        cmux::Json open;
+        {
+            std::lock_guard lock(stream_state->mutex);
+            open =
+                cmux::Json::parse(stream_state->outgoing.at(0)).value();
+        }
+        const auto request_id =
+            std::string(open.find("id")->as_string().value());
+        const auto* params = open.find("params")->as_object().value();
+        const auto stream_id =
+            std::string(params->at("stream_id").as_string().value());
+        enqueue(
+            stream_state,
+            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "\"stream_id\":\"" +
+                stream_id +
+                "\",\"sequence\":\"1\",\"cursor\":{\"generation\":\"g\","
+                "\"revision\":\"1\"},\"item\":{\"kind\":\"snapshot\","
+                "\"cursor\":{\"generation\":\"g\",\"revision\":\"1\"},"
+                "\"future\":true}}");
+        enqueue(stream_state, response(request_id));
+    });
+
+    auto stream = client.open_session_events();
+    CHECK(stream);
+    auto item = stream.value().next();
+    CHECK(!item);
+    CHECK_EQ(item.error().code, cmux::ErrorCode::decode);
+    CHECK(
+        item.error().message.find("unknown field") != std::string::npos);
+    server.join();
 }

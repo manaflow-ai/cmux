@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <chrono>
 #include <deque>
+#include <initializer_list>
 #include <limits>
 #include <mutex>
 #include <random>
@@ -298,6 +299,34 @@ void inject_routing(
         return std::move(parsed_revision).error();
     }
     return Cursor{std::move(generation).value(), parsed_revision.value()};
+}
+
+[[nodiscard]] Result<void> require_exact_fields(
+    const Json& value,
+    std::initializer_list<std::string_view> allowed,
+    std::string_view context) {
+    auto object = value.as_object();
+    if (!object) {
+        return make_error(
+            ErrorCode::decode,
+            std::string(context) + " must be an object");
+    }
+    for (const auto& [key, item] : *object.value()) {
+        static_cast<void>(item);
+        if (std::find(allowed.begin(), allowed.end(), key) == allowed.end()) {
+            return make_error(
+                ErrorCode::decode,
+                std::string(context) + " contains unknown field '" + key + "'");
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] bool cursor_matches(
+    const Cursor& left,
+    const Cursor& right) noexcept {
+    return left.generation == right.generation &&
+           left.revision == right.revision;
 }
 
 template <typename Id>
@@ -684,6 +713,151 @@ Result<std::optional<CreatedPath>> MutationResult::created_path() const {
     }
     return std::optional<CreatedPath>(std::move(parsed).value());
 }
+
+namespace detail {
+
+Result<SessionEvent> decode_session_event(
+    const Json& value,
+    const std::optional<Cursor>& envelope_cursor) {
+    auto object = value.as_object();
+    if (!object) {
+        return make_error(
+            ErrorCode::decode, "session event must be an object");
+    }
+    auto kind = require_string(value, "kind");
+    if (!kind || kind.value().empty()) {
+        return make_error(
+            ErrorCode::decode,
+            "session event kind must be a nonempty string");
+    }
+    if (kind.value() == "snapshot") {
+        auto exact = require_exact_fields(
+            value,
+            {"kind", "cursor", "reset_reason", "snapshot"},
+            "session snapshot event");
+        if (!exact) {
+            return std::move(exact).error();
+        }
+        const Json* cursor_value = value.find("cursor");
+        if (!cursor_value) {
+            return make_error(
+                ErrorCode::decode,
+                "session snapshot event is missing cursor");
+        }
+        auto cursor = parse_cursor(*cursor_value);
+        if (!cursor) {
+            return std::move(cursor).error();
+        }
+        if (envelope_cursor &&
+            !cursor_matches(cursor.value(), *envelope_cursor)) {
+            return make_error(
+                ErrorCode::protocol,
+                "session snapshot cursor does not match its envelope");
+        }
+        std::optional<SessionResetReason> reset_reason;
+        if (const Json* reset = value.find("reset_reason")) {
+            auto text = reset->as_string();
+            if (!text) {
+                return make_error(
+                    ErrorCode::decode,
+                    "session snapshot reset_reason must be a string");
+            }
+            if (text.value() == "initial") {
+                reset_reason = SessionResetReason::initial;
+            } else if (text.value() == "generation_changed") {
+                reset_reason = SessionResetReason::generation_changed;
+            } else if (text.value() == "cursor_expired") {
+                reset_reason = SessionResetReason::cursor_expired;
+            } else {
+                return make_error(
+                    ErrorCode::decode,
+                    "session snapshot reset_reason is not recognized");
+            }
+        }
+        const Json* snapshot = value.find("snapshot");
+        if (!snapshot || !snapshot->is_object()) {
+            return make_error(
+                ErrorCode::decode,
+                "session snapshot event requires an object snapshot");
+        }
+        return SessionEvent(SessionSnapshotEvent{
+            std::move(cursor).value(),
+            reset_reason,
+            *snapshot,
+        });
+    }
+    if (kind.value() == "delta") {
+        auto exact = require_exact_fields(
+            value,
+            {"kind", "cursor", "previous_revision", "revision", "changes"},
+            "session delta event");
+        if (!exact) {
+            return std::move(exact).error();
+        }
+        const Json* cursor_value = value.find("cursor");
+        if (!cursor_value) {
+            return make_error(
+                ErrorCode::decode,
+                "session delta event is missing cursor");
+        }
+        auto cursor = parse_cursor(*cursor_value);
+        if (!cursor) {
+            return std::move(cursor).error();
+        }
+        if (envelope_cursor &&
+            !cursor_matches(cursor.value(), *envelope_cursor)) {
+            return make_error(
+                ErrorCode::protocol,
+                "session delta cursor does not match its envelope");
+        }
+        const Json* previous = value.find("previous_revision");
+        const Json* revision = value.find("revision");
+        if (!previous || !revision) {
+            return make_error(
+                ErrorCode::decode,
+                "session delta event is missing revision bounds");
+        }
+        auto parsed_previous =
+            decimal_u64(*previous, "session delta previous_revision");
+        if (!parsed_previous) {
+            return std::move(parsed_previous).error();
+        }
+        auto parsed_revision =
+            decimal_u64(*revision, "session delta revision");
+        if (!parsed_revision) {
+            return std::move(parsed_revision).error();
+        }
+        if (parsed_revision.value() != cursor.value().revision) {
+            return make_error(
+                ErrorCode::protocol,
+                "session delta revision does not match its cursor");
+        }
+        const Json* changes = value.find("changes");
+        if (!changes) {
+            return make_error(
+                ErrorCode::decode,
+                "session delta event is missing changes");
+        }
+        auto array = changes->as_array();
+        if (!array) {
+            return make_error(
+                ErrorCode::decode,
+                "session delta changes must be an array");
+        }
+        return SessionEvent(SessionDeltaEvent{
+            std::move(cursor).value(),
+            parsed_previous.value(),
+            parsed_revision.value(),
+            *array.value(),
+        });
+    }
+    return SessionEvent(Unknown{
+        std::move(kind).value(),
+        value,
+    });
+}
+
+}  // namespace detail
 
 Result<MutationOptions> MutationOptions::with_key(std::string key) {
     if (key.empty() || key.size() > 128) {
