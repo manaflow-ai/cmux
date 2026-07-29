@@ -181,10 +181,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
 
         try process.run()
-        process.waitUntilExit()
+        try waitForExit(process, stderrCapture: stderrCapture)
 
         let leafPID = try #require(Int32(
             String(contentsOf: leafPIDFile, encoding: .utf8)
@@ -246,10 +248,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
 
         try process.run()
-        process.waitUntilExit()
+        try waitForExit(process, stderrCapture: stderrCapture)
 
         #expect(process.terminationStatus == 0)
         #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
@@ -283,14 +287,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
 
         try process.run()
         defer {
-            if process.isRunning {
-                process.terminate()
-                process.waitUntilExit()
-            }
+            terminateIfRunning(process)
             try? fileManager.removeItem(at: temporaryDirectory)
         }
 
@@ -333,7 +336,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             classifiedWhileRunning,
             "A newline-free stderr stream must be classified incrementally with bounded records; observed \(lastClassifications)"
         )
-        process.waitUntilExit()
+        try waitForExit(process, stderrCapture: stderrCapture)
         #expect(process.terminationStatus == 254)
     }
 
@@ -349,7 +352,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         defer { try? fileManager.removeItem(at: temporaryDirectory) }
 
         let process = Process()
-        let stderrPipe = Pipe()
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
@@ -360,16 +364,76 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = stderrPipe
+        process.standardError = stderrCapture.handle
 
         try process.run()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        try waitForExit(process, stderrCapture: stderrCapture)
+        try stderrCapture.handle.close()
+        let stderrData = try Data(contentsOf: stderrCapture.url)
         let temporaryFiles = try fileManager.contentsOfDirectory(atPath: temporaryDirectory.path)
         return (
             process.terminationStatus,
             String(data: stderrData, encoding: .utf8) ?? "",
             temporaryFiles
         )
+    }
+
+    private struct StandardErrorCapture {
+        let url: URL
+        let handle: FileHandle
+    }
+
+    private func makeStandardErrorCapture() throws -> StandardErrorCapture {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-stderr-\(UUID().uuidString).log")
+        try Data().write(to: url, options: .atomic)
+        return StandardErrorCapture(
+            url: url,
+            handle: try FileHandle(forWritingTo: url)
+        )
+    }
+
+    private func removeStandardErrorCapture(_ capture: StandardErrorCapture) {
+        try? capture.handle.close()
+        try? FileManager.default.removeItem(at: capture.url)
+    }
+
+    private func waitForExit(
+        _ process: Process,
+        stderrCapture: StandardErrorCapture,
+        timeout: TimeInterval = 10
+    ) throws {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while process.isRunning, Date.now < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+
+        let timedOut = process.isRunning
+        if timedOut {
+            terminateIfRunning(process)
+        }
+        try? stderrCapture.handle.synchronize()
+        let stderr = (try? String(contentsOf: stderrCapture.url, encoding: .utf8)) ?? ""
+        try #require(
+            !timedOut,
+            "Process timed out after \(timeout) seconds; stderr: \(stderr)"
+        )
+    }
+
+    private func terminateIfRunning(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+
+        var deadline = Date.now.addingTimeInterval(1)
+        while process.isRunning, Date.now < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+            deadline = Date.now.addingTimeInterval(1)
+            while process.isRunning, Date.now < deadline {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+        }
     }
 }
