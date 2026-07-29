@@ -1832,7 +1832,6 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
     let mut mux_monitor = open_mux_monitor(&mux_socket)?;
     let state_dir = flag_value(args, "--state-dir").map(PathBuf::from);
     let link_socket = flag_value(args, "--link-socket").map(PathBuf::from);
-    let (session_state, _, _) = daemon_paths(&session, state_dir.as_deref())?;
     let runtime = start_daemon_runtime(
         mux_socket.clone(),
         DaemonRuntimeOptions {
@@ -1849,7 +1848,6 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
             replaceable_sidecar: true,
         },
     )?;
-    let runtime_info = runtime.info().clone();
     let mut mux_disappeared = false;
     let mut monitor_error = None;
     while !crate::shutdown_requested() && !runtime.is_finished() {
@@ -1870,21 +1868,10 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
         return runtime.shutdown();
     }
 
-    let lifecycle = match lock_daemon_start(&session_state) {
-        Ok(_guard) => {
-            let shutdown = runtime.shutdown();
-            let cleanup = cleanup_stale_sidecar_artifacts(
-                &runtime_info.state_dir,
-                &runtime_info.link_socket,
-                &runtime_info.admin_socket,
-            );
-            combine_sidecar_results(shutdown, cleanup)
-        }
-        Err(lock_error) => {
-            let shutdown = runtime.shutdown();
-            combine_sidecar_results(shutdown, Err(lock_error))
-        }
-    };
+    // The runtime owns its socket and metadata paths through shutdown. A
+    // separate check-then-unlink cleanup can remove a replacement daemon that
+    // binds the same path after this runtime releases it.
+    let lifecycle = runtime.shutdown();
     match (lifecycle, monitor_error) {
         (result, None) => result,
         (Ok(()), Some(error)) => Err(error.context("mux socket health monitor failed")),
@@ -2036,60 +2023,6 @@ fn lock_daemon_start(session_state: &Path) -> anyhow::Result<fs::File> {
         return Err(io::Error::last_os_error().into());
     }
     Ok(lock)
-}
-
-fn cleanup_stale_sidecar_artifacts(
-    state_dir: &Path,
-    link_socket: &Path,
-    admin_socket: &Path,
-) -> anyhow::Result<()> {
-    // A replacement started outside the bootstrap lock owns these paths. Do
-    // not unlink its sockets or metadata.
-    if UnixStream::connect(link_socket).is_ok() {
-        return Ok(());
-    }
-    remove_regular_file_if_present(&state_dir.join("runtime.json"))?;
-    remove_stale_socket_if_present(link_socket)?;
-    remove_stale_socket_if_present(admin_socket)
-}
-
-fn remove_regular_file_if_present(path: &Path) -> anyhow::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_file() => fs::remove_file(path)?,
-        Ok(_) => return Err(anyhow!("refusing to remove non-file path {}", path.display())),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-    Ok(())
-}
-
-fn remove_stale_socket_if_present(path: &Path) -> anyhow::Result<()> {
-    use std::os::unix::fs::FileTypeExt;
-
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_socket() => {
-            if UnixStream::connect(path).is_err() {
-                fs::remove_file(path)?;
-            }
-        }
-        Ok(_) => return Err(anyhow!("refusing to remove non-socket path {}", path.display())),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-    Ok(())
-}
-
-fn combine_sidecar_results(
-    shutdown: anyhow::Result<()>,
-    cleanup: anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    match (shutdown, cleanup) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-        (Err(shutdown), Err(cleanup)) => Err(anyhow!(
-            "remote sidecar shutdown failed: {shutdown:#}; cleanup failed: {cleanup:#}"
-        )),
-    }
 }
 
 async fn proxy_stdio(link: &Path) -> anyhow::Result<()> {
@@ -2721,40 +2654,6 @@ mod tests {
         promote_reachable_unix_routes(&mut routes);
 
         assert_eq!(routes, [candidate(local), candidate(websocket), candidate(missing)]);
-    }
-
-    #[test]
-    fn sidecar_cleanup_removes_dead_runtime_artifacts() {
-        let directory = tempfile::tempdir().unwrap();
-        let state = directory.path().join("state");
-        fs::create_dir_all(&state).unwrap();
-        let link = state.join("link.sock");
-        let admin = state.join("admin.sock");
-        drop(std::os::unix::net::UnixListener::bind(&link).unwrap());
-        drop(std::os::unix::net::UnixListener::bind(&admin).unwrap());
-        fs::write(state.join("runtime.json"), b"{}").unwrap();
-
-        cleanup_stale_sidecar_artifacts(&state, &link, &admin).unwrap();
-
-        assert!(!state.join("runtime.json").exists());
-        assert!(!link.exists());
-        assert!(!admin.exists());
-    }
-
-    #[test]
-    fn sidecar_cleanup_preserves_a_live_replacement() {
-        let directory = tempfile::tempdir().unwrap();
-        let state = directory.path().join("state");
-        fs::create_dir_all(&state).unwrap();
-        let link = state.join("link.sock");
-        let admin = state.join("admin.sock");
-        let _listener = std::os::unix::net::UnixListener::bind(&link).unwrap();
-        fs::write(state.join("runtime.json"), b"{}").unwrap();
-
-        cleanup_stale_sidecar_artifacts(&state, &link, &admin).unwrap();
-
-        assert!(state.join("runtime.json").exists());
-        assert!(link.exists());
     }
 
     #[test]

@@ -1867,6 +1867,40 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn daemon_runtime_shutdown_removes_only_its_owned_lifecycle_paths() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "owned-shutdown".into(),
+                state_dir: Some(directory.path().join("state")),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        let info = runtime.info().clone();
+        let metadata = info.state_dir.join("runtime.json");
+        assert!(info.link_socket.exists());
+        assert!(info.admin_socket.exists());
+        assert!(metadata.exists());
+
+        runtime.shutdown().unwrap();
+
+        assert!(!info.link_socket.exists());
+        assert!(!info.admin_socket.exists());
+        assert!(!metadata.exists());
+    }
+
     #[test]
     fn runtime_route_debug_redacts_raw_urls_slots_and_routing_hints() {
         let candidate = resolved_test_route_with_routing(

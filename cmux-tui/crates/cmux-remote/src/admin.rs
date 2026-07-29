@@ -4,6 +4,7 @@
 //! talk to the daemon instead of reopening its state files in another process.
 
 use std::fmt;
+use std::future::Future;
 use std::io;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -13,14 +14,16 @@ use std::time::Duration;
 use cmux_remote_protocol::SessionId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{Semaphore, oneshot, watch};
 
 use crate::daemon::RemoteDaemon;
 use crate::identity::{EnrollmentRelayAccess, IdentityError};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
+const MAX_ADMIN_CONNECTIONS: usize = 32;
+const ADMIN_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Failure to authenticate the process on the other end of a Unix socket.
 #[derive(Debug)]
@@ -150,7 +153,6 @@ impl AdminServer {
         if let Some(task) = self.task.take() {
             let _ = task.await;
         }
-        let _ = std::fs::remove_file(&self.path);
     }
 }
 
@@ -182,25 +184,31 @@ pub async fn serve_admin_with_shutdown(
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let task_path = path.clone();
+    let permits = Arc::new(Semaphore::new(MAX_ADMIN_CONNECTIONS));
     let task = tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = &mut shutdown_rx => break,
                 accepted = listener.accept() => {
                     let Ok((stream, _)) = accepted else { break };
+                    if validate_peer(&stream).is_err() {
+                        continue;
+                    }
+                    let Ok(permit) = permits.clone().try_acquire_owned() else {
+                        continue;
+                    };
                     let daemon = daemon.clone();
                     let default_route_hints = default_route_hints.clone();
                     let owner_shutdown = owner_shutdown.clone();
                     tokio::spawn(async move {
-                        if validate_peer(&stream).is_ok() {
-                            let _ = serve_connection(
-                                daemon,
-                                default_route_hints,
-                                owner_shutdown,
-                                stream,
-                            )
-                            .await;
-                        }
+                        let _permit = permit;
+                        let _ = serve_connection(
+                            daemon,
+                            default_route_hints,
+                            owner_shutdown,
+                            stream,
+                        )
+                        .await;
                     });
                 }
             }
@@ -239,17 +247,21 @@ async fn call_admin_over_stream(
         return Err(AdminError::MessageTooLarge(encoded.len()));
     }
     encoded.push(b'\n');
-    stream.write_all(&encoded).await?;
+    timeout_admin_io("writing admin request", stream.write_all(&encoded)).await?;
     // The newline completes the request. A write-half close can race the
     // daemon's one-response close and return ENOTCONN on macOS.
     let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
-    let size = reader.read_until(b'\n', &mut response).await?;
+    let size = timeout_admin_io(
+        "reading admin response",
+        read_bounded_admin_line(&mut reader, &mut response),
+    )
+    .await?;
     if size == 0 {
         return Err(AdminError::Protocol("daemon closed the admin connection".into()));
     }
-    if size > MAX_ADMIN_MESSAGE_BYTES {
-        return Err(AdminError::MessageTooLarge(size));
+    if response.len() > MAX_ADMIN_MESSAGE_BYTES {
+        return Err(AdminError::MessageTooLarge(response.len()));
     }
     Ok(serde_json::from_slice(&response)?)
 }
@@ -263,10 +275,14 @@ async fn serve_connection(
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
     let mut encoded = Vec::new();
-    let size = reader.read_until(b'\n', &mut encoded).await?;
+    let size = timeout_admin_io(
+        "reading admin request",
+        read_bounded_admin_line(&mut reader, &mut encoded),
+    )
+    .await?;
     let response = if size == 0 {
         AdminResponse::failure("empty admin request")
-    } else if size > MAX_ADMIN_MESSAGE_BYTES {
+    } else if encoded.len() > MAX_ADMIN_MESSAGE_BYTES {
         AdminResponse::failure("admin request is too large")
     } else {
         match serde_json::from_slice::<AdminRequest>(&encoded) {
@@ -277,10 +293,36 @@ async fn serve_connection(
         }
     };
     let mut response = serde_json::to_vec(&response)?;
+    if response.len() > MAX_ADMIN_MESSAGE_BYTES {
+        response = serde_json::to_vec(&AdminResponse::failure("admin response is too large"))?;
+    }
     response.push(b'\n');
-    writer.write_all(&response).await?;
-    writer.shutdown().await?;
+    timeout_admin_io("writing admin response", writer.write_all(&response)).await?;
+    timeout_admin_io("closing admin response", writer.shutdown()).await?;
     Ok(())
+}
+
+async fn read_bounded_admin_line<R>(reader: &mut R, encoded: &mut Vec<u8>) -> io::Result<usize>
+where
+    R: AsyncBufRead + Unpin,
+{
+    encoded.clear();
+    reader.take((MAX_ADMIN_MESSAGE_BYTES + 1) as u64).read_until(b'\n', encoded).await
+}
+
+async fn timeout_admin_io<T>(
+    operation: &'static str,
+    future: impl Future<Output = io::Result<T>>,
+) -> Result<T, AdminError> {
+    tokio::time::timeout(ADMIN_IO_TIMEOUT, future)
+        .await
+        .map_err(|_| {
+            AdminError::Io(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("timed out {operation}"),
+            ))
+        })?
+        .map_err(AdminError::Io)
 }
 
 async fn dispatch(

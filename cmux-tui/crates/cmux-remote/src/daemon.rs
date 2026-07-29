@@ -1299,7 +1299,6 @@ impl UnixServer {
         if let Some(task) = self.task.take() {
             let _ = task.await;
         }
-        let _ = std::fs::remove_file(&self.path);
     }
 }
 

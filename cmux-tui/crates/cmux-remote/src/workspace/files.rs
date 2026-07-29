@@ -46,6 +46,12 @@ const GUARDED_CONTENT_MUTATIONS_SUPPORTED: bool = true;
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))))]
 const GUARDED_CONTENT_MUTATIONS_SUPPORTED: bool = false;
 
+struct SortedDirectoryEntry {
+    entry: DirectoryEntry,
+    folded_name: String,
+    directory: bool,
+}
+
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum MutationTestPoint {
@@ -408,20 +414,19 @@ pub(crate) async fn list_directory(
             .await
             .map_err(|error| io_error("list-directory", &entry.path(), error))?;
         let Ok(entry_path) = join_protocol_path(&normalized, &name) else { continue };
-        entries.push(DirectoryEntry {
-            path: entry_path,
-            name,
-            kind: file_kind(&metadata),
-            size: metadata.len(),
+        let kind = file_kind(&metadata);
+        entries.push(SortedDirectoryEntry {
+            folded_name: name.to_lowercase(),
+            directory: kind == FileKind::Directory,
+            entry: DirectoryEntry { path: entry_path, name, kind, size: metadata.len() },
         });
     }
-    entries.sort_by(|left, right| {
-        let left_directory = left.kind == FileKind::Directory;
-        let right_directory = right.kind == FileKind::Directory;
-        right_directory
-            .cmp(&left_directory)
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-            .then_with(|| left.name.cmp(&right.name))
+    entries.sort_unstable_by(|left, right| {
+        right
+            .directory
+            .cmp(&left.directory)
+            .then_with(|| left.folded_name.cmp(&right.folded_name))
+            .then_with(|| left.entry.name.cmp(&right.entry.name))
     });
     if start > entries.len() {
         return Err(RpcError::new(
@@ -434,7 +439,7 @@ pub(crate) async fn list_directory(
     let mut response_bytes = 0usize;
     let mut index = start;
     while index < entries.len() && page.len() < requested {
-        let entry = &entries[index];
+        let entry = &entries[index].entry;
         let entry_bytes =
             entry.name.len().saturating_add(entry.path.len()).saturating_mul(6).saturating_add(64);
         if response_bytes.saturating_add(entry_bytes) > MAX_DIRECTORY_RESPONSE_BYTES {

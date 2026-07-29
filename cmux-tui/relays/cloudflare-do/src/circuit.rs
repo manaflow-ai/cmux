@@ -45,6 +45,21 @@ fn refresh_attachments_before_forward<E>(
     forward()
 }
 
+fn has_live_ready_pair(
+    sockets: impl IntoIterator<Item = (u16, CircuitPhase, u64)>,
+    now_ms: u64,
+) -> bool {
+    sockets
+        .into_iter()
+        .filter(|(ready_state, phase, idle_deadline_ms)| {
+            *phase == CircuitPhase::Ready
+                && websocket_counts_toward_capacity(*ready_state, *idle_deadline_ms, now_ms)
+        })
+        .take(2)
+        .count()
+        == 2
+}
+
 #[durable_object]
 pub struct RelayCircuit {
     state: State,
@@ -548,11 +563,14 @@ impl DurableObject for RelayCircuit {
         let has_ready = sockets.iter().any(|socket| {
             Self::attachment(socket).is_ok_and(|attachment| attachment.phase == CircuitPhase::Ready)
         });
-        let has_live_ready = sockets.iter().any(|socket| {
-            Self::attachment(socket).is_ok_and(|attachment| {
-                attachment.phase == CircuitPhase::Ready && attachment.idle_deadline_ms > now_ms
-            })
-        });
+        let has_live_ready = has_live_ready_pair(
+            sockets.iter().filter_map(|socket| {
+                Self::attachment(socket).ok().map(|attachment| {
+                    (socket.as_ref().ready_state(), attachment.phase, attachment.idle_deadline_ms)
+                })
+            }),
+            now_ms,
+        );
         let ready_expired = has_ready && !has_live_ready;
         for socket in &sockets {
             let expired_non_ready = Self::attachment(socket).is_ok_and(|attachment| {
@@ -738,5 +756,21 @@ mod tests {
         assert_eq!(result, Err("peer serialization failed"));
         assert!(sender_written.get());
         assert!(!forwarded.get());
+    }
+
+    #[test]
+    fn ready_pair_requires_two_open_unexpired_websockets() {
+        let ready = |state| (state, CircuitPhase::Ready, 200);
+        assert!(has_live_ready_pair([ready(1), ready(1)], 100));
+        assert!(!has_live_ready_pair([ready(1)], 100));
+        assert!(!has_live_ready_pair([ready(1), ready(2)], 100));
+        assert!(!has_live_ready_pair(
+            [(1, CircuitPhase::Ready, 200), (1, CircuitPhase::Ready, 100)],
+            100,
+        ));
+        assert!(!has_live_ready_pair(
+            [(1, CircuitPhase::Ready, 200), (1, CircuitPhase::Joined, 200)],
+            100,
+        ));
     }
 }

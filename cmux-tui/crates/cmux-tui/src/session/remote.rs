@@ -41,6 +41,8 @@ const MAX_SURFACE_OVERFLOW_RECOVERIES: usize = 256;
 const INTERACTIVE_WRITE_QUEUE_CAPACITY: usize = 512;
 const INTERACTIVE_WRITE_QUEUE_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const REMOTE_CONTROL_MESSAGE_MAX_BYTES: usize = 16 * 1024 * 1024;
+const REMOTE_FRAME_LOG_MAX_ENTRIES: usize = 16 * 1024;
+const REMOTE_FRAME_LOG_MAX_BYTES: usize = 2 * 1024 * 1024;
 const REMOTE_TERMINAL_DIMENSION_MAX: u64 = 10_000;
 const REMOTE_TERMINAL_CELL_MAX: u64 = 1024 * 1024;
 const INTERACTIVE_LATENCY_BUCKET_UPPER_US: [u64; 18] = [
@@ -879,6 +881,52 @@ fn interactive_writer_worker(
     }
 }
 
+struct RemoteFrameLogEntry {
+    surface: SurfaceId,
+    line: String,
+    charged_bytes: usize,
+}
+
+#[derive(Default)]
+struct RemoteFrameLogs {
+    entries: VecDeque<RemoteFrameLogEntry>,
+    bytes: usize,
+}
+
+impl RemoteFrameLogs {
+    fn push(&mut self, surface: SurfaceId, line: String) {
+        self.push_with_limits(
+            surface,
+            line,
+            REMOTE_FRAME_LOG_MAX_ENTRIES,
+            REMOTE_FRAME_LOG_MAX_BYTES,
+        );
+    }
+
+    fn push_with_limits(
+        &mut self,
+        surface: SurfaceId,
+        line: String,
+        maximum_entries: usize,
+        maximum_bytes: usize,
+    ) {
+        let charged_bytes = line.len().saturating_add(1);
+        if maximum_entries == 0 || charged_bytes > maximum_bytes {
+            return;
+        }
+        while !self.entries.is_empty()
+            && (self.entries.len() >= maximum_entries
+                || self.bytes.saturating_add(charged_bytes) > maximum_bytes)
+        {
+            if let Some(evicted) = self.entries.pop_front() {
+                self.bytes = self.bytes.saturating_sub(evicted.charged_bytes);
+            }
+        }
+        self.bytes = self.bytes.saturating_add(charged_bytes);
+        self.entries.push_back(RemoteFrameLogEntry { surface, line, charged_bytes });
+    }
+}
+
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
     pending: Mutex<HashMap<u64, Sender<Value>>>,
@@ -895,7 +943,7 @@ pub struct RemoteSession {
     subscribers: MuxEventBroadcaster,
     primed_subscription: Mutex<Option<MuxEventReceiver>>,
     frame_dump_dir: Option<PathBuf>,
-    frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
+    frame_logs: Mutex<RemoteFrameLogs>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
     surface_overflow_reconnect_required: AtomicBool,
     capabilities: Mutex<HashSet<String>>,
@@ -1128,7 +1176,7 @@ impl RemoteSession {
             subscribers: MuxEventBroadcaster::default(),
             primed_subscription: Mutex::new(None),
             frame_dump_dir: std::env::var_os("CMUX_MUX_DEBUG_MIRROR_DUMP").map(PathBuf::from),
-            frame_logs: Mutex::new(HashMap::new()),
+            frame_logs: Mutex::new(RemoteFrameLogs::default()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             surface_overflow_reconnect_required: AtomicBool::new(false),
             capabilities: Mutex::new(HashSet::new()),
@@ -1706,7 +1754,7 @@ impl RemoteSession {
         if self.frame_dump_dir.is_none() {
             return;
         }
-        self.frame_logs.lock().unwrap().entry(surface).or_default().push(line.to_string());
+        self.frame_logs.lock().unwrap().push(surface, line.to_string());
     }
 
     pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
@@ -2240,8 +2288,12 @@ impl Drop for RemoteSession {
             let path = dir.join(format!("mirror-{}.txt", surface.id));
             let _ = fs::write(path, dump_mirror(surface));
             let frames = dir.join(format!("frames-{}.log", surface.id));
-            let text = logs.get(&surface.id).map(|lines| lines.join("\n")).unwrap_or_default();
-            let _ = fs::write(frames, format!("{text}\n"));
+            if let Ok(file) = fs::File::create(frames) {
+                let mut writer = io::BufWriter::new(file);
+                for entry in logs.entries.iter().filter(|entry| entry.surface == surface.id) {
+                    let _ = writeln!(writer, "{}", entry.line);
+                }
+            }
         }
     }
 }
@@ -2456,7 +2508,7 @@ fn test_session_with_writer(
         subscribers: MuxEventBroadcaster::default(),
         primed_subscription: Mutex::new(None),
         frame_dump_dir: None,
-        frame_logs: Mutex::new(HashMap::new()),
+        frame_logs: Mutex::new(RemoteFrameLogs::default()),
         surface_overflow_recovery: Mutex::new(HashMap::new()),
         surface_overflow_reconnect_required: AtomicBool::new(false),
         capabilities: Mutex::new(capabilities),
@@ -2619,7 +2671,25 @@ mod tests {
         session.log_frame(7, format_args!("{}", FormattingProbe(formatted.clone())));
 
         assert!(!formatted.load(Ordering::Relaxed));
-        assert!(session.frame_logs.lock().unwrap().is_empty());
+        assert!(session.frame_logs.lock().unwrap().entries.is_empty());
+    }
+
+    #[test]
+    fn frame_logging_evicts_oldest_entries_to_stay_within_both_limits() {
+        let mut logs = RemoteFrameLogs::default();
+        for line in ["first", "second", "third"] {
+            logs.push_with_limits(7, line.into(), 2, 100);
+        }
+        assert_eq!(
+            logs.entries.iter().map(|entry| entry.line.as_str()).collect::<Vec<_>>(),
+            ["second", "third"]
+        );
+
+        let mut byte_bounded = RemoteFrameLogs::default();
+        byte_bounded.push_with_limits(7, "1234".into(), 10, 8);
+        byte_bounded.push_with_limits(7, "5678".into(), 10, 8);
+        assert_eq!(byte_bounded.bytes, 5);
+        assert_eq!(byte_bounded.entries.front().unwrap().line, "5678");
     }
 
     #[test]
@@ -2998,7 +3068,7 @@ mod tests {
             subscribers: MuxEventBroadcaster::default(),
             primed_subscription: Mutex::new(None),
             frame_dump_dir: None,
-            frame_logs: Mutex::new(HashMap::new()),
+            frame_logs: Mutex::new(RemoteFrameLogs::default()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             surface_overflow_reconnect_required: AtomicBool::new(false),
             capabilities: Mutex::new(capabilities),
