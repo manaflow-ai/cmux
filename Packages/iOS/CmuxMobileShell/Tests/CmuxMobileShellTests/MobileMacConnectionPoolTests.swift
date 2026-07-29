@@ -250,6 +250,81 @@ import Testing
         #expect(shell.secondaryMacSubscriptions["mac-racing"] == nil)
     }
 
+    @Test func fullAndTargetedAggregationShareOnePerMacDial() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "single-flight-dial",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_585)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-single-flight",
+            displayName: "Single Flight Mac",
+            routes: [route],
+            instanceTag: "single-flight-tag",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-single-flight",
+            instanceTag: "single-flight-tag",
+            displayName: "Single Flight Mac"
+        )
+        await router.delayHostStatusRequest(number: 1)
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: TransportBox()
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        await shell.loadPairedMacs()
+
+        let fullRefresh = Task { @MainActor in
+            await shell.refreshSecondaryMacWorkspaces()
+        }
+        #expect(await router.waitForCount(
+            of: "mobile.host.status",
+            atLeast: 1
+        ))
+        #expect(try await pollUntil {
+            await router.heldRequestCount() == 1
+        })
+        let targetedRefresh = Task { @MainActor in
+            await shell.refreshSecondaryMacWorkspaces(
+                onlyMacDeviceIDs: ["mac-single-flight"]
+            )
+        }
+        for _ in 0 ..< 5 { await Task.yield() }
+        #expect(await router.count(of: "mobile.host.status") == 1)
+
+        await router.releaseAllHeld()
+        await fullRefresh.value
+        await targetedRefresh.value
+
+        #expect(await router.count(of: "mobile.host.status") == 1)
+        #expect(shell.secondaryMacSubscriptions["mac-single-flight"] != nil)
+        shell.secondaryMacSubscriptions["mac-single-flight"]?.cancel()
+    }
+
     @Test func warmControlPoolHasStableResourceCap() throws {
         let store = MobileShellComposite(isSignedIn: false)
         let candidateCount =

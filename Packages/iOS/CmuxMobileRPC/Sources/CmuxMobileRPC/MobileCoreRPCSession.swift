@@ -260,6 +260,15 @@ actor MobileCoreRPCSession {
         isTearingDown = false
     }
 
+    /// Wait until every physical transport detached by teardown has completed
+    /// `close()`. Ordinary reconnects intentionally do not block on this, but a
+    /// same-peer ownership handoff must observe the release before redialing.
+    func waitForTransportDrain() async {
+        while let transportCloseTask {
+            await transportCloseTask.value
+        }
+    }
+
     // MARK: - private
 
     private func ensureConnected(timeoutNanoseconds: UInt64) async throws -> any CmxByteTransport {

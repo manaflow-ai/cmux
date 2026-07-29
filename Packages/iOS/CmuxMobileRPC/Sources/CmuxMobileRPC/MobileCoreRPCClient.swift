@@ -123,6 +123,18 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await session.tearDown(error: .connectionClosed)
     }
 
+    /// Retire this client and await both its installed transport close and any
+    /// transport factory admission that raced retirement. Same-peer ownership
+    /// transfers use this stronger boundary before allocating a replacement.
+    public func disconnectAndWaitForTransportDrain() async {
+        retire()
+        await session.tearDown(error: .connectionClosed)
+        async let sessionDrain: Void = session.waitForTransportDrain()
+        async let admissionDrain: Void =
+            lifecycleGate.waitForRetiredTransportDisposals()
+        _ = await (sessionDrain, admissionDrain)
+    }
+
     /// Synchronously prevent this client from allocating another transport.
     /// Shell ownership changes call this before scheduling actor-isolated
     /// teardown, closing the window where an already-queued RPC could reopen a

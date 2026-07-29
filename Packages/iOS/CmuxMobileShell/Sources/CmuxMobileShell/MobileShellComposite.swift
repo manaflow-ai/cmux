@@ -955,6 +955,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case cached
         case store
     }
+    private struct SecondaryMacEstablishmentFlight {
+        let id: UUID
+        let task: Task<SecondaryMacEstablishmentOutcome, Never>
+    }
+    /// Full and targeted aggregation are independent coalescers. This keyed
+    /// single-flight is their shared publication owner, preventing two
+    /// suspended dials from installing control connections for one physical Mac.
+    @ObservationIgnored
+    private var secondaryMacEstablishmentFlights:
+        [String: SecondaryMacEstablishmentFlight] = [:]
     /// Scope-bound index backing targeted presence reconciliation. Route writes
     /// refresh this cache before enqueueing their presence edge, so one Mac's
     /// heartbeat can inspect that Mac plus the bounded live pool without
@@ -4554,8 +4564,38 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         scope: MobileShellScopeSnapshot,
         authorityValidation: SecondaryStoredAuthorityValidation
     ) async -> SecondaryMacEstablishmentOutcome {
+        let flightKey = cmxCanonicalDeviceID(mac.macDeviceID)
+        if let existing = secondaryMacEstablishmentFlights[flightKey] {
+            return await existing.task.value
+        }
+        let flightID = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else {
+                return SecondaryMacEstablishmentOutcome.superseded
+            }
+            return await self.performSecondaryMacSubscriptionEstablishment(
+                for: mac,
+                scope: scope,
+                authorityValidation: authorityValidation
+            )
+        }
+        secondaryMacEstablishmentFlights[flightKey] =
+            SecondaryMacEstablishmentFlight(id: flightID, task: task)
+        let outcome = await task.value
+        if secondaryMacEstablishmentFlights[flightKey]?.id == flightID {
+            secondaryMacEstablishmentFlights[flightKey] = nil
+        }
+        return outcome
+    }
+
+    private func performSecondaryMacSubscriptionEstablishment(
+        for mac: MobilePairedMac,
+        scope: MobileShellScopeSnapshot,
+        authorityValidation: SecondaryStoredAuthorityValidation
+    ) async -> SecondaryMacEstablishmentOutcome {
         let macID = mac.macDeviceID
         guard let pairedMacStore,
+              !Task.isCancelled,
               secondaryMacSubscriptions[macID] == nil else {
             return .superseded
         }
@@ -4571,7 +4611,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ) else {
                 return .superseded
             }
-            markSecondaryMacUnavailable(macID)
+            markSecondaryMacUnavailableIfUnowned(macID)
             return .transientFailure
         case .permanentFailure:
             guard await isSecondaryMacStillVisible(
@@ -4581,7 +4621,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ) else {
                 return .superseded
             }
-            markSecondaryMacUnavailable(macID)
+            markSecondaryMacUnavailableIfUnowned(macID)
             return .permanentFailure
         }
         let client = handle.client
@@ -4589,7 +4629,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // open a duplicate connection, AND so a sign-out / account/team switch
         // during the connect does not leave an old-scope connection live or write
         // its state; the loser disconnects its client.
-        guard secondaryMacSubscriptions[macID] == nil,
+        guard !Task.isCancelled,
+              secondaryMacSubscriptions[macID] == nil,
               secondaryMacSubscriptions.count
                   < Self.maximumWarmControlConnectionCount,
               await isSecondaryMacStillVisible(
@@ -4635,7 +4676,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macID,
             instanceTag: handle.storedInstanceTag
         ) else {
-            markSecondaryMacUnavailable(macID)
+            markSecondaryMacUnavailableIfUnowned(macID)
             await client.disconnect()
             return .superseded
         }
@@ -5225,6 +5266,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspacesByMac[macID] = state
     }
 
+    private func markSecondaryMacUnavailableIfUnowned(_ macID: String) {
+        let canonicalMacID = cmxCanonicalDeviceID(macID)
+        guard !liveMacConnections.contains(where: {
+            cmxCanonicalDeviceID($0.macDeviceID) == canonicalMacID
+        }) else {
+            return
+        }
+        markSecondaryMacUnavailable(macID)
+    }
+
     /// Enqueue one per-Mac workspace refresh. Presence reconciliation, event
     /// catch-up, mutation repair, and refresh-only health checks all share this
     /// single owner, so responses are applied in request order and a superseded
@@ -5550,6 +5601,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryPresenceAggregationTask = nil
         secondaryPresenceAggregationTaskGeneration = UUID()
         secondaryPresencePendingMacIDs = []
+        for flight in secondaryMacEstablishmentFlights.values {
+            flight.task.cancel()
+        }
+        secondaryMacEstablishmentFlights = [:]
         secondaryAggregationAfterPushedRoutesOperationID = UUID()
         secondaryAggregationAfterPushedRoutesTask?.cancel()
         secondaryAggregationAfterPushedRoutesTask = nil
@@ -6986,8 +7041,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             displaced.isTransitioningToFocus = true
             displacedControlReservation = displaced
             displaced.detachKeepingClient()
-            await displaced.client.disconnect()
-            guard isConnectCurrent() else { return nil }
+            let transportDrain = await Self.raceAgainstDeadline(
+                nanoseconds: connectionHandoffDrainTimeoutNanoseconds
+            ) {
+                await displaced.client
+                    .disconnectAndWaitForTransportDrain()
+                return true
+            }
+            guard transportDrain.value == true,
+                  !transportDrain.wasCancelled,
+                  isConnectCurrent() else {
+                return nil
+            }
         }
         routeLoop: for route in supportedRoutes {
             candidateRoute = route
