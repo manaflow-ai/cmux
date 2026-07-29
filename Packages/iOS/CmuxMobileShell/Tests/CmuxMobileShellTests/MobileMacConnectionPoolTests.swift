@@ -2889,6 +2889,82 @@ import Testing
         await client.disconnect()
     }
 
+    @Test
+    func controlGapActivationDoesNotAwaitTrailingNotificationCoalescer()
+        async throws {
+        let route = try CmxAttachRoute(
+            id: "bounded-notification-catch-up",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_587)
+        )
+        let router = LivenessHostRouter()
+        await router.scriptNotificationFeedRevisions([2, 3])
+        await router.holdNotificationFeedListRequest(number: 2)
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-b",
+            macDisplayName: "Mac B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "mmpool",
+            authenticatedInstanceTag: "mmpool",
+            supportedHostCapabilities: ["notification.feed.v1"],
+            actionCapabilities: .none,
+            displayName: "Mac B"
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = subscription
+        shell.notificationFeedKnownRevisionsByMac["mac-b"] = 3
+        let completion = PromotionFenceCompletion()
+        let repair = Task { @MainActor in
+            let result =
+                await shell.reconcileSecondaryNotificationFeedAfterControlGap(
+                    macDeviceID: "mac-b",
+                    client: client,
+                    displayName: "Mac B"
+                )
+            await completion.finish()
+            return result
+        }
+
+        #expect(await router.waitForCount(
+            of: "notification.feed.list",
+            atLeast: 2
+        ))
+        #expect(try await pollUntil {
+            await completion.isFinished
+        })
+
+        await router.releaseAllHeld()
+        #expect(await repair.value)
+        subscription.detachKeepingClient()
+        shell.secondaryMacSubscriptions["mac-b"] = nil
+        await client.disconnect()
+    }
+
     @Test func workspaceEventChurnPublishesLeadingAndBoundedTrailingSnapshots()
         async throws {
         let directory = FileManager.default.temporaryDirectory

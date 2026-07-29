@@ -51,6 +51,8 @@ actor LivenessHostRouter {
     private var notificationFeedRevision = 0
     private var notificationFeedRevisions: [Int] = []
     private var notificationFeedFailuresRemaining = 0
+    private var notificationFeedRequestCount = 0
+    private var heldNotificationFeedRequestNumbers: Set<Int> = []
     private var replayRequestCount = 0
     private var replayResponseCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
@@ -299,6 +301,10 @@ actor LivenessHostRouter {
         notificationFeedRevisions.append(contentsOf: revisions)
     }
 
+    func holdNotificationFeedListRequest(number: Int) {
+        heldNotificationFeedRequestNumbers.insert(number)
+    }
+
     /// Hold the next workspace-list responses relative to requests already seen.
     func holdNextWorkspaceListRequests(count: Int = 1) {
         guard count > 0 else { return }
@@ -381,6 +387,7 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers = []
         delayedSubscribeRequestNumbers = []
         heldUnsubscribeRequestNumbers = []
+        heldNotificationFeedRequestNumbers = []
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
         heldSyncFetchRequestNumbers = []
@@ -553,6 +560,12 @@ actor LivenessHostRouter {
                 "removed": true,
             ])
         case "notification.feed.list":
+            notificationFeedRequestCount += 1
+            if heldNotificationFeedRequestNumbers.contains(
+                notificationFeedRequestCount
+            ) {
+                await park()
+            }
             if notificationFeedFailuresRemaining > 0 {
                 notificationFeedFailuresRemaining -= 1
                 return try? Self.errorFrame(

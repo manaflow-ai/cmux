@@ -982,19 +982,17 @@ import Testing
         await first.value
         await second.value
         #expect(await secondCompletion.isFinished)
-        await transport.waitUntilCloseStarted()
-
-        var recoveryLease: MobileRPCConnectAttemptLease?
-        for _ in 0..<20 {
-            if case let .granted(lease) =
-                await registry.beginConnect(key: key) {
-                recoveryLease = lease
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
+        let recoveryAdmission = await registry.beginConnect(key: key)
+        switch recoveryAdmission {
+        case .granted(let recoveryLease):
+            await registry.finishConnect(lease: recoveryLease)
+        case .busy, .cleanupBlocked:
+            Issue.record(
+                "Teardown returned before abandoned reconnect cleanup registration"
+            )
         }
-        #expect(recoveryLease != nil)
-        await registry.finishConnect(lease: recoveryLease)
+
+        await transport.waitUntilCloseStarted()
         await transport.releaseClose()
         await session.waitForTransportDrain()
         send.cancel()
