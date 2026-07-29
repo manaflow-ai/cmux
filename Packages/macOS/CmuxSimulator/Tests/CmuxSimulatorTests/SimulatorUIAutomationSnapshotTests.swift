@@ -106,6 +106,11 @@ struct SimulatorUIAutomationSnapshotTests {
             label: "General",
             role: .button
         )).map(\.ref) == ["e1_2"])
+        #expect(record.accessibilityInteractionTargets(
+            label: "Search",
+            identifier: nil,
+            role: "text-field"
+        ).map(\.element.ref) == ["e1_3"])
         #expect(record.containingText("search").map(\.ref) == ["e1_3"])
         #expect(record.containingText("GENERAL").map(\.ref) == ["e1_2"])
 

@@ -121,6 +121,36 @@ struct SimulatorUIAutomationSessionTests {
         ).snapshot.sequence == 3)
     }
 
+    @Test("Snapshot invalidation advances the mutation generation")
+    func mutationGenerationTracksExternalInput() {
+        let session = SimulatorUIAutomationSession()
+        let generation = session.mutationGeneration
+
+        session.clearSnapshot()
+
+        #expect(session.mutationGeneration == generation + 1)
+    }
+
+    @Test("A held semantic touch survives snapshot replacement until release")
+    func heldTouchSurvivesSnapshotReplacement() {
+        let session = SimulatorUIAutomationSession()
+        let point = SimulatorPoint(x: 0.4, y: 0.6)
+        let display = SimulatorDisplayMetadata(
+            width: 1_170,
+            height: 2_532,
+            orientation: .portrait,
+            scale: 3
+        )
+
+        session.holdTouch(elementRef: "e1_2", point: point, display: display)
+        session.clearSnapshot()
+
+        #expect(session.heldTouch(elementRef: "e1_2")?.point == point)
+        #expect(session.heldTouch(elementRef: "e1_2")?.display == display)
+        session.releaseHeldTouch(elementRef: "e1_2")
+        #expect(session.heldTouch(elementRef: "e1_2") == nil)
+    }
+
     private func snapshot() -> SimulatorAccessibilitySnapshot {
         SimulatorAccessibilitySnapshot(
             roots: [

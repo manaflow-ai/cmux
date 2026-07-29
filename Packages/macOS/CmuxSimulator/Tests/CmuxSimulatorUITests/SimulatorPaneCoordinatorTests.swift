@@ -223,8 +223,8 @@ struct SimulatorPaneCoordinatorTests {
         #expect(await client.activations().map(\.id) == ["phone"])
     }
 
-    @Test("Optional capability commands wait for hydration after core streaming")
-    func optionalCapabilityWaitsForHydration() async throws {
+    @Test("Optional capability commands wait only for their own resolution")
+    func optionalCapabilityWaitsForItsResolution() async throws {
         let client = SimulatorPaneClientSpy(devices: [])
         let coordinator = SimulatorPaneCoordinator(client: client)
         await coordinator.start()
@@ -232,16 +232,22 @@ struct SimulatorPaneCoordinatorTests {
         await eventually { coordinator.status == .streaming }
 
         let waiter = Task { @MainActor in
-            try await coordinator.waitForCapabilityHydration()
+            try await coordinator.waitForCapabilityResolution(.accessibility)
         }
-        await eventually { coordinator.capabilityHydrationWaiters.count == 1 }
+        await eventually {
+            coordinator.capabilityResolutionWaiters[.accessibility]?.count == 1
+        }
         #expect(!coordinator.supports(.accessibility))
 
-        await client.emit(.message(.capabilitiesHydrated([.accessibility, .framebuffer])))
+        await client.emit(.message(.capabilityResolved(
+            .accessibility,
+            available: true
+        )))
         try await waiter.value
 
         #expect(coordinator.supports(.accessibility))
-        #expect(coordinator.capabilityHydrationWaiters.isEmpty)
+        #expect(coordinator.capabilityResolutionWaiters[.accessibility] == nil)
+        #expect(coordinator.capabilityResolutions[.webInspector] == nil)
     }
 
     @Test("Restored panes without a persisted UDID require explicit selection")

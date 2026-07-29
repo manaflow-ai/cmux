@@ -69,8 +69,28 @@ struct SimulatorUIAutomationCaptureRetryTests {
             #expect(failure.code == "snapshot_capture_failed")
         }
 
-        #expect(attempts == 2)
+        #expect(attempts == 1)
         #expect(timing.sleepCount == 1)
+    }
+
+    @Test("An expired deadline does not start a capture")
+    func expiredDeadlineSkipsCapture() async {
+        let timing = AdvancingSimulatorUIAutomationTiming(nowMilliseconds: 1_000)
+        let retry = SimulatorUIAutomationCaptureRetry(timing: timing)
+        var attempts = 0
+
+        do {
+            _ = try await retry.capture(until: 1_000) {
+                attempts += 1
+                return 42
+            } as Int
+            Issue.record("Expected the expired capture deadline to fail")
+        } catch {
+            // The retry owns the deadline, so the capture closure must stay untouched.
+        }
+
+        #expect(attempts == 0)
+        #expect(timing.sleepCount == 0)
     }
 
     private func simulatorSnapshotFailure() -> SimulatorUIAutomationFailure {
