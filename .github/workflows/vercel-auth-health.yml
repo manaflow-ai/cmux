@@ -7,6 +7,10 @@ on:
         description: Exact commit to deploy as a Vercel preview
         required: false
         type: string
+      deployment_url:
+        description: Existing exact-ref preview to verify without redeploying
+        required: false
+        type: string
   schedule:
     - cron: "17 6 * * *"
 
@@ -38,9 +42,12 @@ jobs:
           set -euo pipefail
           bunx vercel@56.3.1 link --yes \
             --project cmux --scope manaflow --cwd .
-          preview_url="$(
-            bunx vercel@56.3.1 deploy --yes --scope manaflow --cwd .
-          )"
+          preview_url="$REQUESTED_DEPLOYMENT_URL"
+          if [[ -z "$preview_url" ]]; then
+            preview_url="$(
+              bunx vercel@56.3.1 deploy --yes --scope manaflow --cwd .
+            )"
+          fi
           case "$preview_url" in
             https://*) ;;
             *)
@@ -56,7 +63,7 @@ jobs:
             actual="$(
               bunx vercel@56.3.1 curl "$path" \
                 --deployment "$preview_url" --scope manaflow --cwd . \
-                -sS -o /dev/null -w '%{http_code}'
+                -- -sS -o /dev/null -w '%{http_code}'
             )"
             printf 'Preview status: %s -> %s\n' "$path" "$actual"
             test "$actual" = "$expected"
@@ -67,4 +74,5 @@ jobs:
           printf '### Vercel preview\n\n[%s](%s)\n' \
             "$preview_url" "$preview_url" >> "$GITHUB_STEP_SUMMARY"
         env:
+          REQUESTED_DEPLOYMENT_URL: ${{ inputs.deployment_url }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
