@@ -27,11 +27,13 @@ func makeRoutingConnectedStore(
     hostCapabilities: Set<String> = ["workspace.task_create.v1"],
     pairedMacStore: (any MobilePairedMacStoring)? = nil,
     routeKind: CmxAttachTransportKind = .debugLoopback,
-    terminalLaneProvider: MobileTerminalLaneProvider? = nil
+    terminalLaneProvider: MobileTerminalLaneProvider? = nil,
+    rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 ) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router),
         terminalLaneProvider: terminalLaneProvider,
+        rpcRequestTimeoutNanoseconds: rpcRequestTimeoutNanoseconds,
         supportedRouteKinds: [routeKind]
     )
     let terminals = [

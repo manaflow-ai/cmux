@@ -6659,7 +6659,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let generation = connectionGeneration
         if let terminalLaneCoordinator {
             let laneResult: MobileTerminalLaneCoordinator.InputResult
-            if terminalInputRPCPipeline.hasUnsettledRequests(
+            if terminalInputRPCPipeline.hasAmbiguousFailure(
+                surfaceID: terminalID.rawValue
+            ) {
+                // An earlier pipelined request for this surface failed without
+                // a host response; the host may still apply it late. Refuse
+                // the lane and stay on the ordered RPC path, which remains
+                // correctly ordered with a late apply, until the next
+                // connection-lifecycle reset.
+                laneResult = .unavailable
+            } else if terminalInputRPCPipeline.hasUnsettledRequests(
                 surfaceID: terminalID.rawValue
             ) {
                 if await terminalLaneCoordinator.isOutputReady(
@@ -6677,10 +6686,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                           client === remoteClient else {
                         return
                     }
-                    laneResult = await terminalLaneCoordinator.sendInput(
-                        text,
+                    if terminalInputRPCPipeline.hasAmbiguousFailure(
                         surfaceID: terminalID.rawValue
-                    )
+                    ) {
+                        // A request settled by the barrier just failed without
+                        // a host response; same late-apply hazard as above.
+                        laneResult = .unavailable
+                    } else {
+                        laneResult = await terminalLaneCoordinator.sendInput(
+                            text,
+                            surfaceID: terminalID.rawValue
+                        )
+                    }
                 } else {
                     laneResult = .unavailable
                 }

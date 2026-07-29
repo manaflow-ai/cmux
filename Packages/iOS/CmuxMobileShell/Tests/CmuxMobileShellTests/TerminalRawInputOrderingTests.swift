@@ -171,6 +171,76 @@ import Testing
     }
 
     @MainActor
+    @Test func ambiguousPipelinedFailureKeepsSurfaceOffTheLane() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldAllTerminalInputs(true)
+        let lane = RawInputBarrierTerminalLane()
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [
+                MobileShellComposite.terminalInputOrderedCapability,
+            ],
+            routeKind: .iroh,
+            terminalLaneProvider: { _, _, _ in lane },
+            rpcRequestTimeoutNanoseconds: 1_000_000_000
+        )
+        let outputStream = store.terminalOutputStream(
+            surfaceID: RoutingHostRouter.terminalA
+        )
+        _ = outputStream
+
+        await store.submitTerminalRawInput(
+            Data("a".utf8),
+            surfaceID: RoutingHostRouter.terminalA
+        )
+        #expect(await waitForTerminalInputCount(
+            1,
+            router: router,
+            deadline: .seconds(5)
+        ))
+        // Let the held request time out client-side: an ambiguous failure,
+        // because the host may still apply the input late.
+        #expect(await waitForConnectionError(store: store))
+
+        await lane.activate()
+        #expect(await waitForLaneReadiness(
+            store: store,
+            surfaceID: RoutingHostRouter.terminalA
+        ))
+
+        await store.submitTerminalRawInput(
+            Data("b".utf8),
+            surfaceID: RoutingHostRouter.terminalA
+        )
+        // The ready lane must be refused after an ambiguous failure; the
+        // chunk stays on the ordered RPC path where a late-applied "a"
+        // cannot be overtaken.
+        #expect(await waitForTerminalInputCount(
+            2,
+            router: router,
+            deadline: .seconds(5)
+        ))
+        #expect(await lane.inputs().isEmpty)
+        await router.releaseAllTerminalInputs()
+        await lane.close()
+    }
+
+    @MainActor
+    private func waitForConnectionError(
+        store: MobileShellComposite
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(3))
+        while clock.now < deadline {
+            if store.connectionError != nil {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
+    }
+
+    @MainActor
     @Test func staleGenerationPipelinedFailureIsIgnored() async throws {
         let router = RoutingHostRouter()
         await router.setHoldAllTerminalInputs(true)
@@ -201,10 +271,11 @@ import Testing
 
     private func waitForTerminalInputCount(
         _ expectedCount: Int,
-        router: RoutingHostRouter
+        router: RoutingHostRouter,
+        deadline deadlineDuration: Duration = .milliseconds(500)
     ) async -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .milliseconds(500))
+        let deadline = clock.now.advanced(by: deadlineDuration)
         while clock.now < deadline {
             if await router.recordedTerminalInputs().count >= expectedCount {
                 return true

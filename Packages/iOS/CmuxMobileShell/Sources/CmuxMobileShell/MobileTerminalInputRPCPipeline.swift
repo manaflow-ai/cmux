@@ -1,4 +1,5 @@
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 
 @MainActor
@@ -22,11 +23,22 @@ final class MobileTerminalInputRPCPipeline {
     /// one PTY, and an app-wide wait would let one terminal's slow response
     /// stall a different terminal's healthy lane.
     private var settledWaitersBySurfaceID: [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// Surfaces where a pipelined request failed WITHOUT a host-produced
+    /// response (timeout, transport loss). The host's ordered worker may still
+    /// apply that input late, so handing the surface to the independent lane
+    /// could deliver later bytes first. The surface stays on the ordered RPC
+    /// path (which remains correctly ordered with a late apply) until the next
+    /// connection-lifecycle clear().
+    private var surfacesWithAmbiguousFailures: Set<String> = []
     private var reaperTask: Task<Void, Never>?
     private var generation = UUID()
 
     func hasUnsettledRequests(surfaceID: String) -> Bool {
         entries.contains { $0.surfaceID == surfaceID }
+    }
+
+    func hasAmbiguousFailure(surfaceID: String) -> Bool {
+        surfacesWithAmbiguousFailures.contains(surfaceID)
     }
 
     func enqueue(
@@ -67,10 +79,26 @@ final class MobileTerminalInputRPCPipeline {
         }
     }
 
+    /// Whether the host provably processed (and rejected) the request, so its
+    /// input can never be applied later. Mirrors the definite-host-response
+    /// classification in MobileCoreRPCSession's settlement resolution.
+    private static func isDefinitiveHostResponseFailure(_ error: any Error) -> Bool {
+        guard let connectionError = error as? MobileShellConnectionError else {
+            return false
+        }
+        switch connectionError {
+        case .rpcError, .authorizationFailed, .accountMismatch:
+            return true
+        default:
+            return false
+        }
+    }
+
     func clear() {
         generation = UUID()
         let abandonedEntries = entries
         entries.removeAll()
+        surfacesWithAmbiguousFailures.removeAll()
         reaperTask?.cancel()
         reaperTask = nil
         // Dropped entries are never awaited again; release their session
@@ -107,6 +135,10 @@ final class MobileTerminalInputRPCPipeline {
                 return
             }
             entries.removeFirst()
+            if case let .failure(error) = result,
+               !Self.isDefinitiveHostResponseFailure(error) {
+                surfacesWithAmbiguousFailures.insert(entry.surfaceID)
+            }
             entry.settlementHandler(result)
             if !hasUnsettledRequests(surfaceID: entry.surfaceID) {
                 resumeSettledWaiters(surfaceID: entry.surfaceID)
