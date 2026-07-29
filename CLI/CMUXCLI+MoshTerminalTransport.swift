@@ -58,6 +58,7 @@ extension CMUXCLI {
             sessionSSHArguments: sessionSSHArguments,
             destination: options.destination,
             remoteCommandArguments: remoteCommandArguments,
+            remoteRelayPort: options.remoteRelayPort,
             preparationShellScript: preparationShellScript,
             managementReadyShellScript: localCommandScript,
             sshFallbackCommand: sshFallbackCommand,

@@ -258,6 +258,7 @@ extension SessionRemoteWorkspaceSnapshot {
             sessionSSHArguments: moshSSHArguments,
             destination: normalizedDestination,
             remoteCommandArguments: remoteCommandArguments,
+            remoteRelayPort: remoteRelayPort,
             preparationShellScript: preparationShellScript,
             sshFallbackCommand: effectiveSSHFallbackCommand,
             localMoshMissingMessage: String(

@@ -10122,7 +10122,7 @@ struct CMUXCLI {
             "cmux_remote_readiness_template=\(shellQuote(readinessTemplate))",
             "cmux_remote_readiness=\"$(printf '%s' \"$cmux_remote_readiness_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g; s/__CMUX_TERMINAL_LIFECYCLE_ID__/$cmux_terminal_lifecycle_id/g; s/__CMUX_SSH_ATTEMPT_ID__/$cmux_ssh_attempt_id/g\")\"",
             "cmux_user_remote_command=\(shellQuote(originalRemoteCommand))",
-            "cmux_remote_command=\"$cmux_remote_readiness\n$cmux_user_remote_command\"",
+            "cmux_remote_command=\"$cmux_remote_readiness\ncmux_remote_readiness_status=\\$?\nif [ \\\"\\$cmux_remote_readiness_status\\\" -ne 0 ]; then exit \\\"\\$cmux_remote_readiness_status\\\"; fi\n$cmux_user_remote_command\"",
             "command \(sshPrefix) \(shellQuote(options.destination)) \"$cmux_remote_command\"",
         ]
         return lines.joined(separator: "\n")
@@ -10179,13 +10179,23 @@ struct CMUXCLI {
     ) -> [String] {
         guard remoteRelayPort > 0 else { return [] }
         return [
-            "cmux_relay_cli=\"$HOME/.cmux/bin/cmux\"",
-            "if [ ! -x \"$cmux_relay_cli\" ]; then cmux_relay_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
-            "if [ -n \"$cmux_relay_cli\" ] && [ -n \"__CMUX_SURFACE_ID__\" ]; then",
+            "if [ -n \"__CMUX_SURFACE_ID__\" ]; then",
             "  cmux_relay_terminal_connected='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"relay_port\":\(remoteRelayPort),\"terminal_lifecycle_id\":\"__CMUX_TERMINAL_LIFECYCLE_ID__\",\"attempt_id\":\"__CMUX_SSH_ATTEMPT_ID__\"}'",
-            "  env -u CMUX_SOCKET CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc workspace.remote.terminal_session_connected \"$cmux_relay_terminal_connected\" >/dev/null 2>&1 || true",
+            "  cmux_relay_terminal_connected_acknowledged=0",
+            "  cmux_relay_terminal_connected_retry=0",
+            "  while [ \"$cmux_relay_terminal_connected_retry\" -lt 4 ]; do",
+            "    cmux_relay_cli=\"$HOME/.cmux/bin/cmux\"",
+            "    if [ ! -x \"$cmux_relay_cli\" ]; then cmux_relay_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+            "    if [ -n \"$cmux_relay_cli\" ] && env -u CMUX_SOCKET CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc workspace.remote.terminal_session_connected \"$cmux_relay_terminal_connected\" >/dev/null 2>&1; then",
+            "      cmux_relay_terminal_connected_acknowledged=1",
+            "      break",
+            "    fi",
+            "    cmux_relay_terminal_connected_retry=$((cmux_relay_terminal_connected_retry + 1))",
+            "    if [ \"$cmux_relay_terminal_connected_retry\" -lt 4 ]; then /bin/sleep 0.1; fi",
+            "  done",
+            "  if [ \"$cmux_relay_terminal_connected_acknowledged\" -ne 1 ]; then exit 255; fi",
             "fi",
-            "unset cmux_relay_cli cmux_relay_terminal_connected",
+            "unset cmux_relay_cli cmux_relay_terminal_connected cmux_relay_terminal_connected_acknowledged cmux_relay_terminal_connected_retry",
         ]
     }
 
