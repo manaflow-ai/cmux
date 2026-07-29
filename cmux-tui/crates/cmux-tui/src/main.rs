@@ -1162,7 +1162,13 @@ fn publish_session_default_colors(
     if surface_only.is_some() {
         return Ok(());
     }
-    session.set_default_colors(colors)
+    match session {
+        Session::Local(mux) => {
+            mux.seed_default_colors_if_no_durable_override(colors);
+            Ok(())
+        }
+        Session::Remote(remote) => remote.set_default_colors(colors),
+    }
 }
 
 fn run_tui_once(
