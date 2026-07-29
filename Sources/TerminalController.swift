@@ -84,7 +84,7 @@ func windowScreenshotCaptureAction(
 }
 
 func windowScreenshotCGWindowID(exactly windowNumber: Int) -> CGWindowID? {
-    CGWindowID(windowNumber)
+    CGWindowID(exactly: windowNumber)
 }
 
 /// Accumulated worker→main `v2MainSync` hop time for the socket command
