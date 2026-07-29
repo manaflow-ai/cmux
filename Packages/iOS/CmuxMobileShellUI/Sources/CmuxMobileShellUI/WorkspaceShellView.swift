@@ -451,8 +451,7 @@ struct WorkspaceShellView: View {
     private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack(path: $compactNavigationPath) {
             MobilePrimaryWorkspaceSearchHost(
-                searchCoordinator: primarySearchCoordinator,
-                taskComposerAction: taskComposerAction
+                searchCoordinator: primarySearchCoordinator
             ) { searchText in
                 workspaceList(
                     navigationStyle: .push,
@@ -550,8 +549,7 @@ struct WorkspaceShellView: View {
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             MobilePrimaryWorkspaceSearchHost(
-                searchCoordinator: primarySearchCoordinator,
-                taskComposerAction: taskComposerAction
+                searchCoordinator: primarySearchCoordinator
             ) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
@@ -634,6 +632,7 @@ struct WorkspaceShellView: View {
             createWorkspaceInGroup: resolvedCreateWorkspaceInGroup,
             createWorkspaceGroup: resolvedCreateWorkspaceGroup,
             canCreateWorkspace: canCreateWorkspaceForSelection,
+            taskComposerAction: taskComposerAction,
             macSelection: $macSelection,
             switchMac: { macDeviceID, instanceTag in
                 await switchMacFromWorkspacePicker(

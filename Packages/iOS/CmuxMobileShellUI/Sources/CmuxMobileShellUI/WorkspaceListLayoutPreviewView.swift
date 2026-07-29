@@ -265,6 +265,11 @@ public struct WorkspaceListLayoutPreviewView: View {
         refreshGeneration += 1
     }
 
+    private var previewTaskComposerAction: (() -> Void)? {
+        guard showsTabScaffold else { return nil }
+        return {}
+    }
+
     private func workspaceListFixture(searchText: String) -> some View {
         WorkspaceListView(
             workspaces: model.workspaces,
@@ -280,6 +285,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 selectFixtureWorkspace(id)
             },
             createWorkspace: {},
+            taskComposerAction: previewTaskComposerAction,
             macSelection: $macSelection,
             refresh: {
                 await MainActor.run {

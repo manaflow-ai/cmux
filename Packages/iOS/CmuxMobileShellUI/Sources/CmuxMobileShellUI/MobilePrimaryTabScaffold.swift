@@ -39,32 +39,48 @@ struct MobilePrimaryTabScaffold<
 
     var body: some View {
         if #available(iOS 26.0, *) {
-            TabView(selection: tabSelection) {
-                primaryTabs
-
-                Tab(value: MobilePrimaryTab.search, role: .search) {
-                    searchDestination
-                }
-                .accessibilityIdentifier("MobilePrimaryTabSearch")
-            }
-            .searchable(
-                text: activeSearchText,
-                isPresented: searchPresentation,
-                prompt: activeSearchPrompt
-            )
-            .onSubmit(of: .search) {
-                selection = searchCoordinator.commitSubmit()
-            }
-            .tabViewSearchActivation(.searchTabSelection)
-            .accessibilityIdentifier("MobilePrimaryTabs")
-            .onChange(of: selection, initial: true) { _, selection in
-                searchCoordinator.synchronizeSelection(selection)
-            }
+            iOS26Tabs
         } else {
             TabView(selection: $selection) {
                 primaryTabs
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
+        }
+    }
+
+    @available(iOS 26.0, *)
+    @ViewBuilder
+    private var iOS26Tabs: some View {
+        if selection == .search || searchCoordinator.isPresented {
+            iOS26TabView
+                .searchable(
+                    text: activeSearchText,
+                    isPresented: searchPresentation,
+                    prompt: activeSearchPrompt
+                )
+                .searchToolbarBehavior(.minimize)
+                .onSubmit(of: .search) {
+                    selection = searchCoordinator.commitSubmit()
+                }
+        } else {
+            iOS26TabView
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private var iOS26TabView: some View {
+        TabView(selection: tabSelection) {
+            primaryTabs
+
+            Tab(value: MobilePrimaryTab.search, role: .search) {
+                searchDestination
+            }
+            .accessibilityIdentifier("MobilePrimaryTabSearch")
+        }
+        .tabViewSearchActivation(.searchTabSelection)
+        .accessibilityIdentifier("MobilePrimaryTabs")
+        .onChange(of: selection, initial: true) { _, selection in
+            searchCoordinator.synchronizeSelection(selection)
         }
     }
 
@@ -75,6 +91,8 @@ struct MobilePrimaryTabScaffold<
                 if (selection == .search || searchCoordinator.isPresented),
                    newValue.searchScope != nil {
                     searchCoordinator.deactivateCurrentSearch()
+                } else if newValue == .search {
+                    searchCoordinator.setPresentation(true)
                 }
                 selection = newValue
             }

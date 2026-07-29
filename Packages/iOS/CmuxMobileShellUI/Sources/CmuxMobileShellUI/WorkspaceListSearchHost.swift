@@ -1,4 +1,3 @@
-import CmuxMobileSupport
 import SwiftUI
 
 /// Owns workspace search state above list snapshots that are replaced during
@@ -7,16 +6,13 @@ import SwiftUI
 struct WorkspaceListSearchHost<Content: View>: View {
     @Binding private var searchText: String
     @FocusState private var searchIsFocused: Bool
-    private let taskComposerAction: (() -> Void)?
     private let content: (String) -> Content
 
     init(
         searchText: Binding<String>,
-        taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder content: @escaping (String) -> Content
     ) {
         _searchText = searchText
-        self.taskComposerAction = taskComposerAction
         self.content = content
     }
 
@@ -35,29 +31,6 @@ struct WorkspaceListSearchHost<Content: View>: View {
     private var iOSContent: some View {
         if #available(iOS 26.0, *) {
             content(searchText)
-                .toolbar {
-                    if let taskComposerAction {
-                        ToolbarSpacer(.flexible, placement: .bottomBar)
-                        ToolbarItem(placement: .bottomBar) {
-                            Button(action: taskComposerAction) {
-                                Image(systemName: "sparkles")
-                            }
-                            .accessibilityLabel(
-                                L10n.string(
-                                    "mobile.taskComposer.button.accessibilityLabel",
-                                    defaultValue: "New Task"
-                                )
-                            )
-                            .accessibilityHint(
-                                L10n.string(
-                                    "mobile.taskComposer.button.accessibilityHint",
-                                    defaultValue: "Opens the task composer."
-                                )
-                            )
-                            .accessibilityIdentifier("MobileTaskComposerButton")
-                        }
-                    }
-                }
         } else {
             content(searchText)
                 .searchable(

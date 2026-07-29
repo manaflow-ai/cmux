@@ -424,6 +424,19 @@ final class cmuxUITests: XCTestCase {
         let workspacesTab = app.tabBars.buttons["Workspaces"]
         XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
         let searchField = app.searchFields["Search workspaces"]
+        XCTAssertFalse(
+            searchField.exists,
+            "Workspace root should not expose the top search field before the Search tab is activated"
+        )
+        XCTAssertEqual(
+            app.buttons.matching(NSPredicate(format: "label == %@", "Search")).count,
+            1,
+            "Workspace root should expose only the bottom Search tab button"
+        )
+        XCTAssertFalse(
+            app.buttons["Search workspaces"].exists,
+            "Workspace root should not expose a toolbar Search button before the Search tab is activated"
+        )
         guard let minimizedSearchFrame = waitForUsableFrame(of: minimizedSearch, timeout: 3) else {
             XCTFail("Workspace search orb had no usable frame")
             return
@@ -443,6 +456,21 @@ final class cmuxUITests: XCTestCase {
             workspacesTab.frame.midY,
             accuracy: 1,
             "Workspace search and primary tabs should be vertically aligned"
+        )
+        let composerButton = app.buttons["MobileTaskComposerButton"]
+        XCTAssertTrue(composerButton.waitForExistence(timeout: 3))
+        guard let composerFrame = waitForUsableFrame(of: composerButton, timeout: 3) else {
+            XCTFail("New Task had no usable frame")
+            return
+        }
+        XCTAssertFalse(
+            composerFrame.intersects(minimizedSearchFrame),
+            "New Task must not overlap the system Search tab control"
+        )
+        XCTAssertLessThan(
+            composerFrame.maxY,
+            minimizedSearchFrame.minY,
+            "New Task should stay in the workspace toolbar, above the system tab bar"
         )
         let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
         let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
@@ -577,6 +605,19 @@ final class cmuxUITests: XCTestCase {
         notificationsTab.tap()
 
         XCTAssertTrue(app.staticTexts["Notification feed fixture"].waitForExistence(timeout: 3))
+        XCTAssertFalse(
+            app.searchFields["Search notifications"].exists,
+            "Notification root should not expose the top search field before the Search tab is activated"
+        )
+        XCTAssertEqual(
+            app.buttons.matching(NSPredicate(format: "label == %@", "Search")).count,
+            1,
+            "Notification root should expose only the bottom Search tab button"
+        )
+        XCTAssertFalse(
+            app.buttons["Search notifications"].exists,
+            "Notification root should not expose a toolbar Search button before the Search tab is activated"
+        )
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
         XCTAssertEqual(searchMatches.count, 1)
         guard let notificationSearchFrame = waitForUsableFrame(of: searchButton, timeout: 3) else {

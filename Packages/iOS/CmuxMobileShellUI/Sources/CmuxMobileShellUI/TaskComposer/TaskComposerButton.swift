@@ -22,4 +22,19 @@ struct TaskComposerButton: View {
         .accessibilityIdentifier("MobileTaskComposerButton")
     }
 }
+
+struct TaskComposerToolbarButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "sparkles")
+        }
+        .accessibilityLabel(L10n.string("mobile.taskComposer.button.accessibilityLabel", defaultValue: "New Task"))
+        .accessibilityHint(
+            L10n.string("mobile.taskComposer.button.accessibilityHint", defaultValue: "Opens the task composer.")
+        )
+        .accessibilityIdentifier("MobileTaskComposerButton")
+    }
+}
 #endif

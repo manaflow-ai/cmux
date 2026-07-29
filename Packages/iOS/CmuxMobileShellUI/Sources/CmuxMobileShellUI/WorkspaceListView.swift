@@ -41,6 +41,7 @@ struct WorkspaceListView: View {
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     var createWorkspaceGroup: (() -> Void)? = nil
     var canCreateWorkspace = true
+    var taskComposerAction: (() -> Void)? = nil
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
     @Binding var macSelection: WorkspaceMacSelection

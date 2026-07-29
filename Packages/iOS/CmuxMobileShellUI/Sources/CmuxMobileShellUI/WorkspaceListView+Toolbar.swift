@@ -47,6 +47,9 @@ extension WorkspaceListView {
                                 actions: workspaceListFilterMenuActions
                             )
                             .equatable()
+                            if #available(iOS 26.0, *), let taskComposerAction {
+                                TaskComposerToolbarButton(action: taskComposerAction)
+                            }
                             if canCreateWorkspace {
                                 newWorkspaceButton.equatable()
                             }
