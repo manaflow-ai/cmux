@@ -827,6 +827,10 @@ final class ClaudeHookSessionStore {
                 effectivePendingBackgroundWork = true
             } else if case .inheritAcrossClear = pendingBackgroundWorkBoundary {
                 effectivePendingBackgroundWork = false
+            } else if case .resumeSessionStart = pendingBackgroundWorkBoundary {
+                // A proven resume starts Idle in a new process generation; Stop-
+                // derived work belongs to the previous generation.
+                effectivePendingBackgroundWork = false
             } else {
                 effectivePendingBackgroundWork = hadPendingBackgroundWorkAtStop
             }
@@ -834,6 +838,8 @@ final class ClaudeHookSessionStore {
             if inheritedPendingBackgroundWork {
                 effectiveSurvivingBackgroundWork = true
             } else if case .inheritAcrossClear = pendingBackgroundWorkBoundary {
+                effectiveSurvivingBackgroundWork = false
+            } else if case .resumeSessionStart = pendingBackgroundWorkBoundary {
                 effectiveSurvivingBackgroundWork = false
             } else {
                 effectiveSurvivingBackgroundWork = hadSurvivingBackgroundWorkAtStop
