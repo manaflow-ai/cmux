@@ -1,0 +1,47 @@
+name: Sync marvin-main with upstream
+
+on:
+  schedule:
+    # Daily at 06:00 UTC.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  rebase-onto-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout marvin-main (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: marvin-main
+          fetch-depth: 0
+          submodules: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/manaflow-ai/cmux.git
+          git fetch upstream main
+
+      - name: Rebase marvin-main onto upstream/main
+        run: |
+          set -euo pipefail
+          if git rebase upstream/main; then
+            echo "Rebase succeeded cleanly."
+          else
+            echo "::error::Rebase of marvin-main onto upstream/main hit a conflict. Aborting cleanly; branch left untouched. Manual intervention required." >&2
+            git rebase --abort
+            exit 1
+          fi
+
+      - name: Force-push rebased marvin-main
+        run: |
+          git push --force-with-lease origin HEAD:marvin-main
