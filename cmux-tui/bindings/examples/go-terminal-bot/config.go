@@ -37,10 +37,10 @@ type Config struct {
 // Bot runs terminal automation through public cmux resource handles.
 type Bot struct {
 	config Config
-	marker string
+	runID  string
 }
 
-// New validates configuration and creates a collision-resistant completion marker.
+// New validates configuration and creates collision-resistant mutation keys.
 func New(config Config) (*Bot, error) {
 	if len(config.Argv) == 0 {
 		return nil, ErrNoCommand
@@ -85,10 +85,10 @@ func New(config Config) (*Bot, error) {
 
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return nil, fmt.Errorf("generate completion marker: %w", err)
+		return nil, fmt.Errorf("generate mutation key nonce: %w", err)
 	}
 	return &Bot{
 		config: config,
-		marker: "CMUX_TERMINAL_BOT_DONE_" + hex.EncodeToString(nonce[:]),
+		runID:  hex.EncodeToString(nonce[:]),
 	}, nil
 }

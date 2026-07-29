@@ -3,7 +3,6 @@ package terminalbot_test
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -26,14 +25,24 @@ type fakeServer struct {
 	t          *testing.T
 	socketPath string
 	exitCode   int
+	uncertain  string
 
-	mu       sync.Mutex
-	requests []map[string]any
-	done     chan struct{}
-	listener net.Listener
+	mu        sync.Mutex
+	requests  []map[string]any
+	creations map[string]any
+	done      chan struct{}
+	listener  net.Listener
 }
 
 func startFakeServer(t *testing.T, exitCode int) *fakeServer {
+	return startFakeServerWithUncertain(t, exitCode, "")
+}
+
+func startFakeServerWithUncertain(
+	t *testing.T,
+	exitCode int,
+	operation string,
+) *fakeServer {
 	t.Helper()
 	root, err := os.MkdirTemp("/tmp", "cmux-go-terminal-bot-")
 	if err != nil {
@@ -46,8 +55,9 @@ func startFakeServer(t *testing.T, exitCode int) *fakeServer {
 		t.Fatal(err)
 	}
 	server := &fakeServer{
-		t: t, socketPath: socketPath, exitCode: exitCode,
-		done: make(chan struct{}), listener: listener,
+		t: t, socketPath: socketPath, exitCode: exitCode, uncertain: operation,
+		creations: make(map[string]any),
+		done:      make(chan struct{}), listener: listener,
 	}
 	go server.serve()
 	t.Cleanup(server.close)
@@ -85,6 +95,14 @@ func (server *fakeServer) serve() {
 			"ok":       true,
 			"result":   result,
 		}
+		if failure, ok := result.(fakeResourceError); ok {
+			response["ok"] = false
+			delete(response, "result")
+			response["error"] = map[string]any{
+				"code": failure.code, "message": failure.message,
+				"details": failure.details, "retryable": false,
+			}
+		}
 		if err := json.NewEncoder(writer).Encode(response); err != nil {
 			return
 		}
@@ -99,23 +117,58 @@ func (server *fakeServer) result(request map[string]any) any {
 	params := request["params"].(map[string]any)
 	switch operation {
 	case "workspace.create":
-		return mutation(map[string]any{
+		value := map[string]any{
 			"kind": "workspace", "workspace_id": fakeWorkspaceID,
-		}, "2")
+		}
+		if server.recordUncertainCreation(request, operation, value, "2") {
+			return indeterminate(operation, request)
+		}
+		return mutation(value, "2")
 	case "workspace.run":
-		return mutation(map[string]any{
+		value := map[string]any{
 			"kind": "terminal", "workspace_id": fakeWorkspaceID,
 			"screen_id": fakeScreenID, "pane_id": fakePaneID,
 			"tab_id": fakeTabID, "terminal_id": fakeTerminalID,
-		}, "3")
-	case "terminal.wait":
-		pattern := params["pattern"].(string)
-		marker := pattern[:len(pattern)-len(":[0-9]+")]
-		return map[string]any{"text": fmt.Sprintf("%s:%d\n", marker, server.exitCode)}
+		}
+		if server.recordUncertainCreation(request, operation, value, "3") {
+			return indeterminate(operation, request)
+		}
+		return mutation(value, "3")
+	case "session.creation.resolve":
+		correlation := params["correlation_key"].(string)
+		server.mu.Lock()
+		creation := server.creations[correlation]
+		server.mu.Unlock()
+		if creation == nil {
+			return map[string]any{
+				"correlation_key": correlation,
+				"state":           "not_applied",
+				"recovery":        "retry_new_idempotency_key",
+			}
+		}
+		return creation
+	case "terminal.wait_exit":
+		return map[string]any{
+			"state": "exited", "terminal_id": fakeTerminalID,
+			"lifecycle": "exited",
+			"outcome": map[string]any{
+				"kind": "exit", "code": server.exitCode,
+			},
+			"exited_at": "100", "revision": "4",
+		}
 	case "terminal.screen.read":
-		return map[string]any{"text": "compile finished"}
+		return map[string]any{
+			"text": "compile finished", "cols": 80, "rows": 24,
+			"cursor_row": 0, "cursor_col": 16, "cursor_visible": true,
+		}
 	case "terminal.history.read":
-		return map[string]any{"text": "compile started\ncompile finished"}
+		return map[string]any{
+			"start": "0", "next": "2",
+			"rows": []any{
+				renderRow(0, "compile started"),
+				renderRow(1, "compile finished"),
+			},
+		}
 	case "notification.create":
 		return mutation(map[string]any{
 			"id": fakeNotificationID, "session_id": fakeSessionID,
@@ -127,6 +180,61 @@ func (server *fakeServer) result(request map[string]any) any {
 	default:
 		server.t.Fatalf("unexpected resource operation %q", operation)
 		return nil
+	}
+}
+
+type fakeResourceError struct {
+	code    string
+	message string
+	details map[string]any
+}
+
+func indeterminate(operation string, request map[string]any) fakeResourceError {
+	return fakeResourceError{
+		code:    "mutation.indeterminate",
+		message: "the create response was lost",
+		details: map[string]any{
+			"idempotency_key": request["idempotency_key"],
+			"operation":       operation,
+			"recovery":        "inspect_state_then_retry_with_new_key",
+		},
+	}
+}
+
+func (server *fakeServer) recordUncertainCreation(
+	request map[string]any,
+	operation string,
+	createdPath map[string]any,
+	revision string,
+) bool {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if server.uncertain != operation {
+		return false
+	}
+	server.uncertain = ""
+	correlation := request["params"].(map[string]any)["correlation_key"].(string)
+	server.creations[correlation] = map[string]any{
+		"correlation_key": correlation,
+		"state":           "created",
+		"recovery":        "none",
+		"operation":       operation,
+		"idempotency_key": request["idempotency_key"],
+		"created_path":    createdPath,
+		"generation":      "fake-generation",
+		"revision":        revision,
+	}
+	return true
+}
+
+func renderRow(row int, text string) map[string]any {
+	return map[string]any{
+		"row": row,
+		"runs": []any{
+			map[string]any{
+				"text": text, "fg": nil, "bg": nil, "attrs": 0,
+			},
+		},
 	}
 }
 

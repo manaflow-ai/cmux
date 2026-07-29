@@ -21,6 +21,7 @@ from cmux import (
     MachineId,
     MutationIndeterminateError,
     MutationResult,
+    MutationTransportError,
     Pane,
     ResourceError,
     Session,
@@ -28,6 +29,11 @@ from cmux import (
     SessionId,
     SessionSnapshotItem,
     Terminal,
+    TerminalExitCode,
+    TerminalExitSignal,
+    TerminalExitUnknown,
+    TerminalWaitExitExited,
+    TerminalWaitExitPending,
     Unknown,
     Workspace,
     WorkspaceId,
@@ -182,6 +188,7 @@ class JobResult:
     name: str
     terminal_id: str
     output: str
+    exit_code: int
 
 
 @dataclass(frozen=True)
@@ -204,6 +211,7 @@ class OrchestrationResult:
                     "name": job.name,
                     "terminal_id": job.terminal_id,
                     "output": job.output,
+                    "exit_code": job.exit_code,
                 }
                 for job in self.jobs
             ],
@@ -383,6 +391,13 @@ def mutation_key(run_id: str, action: str, attempt: int = 0) -> str:
     return f"python-dev-orchestrator:{label}:{digest}"
 
 
+def creation_key(run_id: str, action: str) -> str:
+    material = f"{run_id}\0creation\0{action}".encode("utf-8")
+    digest = hashlib.sha256(material).hexdigest()[:32]
+    label = re.sub(r"[^A-Za-z0-9._-]", "-", action)[:32]
+    return f"python-dev-orchestrator:create:{label}:{digest}"
+
+
 def _accept_receipt(
     action: str,
     receipt: MutationResult[Any],
@@ -407,6 +422,47 @@ def _refresh_session_revision(session: Session) -> str:
     return session.refresh().revision
 
 
+def _resolve_created(
+    session: Session,
+    correlation_key: str,
+    action: str,
+) -> Optional[MutationResult[Any]]:
+    resolution = session.creation.resolve(correlation_key)
+    if resolution.state == "not_applied":
+        if resolution.recovery not in {
+            "retry_same_idempotency_key",
+            "retry_new_idempotency_key",
+        }:
+            raise OrchestrationError(
+                f"{action} returned invalid recovery {resolution.recovery!r}"
+            )
+        return None
+    if resolution.state != "created":
+        raise OrchestrationError(
+            f"{action} creation lookup returned state={resolution.state} "
+            f"recovery={resolution.recovery}"
+        )
+    if (
+        resolution.created_path is None
+        or resolution.generation is None
+        or resolution.revision is None
+    ):
+        raise OrchestrationError(
+            f"{action} creation lookup omitted its committed path or revision"
+        )
+    LOG.warning(
+        "%s recovered its committed path through correlation key %s",
+        action,
+        correlation_key,
+    )
+    return MutationResult(
+        resolution.created_path,
+        resolution.generation,
+        resolution.revision,
+        False,
+    )
+
+
 def _create_empty_workspace(
     session: Session,
     config: OrchestratorConfig,
@@ -429,30 +485,29 @@ def _create_empty_workspace(
     if config.workspace_id is not None:
         raise SelectionError(f"workspace ID {config.workspace_id} was not found")
 
-    options = CreateWorkspaceOptions(name=name, initial_content="empty")
-    last_error: Optional[MutationIndeterminateError] = None
+    correlation = creation_key(config.run_id, "workspace.create")
+    last_error: Optional[BaseException] = None
     for attempt in range(2):
         action = "workspace.create" if attempt == 0 else "workspace.create.recovery"
         try:
             receipt = session.create_workspace(
-                options,
+                CreateWorkspaceOptions(
+                    name=name,
+                    initial_content="empty",
+                    correlation_key=correlation,
+                ),
                 idempotency_key=mutation_key(config.run_id, "workspace.create", attempt),
             )
-        except MutationIndeterminateError as error:
+        except (MutationIndeterminateError, MutationTransportError) as error:
             last_error = error
-            recovered = select_workspace(
+            recovered = _resolve_created(
                 session,
-                workspace_name=name,
-                allow_missing=True,
+                correlation,
+                "workspace.create",
             )
-            if recovered is not None:
-                LOG.warning(
-                    "workspace.create was indeterminate; unique-name inspection "
-                    "found %s",
-                    recovered.id,
-                )
-                return recovered, _refresh_session_revision(session)
-            continue
+            if recovered is None:
+                continue
+            receipt = recovered
 
         revision = _accept_receipt(action, receipt, replayed_actions)
         workspace = receipt.value.workspace
@@ -465,28 +520,35 @@ def _create_empty_workspace(
 
     assert last_error is not None
     raise OrchestrationError(
-        "workspace.create remained indeterminate after state inspection and "
-        "one new-key recovery attempt"
+        "workspace.create remained not_applied after one bounded recovery attempt"
     ) from last_error
 
 
 def _receipted_create(
+    session: Session,
     action: str,
     run_id: str,
     revision: str,
     replayed_actions: List[str],
-    mutation: Callable[[str, str], MutationResult[Any]],
+    mutation: Callable[[str, str, str], MutationResult[Any]],
 ) -> Tuple[MutationResult[Any], str]:
-    key = mutation_key(run_id, action)
-    try:
-        receipt = mutation(key, revision)
-    except MutationIndeterminateError as error:
-        raise OrchestrationError(
-            f"{action} is indeterminate under key {key}; automatic retry is "
-            "refused because this create cannot reserve or query a caller-owned "
-            "public resource ID"
-        ) from error
-    return receipt, _accept_receipt(action, receipt, replayed_actions)
+    correlation = creation_key(run_id, action)
+    last_error: Optional[BaseException] = None
+    for attempt in range(2):
+        key = mutation_key(run_id, action, attempt)
+        try:
+            receipt = mutation(key, revision, correlation)
+        except (MutationIndeterminateError, MutationTransportError) as error:
+            last_error = error
+            recovered = _resolve_created(session, correlation, action)
+            if recovered is None:
+                continue
+            receipt = recovered
+        return receipt, _accept_receipt(action, receipt, replayed_actions)
+    assert last_error is not None
+    raise OrchestrationError(
+        f"{action} remained not_applied after one bounded recovery attempt"
+    ) from last_error
 
 
 def _workspace_still_exists(session: Session, workspace_id: WorkspaceId) -> bool:
@@ -555,24 +617,57 @@ def _cleanup_workspace(
     ) from last_error
 
 
-def _wait_for_job(terminal: Terminal, job: Job, timeout_ms: int) -> JobResult:
+def _wait_for_job(
+    terminal: Terminal,
+    job: Job,
+    timeout_ms: int,
+) -> Tuple[JobResult, str]:
     terminal_id = terminal.id
     if terminal_id is None:
         raise OrchestrationError(f"job {job.name} returned a terminal without an ID")
-    document = terminal.wait(
+    waited = terminal.wait(
         TerminalWaitOptions(
             pattern=job.ready_pattern,
             timeout_ms=timeout_ms,
         )
     )
-    matched = document.fields.get("matched")
-    output = document.fields.get("text")
-    if matched is not True or not isinstance(output, str):
-        excerpt = output[-400:] if isinstance(output, str) else repr(output)
+    if not waited.matched:
+        excerpt = waited.text[-400:]
         raise OrchestrationError(
             f"job {job.name} did not produce {job.ready_pattern!r}: {excerpt}"
         )
-    return JobResult(job.name, str(terminal_id), output)
+
+    exited = terminal.wait_exit(timeout_ms)
+    if isinstance(exited, TerminalWaitExitPending):
+        raise OrchestrationError(
+            f"job {job.name} remained {exited.lifecycle} after its exit wait"
+        )
+    if not isinstance(exited, TerminalWaitExitExited):
+        raise OrchestrationError(
+            f"job {job.name} returned an unknown terminal exit result"
+        )
+    outcome = exited.outcome
+    if isinstance(outcome, TerminalExitSignal):
+        raise OrchestrationError(
+            f"job {job.name} exited from signal {outcome.signal} "
+            f"(core_dumped={outcome.core_dumped})"
+        )
+    if isinstance(outcome, TerminalExitUnknown):
+        raise OrchestrationError(
+            f"job {job.name} exit is unknown: {outcome.reason}"
+        )
+    if not isinstance(outcome, TerminalExitCode):
+        raise OrchestrationError(
+            f"job {job.name} returned an unknown exit outcome"
+        )
+    if outcome.code != 0:
+        raise OrchestrationError(
+            f"job {job.name} exited with status {outcome.code}"
+        )
+    return (
+        JobResult(job.name, str(terminal_id), waited.text, outcome.code),
+        exited.revision,
+    )
 
 
 def orchestrate(client: Client, config: OrchestratorConfig) -> OrchestrationResult:
@@ -607,12 +702,16 @@ def orchestrate(client: Client, config: OrchestratorConfig) -> OrchestrationResu
         )
 
         screen_receipt, revision = _receipted_create(
+            session,
             "screen.create",
             config.run_id,
             revision,
             replayed_actions,
-            lambda key, expected: workspace.create_screen(
-                CreateScreenOptions(name="CI " + config.run_id),
+            lambda key, expected, correlation: workspace.create_screen(
+                CreateScreenOptions(
+                    name="CI " + config.run_id,
+                    correlation_key=correlation,
+                ),
                 idempotency_key=key,
                 expected_revision=expected,
             ),
@@ -623,17 +722,19 @@ def orchestrate(client: Client, config: OrchestratorConfig) -> OrchestrationResu
         )
 
         split_receipt, revision = _receipted_create(
+            session,
             "pane.split",
             config.run_id,
             revision,
             replayed_actions,
-            lambda key, expected: primary_pane.split(
+            lambda key, expected, correlation: primary_pane.split(
                 SplitPaneOptions(
                     direction="right",
                     ratio=0.5,
                     cwd=config.cwd,
                     columns=100,
                     rows=30,
+                    correlation_key=correlation,
                 ),
                 idempotency_key=key,
                 expected_revision=expected,
@@ -645,16 +746,18 @@ def orchestrate(client: Client, config: OrchestratorConfig) -> OrchestrationResu
         )
 
         shell_receipt, revision = _receipted_create(
+            session,
             "tab.create_terminal",
             config.run_id,
             revision,
             replayed_actions,
-            lambda key, expected: primary_pane.create_terminal_tab(
+            lambda key, expected, correlation: primary_pane.create_terminal_tab(
                 CreateTerminalOptions(
                     cwd=config.cwd,
                     name="debug-shell",
                     columns=100,
                     rows=30,
+                    correlation_key=correlation,
                 ),
                 idempotency_key=key,
                 expected_revision=expected,
@@ -669,29 +772,30 @@ def orchestrate(client: Client, config: OrchestratorConfig) -> OrchestrationResu
         for job, lane in zip(config.jobs, lanes):
             action = "pane.run." + job.name
             run_receipt, revision = _receipted_create(
+                session,
                 action,
                 config.run_id,
                 revision,
                 replayed_actions,
-                lambda key, expected, job=job, lane=lane: lane.run(
+                lambda key, expected, correlation, job=job, lane=lane: lane.run(
                     RunOptions(
                         exact(job.argv, cwd=config.cwd),
                         name=job.name,
                         columns=100,
                         rows=30,
+                        correlation_key=correlation,
                     ),
                     idempotency_key=key,
                     expected_revision=expected,
                 ),
             )
             _job_pane, job_terminal = _created_terminal(run_receipt, action)
-            results.append(
-                _wait_for_job(
-                    job_terminal,
-                    job,
-                    config.terminal_wait_timeout_ms,
-                )
+            job_result, revision = _wait_for_job(
+                job_terminal,
+                job,
+                config.terminal_wait_timeout_ms,
             )
+            results.append(job_result)
             journal.raise_if_failed()
     except BaseException as error:
         failure = error

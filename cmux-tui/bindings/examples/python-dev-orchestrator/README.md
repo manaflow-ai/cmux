@@ -4,13 +4,15 @@ This Python 3.9+ example creates an isolated cmux development environment with
 the public high-level SDK and the standard library. It scans machines and
 sessions, rejects duplicate names, creates an empty workspace, opens a typed
 session event stream, creates a screen, two panes, an idle terminal tab, and
-three exact-argv job terminals, then waits for each job's output regex.
+three exact-argv job terminals. Each job must match its output regex and then
+exit successfully through the durable typed terminal-exit API.
 
-Every mutation has a stable key derived from `--run-id`, carries the latest
-session revision when supported, and records replayed receipts. An
-indeterminate workspace create is reconciled by listing exact-name matches.
-The code retries with a new key only when inspection proves that no matching
-workspace exists. Anonymous topology creates are never retried blindly.
+Every create has a stable correlation key derived from `--run-id`. Each attempt
+has a distinct idempotency key, carries the latest session revision, and records
+replayed receipts. If a response is lost or the server reports an indeterminate
+mutation, `session.creation.resolve()` returns the exact committed
+`CreatedPath`, or proves that one bounded retry is safe. This applies to the
+workspace and anonymous topology creates.
 
 The workspace is closed on success or failure. `--keep-workspace` keeps it for
 inspection. Passing `--workspace-id` asserts that the exact workspace belongs
@@ -25,9 +27,10 @@ PYTHONPATH=cmux-tui/bindings/python:cmux-tui/bindings/examples/python-dev-orches
 
 The fake implements the server side of `cmux.protocol/1`, including typed
 snapshots and deltas, revision conflicts, replayed receipts, indeterminate
-results, terminal output waits, stream cancellation, and cleanup. Production
-code does not encode protocol frames, import `cmux.raw`, import private SDK
-modules, or send generic operations.
+results, correlation lookup, terminal output waits, typed terminal exits,
+stream cancellation, and cleanup. Production code does not encode protocol
+frames, import `cmux.raw`, import private SDK modules, or send generic
+operations.
 
 Against a real cmux socket:
 
@@ -47,9 +50,10 @@ names similarly require `--workspace-id`.
 
 Each plan contains exactly three jobs. `argv` is transmitted without shell
 parsing. `ready_pattern` is a server-side regular expression that must appear
-in the terminal viewport. Set `--request-timeout` longer than
-`--terminal-wait-timeout-ms`; the example validates this because the SDK's
-request deadline also bounds `terminal.wait`.
+in the terminal viewport. A match is readiness evidence, while
+`terminal.wait_exit` supplies the authoritative exit code. Set
+`--request-timeout` longer than `--terminal-wait-timeout-ms`; the client
+deadline also bounds both waits.
 
 Run the deterministic integration tests:
 

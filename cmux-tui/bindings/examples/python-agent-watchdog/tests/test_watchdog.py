@@ -143,6 +143,7 @@ def full_snapshot(*, blocked: bool) -> Dict[str, Any]:
                 "cols": 80,
                 "rows": 24,
                 "running": True,
+                "lifecycle": "running",
             }
         ],
         "browsers": [],
@@ -156,8 +157,16 @@ def full_snapshot(*, blocked: bool) -> Dict[str, Any]:
 
 
 class FakeCmuxServer:
-    def __init__(self, *, drop_first_stream: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        drop_first_stream: bool = False,
+        screen_text: str = "$ codex\nWaiting for user approval",
+        history_text: str = "history",
+    ) -> None:
         self.drop_first_stream = drop_first_stream
+        self.screen_text = screen_text
+        self.history_text = history_text
         self.connection_count = 0
         self.event_stream_count = 0
         self.operations: List[str] = []
@@ -240,10 +249,42 @@ class FakeCmuxServer:
                 elif operation == "terminal.screen.read":
                     send_frame(
                         connection,
-                        response(request, {"text": "$ codex\nWaiting for user approval"}),
+                        response(
+                            request,
+                            {
+                                "text": self.screen_text,
+                                "cols": 80,
+                                "rows": 24,
+                                "cursor_row": 1,
+                                "cursor_col": 25,
+                                "cursor_visible": True,
+                            },
+                        ),
                     )
                 elif operation == "terminal.history.read":
-                    send_frame(connection, response(request, {"text": "history"}))
+                    send_frame(
+                        connection,
+                        response(
+                            request,
+                            {
+                                "start": "0",
+                                "next": "1",
+                                "rows": [
+                                    {
+                                        "row": 0,
+                                        "runs": [
+                                            {
+                                                "text": self.history_text,
+                                                "fg": None,
+                                                "bg": None,
+                                                "attrs": 0,
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
+                        ),
+                    )
                 elif operation == "notification.create":
                     with self._lock:
                         self.notifications.append(dict(request["params"]))
@@ -396,6 +437,40 @@ class WatchdogTests(unittest.TestCase):
         self.assertIn("Waiting for user approval", notification["body"])
         self.assertNotIn("identify", server.operations)
         self.assertNotIn("list-agents", server.operations)
+
+    def test_empty_screen_falls_back_to_typed_history_rows(self) -> None:
+        with FakeCmuxServer(
+            drop_first_stream=True,
+            screen_text=" \n",
+            history_text="approval requested in history",
+        ) as server:
+            watchdog = AgentWatchdog(
+                WatchdogConfig(
+                    socket_path=server.path,
+                    poll_interval=0.02,
+                    stalled_after=60.0,
+                    timeout=0.5,
+                    reconnect_initial=0.01,
+                    reconnect_max=0.02,
+                    stable_connection_seconds=1.0,
+                ),
+                wall_clock_ms=lambda: 1_700_000_060_000,
+            )
+            thread = threading.Thread(target=watchdog.run)
+            thread.start()
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and not server.notifications:
+                time.sleep(0.01)
+            watchdog.request_stop()
+            thread.join(timeout=1.0)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(len(server.notifications), 1)
+        self.assertIn(
+            "approval requested in history",
+            server.notifications[0]["body"],
+        )
+        self.assertIn("terminal.history.read", server.operations)
 
 
 if __name__ == "__main__":

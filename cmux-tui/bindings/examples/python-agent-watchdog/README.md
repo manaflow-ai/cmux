@@ -6,6 +6,8 @@ is `blocked`, or when a `working` agent has not changed within the configured
 threshold. Each warning names the typed terminal and its workspace ancestry,
 then includes the visible screen or a terminal-history fallback. A lost Unix
 socket triggers bounded exponential reconnects and restores the event stream.
+Screen reads use `TerminalScreenResult.text`. The fallback flattens typed
+`TerminalHistoryResult.rows` while preserving row boundaries.
 
 From the cmux checkout:
 
@@ -19,4 +21,5 @@ shutdown.
 
 The tests use a deterministic resource-protocol fake server to cover unknown
 future events, reconnection, resubscription, notification capture, and stall
-timing.
+timing. A separate integration case forces an empty screen and verifies the
+typed history fallback.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	cmux "github.com/manaflow-ai/cmux/cmux-tui/bindings/go"
@@ -40,10 +39,23 @@ func (bot *Bot) Run(parent context.Context) (result Result, runErr error) {
 	session := client.
 		Machine(cmux.SelectCurrent[cmux.MachineID]()).
 		Session(cmux.SelectCurrent[cmux.SessionID]())
-	createdWorkspace, err := session.CreateWorkspace(ctx, cmux.WorkspaceCreateOptions{
-		Name:           cmux.OptionalString(bot.config.WorkspaceName),
-		InitialContent: "empty",
-	})
+	workspaceCorrelation := bot.correlationKey("workspace.create")
+	createdWorkspace, err := bot.createWithRecovery(
+		ctx,
+		session,
+		"workspace.create",
+		workspaceCorrelation,
+		func(idempotencyKey string) (cmux.MutationResult[cmux.CreatedPath], error) {
+			return session.CreateWorkspace(ctx, cmux.WorkspaceCreateOptions{
+				MutationOptions: cmux.MutationOptions{
+					IdempotencyKey: idempotencyKey,
+					CorrelationKey: workspaceCorrelation,
+				},
+				Name:           cmux.OptionalString(bot.config.WorkspaceName),
+				InitialContent: "empty",
+			})
+		},
+	)
 	if err != nil {
 		return result, fmt.Errorf("create workspace: %w", err)
 	}
@@ -64,14 +76,27 @@ func (bot *Bot) Run(parent context.Context) (result Result, runErr error) {
 		}
 	}()
 
-	runOptions := cmux.WorkspaceRunOptions{
-		Command: cmux.ExplicitShell("/bin/sh", completionScript(bot.config.Argv, bot.marker)),
-		Name:    cmux.OptionalString(bot.config.TerminalName),
-	}
-	if bot.config.Cwd != "" {
-		runOptions.CWD = cmux.OptionalString(bot.config.Cwd)
-	}
-	createdTerminal, err := workspace.Run(ctx, runOptions)
+	runCorrelation := bot.correlationKey("workspace.run")
+	createdTerminal, err := bot.createWithRecovery(
+		ctx,
+		session,
+		"workspace.run",
+		runCorrelation,
+		func(idempotencyKey string) (cmux.MutationResult[cmux.CreatedPath], error) {
+			runOptions := cmux.WorkspaceRunOptions{
+				MutationOptions: cmux.MutationOptions{
+					IdempotencyKey: idempotencyKey,
+					CorrelationKey: runCorrelation,
+				},
+				Command: cmux.Exact(bot.config.Argv...),
+				Name:    cmux.OptionalString(bot.config.TerminalName),
+			}
+			if bot.config.Cwd != "" {
+				runOptions.CWD = cmux.OptionalString(bot.config.Cwd)
+			}
+			return workspace.Run(ctx, runOptions)
+		},
+	)
 	if err != nil {
 		return result, fmt.Errorf("run terminal command: %w", err)
 	}
@@ -81,18 +106,14 @@ func (bot *Bot) Run(parent context.Context) (result Result, runErr error) {
 	result.Tab = path.Tab
 	result.Terminal = path.Terminal
 	result.TerminalRevision = createdTerminal.Revision
-	terminal := workspace.
-		Screen(cmux.SelectID(result.Screen)).
-		Pane(cmux.SelectID(result.Pane)).
-		Tab(cmux.SelectID(result.Tab)).
-		Terminal(cmux.SelectID(result.Terminal))
+	terminal := session.Terminal(cmux.SelectID(result.Terminal))
 
-	waitOptions := cmux.TerminalWaitOptions{Pattern: bot.marker + `:[0-9]+`}
+	waitOptions := cmux.TerminalWaitExitOptions{}
 	if bot.config.Timeout > 0 {
 		milliseconds := cmux.Decimal(bot.config.Timeout.Milliseconds())
 		waitOptions.TimeoutMS = &milliseconds
 	}
-	waited, err := terminal.Wait(ctx, waitOptions)
+	waited, err := terminal.WaitExit(ctx, waitOptions)
 	if err != nil {
 		bot.captureAndNotify(
 			terminal,
@@ -102,17 +123,22 @@ func (bot *Bot) Run(parent context.Context) (result Result, runErr error) {
 			err.Error(),
 			"warning",
 		)
-		return result, fmt.Errorf("wait for completion marker: %w", err)
+		return result, fmt.Errorf("wait for terminal exit: %w", err)
 	}
-	waitText, err := documentText(waited, "terminal.wait")
+	exitCode, revision, err := terminalExit(waited)
 	if err != nil {
-		return result, err
-	}
-	exitCode, err := parseCompletion(waitText, bot.marker)
-	if err != nil {
+		bot.captureAndNotify(
+			terminal,
+			session,
+			&result,
+			"Terminal task ended unexpectedly",
+			err.Error(),
+			"error",
+		)
 		return result, err
 	}
 	result.ExitCode = exitCode
+	result.TerminalRevision = revision
 
 	captureCtx, captureCancel := context.WithTimeout(
 		context.Background(),
@@ -164,10 +190,8 @@ func (bot *Bot) capture(ctx context.Context, terminal *cmux.Terminal, result *Re
 	screen, err := terminal.ReadScreen(ctx, cmux.TerminalScreenReadOptions{})
 	if err != nil {
 		result.Warnings = append(result.Warnings, "read screen: "+err.Error())
-	} else if text, err := documentText(screen, "terminal.screen.read"); err != nil {
-		result.Warnings = append(result.Warnings, err.Error())
 	} else {
-		result.ScreenText = text
+		result.ScreenText = screen.Text
 	}
 
 	history, err := terminal.ReadHistory(ctx, cmux.TerminalHistoryReadOptions{
@@ -175,10 +199,8 @@ func (bot *Bot) capture(ctx context.Context, terminal *cmux.Terminal, result *Re
 	})
 	if err != nil {
 		result.Warnings = append(result.Warnings, "read history: "+err.Error())
-	} else if text, err := documentText(history, "terminal.history.read"); err != nil {
-		result.Warnings = append(result.Warnings, err.Error())
 	} else {
-		result.HistoryText = text
+		result.HistoryText = historyText(history)
 	}
 }
 
@@ -203,30 +225,137 @@ func (bot *Bot) notify(
 	result.Notification = created.Value.Snapshot().ID
 }
 
-func documentText(document cmux.Document, operation string) (string, error) {
-	value, ok := document.Fields["text"]
-	if !ok {
-		return "", fmt.Errorf("%s result omitted text", operation)
+type createCall func(string) (cmux.MutationResult[cmux.CreatedPath], error)
+
+func (bot *Bot) createWithRecovery(
+	ctx context.Context,
+	session *cmux.Session,
+	action string,
+	correlationKey string,
+	create createCall,
+) (cmux.MutationResult[cmux.CreatedPath], error) {
+	idempotencyKey := bot.idempotencyKey(action, 0)
+	for attempt := 0; attempt < 2; attempt++ {
+		created, err := create(idempotencyKey)
+		if err == nil {
+			return created, nil
+		}
+		if !creationOutcomeUncertain(err) {
+			return cmux.MutationResult[cmux.CreatedPath]{}, err
+		}
+
+		resolution, resolveErr := session.ResolveCreation(
+			ctx,
+			correlationKey,
+			cmux.SessionCreationResolveOptions{},
+		)
+		if resolveErr != nil {
+			return cmux.MutationResult[cmux.CreatedPath]{}, errors.Join(err, resolveErr)
+		}
+		switch resolution.State {
+		case cmux.CreationResolutionCreated:
+			if resolution.CreatedPath == nil ||
+				resolution.Generation == nil ||
+				resolution.Revision == nil {
+				return cmux.MutationResult[cmux.CreatedPath]{}, fmt.Errorf(
+					"%s creation lookup omitted its committed result",
+					action,
+				)
+			}
+			return cmux.MutationResult[cmux.CreatedPath]{
+				Value:      *resolution.CreatedPath,
+				Generation: *resolution.Generation,
+				Revision:   *resolution.Revision,
+			}, nil
+		case cmux.CreationResolutionNotApplied:
+			if attempt == 1 {
+				break
+			}
+			if resolution.Recovery == cmux.CreationRetryNewIdempotencyKey {
+				idempotencyKey = bot.idempotencyKey(action, attempt+1)
+			}
+			continue
+		default:
+			return cmux.MutationResult[cmux.CreatedPath]{}, fmt.Errorf(
+				"%s creation lookup returned state=%s recovery=%s",
+				action,
+				resolution.State,
+				resolution.Recovery,
+			)
+		}
 	}
-	text, ok := value.(string)
-	if !ok {
-		return "", fmt.Errorf("%s text was not a string", operation)
-	}
-	return text, nil
+	return cmux.MutationResult[cmux.CreatedPath]{}, fmt.Errorf(
+		"%s was not applied after one bounded retry",
+		action,
+	)
 }
 
-func parseCompletion(text string, marker string) (int, error) {
-	index := strings.LastIndex(text, marker+":")
-	if index < 0 {
-		return 0, errors.New("terminal.wait result omitted completion marker")
+func creationOutcomeUncertain(err error) bool {
+	var transport *cmux.MutationTransportUncertainError
+	if errors.As(err, &transport) {
+		return true
 	}
-	digits := text[index+len(marker)+1:]
-	if newline := strings.IndexAny(digits, "\r\n "); newline >= 0 {
-		digits = digits[:newline]
+	var resource *cmux.ResourceError
+	return errors.As(err, &resource) && resource.IsCode("mutation.indeterminate")
+}
+
+func (bot *Bot) correlationKey(action string) string {
+	return "go-terminal-bot:" + bot.runID + ":" + action
+}
+
+func (bot *Bot) idempotencyKey(action string, attempt int) string {
+	return fmt.Sprintf(
+		"go-terminal-bot:%s:%s:%d",
+		bot.runID,
+		action,
+		attempt,
+	)
+}
+
+func terminalExit(
+	result cmux.TerminalWaitExitResult,
+) (int, cmux.Decimal, error) {
+	exited, ok := result.(cmux.TerminalWaitExitExited)
+	if !ok {
+		pending, pendingOK := result.(cmux.TerminalWaitExitPending)
+		if pendingOK {
+			return 0, pending.Revision, fmt.Errorf(
+				"terminal remained %s after its exit wait",
+				pending.Lifecycle,
+			)
+		}
+		return 0, 0, fmt.Errorf("terminal exit returned an unknown result")
 	}
-	status, err := strconv.Atoi(digits)
-	if err != nil || status < 0 || status > 255 {
-		return 0, fmt.Errorf("completion marker had invalid exit status %q", digits)
+
+	switch outcome := exited.Outcome.(type) {
+	case cmux.TerminalExitCode:
+		return int(outcome.Code), exited.Revision, nil
+	case cmux.TerminalExitSignal:
+		return 0, exited.Revision, fmt.Errorf(
+			"terminal process exited from signal %d (core_dumped=%t)",
+			outcome.Signal,
+			outcome.CoreDumped,
+		)
+	case cmux.TerminalExitUnknown:
+		return 0, exited.Revision, fmt.Errorf(
+			"terminal process exit is unknown: %s",
+			outcome.Reason,
+		)
+	default:
+		return 0, exited.Revision, fmt.Errorf(
+			"terminal process returned an unknown exit outcome",
+		)
 	}
-	return status, nil
+}
+
+func historyText(history cmux.TerminalHistoryResult) string {
+	lines := make([]string, 0, len(history.Rows))
+	for _, row := range history.Rows {
+		var line strings.Builder
+		for _, run := range row.Runs {
+			line.WriteString(run.Text)
+		}
+		lines = append(lines, line.String())
+	}
+	return strings.Join(lines, "\n")
 }

@@ -1,21 +1,18 @@
 # Go SDK consumer friction
 
-1. `Workspace.Run` returns a complete typed `CreatedPath`, so the old numeric
-   tree and surface joins are gone. Building the corresponding terminal handle
-   still requires spelling every ancestor selector.
-2. `Terminal.Wait`, `ReadScreen`, and `ReadHistory` return `Document`. The bot
-   must validate the conventional `text` field and parse its completion marker
-   at runtime.
-3. `Terminal.Wait` is bounded by the client's request timeout as well as its
+1. `Terminal.ReadScreen` exposes typed text directly. `ReadHistory` returns
+   styled rows and runs, so this text-only bot still needs a small flattening
+   helper.
+2. `Terminal.WaitExit` is bounded by the client's request timeout as well as its
    operation timeout. The bot must keep the client timeout longer than the
    terminal wait timeout.
-4. The resource client intentionally does not retry mutations. A production
-   bot must decide how to recover from an indeterminate workspace creation or
-   run request using its idempotency key.
-5. `Agent.Report` is available only from an `Agent` returned by `agent.list`.
+3. Create recovery is exact through a stable correlation key and
+   `Session.ResolveCreation`, but application code still implements the bounded
+   retry policy for `not_applied`, `pending`, and `indeterminate` states.
+4. `Agent.Report` is available only from an `Agent` returned by `agent.list`.
    A new terminal cannot directly report its first agent state through the
    session or terminal handle.
-6. The client accepts `context.Context` throughout, but cleanup after parent
+5. The client accepts `context.Context` throughout, but cleanup after parent
    cancellation still needs a fresh bounded background context.
 
 The consumer imports only the public Go package. It uses no `raw` subpackage,

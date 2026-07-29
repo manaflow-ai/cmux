@@ -15,6 +15,7 @@ from orchestrator import (
     OrchestratorConfig,
     OrchestrationError,
     SelectionError,
+    creation_key,
     default_jobs,
     load_jobs,
     mutation_key,
@@ -102,6 +103,7 @@ class PythonDevOrchestratorTests(unittest.TestCase):
             [job.output.strip().splitlines()[-1] for job in result.jobs],
             ["CMUX_SETUP_READY", "CMUX_BUILD_OK", "CMUX_TESTS_OK"],
         )
+        self.assertEqual([job.exit_code for job in result.jobs], [0, 0, 0])
         self.assertEqual(result.event_kinds[0], "snapshot")
         self.assertGreaterEqual(result.event_kinds.count("delta"), 7)
         self.assertIn("tab.create_terminal", result.replayed_actions)
@@ -128,7 +130,7 @@ class PythonDevOrchestratorTests(unittest.TestCase):
         ]
         self.assertEqual(
             [request["params"]["expected_revision"] for request in mutations],
-            ["1", "2", "3", "4", "5", "6", "7"],
+            ["1", "2", "3", "4", "6", "8", "10"],
         )
         self.assertEqual(
             len({request["idempotency_key"] for request in mutations}),
@@ -149,7 +151,37 @@ class PythonDevOrchestratorTests(unittest.TestCase):
         self.assertTrue(
             all(request["params"]["cwd"] == "/work/project" for request in runs)
         )
+        creates = [
+            request
+            for request in requests
+            if request["operation"]
+            in {
+                "workspace.create",
+                "screen.create",
+                "pane.split",
+                "tab.create_terminal",
+                "pane.run",
+            }
+        ]
+        self.assertTrue(
+            all(
+                isinstance(request["params"].get("correlation_key"), str)
+                for request in creates
+            )
+        )
+        self.assertTrue(
+            all(
+                request["params"]["correlation_key"]
+                != request["idempotency_key"]
+                for request in creates
+            )
+        )
+        self.assertEqual(
+            len({request["params"]["correlation_key"] for request in creates}),
+            len(creates),
+        )
         self.assertIn("session.events", server.operations())
+        self.assertEqual(server.operations().count("terminal.wait_exit"), 3)
         self.assertIn("stream.cancel", server.operations())
         self.assertEqual(server.errors, [])
 
@@ -178,6 +210,11 @@ class PythonDevOrchestratorTests(unittest.TestCase):
 
         self.assertTrue(result.cleaned_up)
         self.assertEqual(len(creates), 1)
+        self.assertIn("session.creation.resolve", server.operations())
+        self.assertEqual(
+            creates[0]["params"]["correlation_key"],
+            creation_key("indeterminate-applied", "workspace.create"),
+        )
         self.assertEqual(server.errors, [])
 
     def test_unapplied_indeterminate_workspace_create_retries_with_new_key(
@@ -212,6 +249,11 @@ class PythonDevOrchestratorTests(unittest.TestCase):
                 mutation_key("indeterminate-unapplied", "workspace.create", 1),
             ],
         )
+        self.assertEqual(
+            {request["params"]["correlation_key"] for request in creates},
+            {creation_key("indeterminate-unapplied", "workspace.create")},
+        )
+        self.assertIn("session.creation.resolve", server.operations())
         self.assertEqual(server.errors, [])
 
     def test_indeterminate_cleanup_inspects_then_retries(self) -> None:
@@ -245,26 +287,22 @@ class PythonDevOrchestratorTests(unittest.TestCase):
         )
         self.assertEqual(server.errors, [])
 
-    def test_anonymous_indeterminate_create_is_not_retried_and_is_cleaned_up(
+    def test_applied_indeterminate_topology_create_recovers_exact_path(
         self,
     ) -> None:
         with FakeCmuxServer(
             pane_split_indeterminate="applied",
         ) as server:
             with Client(server.path, timeout=1.0) as client:
-                with self.assertRaisesRegex(
-                    OrchestrationError,
-                    "automatic retry is refused",
-                ):
-                    orchestrate(
-                        client,
-                        OrchestratorConfig(
-                            run_id="anonymous-indeterminate",
-                            request_timeout=1.0,
-                            event_ready_timeout=1.0,
-                            terminal_wait_timeout_ms=100,
-                        ),
-                    )
+                result = orchestrate(
+                    client,
+                    OrchestratorConfig(
+                        run_id="correlated-indeterminate",
+                        request_timeout=1.0,
+                        event_ready_timeout=1.0,
+                        terminal_wait_timeout_ms=100,
+                    ),
+                )
 
             splits = [
                 request
@@ -272,11 +310,13 @@ class PythonDevOrchestratorTests(unittest.TestCase):
                 if request["operation"] == "pane.split"
             ]
             remaining = server.workspace_ids(
-                "python-ci-anonymous-indeterminate"
+                "python-ci-correlated-indeterminate"
             )
 
+        self.assertTrue(result.cleaned_up)
         self.assertEqual(len(splits), 1)
         self.assertEqual(remaining, [])
+        self.assertIn("session.creation.resolve", server.operations())
         self.assertEqual(server.errors, [])
 
     def test_failed_output_wait_still_cleans_up(self) -> None:

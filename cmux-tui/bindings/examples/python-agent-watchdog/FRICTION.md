@@ -8,9 +8,9 @@
 3. Session deltas are sufficient as refresh triggers, but maintaining a local
    topology cache from every typed upsert is considerably more code than
    periodically requesting `session.snapshot`.
-4. Terminal screen and history reads return `Document`, so the consumer must
-   validate the `text` field at runtime. A typed text snapshot would make this
-   common fallback compile-time safe.
+4. Screen output is directly available as typed text. History is intentionally
+   structured as styled rows and runs, so a text-only notification consumer
+   still needs a small flattening helper.
 
 The consumer imports only the public `cmux` resource package. It uses no raw
 requests, generated protocol models, private modules, or forward-compatible

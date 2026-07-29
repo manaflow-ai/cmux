@@ -25,6 +25,7 @@ from cmux import (
     Session,
     SessionEvent,
     StreamError,
+    TerminalHistoryResult,
     TerminalHistoryOptions,
     TerminalId,
     TimeoutError as CmuxTimeoutError,
@@ -302,23 +303,30 @@ class AgentWatchdog:
     def _capture_excerpt(self, session: Session, terminal_id: TerminalId) -> str:
         terminal = session.terminal(terminal_id)
         try:
-            text = terminal.read_screen().fields.get("text")
-            if isinstance(text, str) and text.strip():
+            text = terminal.read_screen().text
+            if text.strip():
                 return self._clip(text)
         except CmuxError as error:
             LOG.debug("screen read failed for terminal %s: %s", terminal_id, error)
 
         try:
-            fields = terminal.read_history(
+            history = terminal.read_history(
                 TerminalHistoryOptions(limit=self.config.history_rows)
-            ).fields
-            text = fields.get("text")
-            if isinstance(text, str) and text.strip():
+            )
+            text = self._history_text(history)
+            if text.strip():
                 return self._clip(text)
         except CmuxError as error:
             LOG.debug("history read failed for terminal %s: %s", terminal_id, error)
 
         return "(screen excerpt unavailable)"
+
+    @staticmethod
+    def _history_text(history: TerminalHistoryResult) -> str:
+        return "\n".join(
+            "".join(run.text for run in row.runs)
+            for row in history.rows
+        )
 
     def _clip(self, text: str) -> str:
         normalized = "\n".join(line.rstrip() for line in text.strip().splitlines())

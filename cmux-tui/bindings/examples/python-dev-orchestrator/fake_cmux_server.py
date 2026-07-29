@@ -77,6 +77,7 @@ class FakeCmuxServer:
         self._connections: List[socket.socket] = []
         self._threads: List[threading.Thread] = []
         self._receipts: Dict[str, Tuple[str, str, dict]] = {}
+        self._creations: Dict[str, dict] = {}
         self._indeterminate_sent: set[str] = set()
         self._next_ids = {
             "ws": 0x10,
@@ -304,6 +305,8 @@ class FakeCmuxServer:
             self._ok(state, request, copy.deepcopy(workspace))
         elif operation == "session.events":
             self._open_events(state, request, params)
+        elif operation == "session.creation.resolve":
+            self._resolve_creation(state, request, params)
         elif operation == "stream.cancel":
             self._cancel_events(state, request)
         elif operation == "workspace.create":
@@ -318,6 +321,8 @@ class FakeCmuxServer:
             self._run_in_pane(state, request, params)
         elif operation == "terminal.wait":
             self._wait_terminal(state, request, params)
+        elif operation == "terminal.wait_exit":
+            self._wait_terminal_exit(state, request, params)
         elif operation == "workspace.close":
             self._close_workspace(state, request, params)
         else:
@@ -617,6 +622,64 @@ class FakeCmuxServer:
             },
         )
 
+    def _record_creation(
+        self,
+        request: Mapping[str, Any],
+        operation: str,
+        params: Mapping[str, Any],
+        created_path: Mapping[str, Any],
+        session_id: str,
+    ) -> None:
+        correlation = params.get("correlation_key")
+        if not isinstance(correlation, str) or not correlation:
+            raise ValueError(f"{operation} omitted correlation_key")
+        self._creations[correlation] = {
+            "correlation_key": correlation,
+            "state": "created",
+            "recovery": "none",
+            "operation": operation,
+            "idempotency_key": request["idempotency_key"],
+            "created_path": copy.deepcopy(created_path),
+            "generation": GENERATION,
+            "revision": str(self.revisions[session_id]),
+        }
+
+    def _record_not_applied(
+        self,
+        request: Mapping[str, Any],
+        operation: str,
+        params: Mapping[str, Any],
+    ) -> None:
+        correlation = params.get("correlation_key")
+        if not isinstance(correlation, str) or not correlation:
+            raise ValueError(f"{operation} omitted correlation_key")
+        self._creations[correlation] = {
+            "correlation_key": correlation,
+            "state": "not_applied",
+            "recovery": "retry_new_idempotency_key",
+            "operation": operation,
+            "idempotency_key": request["idempotency_key"],
+        }
+
+    def _resolve_creation(
+        self,
+        state: _ConnectionState,
+        request: Mapping[str, Any],
+        params: Mapping[str, Any],
+    ) -> None:
+        correlation = params.get("correlation_key")
+        if not isinstance(correlation, str) or not correlation:
+            raise ValueError("session.creation.resolve omitted correlation_key")
+        result = self._creations.get(
+            correlation,
+            {
+                "correlation_key": correlation,
+                "state": "not_applied",
+                "recovery": "retry_new_idempotency_key",
+            },
+        )
+        self._ok(state, request, copy.deepcopy(result))
+
     def _create_workspace(
         self,
         state: _ConnectionState,
@@ -631,11 +694,21 @@ class FakeCmuxServer:
         if outcome is not None and operation not in self._indeterminate_sent:
             self._indeterminate_sent.add(operation)
             if outcome == "applied":
-                self._apply_workspace_create(state, params, session_id)
+                value = self._apply_workspace_create(state, params, session_id)
+                self._record_creation(
+                    request,
+                    operation,
+                    params,
+                    value,
+                    session_id,
+                )
+            else:
+                self._record_not_applied(request, operation, params)
             self._indeterminate(state, request, operation)
             return
 
         value = self._apply_workspace_create(state, params, session_id)
+        self._record_creation(request, operation, params, value, session_id)
         result = self._mutation_result(value, session_id)
         self._finish_mutation(state, request, operation, params, result)
 
@@ -732,6 +805,13 @@ class FakeCmuxServer:
             ),
             session_id,
         )
+        self._record_creation(
+            request,
+            operation,
+            params,
+            result["value"],
+            session_id,
+        )
         self._finish_mutation(state, request, operation, params, result)
 
     def _split_pane(
@@ -751,6 +831,7 @@ class FakeCmuxServer:
         if outcome is not None and operation not in self._indeterminate_sent:
             self._indeterminate_sent.add(operation)
             if outcome == "not_applied":
+                self._record_not_applied(request, operation, params)
                 self._indeterminate(state, request, operation)
                 return
             indeterminate_after_apply = True
@@ -784,6 +865,13 @@ class FakeCmuxServer:
                 tab_id,
                 terminal_id,
             ),
+            session_id,
+        )
+        self._record_creation(
+            request,
+            operation,
+            params,
+            result["value"],
             session_id,
         )
         if indeterminate_after_apply:
@@ -825,6 +913,13 @@ class FakeCmuxServer:
                 tab_id,
                 terminal_id,
             ),
+            session_id,
+        )
+        self._record_creation(
+            request,
+            operation,
+            params,
+            result["value"],
             session_id,
         )
         self._finish_mutation(state, request, operation, params, result)
@@ -871,7 +966,15 @@ class FakeCmuxServer:
             ),
             session_id,
         )
+        self._record_creation(
+            request,
+            operation,
+            params,
+            result["value"],
+            session_id,
+        )
         self._finish_mutation(state, request, operation, params, result)
+        self._mark_terminal_exited(state, session_id, terminal_id, 0)
 
     @staticmethod
     def _output_for_argv(argv: Sequence[str]) -> str:
@@ -906,6 +1009,7 @@ class FakeCmuxServer:
             "cols": 100,
             "rows": 30,
             "running": True,
+            "lifecycle": "running",
         }
         if isinstance(cwd, str):
             terminal["cwd"] = cwd
@@ -948,6 +1052,84 @@ class FakeCmuxServer:
                 "text": output,
             },
         )
+
+    def _mark_terminal_exited(
+        self,
+        state: _ConnectionState,
+        session_id: str,
+        terminal_id: str,
+        exit_code: int,
+    ) -> None:
+        previous = self.revisions[session_id]
+        self.revisions[session_id] += 1
+        terminal = self.terminals[terminal_id]
+        terminal["running"] = False
+        terminal["lifecycle"] = "exited"
+        terminal["exit"] = {
+            "outcome": {"kind": "exit", "code": exit_code},
+            "exited_at": "1700000000000",
+            "revision": str(self.revisions[session_id]),
+        }
+        self._emit_delta(
+            state,
+            session_id,
+            previous,
+            [
+                {
+                    "kind": "upsert",
+                    "sequence": 0,
+                    "resource": "terminal",
+                    "id": terminal_id,
+                    "value": copy.deepcopy(terminal),
+                }
+            ],
+        )
+
+    def _wait_terminal_exit(
+        self,
+        state: _ConnectionState,
+        request: Mapping[str, Any],
+        params: Mapping[str, Any],
+    ) -> None:
+        terminal_id = str(params["terminal"])
+        terminal = self.terminals[terminal_id]
+        if terminal["lifecycle"] != "exited":
+            self._ok(
+                state,
+                request,
+                {
+                    "state": "pending",
+                    "terminal_id": terminal_id,
+                    "lifecycle": terminal["lifecycle"],
+                    "revision": str(
+                        self.revisions[self._session_for_terminal(terminal_id)]
+                    ),
+                },
+            )
+            return
+        exit_record = terminal["exit"]
+        self._ok(
+            state,
+            request,
+            {
+                "state": "exited",
+                "terminal_id": terminal_id,
+                "lifecycle": "exited",
+                "outcome": copy.deepcopy(exit_record["outcome"]),
+                "exited_at": exit_record["exited_at"],
+                "revision": exit_record["revision"],
+            },
+        )
+
+    def _session_for_terminal(self, terminal_id: str) -> str:
+        tab = self.tabs[self.terminals[terminal_id]["tab_id"]]
+        pane = self.panes[tab["pane_id"]]
+        screen = self.screens[pane["screen_id"]]
+        workspace_id = screen["workspace_id"]
+        for session_id, workspaces in self.workspaces.items():
+            if any(item["id"] == workspace_id for item in workspaces):
+                return session_id
+        raise ValueError(f"terminal {terminal_id} has no session")
 
     def _close_workspace(
         self,

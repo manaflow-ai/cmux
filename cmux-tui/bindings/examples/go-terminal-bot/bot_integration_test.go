@@ -42,7 +42,7 @@ func TestBotRunsThroughTypedResourceHandles(t *testing.T) {
 	want := []string{
 		"workspace.create",
 		"workspace.run",
-		"terminal.wait",
+		"terminal.wait_exit",
 		"terminal.screen.read",
 		"terminal.history.read",
 		"notification.create",
@@ -63,6 +63,26 @@ func TestBotRunsThroughTypedResourceHandles(t *testing.T) {
 	}
 	if _, ok := notification["idempotency_key"].(string); !ok {
 		t.Fatalf("mutation omitted idempotency key: %#v", notification)
+	}
+	for _, operation := range []string{"workspace.create", "workspace.run"} {
+		request := server.request(operation)
+		params := request["params"].(map[string]any)
+		correlation, ok := params["correlation_key"].(string)
+		if !ok || correlation == "" {
+			t.Fatalf("%s omitted correlation_key: %#v", operation, request)
+		}
+		idempotency, ok := request["idempotency_key"].(string)
+		if !ok || idempotency == "" || idempotency == correlation {
+			t.Fatalf("%s keys were not distinct: %#v", operation, request)
+		}
+	}
+	run := server.request("workspace.run")["params"].(map[string]any)
+	if _, ok := run["shell"]; ok {
+		t.Fatalf("workspace.run unexpectedly used a shell: %#v", run)
+	}
+	if argv, ok := run["argv"].([]any); !ok ||
+		!reflect.DeepEqual(argv, []any{"/usr/bin/printf", "hello"}) {
+		t.Fatalf("workspace.run argv = %#v", run["argv"])
 	}
 }
 
@@ -88,6 +108,44 @@ func TestBotReturnsTaskErrorAndErrorNotification(t *testing.T) {
 	if params["level"] != "error" {
 		t.Fatalf("notification level = %v", params["level"])
 	}
+}
+
+func TestBotRecoversAnExactCreatedPathByCorrelation(t *testing.T) {
+	server := startFakeServerWithUncertain(t, 0, "workspace.run")
+	bot, err := terminalbot.New(terminalbot.Config{
+		SocketPath: server.socketPath,
+		Argv:       []string{"/usr/bin/true"},
+		Timeout:    time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := bot.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Terminal.String() != fakeTerminalID {
+		t.Fatalf("recovered terminal = %s", result.Terminal)
+	}
+	if count := countOperation(server.operations(), "workspace.run"); count != 1 {
+		t.Fatalf("workspace.run count = %d", count)
+	}
+	if count := countOperation(
+		server.operations(),
+		"session.creation.resolve",
+	); count != 1 {
+		t.Fatalf("session.creation.resolve count = %d", count)
+	}
+}
+
+func countOperation(operations []string, target string) int {
+	count := 0
+	for _, operation := range operations {
+		if operation == target {
+			count++
+		}
+	}
+	return count
 }
 
 func TestPublicRootNoLongerExportsLegacyIDsAtCompileTime(t *testing.T) {
