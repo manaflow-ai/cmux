@@ -217,6 +217,16 @@ struct MobileBrowserStreamTests {
     }
 
     @Test
+    func replayedInputMarksStreamDirtyAndRequestsCapture() {
+        var pacing = MobileBrowserStreamPacing()
+        #expect(pacing.decision(at: 42) == .idle)
+
+        pacing.noteInputReplayed(at: 42)
+
+        #expect(pacing.decision(at: 42) == .captureJPEG(dirtyGeneration: 1))
+    }
+
+    @Test
     func pacingEmitsLosslessSettleFrameAfterQuietInterval() {
         var pacing = MobileBrowserStreamPacing()
         pacing.noteDirty(at: 10)
