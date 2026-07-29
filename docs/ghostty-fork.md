@@ -12,11 +12,38 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `2258bea96` on the
-`manaflow-ai/ghostty` `issue-9092-drainmailbox-livelock` branch, based on
-`0b1734f1e`. It adds bounded app-mailbox turns to that baseline's `os/open`
-stderr drain fix, keyboard copy-mode selection, cursor geometry, bounded rich
-clipboard, and plain-text fallback fixes.
+The submodule pinned by this branch is `80d7fb35a` on the
+`manaflow-ai/ghostty` `task-font-size-action-callback` branch, based on
+`2258bea96`. It adds resolved font-binding action callbacks to that baseline's
+bounded app-mailbox turns, `os/open` stderr drain fix, keyboard copy-mode
+selection, cursor geometry, bounded rich clipboard, and plain-text fallback
+fixes.
+
+### Resolved font-binding action callbacks
+
+- Commits:
+  - `e6aa4fddb` (test: cover native font action callbacks)
+  - `80d7fb35a` (feat: emit resolved font binding actions)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Adds a one-shot per-surface C callback for successfully performed increase,
+    decrease, reset, and absolute font-size binding actions.
+  - Reports the resolved action plus previous and current point sizes and
+    adjusted-state flags after Ghostty applies the native mutation.
+  - Keeps callback ownership on the exact embedded surface, with synchronous
+    GUI-thread delivery and userdata valid through surface teardown.
+  - Conflict note: future font-action routing must emit only after a successful
+    native mutation, preserve chained and custom binding semantics, and keep
+    callback userdata alive until `ghostty_surface_free` returns.
+
+The pinned `80d7fb35a` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-80d7fb35ac74f4c3cb4456b65b3d495cb1513eee-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+The release tag is the durable remote ref for this branch pin and must remain
+published while the parent gitlink references `80d7fb35a`.
 
 ### `os/open` stderr drain spin and zombie leak
 

@@ -69,6 +69,13 @@ extension DockSplitStore {
     /// `didCloseTab` → `reconcilePanels()` path cannot tear the live panel down.
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalWillLeaveDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
         let restoredAgentObservation = SharedLiveAgentIndex.shared.index?.entry(
             workspaceId: preservedTransfer?.sessionRestoreWorkspaceId ?? workspaceId,
@@ -177,6 +184,14 @@ extension DockSplitStore {
             installSubscription(for: panel, tracksTerminalTitle: true)
             return nil
         }
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalDidLeaveDock(
+                    terminalPanel,
+                    dock: self,
+                    preservingTransfer: true
+                )
+        }
 
         let detached = Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: workspaceId,
@@ -280,6 +295,23 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
         )
+        if let terminalPanel = panel as? TerminalPanel {
+            if let owningWorkspace =
+                    terminalFontSizeOwningWorkspace {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: owningWorkspace
+                )
+            } else {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: self
+                )
+            }
+            terminalFontSizeChangeCoordinator?
+                .terminalDidEnterDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         return detached.panelId
     }
 
@@ -350,6 +382,23 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
         )
+        if let terminalPanel = panel as? TerminalPanel {
+            if let owningWorkspace =
+                    terminalFontSizeOwningWorkspace {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: owningWorkspace
+                )
+            } else {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: self
+                )
+            }
+            terminalFontSizeChangeCoordinator?
+                .terminalDidEnterDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         return detached.panelId
     }
 

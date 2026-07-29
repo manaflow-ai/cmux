@@ -169524,6 +169524,23 @@
         }
       }
     },
+    "settings.config.status.reloadBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload queued; too many requests are pending to confirm completion."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込みをキューに追加しましたが、保留中のリクエストが多すぎるため完了を確認できません。"
+          }
+        }
+      }
+    },
     "settings.config.status.reloaded": {
       "extractionState": "manual",
       "localizations": {
@@ -201969,6 +201986,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "워크스페이스 설명 편집"
+          }
+        }
+      }
+    },
+    "shortcut.decreaseWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrease Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズを小さくする"
+          }
+        }
+      }
+    },
+    "shortcut.increaseWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズを大きくする"
+          }
+        }
+      }
+    },
+    "shortcut.resetWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズをリセット"
           }
         }
       }
