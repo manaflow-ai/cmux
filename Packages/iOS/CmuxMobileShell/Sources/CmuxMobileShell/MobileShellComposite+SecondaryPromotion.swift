@@ -16,16 +16,20 @@ extension MobileShellComposite {
         instanceTag: String? = nil,
         switchAttemptID: UUID
     ) async -> Bool {
-        // Resolve the exact pairing's subscription: the requested tag when given,
-        // else any live subscription for the device (legacy device-only callers).
-        guard let entry = secondaryMacSubscriptions.first(where: { _, candidate in
+        // Resolve the exact pairing's subscription. A device-only request
+        // (legacy callers with no tag) promotes only when it is unambiguous:
+        // with two sibling builds live, an arbitrary pick would route input to
+        // the wrong instance, so fail closed and let the store-resolved dial
+        // pick the authoritative pairing.
+        let candidates = secondaryMacSubscriptions.filter { _, candidate in
             candidate.macDeviceID == macID && (
                 instanceTag == nil || MobileMacInstanceTagAuthority.sameStoredAuthority(
                     candidate.authenticatedInstanceTag ?? candidate.storedInstanceTag,
                     instanceTag
                 )
             )
-        }) else { return false }
+        }
+        guard candidates.count == 1, let entry = candidates.first else { return false }
         let ownerKey = entry.key
         guard runtime != nil,
               let sub = secondaryMacSubscriptions[ownerKey],

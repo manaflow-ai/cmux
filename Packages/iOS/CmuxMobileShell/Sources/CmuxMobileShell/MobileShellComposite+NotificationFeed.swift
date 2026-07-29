@@ -51,9 +51,12 @@ extension MobileShellComposite {
     public func notificationFeedStatus(
         scopedTo macDeviceIDs: Set<String>?
     ) -> MobileNotificationFeedStatus {
-        guard let macDeviceIDs, !macDeviceIDs.isEmpty else {
+        guard let scopeEntries = macDeviceIDs, !scopeEntries.isEmpty else {
             return notificationFeedStatus
         }
+        let macDeviceIDs = Set(scopeEntries.map {
+            MobilePairedMac.pairingIdentity(from: $0).macDeviceID
+        })
 
         var connectedMacDeviceIDs = Set(secondaryMacSubscriptions.values.map(\.macDeviceID))
         if remoteClient != nil, let foregroundID = normalizedForegroundNotificationFeedMacID() {
@@ -92,13 +95,23 @@ extension MobileShellComposite {
         guard let macDeviceIDs, !macDeviceIDs.isEmpty else {
             return notificationFeedItems
         }
+        // Scope entries are bare device ids or pairing ids. Matching happens
+        // per ITEM (each carries its stamped tag) so a build-scoped selection
+        // excludes the sibling's rows even inside the foreground's
+        // device-keyed snapshot.
         let projected = notificationFeedSnapshotsByMac.compactMap {
             entry -> MobileNotificationFeedSourceSnapshot? in
             let ownerKey = entry.key
-            let macDeviceID = MobilePairedMac.pairingIdentity(from: ownerKey).macDeviceID
-            guard macDeviceIDs.contains(macDeviceID) else { return nil }
+            let items = entry.value.items.filter { item in
+                macDeviceIDs.contains(where: { scopeEntry in
+                    MobileWorkspaceListFilter.machineEntryMatches(
+                        scopeEntry, deviceID: item.macDeviceID, rowTag: item.macInstanceTag
+                    )
+                })
+            }
+            guard !items.isEmpty else { return nil }
             return MobileNotificationFeedSourceSnapshot(
-                items: entry.value.items,
+                items: items,
                 connectionStatus: notificationFeedConnectionStatus(forOwnerKey: ownerKey)
             )
         }
@@ -166,7 +179,11 @@ extension MobileShellComposite {
     public func markNotificationFeedItemsRead(scopedTo macDeviceIDs: Set<String>?) async {
         if macDeviceIDs?.isEmpty == true { return }
         let targets = notificationFeedTargets().filter { target in
-            (macDeviceIDs?.contains(target.macDeviceID) ?? true)
+            (macDeviceIDs?.contains(where: { scopeEntry in
+                MobileWorkspaceListFilter.machineEntryMatches(
+                    scopeEntry, deviceID: target.macDeviceID, rowTag: target.instanceTag
+                )
+            }) ?? true)
                 && notificationFeedSnapshotsByMac[target.ownerKey]?.items.contains(where: { !$0.isRead }) == true
         }
         for target in targets {
@@ -733,6 +750,11 @@ extension MobileShellComposite {
             macDeviceID: item.macDeviceID, instanceTag: item.macInstanceTag
         )
         if secondaryMacSubscriptions[pairingKey] != nil { return pairingKey }
+        // A tagged item whose exact pairing is offline must NOT fall back to
+        // the bare device key: that can resolve a sibling build's client and
+        // mutate a colliding notification id on the wrong build. Returning the
+        // pairing key fails closed (no client -> the mutation no-ops).
+        guard item.macInstanceTag == nil else { return pairingKey }
         return item.macDeviceID
     }
 

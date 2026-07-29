@@ -65,10 +65,19 @@ extension MobileShellComposite {
 
     private func notificationDismissClient(for macDeviceID: String?) -> MobileCoreRPCClient? {
         guard let macDeviceID, !macDeviceID.isEmpty else { return remoteClient }
-        if foregroundMacDeviceID == macDeviceID {
-            return remoteClient
+        // Dismiss records are device-scoped (push payloads carry no instance
+        // tag). Route only when the owning build is unambiguous: with sibling
+        // builds live, a colliding Mac-local id could dismiss the wrong
+        // build's notification, so defer until the ambiguity clears.
+        var candidates: [MobileCoreRPCClient] = []
+        if foregroundMacDeviceID == macDeviceID, let remoteClient {
+            candidates.append(remoteClient)
         }
-        return secondaryMacSubscriptions[macDeviceID]?.client
+        candidates.append(contentsOf: secondaryMacSubscriptions.values
+            .filter { $0.macDeviceID == macDeviceID }
+            .map(\.client))
+        guard candidates.count == 1 else { return nil }
+        return candidates.first
     }
 
     func flushPendingNotificationDismisses(macDeviceID: String? = nil) async {

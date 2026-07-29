@@ -8,6 +8,10 @@ struct WorkspaceMacSelectionScope {
     let foregroundMachineIDs: Set<String>
     let workspaces: [MobileWorkspacePreview]
     private let displayPairedMacs: [MobilePairedMac]
+    /// The LIVE foreground connection's instance tag. Stored `isActive` flags
+    /// can lag promotion (written with `reloadAfterWrite: false`), so
+    /// correctness-critical gates use this instead of presentation state.
+    private let foregroundInstanceTag: String?
 
     init(
         selection: WorkspaceMacSelection,
@@ -15,6 +19,7 @@ struct WorkspaceMacSelectionScope {
         displayPairedMacs: [MobilePairedMac],
         notificationFeedItems: [MobileNotificationFeedItem] = [],
         foregroundMacDeviceID: String?,
+        foregroundInstanceTag: String? = nil,
         aliasesFor: (String) -> [String]
     ) {
         let aliasIndex = WorkspaceMacPickerAliasIndex(
@@ -45,6 +50,7 @@ struct WorkspaceMacSelectionScope {
         self.foregroundMachineIDs = foregroundMachineIDs
         self.workspaces = workspaces
         self.displayPairedMacs = displayPairedMacs
+        self.foregroundInstanceTag = foregroundInstanceTag
     }
 
     var visibleSelection: WorkspaceMacSelection {
@@ -117,8 +123,14 @@ struct WorkspaceMacSelectionScope {
             guard !foregroundMachineIDs.isDisjoint(with: selectedDeviceIDs(for: id)) else {
                 return false
             }
-            guard let selectedTag = MobilePairedMac.pairingIdentity(from: id).instanceTag,
-                  let activePairing = displayPairedMacs.first(where: \.isActive) else {
+            guard let selectedTag = MobilePairedMac.pairingIdentity(from: id).instanceTag else {
+                return true
+            }
+            // Prefer the live connection's tag; stored isActive lags promotion.
+            if let liveTag = Self.normalizedTag(foregroundInstanceTag) {
+                return liveTag == Self.normalizedTag(selectedTag)
+            }
+            guard let activePairing = displayPairedMacs.first(where: \.isActive) else {
                 return true
             }
             return Self.normalizedTag(activePairing.instanceTag) == Self.normalizedTag(selectedTag)
@@ -156,6 +168,18 @@ struct WorkspaceMacSelectionScope {
             }
         case .all, .automatic:
             return items
+        }
+    }
+
+    /// The selection's raw filter entries (bare device ids or pairing ids),
+    /// for consumers that must preserve the selected build's identity, like
+    /// the notification feed projection.
+    var selectedScopeEntries: Set<String>? {
+        switch visibleSelection {
+        case .machine(let id):
+            aliasIndex.filterMachineIDs(for: id)
+        case .all, .automatic:
+            nil
         }
     }
 

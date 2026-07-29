@@ -293,13 +293,19 @@ extension MobileShellComposite {
             workspacesByMac[pairingID] = nil
             removeNotificationFeedSnapshot(macDeviceID: pairingID)
         }
-        // The foreground pairing's feed snapshot lives under the bare DEVICE
-        // key. Hiding it while a sibling pairing stays visible skips the
-        // fully-hidden prune below, so remove that snapshot explicitly.
+        // The foreground pairing's feed snapshot AND workspace entry live under
+        // the bare DEVICE key. Hiding it while a sibling pairing stays visible
+        // skips the fully-hidden prune below, so remove both explicitly —
+        // matching the retained state's tag so a sibling's entry is preserved.
         if let foregroundPairingID, targetPairingIDs.contains(foregroundPairingID) {
-            removeNotificationFeedSnapshot(
-                macDeviceID: MobilePairedMac.pairingIdentity(from: foregroundPairingID).macDeviceID
-            )
+            let identity = MobilePairedMac.pairingIdentity(from: foregroundPairingID)
+            removeNotificationFeedSnapshot(macDeviceID: identity.macDeviceID)
+            if let retained = workspacesByMac[identity.macDeviceID],
+               MobileMacInstanceTagAuthority.sameStoredAuthority(
+                   retained.instanceTag, identity.instanceTag
+               ) {
+                workspacesByMac[identity.macDeviceID] = nil
+            }
         }
         let fullyHiddenPhysicalIDs = targetPhysicalIDs.subtracting(remainingPhysicalIDs)
         for id in fullyHiddenPhysicalIDs {

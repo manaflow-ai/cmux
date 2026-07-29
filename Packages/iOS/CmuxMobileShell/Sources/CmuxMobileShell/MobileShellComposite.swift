@@ -3677,6 +3677,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     instanceTag: existing.authenticatedInstanceTag ?? existing.storedInstanceTag
                 )
                 guard await isSecondaryRefreshStillCurrent(
+                    ownerKey: mac.id,
                     macDeviceID: mac.macDeviceID,
                     subscription: existing,
                     scope: scope
@@ -3711,19 +3712,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
     private func isSecondaryRefreshStillCurrent(
+        ownerKey: String,
         macDeviceID: String,
         subscription: SecondaryMacSubscription,
         scope: MobileShellScopeSnapshot
     ) async -> Bool {
         guard let pairedMacStore,
               await isAggregationScopeValid(scope),
-              secondaryMacSubscriptions[macDeviceID] === subscription,
+              secondaryMacSubscriptions[ownerKey] === subscription,
               await !isHiddenMacDeviceID(
                   macDeviceID,
                   instanceTag: subscription.storedInstanceTag,
                   scope: scope
               ),
-              secondaryMacSubscriptions[macDeviceID] === subscription,
+              secondaryMacSubscriptions[ownerKey] === subscription,
               let currentMac = try? await pairedMacStore.loadAll(
                   stackUserID: scope.userID,
                   teamID: scope.teamID
@@ -3734,7 +3736,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                           subscription.storedInstanceTag
                       )
               }),
-              secondaryMacSubscriptions[macDeviceID] === subscription,
+              secondaryMacSubscriptions[ownerKey] === subscription,
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   currentMac.instanceTag,
                   subscription.storedInstanceTag
