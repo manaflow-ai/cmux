@@ -28,19 +28,25 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
     /// The capture-survives-teardown regression test uses that to prove
     /// `run` still completes; production constructs the runner without a hook.
     let readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)?
+    /// Test observation seam (package tests only): records the launched child
+    /// identifier so tests can prove error cleanup reaped that exact process.
+    let processDidLaunch: (@Sendable (pid_t) -> Void)?
     private let stdinWriter: any RemoteProcessStdinWriting
 
     /// Creates the production runner.
     public init() {
         self.readHandlesDidInstall = nil
+        self.processDidLaunch = nil
         self.stdinWriter = RemoteProcessStdinWriter()
     }
 
     init(
         readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)? = nil,
+        processDidLaunch: (@Sendable (pid_t) -> Void)? = nil,
         stdinWriter: any RemoteProcessStdinWriting = RemoteProcessStdinWriter()
     ) {
         self.readHandlesDidInstall = readHandlesDidInstall
+        self.processDidLaunch = processDidLaunch
         self.stdinWriter = stdinWriter
     }
 
@@ -236,6 +242,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         do {
             try operation?.throwIfCancelled()
             try process.run()
+            processDidLaunch?(process.processIdentifier)
         } catch {
             try? stdoutPipe.fileHandleForWriting.close()
             try? stderrPipe.fileHandleForWriting.close()

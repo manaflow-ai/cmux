@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxRemoteSession
@@ -87,9 +88,12 @@ struct RemoteSessionProcessRunnerTests {
     }
 
     @Test("An unexpected stdin write error terminates the child and keeps the pinned runner error")
-    func unexpectedStdinWriteErrorTerminatesChildAndKeepsPinnedRunnerError() {
-        let runner = RemoteSessionProcessRunner(stdinWriter: FailingRemoteProcessStdinWriter())
-        let startedAt = ProcessInfo.processInfo.systemUptime
+    func unexpectedStdinWriteErrorTerminatesChildAndKeepsPinnedRunnerError() throws {
+        let launchedProcess = LaunchedProcessRecorder()
+        let runner = RemoteSessionProcessRunner(
+            processDidLaunch: { launchedProcess.record($0) },
+            stdinWriter: FailingRemoteProcessStdinWriter()
+        )
 
         #expect {
             try runner.run(
@@ -109,7 +113,8 @@ struct RemoteSessionProcessRunnerTests {
                 && nsError.localizedDescription.hasPrefix("Failed to write stdin for sleep:")
                 && underlyingError?.code == .EIO
         }
-        #expect(ProcessInfo.processInfo.systemUptime - startedAt < 4)
+        let processIdentifier = try #require(launchedProcess.processIdentifier)
+        #expect(waitForProcessExit(processIdentifier, timeout: 2))
     }
 
     @Test("A late stdin write error wins over an earlier child exit")
@@ -248,4 +253,31 @@ struct RemoteSessionProcessRunnerTests {
         }
     }
 }
+}
+
+private final class LaunchedProcessRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedProcessIdentifier: pid_t?
+
+    var processIdentifier: pid_t? {
+        lock.withLock { storedProcessIdentifier }
+    }
+
+    func record(_ processIdentifier: pid_t) {
+        lock.withLock {
+            storedProcessIdentifier = processIdentifier
+        }
+    }
+}
+
+private func waitForProcessExit(_ processIdentifier: pid_t, timeout: TimeInterval) -> Bool {
+    let deadline = DispatchTime.now() + timeout
+    repeat {
+        errno = 0
+        if kill(processIdentifier, 0) == -1, errno == ESRCH {
+            return true
+        }
+        Thread.sleep(forTimeInterval: 0.01)
+    } while DispatchTime.now() < deadline
+    return false
 }
