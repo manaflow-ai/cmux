@@ -3642,6 +3642,38 @@ import Testing
         #expect(shell.connections["mac-late"]?.client === client)
     }
 
+    @Test func anonymousSameRouteRepairReleasesForegroundLeaseBeforeDial()
+        async throws {
+        let router = LivenessHostRouter()
+        let clock = TestClock()
+        let shell = try await makeConnectedStore(
+            router: router,
+            box: TransportBox(),
+            clock: clock
+        )
+        let originalClient = try #require(shell.remoteClient)
+        let route = try #require(shell.activeRoute)
+        let anonymousTicket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: clock.now.addingTimeInterval(3_600)
+        )
+
+        _ = try await shell.connect(
+            ticket: anonymousTicket,
+            allowsStackAuthFallback: true
+        )
+
+        #expect(shell.connectionState == .connected)
+        #expect(shell.remoteClient != nil)
+        #expect(shell.remoteClient !== originalClient)
+        #expect(shell.foregroundMacDeviceIDForTesting() == "test-mac")
+        #expect(shell.connections["test-mac"]?.client === shell.remoteClient)
+    }
+
     @Test func rejectedAnonymousIdentityPreservesAuthenticatedControlOwner()
         async throws {
         let directory = FileManager.default.temporaryDirectory
