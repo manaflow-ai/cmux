@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite
+@Suite(.serialized)
 struct AgentWaitCoordinatorTests {
     @Test
     func stateReachedBeforeWaitStartsReturnsImmediately() throws {
@@ -119,7 +119,7 @@ struct AgentWaitCoordinatorTests {
     }
 
     @Test
-    func replacementOccupantCannotSatisfyPinnedWait() throws {
+    func replacementOccupantCannotSatisfyPinnedWait() {
         let fixture = Fixture(state: .running)
         let replacement = AgentLifecycleRecord(
             agent: "codex",
@@ -139,10 +139,7 @@ struct AgentWaitCoordinatorTests {
             }
         )
 
-        let value = try result.get()
-        #expect(value.status == .timedOut)
-        #expect(value.state == .exit)
-        #expect(value.sessionID == fixture.original.sessionID)
+        #expect(result == .failure(.noAgent))
     }
 
     @Test

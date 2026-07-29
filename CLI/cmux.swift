@@ -24411,7 +24411,10 @@ struct CMUXCLI {
                         surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                         telemetry: telemetry
                     )
-            if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
+            if shouldRegisterPID,
+               let claudePid,
+               !suppressVisibleMutations,
+               !isClearSessionStart {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -24426,7 +24429,9 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     sessionId: parsedInput.sessionId,
-                    startsNewOccupant: true
+                    startsNewOccupant: true,
+                    expectedPIDKey: claudePid == nil ? nil : Self.claudeCodeStatusKey,
+                    expectedPID: claudePid
                 )
                 try setClaudeStatus(
                     client: client,
@@ -24916,10 +24921,17 @@ struct CMUXCLI {
                        mappedSession: nil,
                        routing: hookRouting,
                        client: client
-                   ),
+                    ),
                     forkTarget.isAuthoritative {
+                    var clearCommand =
+                        "clear_agent_pid \(Self.claudeCodeStatusKey) " +
+                        "--tab=\(forkTarget.workspaceId)\(socketPanelOption(forkTarget.surfaceId)) " +
+                        "--clear-status --session-id=\(socketQuote(reportedSessionId))"
+                    if let forkClaudePid, forkClaudePid > 0 {
+                        clearCommand += " --expected-pid=\(forkClaudePid)"
+                    }
                     _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkTarget.workspaceId)\(socketPanelOption(forkTarget.surfaceId)) --clear-status --session-id=\(socketQuote(reportedSessionId))",
+                        clearCommand,
                         client: client
                     )
                 }
@@ -25009,8 +25021,20 @@ struct CMUXCLI {
                     env: ProcessInfo.processInfo.environment
                 )
                 if shouldClearVisibleState, !suppressVisibleMutations {
+                    var clearCommand =
+                        "clear_agent_pid \(Self.claudeCodeStatusKey) " +
+                        "--tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) " +
+                        "--clear-status --session-id=\(socketQuote(consumedSession.sessionId))"
+                    if let claudePid, claudePid > 0 {
+                        clearCommand += " --expected-pid=\(claudePid)"
+                        if let startSeconds = consumedSession.pidStartSeconds,
+                           let startMicroseconds = consumedSession.pidStartMicroseconds {
+                            clearCommand += " --expected-pid-start-seconds=\(startSeconds)"
+                            clearCommand += " --expected-pid-start-microseconds=\(startMicroseconds)"
+                        }
+                    }
                     _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) --clear-status --session-id=\(socketQuote(consumedSession.sessionId))",
+                        clearCommand,
                         client: client
                     )
                     try? sessionStore.clearAgentLifecycleIfPresent(

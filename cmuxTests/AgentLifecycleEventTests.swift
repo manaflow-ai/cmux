@@ -701,7 +701,7 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
-    func staleClaudeTeardownCannotClearReplacementPIDRegisteredBeforeLifecycle() throws {
+    func staleClaudeTeardownCannotClearAtomicReplacementOccupantClaim() throws {
         let fixture = try Fixture()
         let sharedPIDKey = "claude_code"
         let originalPID = getppid()
@@ -720,27 +720,26 @@ struct AgentLifecycleEventTests {
             startsNewOccupant: true
         )
 
-        // A replacement SessionStart registers the shared Claude PID before
-        // its queued lifecycle mutation establishes the new session.
-        fixture.workspace.recordAgentPID(
+        // A replacement SessionStart claims lifecycle and shared PID routing
+        // in one model mutation, so stale teardown can observe either the old
+        // owner or the replacement, never a replacement PID owned by the old
+        // lifecycle session.
+        fixture.workspace.setAgentLifecycle(
             key: sharedPIDKey,
-            pid: replacementPID,
             panelId: fixture.surfaceID,
-            refreshPorts: false
+            lifecycle: .running,
+            sessionID: "session-new",
+            startsNewOccupant: true,
+            expectedPIDKey: sharedPIDKey,
+            expectedPID: replacementPID
         )
         let didClear = fixture.workspace.clearAgentPID(
             key: sharedPIDKey,
             panelId: fixture.surfaceID,
             clearStatus: true,
             refreshPorts: false,
-            expectedLifecycleSessionID: "session-old"
-        )
-        fixture.workspace.setAgentLifecycle(
-            key: sharedPIDKey,
-            panelId: fixture.surfaceID,
-            lifecycle: .running,
-            sessionID: "session-new",
-            startsNewOccupant: true
+            expectedLifecycleSessionID: "session-old",
+            expectedPID: originalPID
         )
 
         #expect(!didClear)

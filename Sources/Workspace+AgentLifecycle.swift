@@ -268,16 +268,29 @@ extension Workspace {
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
+        let claimedPID: (key: String, pid: Int32)?
         switch (expectedPIDKey, expectedPID) {
         case let (expectedPIDKey?, expectedPID?):
             guard expectedPID > 0,
-                  agentStatusKey(forAgentPIDKey: expectedPIDKey) == key,
-                  agentPIDPanelIdsByKey[expectedPIDKey] == targetPanelId,
-                  agentPIDs[expectedPIDKey] == expectedPID else {
+                  agentStatusKey(forAgentPIDKey: expectedPIDKey) == key else {
                 return
             }
+            if startsNewOccupant, expectedPIDKey == key {
+                // A verified SessionStart for a shared PID key establishes
+                // lifecycle ownership and PID routing in this single
+                // main-actor mutation. Session-qualified PID keys retain the
+                // strict expected-PID guard below, so stale anonymous hooks
+                // cannot reclaim a replacement process.
+                claimedPID = (expectedPIDKey, expectedPID)
+            } else {
+                guard agentPIDPanelIdsByKey[expectedPIDKey] == targetPanelId,
+                      agentPIDs[expectedPIDKey] == expectedPID else {
+                    return
+                }
+                claimedPID = nil
+            }
         case (nil, nil):
-            break
+            claimedPID = nil
         case (nil, _?), (_?, nil):
             return
         }
@@ -328,6 +341,14 @@ extension Workspace {
             )
         }
         agentLifecycleRecordsByPanelId[targetPanelId, default: [:]][key] = record
+
+        if let claimedPID {
+            _ = recordAgentPID(
+                key: claimedPID.key,
+                pid: claimedPID.pid,
+                panelId: targetPanelId
+            )
+        }
 
         let isManual = AgentHibernationLifecycleStatusKeys.isManualKey(key)
         if !isManual,

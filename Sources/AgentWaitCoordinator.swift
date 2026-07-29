@@ -190,6 +190,9 @@ struct AgentWaitCoordinator {
                         )
                     )
                 }
+                if pinnedState == .exit {
+                    return .failure(.noAgent)
+                }
                 if let timeout = timeoutResultIfExpired() {
                     return .success(timeout)
                 }
