@@ -7904,6 +7904,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             resumeBinding: nil,
             agentSessionRetryCompletedAttempts: nil,
             agentRuntime: nil,
+            agentLifecycleRecords: [:],
             isRemoteTerminal: false,
             remoteRelayPort: nil,
             remotePTYSessionID: nil,
