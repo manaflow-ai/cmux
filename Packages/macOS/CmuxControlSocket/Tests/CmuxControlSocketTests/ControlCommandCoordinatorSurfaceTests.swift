@@ -389,4 +389,21 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(payload["branch"] == .null)
         #expect(payload["cleared"] == .bool(true))
     }
+
+    @Test func surfaceResumeClearRejectsInvalidInternalRevisionBeforeDispatch() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.clear",
+            params: ["_cmux_expected_updated_at": .string("nan")]
+        ))
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("expected invalid_params")
+            return
+        }
+        #expect(code == "invalid_params")
+    }
 }
