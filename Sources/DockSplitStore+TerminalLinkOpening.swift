@@ -49,10 +49,11 @@ extension DockSplitStore: TerminalLinkOpenContainer {
 
     func openOrFocusTerminalBrowserFileLink(url: URL, sourcePanelId: UUID) -> Bool {
         let canonicalURL = url.standardizedFileURL.resolvingSymlinksInPath()
+        guard let targetIdentity = BrowserLocalFileIdentity(url: canonicalURL) else { return false }
         if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
             $0.localFileReadAccessPolicy == .fileOnly
-                && $0.effectiveURLForTerminalFileReuse?
-                    .standardizedFileURL.resolvingSymlinksInPath() == canonicalURL
+                && $0.effectiveURLForTerminalFileReuse
+                    .flatMap { BrowserLocalFileIdentity(url: $0) } == targetIdentity
         }), existing.reloadTerminalFileForReuse(canonicalURL) {
             focusPanel(existing.id)
             return true
