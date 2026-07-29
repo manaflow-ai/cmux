@@ -27,7 +27,7 @@ final class MobileRPCConnectCancellationClose: @unchecked Sendable {
 extension MobileCoreRPCSession {
     func abandonConnectionTask(_ connecting: ConnectingTask) async {
         let cleanupID = UUID()
-        let cleanupTask = Task.detached { [weak self] in
+        let cleanupTask = Task.detached {
             do {
                 let candidate = try await connecting.task.value
                 if let cancellationCloseTask =
@@ -41,18 +41,22 @@ extension MobileCoreRPCSession {
                     await cancellationCloseTask.value
                 }
             }
-            await self?.abandonedConnectionCleanupDidFinish(cleanupID)
         }
-        abandonedConnectionCleanupTasks[cleanupID] = cleanupTask
+        let registrationTask = Task {
+            [connectAttemptRegistry] in
+            await connectAttemptRegistry.handOffPhysicalCleanup(
+                lease: connecting.lease
+            ) {
+                await cleanupTask.value
+            }
+        }
+        abandonedConnectionCleanupTasks[cleanupID] = registrationTask
         // Teardown cannot return while the cancelled dial still owns the
         // active route lease. Transfer that exact physical lifetime first;
         // the registry then admits one bounded recovery without waiting for
         // a cancellation-ignoring connect or close to settle.
-        await connectAttemptRegistry.handOffPhysicalCleanup(
-            lease: connecting.lease
-        ) {
-            await cleanupTask.value
-        }
+        await registrationTask.value
+        abandonedConnectionCleanupTasks[cleanupID] = nil
     }
 
     func closeUninstalledConnectedCandidate(

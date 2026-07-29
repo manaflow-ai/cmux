@@ -2871,6 +2871,7 @@ import Testing
             return shell.workspacesByMac["mac-b"]?.workspaces.first?.name
                 == "Event Fresh Catch-up"
                 && feedFetchCount >= feedFetchesBeforeGap + 2
+                && clock.sleeperCount == 1
         })
         #expect(shell.secondaryMacSubscriptions["mac-b"] === subscription)
 
@@ -2898,8 +2899,9 @@ import Testing
             endpoint: .hostPort(host: "127.0.0.1", port: 56_587)
         )
         let router = LivenessHostRouter()
-        await router.scriptNotificationFeedRevisions([2, 3])
+        await router.scriptNotificationFeedRevisions([2, 3, 4])
         await router.holdNotificationFeedListRequest(number: 2)
+        await router.holdNotificationFeedListRequest(number: 3)
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(
                 router: router,
@@ -2954,6 +2956,15 @@ import Testing
             of: "notification.feed.list",
             atLeast: 2
         ))
+        shell.notificationFeedKnownRevisionsByMac["mac-b"] = 4
+        await router.releaseNextHeld()
+        #expect(await router.waitForCount(
+            of: "notification.feed.list",
+            atLeast: 3
+        ))
+        #expect(try await pollUntil {
+            await router.heldRequestCount() == 1
+        })
         #expect(try await pollUntil {
             await completion.isFinished
         })

@@ -325,18 +325,36 @@ extension MobileShellComposite {
         case .failed:
             return false
         case .stale:
-            // Revision churn is healthy. Keep a coalesced trailing fetch armed,
-            // but do not couple control activation to the coalescer's lifetime:
-            // later invalidations can legitimately keep that task alive.
-            guard scheduleNotificationFeedRefresh(
+            // Capture the missed-window floor and await exactly one trailing
+            // list request. Invalidation churn after this point remains owned
+            // by the detached coalescer instead of extending activation.
+            let requiredRevision =
+                notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
+            let trailingOutcome = await fetchNotificationFeed(
                 macDeviceID: macDeviceID,
                 client: client,
                 displayName: normalizedDisplayName(
                     displayName,
                     fallback: macDeviceID
-                )
-            ) != nil else {
+                ),
+                requiredRevision: requiredRevision
+            )
+            guard case .applied = trailingOutcome else {
                 return false
+            }
+            let appliedRevision =
+                notificationFeedSnapshotsByMac[macDeviceID]?.revision ?? -1
+            let knownRevision =
+                notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
+            if appliedRevision < knownRevision {
+                _ = scheduleNotificationFeedRefresh(
+                    macDeviceID: macDeviceID,
+                    client: client,
+                    displayName: normalizedDisplayName(
+                        displayName,
+                        fallback: macDeviceID
+                    )
+                )
             }
             return secondaryMacSubscriptions[macDeviceID] === subscription
                 && !subscription.isTransitioningToFocus
@@ -459,11 +477,14 @@ extension MobileShellComposite {
     func applyNotificationFeedSnapshot(
         _ response: MobileNotificationFeedListResponse,
         macDeviceID: String,
-        displayName: String
+        displayName: String,
+        requiredRevision: Int? = nil
     ) -> Bool {
         guard let macDeviceID = normalizedIdentifier(macDeviceID) else { return false }
         let currentRevision = notificationFeedSnapshotsByMac[macDeviceID]?.revision ?? -1
-        let minimumRevision = notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
+        let knownRevision =
+            notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
+        let minimumRevision = requiredRevision ?? knownRevision
         guard response.revision >= minimumRevision else {
             // An invalidation arrived while this list RPC was in flight. Keep one
             // trailing pass armed so the newer revision cannot be lost when this
@@ -471,7 +492,12 @@ extension MobileShellComposite {
             notificationFeedRefreshPendingMacIDs.insert(macDeviceID)
             return false
         }
-        guard response.revision >= currentRevision else { return false }
+        if response.revision < currentRevision {
+            if currentRevision < knownRevision {
+                notificationFeedRefreshPendingMacIDs.insert(macDeviceID)
+            }
+            return currentRevision >= minimumRevision
+        }
 
         let status = notificationFeedConnectionStatus(for: macDeviceID)
         let macDisplayName = normalizedDisplayName(displayName, fallback: macDeviceID)
@@ -531,7 +557,13 @@ extension MobileShellComposite {
             revision: response.revision,
             items: items
         )
-        notificationFeedKnownRevisionsByMac[macDeviceID] = response.revision
+        notificationFeedKnownRevisionsByMac[macDeviceID] = max(
+            knownRevision,
+            response.revision
+        )
+        if response.revision < knownRevision {
+            notificationFeedRefreshPendingMacIDs.insert(macDeviceID)
+        }
         notificationFeedSuccessfulMacIDs.insert(macDeviceID)
         recomputeNotificationFeedItems()
         return true
@@ -582,7 +614,8 @@ extension MobileShellComposite {
     private func fetchNotificationFeed(
         macDeviceID: String,
         client: MobileCoreRPCClient,
-        displayName: String
+        displayName: String,
+        requiredRevision: Int? = nil
     ) async -> NotificationFeedFetchOutcome {
         do {
             let request = try MobileCoreRPCClient.requestData(
@@ -610,7 +643,8 @@ extension MobileShellComposite {
             return applyNotificationFeedSnapshot(
                 response,
                 macDeviceID: macDeviceID,
-                displayName: displayName
+                displayName: displayName,
+                requiredRevision: requiredRevision
             ) ? .applied : .stale
         } catch {
             guard notificationFeedClient(for: macDeviceID) === client else {
