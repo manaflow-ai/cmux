@@ -9210,12 +9210,21 @@ struct CMUXCLI {
         // Treat the OpenSSH setting as the host's default interactive
         // program. Explicit cmux commands and terminal profiles continue to
         // take precedence over that default.
-        let configuredInteractiveRemoteCommand =
-            usesImplicitManagedInteractiveShell
-                ? resolvedUserSSHConfiguration.flatMap {
-                    SSHHostConfiguredRemoteCommand().configuredCommand(fromSSHConfigOutput: $0)
-                }
-                : nil
+        let remoteCommandPolicy = SSHHostConfiguredRemoteCommand()
+        let configuredInteractiveRemoteCommand: String?
+        if usesImplicitManagedInteractiveShell {
+            if let resolvedUserSSHConfiguration {
+                configuredInteractiveRemoteCommand = remoteCommandPolicy.configuredCommand(
+                    fromSSHConfigOutput: resolvedUserSSHConfiguration
+                )
+            } else {
+                configuredInteractiveRemoteCommand = remoteCommandPolicy.configuredCommand(
+                    fromOptions: inputSSHOptions.sshOptions
+                )
+            }
+        } else {
+            configuredInteractiveRemoteCommand = nil
+        }
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
             let elapsedMs = Int(Date().timeIntervalSince(sshStartedAt) * 1000)

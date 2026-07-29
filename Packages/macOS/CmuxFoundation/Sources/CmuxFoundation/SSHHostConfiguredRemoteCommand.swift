@@ -37,6 +37,31 @@ public struct SSHHostConfiguredRemoteCommand: Sendable {
 
     public init() {}
 
+    /// Parses the first explicit `RemoteCommand` from caller-supplied `-o` options.
+    ///
+    /// This is a fallback for when `ssh -G` is unavailable. OpenSSH keeps the
+    /// first obtained value, so option order is significant here.
+    public func configuredCommand(fromOptions options: [String]) -> String? {
+        for option in options {
+            let parts = option
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(
+                    maxSplits: 1,
+                    omittingEmptySubsequences: true,
+                    whereSeparator: { $0 == "=" || $0.isWhitespace }
+                )
+            guard parts.count == 2, parts[0].lowercased() == "remotecommand" else {
+                continue
+            }
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty, value.caseInsensitiveCompare("none") != .orderedSame else {
+                return nil
+            }
+            return value
+        }
+        return nil
+    }
+
     /// Parses the effective `RemoteCommand` from `ssh -G` output.
     ///
     /// - Parameter output: Standard output from `ssh -G <destination>`.

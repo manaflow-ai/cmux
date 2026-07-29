@@ -32,7 +32,11 @@ enum RemoteInteractiveShellBootstrapBuilder {
         bashShellLines.append(contentsOf: initialCommandBootstrap.posixInteractiveShellLines)
         let zshBootstrap = RemoteRelayZshBootstrap(shellStateDir: shellStateDir)
         let relayWarmupLines = relayWarmupLines(remoteRelayPort: remoteRelayPort)
-        let chainedRemoteCommand = terminalProfile.kind == .shell
+        // A captured/approved startup command is an explicit restore target;
+        // it takes precedence over the host's default interactive program.
+        // Launching the configured command with `-c` would bypass the shell
+        // hooks that atomically claim and execute the startup command.
+        let chainedRemoteCommand = terminalProfile.kind == .shell && !initialCommandBootstrap.hasCommand
             ? configuredRemoteCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
             : nil
         let chainedRemoteCommandLaunch = chainedRemoteCommand.flatMap { command -> String? in
