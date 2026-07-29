@@ -85,7 +85,7 @@ export async function PlatformDownloadPage({
             style={ctaButtonStyle}
           >
             <DownloadIcon />
-            <span className="min-w-0 whitespace-normal text-center">
+            <span className="min-w-0 text-balance whitespace-normal text-center">
               {t(`${platform}.primaryCta`)}
             </span>
           </PlatformDownloadLink>
