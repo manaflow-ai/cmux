@@ -704,6 +704,11 @@ def verify_guessed_surface_does_not_consume_clear_handoff(cli_path: str) -> None
                 "A guessed surface consumed another pane's clear handoff:\n"
                 f"state={state!r}"
             )
+        if guessed_session_id in state.get("sessions", {}):
+            raise RuntimeError(
+                "A rejected clear boundary persisted a guessed pane as authoritative:\n"
+                f"state={state!r}"
+            )
 
 
 def verify_stale_clear_start_preserves_handoff(cli_path: str) -> None:
@@ -800,6 +805,73 @@ def verify_stale_clear_start_preserves_handoff(cli_path: str) -> None:
         ):
             raise RuntimeError(
                 "The matching process could not consume its clear handoff:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+
+
+def verify_clear_handoff_outlives_session_end_budget(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    old_session_id = f"delayed-old-{uuid.uuid4().hex}"
+    clear_session_id = f"delayed-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "delayed-clear-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+        # Claude permits an explicit SessionEnd budget beyond its 60-second
+        # settings ceiling. The handoff must outlive that configured budget.
+        env["CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS"] = "600000"
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": old_session_id, "turn_id": "turn-1", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": old_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "reason": "clear", "cwd": "/tmp"},
+            env,
+        )
+
+        state = json.loads(state_path.read_text())
+        transfer = state["clearBackgroundWorkTransfersBySurface"][surface_id]
+        transfer["updatedAt"] = time.time() - 601
+        state_path.write_text(json.dumps(state))
+
+        clear_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": clear_session_id, "source": "clear", "cwd": "/tmp"},
+            env,
+        )
+        clear_commands = server.commands[clear_start:]
+        if not has_command_with(
+            clear_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "A valid delayed clear start lost its live background handoff:\n"
                 f"clear_commands={clear_commands!r}"
             )
 
@@ -1004,6 +1076,7 @@ def main() -> int:
         verify_clear_handoff_follows_moved_surface(cli_path)
         verify_guessed_surface_does_not_consume_clear_handoff(cli_path)
         verify_stale_clear_start_preserves_handoff(cli_path)
+        verify_clear_handoff_outlives_session_end_budget(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
         return 1
