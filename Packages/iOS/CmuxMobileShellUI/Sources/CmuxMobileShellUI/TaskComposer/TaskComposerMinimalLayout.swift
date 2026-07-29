@@ -145,8 +145,10 @@ struct TaskComposerMinimalLayout: View {
         Button {
             isOptionsPresented = true
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 17, weight: .semibold))
+            // Adjustments glyph, not "+": the button configures the task
+            // (name, Mac, directory), it does not add anything.
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 15, weight: .semibold))
                 .frame(width: 38, height: 38)
                 .background(Color.primary.opacity(0.07), in: Circle())
                 // Keep the compact 38pt visual while honoring the composer's
