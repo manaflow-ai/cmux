@@ -10,6 +10,33 @@ const commands: Record<Platform, string> = {
     'powershell -c "irm https://cmux.com/tui/install.ps1 | iex"',
 };
 
+function HighlightedCommand({ platform }: { platform: Platform }) {
+  if (platform === "unix") {
+    return (
+      <>
+        <span className="text-[#6F42C1] dark:text-[#B392F0]">curl</span>
+        <span className="text-[#005CC5] dark:text-[#79B8FF]"> -fsSL</span>
+        <span className="text-[#032F62] dark:text-[#9ECBFF]">
+          {" https://cmux.com/tui/install.sh"}
+        </span>
+        <span className="text-[#D73A49] dark:text-[#F97583]"> |</span>
+        <span className="text-[#6F42C1] dark:text-[#B392F0]"> sh</span>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <span>powershell </span>
+      <span className="text-[#D73A49] dark:text-[#F97583]">-</span>
+      <span>c </span>
+      <span className="text-[#032F62] dark:text-[#9ECBFF]">
+        {'"irm https://cmux.com/tui/install.ps1 | iex"'}
+      </span>
+    </>
+  );
+}
+
 export function TuiInstallTabs({
   unixLabel,
   windowsLabel,
@@ -104,7 +131,9 @@ export function TuiInstallTabs({
             $
           </span>
           <pre className="min-w-0 flex-1 overflow-x-auto font-mono text-[13px] leading-6">
-            <code>{commands[platform]}</code>
+            <code>
+              <HighlightedCommand platform={platform} />
+            </code>
           </pre>
           <button
             type="button"

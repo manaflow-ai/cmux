@@ -49,8 +49,7 @@ export default async function TuiPage() {
           <h1 className="text-2xl font-semibold tracking-tight">
             {t("title")}
           </h1>
-          <p className="mt-4 text-lg leading-relaxed">{t("workflowTitle")}</p>
-          <p className="mt-2 text-base leading-relaxed text-muted">{t("intro")}</p>
+          <p className="mt-4 text-base leading-relaxed text-muted">{t("intro")}</p>
           <div id="install" className="scroll-mt-20">
             <TuiInstallTabs
               unixLabel={t("installTabs.unix")}
