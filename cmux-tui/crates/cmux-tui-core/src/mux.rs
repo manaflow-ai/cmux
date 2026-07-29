@@ -6167,7 +6167,7 @@ impl Mux {
                 "key": key,
                 "index": index,
             });
-            let commit = registry.commit(
+            let commit = registry.commit_with_active_workspace(
                 mutation,
                 &fingerprint,
                 expected_generation,
@@ -6175,6 +6175,7 @@ impl Mux {
                 "workspace-added",
                 &key,
                 &desired,
+                Some(&workspace_public_id),
                 &result,
             )?;
             let committed_workspace = commit.result["workspace"]
@@ -6197,6 +6198,7 @@ impl Mux {
                     replayed: true,
                 });
             }
+            let resource_revision = registry.snapshot()?.resource_revision;
             state.push_workspace(Workspace {
                 id: ws_id,
                 public_id: workspace_public_id,
@@ -6207,6 +6209,7 @@ impl Mux {
             });
             state.active_workspace = state.workspaces.len() - 1;
             state.workspace_revision = commit.revision;
+            state.resource_revision = resource_revision;
             let revision = commit.revision;
             let entity = crate::server::tree_entity_json(
                 &state,
@@ -6230,6 +6233,8 @@ impl Mux {
                 selection_resync,
             )
         };
+        drop(registry);
+        self.publish_resource_event();
         self.emit_tree_delta(delta, selection_resync);
         Ok(placement)
     }
@@ -8081,13 +8086,18 @@ impl Mux {
             let key = state.workspaces[index].key.clone();
             let mut desired = self.registry_projection(&state);
             desired.remove(index);
+            let desired_active_workspace = if state.active_workspace == index {
+                desired.last().map(|workspace| &workspace.public_id)
+            } else {
+                state.workspaces.get(state.active_workspace).map(|workspace| &workspace.public_id)
+            };
             let committed_result = serde_json::json!({
                 "workspace": workspace_id,
                 "key": key,
                 "index": index,
                 "changed": true,
             });
-            let commit = registry.commit(
+            let commit = registry.commit_with_active_workspace(
                 mutation,
                 fingerprint,
                 expected_generation,
@@ -8095,8 +8105,10 @@ impl Mux {
                 "workspace-closed",
                 &key,
                 &desired,
+                desired_active_workspace,
                 &committed_result,
             )?;
+            let resource_revision = registry.snapshot()?.resource_revision;
             let mut delta = close_workspace_delta(&state, &notifications, workspace_id)
                 .expect("live workspace has a close delta");
             let was_active = state.active_workspace == index;
@@ -8123,6 +8135,7 @@ impl Mux {
             stamp_changed_active_pane(self, &mut state, previous_active);
             Self::rebuild_split_screen_index(&mut state);
             state.workspace_revision = commit.revision;
+            state.resource_revision = resource_revision;
             delta.workspace_revision = Some(commit.revision);
             let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
             let selection_resync = was_active && empty_revision.is_none();
@@ -8134,6 +8147,7 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, terminal_revision_after);
         }
         drop(registry);
+        self.publish_resource_event();
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
@@ -8290,7 +8304,9 @@ impl Mux {
             let changed = state.workspaces[index].name != name;
             let mut desired = self.registry_projection(&state);
             desired[index].name = name.clone();
-            let commit = registry.commit(
+            let desired_active_workspace =
+                state.workspaces.get(state.active_workspace).map(|workspace| &workspace.public_id);
+            let commit = registry.commit_with_active_workspace(
                 mutation,
                 &fingerprint,
                 expected_generation,
@@ -8298,6 +8314,7 @@ impl Mux {
                 "workspace-renamed",
                 &key,
                 &desired,
+                desired_active_workspace,
                 &serde_json::json!({
                     "workspace": workspace_id,
                     "key": key.clone(),
@@ -8305,8 +8322,10 @@ impl Mux {
                     "changed": changed,
                 }),
             )?;
+            let resource_revision = registry.snapshot()?.resource_revision;
             state.workspaces[index].name = name;
             state.workspace_revision = commit.revision;
+            state.resource_revision = resource_revision;
             let workspace_revision = commit.revision;
             let entity = crate::server::tree_entity_json(
                 &state,
@@ -8329,6 +8348,8 @@ impl Mux {
                 workspace_mutation_result(&commit)?,
             )
         };
+        drop(registry);
+        self.publish_resource_event();
         self.emit(MuxEvent::TreeDelta(renamed));
         Ok(result)
     }
@@ -10022,7 +10043,9 @@ impl Mux {
             let mut desired = self.registry_projection(&state);
             let desired_workspace = desired.remove(old_idx);
             desired.insert(new_idx, desired_workspace);
-            let commit = registry.commit(
+            let desired_active_workspace =
+                state.workspaces.get(state.active_workspace).map(|workspace| &workspace.public_id);
+            let commit = registry.commit_with_active_workspace(
                 mutation,
                 &fingerprint,
                 expected_generation,
@@ -10030,6 +10053,7 @@ impl Mux {
                 "workspace-moved",
                 &key,
                 &desired,
+                desired_active_workspace,
                 &serde_json::json!({
                     "workspace": workspace_id,
                     "key": key.clone(),
@@ -10037,6 +10061,7 @@ impl Mux {
                     "changed": changed,
                 }),
             )?;
+            let resource_revision = registry.snapshot()?.resource_revision;
             let active_id = state.workspaces.get(state.active_workspace).map(|ws| ws.id);
             state.move_workspace(old_idx, new_idx);
             state.active_workspace = active_id
@@ -10044,6 +10069,7 @@ impl Mux {
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
             Self::rebuild_split_screen_index(&mut state);
             state.workspace_revision = commit.revision;
+            state.resource_revision = resource_revision;
             let workspace_revision = commit.revision;
             let entity = crate::server::tree_entity_json(
                 &state,
@@ -10066,6 +10092,8 @@ impl Mux {
                 workspace_mutation_result(&commit)?,
             )
         };
+        drop(registry);
+        self.publish_resource_event();
         self.emit(MuxEvent::TreeDelta(delta));
         Ok(result)
     }
@@ -12494,6 +12522,99 @@ mod tests {
             assert!(change.get("event").is_none());
         }
         surface.kill();
+    }
+
+    #[test]
+    fn ordinary_workspace_mutations_publish_one_immediate_public_revision() {
+        fn assert_public_state(
+            mux: &Mux,
+            revision: u64,
+            expected: &[(&str, bool)],
+        ) -> Vec<WorkspacePublicId> {
+            assert_eq!(mux.resource_event_epoch(), revision);
+            mux.with_state(|state| assert_eq!(state.resource_revision, revision));
+
+            let snapshot = crate::resource_api::public_session_snapshot(mux).unwrap();
+            assert_eq!(snapshot["session"]["revision"], revision.to_string());
+            let workspaces = snapshot["workspaces"].as_array().unwrap();
+            assert_eq!(workspaces.len(), expected.len());
+            for (index, (workspace, (name, focused))) in
+                workspaces.iter().zip(expected.iter()).enumerate()
+            {
+                assert_eq!(workspace["name"], *name);
+                assert_eq!(workspace["index"], u64::try_from(index).unwrap());
+                assert_eq!(workspace["focused"], *focused);
+            }
+
+            let registry = mux.workspace_registry.lock().unwrap();
+            assert_eq!(registry.snapshot().unwrap().resource_revision, revision);
+            let events = registry.resource_events_after(0).unwrap();
+            assert_eq!(events.batches.len(), usize::try_from(revision).unwrap());
+            let batch = events.batches.last().unwrap();
+            assert_eq!(batch.previous_revision, revision - 1);
+            assert_eq!(batch.revision, revision);
+            for (sequence, change) in batch.changes.as_array().unwrap().iter().enumerate() {
+                assert_eq!(change["sequence"], sequence);
+                assert!(matches!(change["kind"].as_str(), Some("upsert" | "delete")));
+                assert!(change["resource"].is_string());
+                assert!(change["id"].is_string());
+                assert!(change.get("event").is_none());
+            }
+            workspaces
+                .iter()
+                .map(|workspace| {
+                    WorkspacePublicId::parse(workspace["id"].as_str().unwrap()).unwrap()
+                })
+                .collect()
+        }
+
+        let mux = test_mux();
+        let first = mux.create_empty_workspace(Some("One".into()), None, Some(0)).unwrap();
+        assert_public_state(&mux, 1, &[("One", true)]);
+
+        let second = mux.create_empty_workspace(Some("Two".into()), None, Some(1)).unwrap();
+        let ids = assert_public_state(&mux, 2, &[("One", false), ("Two", true)]);
+
+        assert_eq!(
+            mux.rename_workspace_at_revision(first.workspace, "Renamed".into(), Some(2)).unwrap(),
+            Some(3)
+        );
+        assert_public_state(&mux, 3, &[("Renamed", false), ("Two", true)]);
+
+        assert_eq!(
+            mux.move_workspace_at_revision(first.workspace, 2, Some(3)).unwrap(),
+            Some((4, true))
+        );
+        let moved_ids = assert_public_state(&mux, 4, &[("Two", true), ("Renamed", false)]);
+        assert_eq!(moved_ids, vec![ids[1].clone(), ids[0].clone()]);
+
+        assert_eq!(mux.close_workspace_at_revision(first.workspace, Some(4)).unwrap(), Some(5));
+        let remaining = assert_public_state(&mux, 5, &[("Two", true)]);
+        assert_eq!(remaining, vec![ids[1].clone()]);
+        assert_eq!(second.workspace, mux.with_state(|state| state.workspaces[0].id));
+    }
+
+    #[test]
+    fn ordinary_workspace_projection_failure_rolls_back_both_registries_and_memory() {
+        let mux = test_mux();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+
+        let error =
+            mux.create_empty_workspace(Some("Never visible".into()), None, Some(0)).unwrap_err();
+        assert!(error.to_string().contains("forced resource patch failure"));
+        assert_eq!(mux.resource_event_epoch(), 0);
+        mux.with_state(|state| {
+            assert!(state.workspaces.is_empty());
+            assert_eq!(state.workspace_revision, 0);
+            assert_eq!(state.resource_revision, 0);
+        });
+        let registry = mux.workspace_registry.lock().unwrap();
+        let snapshot = registry.snapshot().unwrap();
+        assert_eq!(snapshot.revision, 0);
+        assert_eq!(snapshot.resource_revision, 0);
+        assert!(snapshot.workspaces.is_empty());
+        assert!(registry.resource_events_after(0).unwrap().batches.is_empty());
+        registry.set_resource_patch_failure(false).unwrap();
     }
 
     #[test]

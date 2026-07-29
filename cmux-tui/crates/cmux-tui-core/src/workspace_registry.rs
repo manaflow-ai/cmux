@@ -46,7 +46,7 @@ pub use resource_store::{
     ResourceEventPage, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
 };
 use resource_store::{
-    create_resource_schema, migrate_resource_browser_metadata,
+    apply_resource_patch, create_resource_schema, migrate_resource_browser_metadata,
     migrate_resource_mutations_to_session_scope, validate_resource_invariants,
 };
 
@@ -970,10 +970,56 @@ impl WorkspaceRegistry {
         workspaces: &[RegistryWorkspace],
         result: &Value,
     ) -> anyhow::Result<RegistryCommit> {
+        let active_workspace = self
+            .connection
+            .query_row("SELECT value FROM meta WHERE key = 'active_workspace_id'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()?
+            .filter(|active| {
+                workspaces.iter().any(|workspace| workspace.public_id.as_str() == active)
+            })
+            .map(WorkspacePublicId::parse)
+            .transpose()?
+            .or_else(|| {
+                workspaces
+                    .iter()
+                    .find(|workspace| workspace.key == workspace_key)
+                    .map(|workspace| workspace.public_id.clone())
+            });
+        self.commit_with_active_workspace(
+            mutation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            event_kind,
+            workspace_key,
+            workspaces,
+            active_workspace.as_ref(),
+            result,
+        )
+    }
+
+    /// Atomically replace the live ordered registry, including its selected
+    /// workspace, and record the mutation plus its public resource event.
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit_with_active_workspace(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        event_kind: &str,
+        workspace_key: &str,
+        workspaces: &[RegistryWorkspace],
+        active_workspace: Option<&WorkspacePublicId>,
+        result: &Value,
+    ) -> anyhow::Result<RegistryCommit> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
+        let previous_topology = self.resource_topology_snapshot()?;
         let tx = self.connection.transaction()?;
 
         if let Some((stored_fingerprint, stored_result, revision)) = tx
@@ -1023,12 +1069,12 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("workspace revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
-        let previous_active_workspace = tx
-            .query_row("SELECT value FROM meta WHERE key = 'active_workspace_id'", [], |row| {
-                row.get::<_, String>(0)
-            })
-            .optional()?;
-
+        let previous_resource_revision = transaction_resource_revision(&tx)?;
+        let resource_revision = previous_resource_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let sqlite_resource_revision = i64::try_from(resource_revision)
+            .context("resource revision exceeds SQLite integer range")?;
         for workspace in workspaces {
             let was_tombstoned = tx
                 .query_row(
@@ -1041,12 +1087,50 @@ impl WorkspaceRegistry {
                 anyhow::bail!("tombstoned workspace key cannot be reused: {}", workspace.key);
             }
         }
+        if let Some(active_workspace) = active_workspace {
+            anyhow::ensure!(
+                workspaces.iter().any(|workspace| &workspace.public_id == active_workspace),
+                "active workspace is absent from the desired registry: {active_workspace}"
+            );
+        }
+        let active_screens =
+            previous_topology.active_screens.iter().cloned().collect::<HashMap<_, _>>();
+        let live_workspace_ids =
+            workspaces.iter().map(|workspace| workspace.public_id.clone()).collect::<HashSet<_>>();
+        let mut resource_changes = workspaces
+            .iter()
+            .enumerate()
+            .map(|(position, workspace)| ResourceChange::UpsertWorkspace {
+                workspace: workspace.clone(),
+                position,
+                active_screen: active_screens.get(&workspace.public_id).cloned().flatten(),
+            })
+            .collect::<Vec<_>>();
+        resource_changes.extend(
+            previous_topology
+                .active_screens
+                .iter()
+                .filter(|(workspace_id, _)| !live_workspace_ids.contains(workspace_id))
+                .map(|(workspace_id, _)| ResourceChange::TombstoneWorkspace {
+                    workspace_id: workspace_id.clone(),
+                }),
+        );
+        resource_changes.push(ResourceChange::SetWorkspaceOrder {
+            workspace_ids: workspaces.iter().map(|workspace| workspace.public_id.clone()).collect(),
+        });
+        resource_changes
+            .push(ResourceChange::SetActiveWorkspace { workspace_id: active_workspace.cloned() });
 
         // Child terminals become durable tombstones in this same transaction,
         // before their workspace rows are tombstoned. Process termination is a
         // post-commit effect and can therefore be retried after a daemon crash
         // without ever letting a frontend resurrect the terminal elsewhere.
         tombstone_terminals_in_removed_workspaces(&tx, workspaces, mutation)?;
+        apply_resource_patch(
+            &tx,
+            &ResourcePatch { changes: resource_changes },
+            sqlite_resource_revision,
+        )?;
         tx.execute(
             "UPDATE workspaces SET tombstoned = 1, position = NULL,
              updated_revision = ?1, deleted_revision = ?1
@@ -1079,27 +1163,20 @@ impl WorkspaceRegistry {
                 ],
             )?;
         }
-        let active_workspace = previous_active_workspace
-            .filter(|active| {
-                workspaces.iter().any(|workspace| workspace.public_id.as_str() == active)
-            })
-            .or_else(|| {
-                workspaces
-                    .iter()
-                    .find(|workspace| workspace.key == workspace_key)
-                    .map(|workspace| workspace.public_id.to_string())
-            })
-            .or_else(|| workspaces.first().map(|workspace| workspace.public_id.to_string()));
         if let Some(active_workspace) = active_workspace {
             tx.execute(
                 "INSERT INTO meta(key, value) VALUES('active_workspace_id', ?1)
                  ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                [active_workspace],
+                [active_workspace.as_str()],
             )?;
         } else {
             tx.execute("DELETE FROM meta WHERE key = 'active_workspace_id'", [])?;
         }
         tx.execute("UPDATE meta SET value = ?1 WHERE key = 'revision'", [revision.to_string()])?;
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [resource_revision.to_string()],
+        )?;
         tx.execute(
             "INSERT INTO mutations(
                origin, mutation_id, fingerprint, result_json, committed_revision
@@ -1119,6 +1196,39 @@ impl WorkspaceRegistry {
                 result_json
             ],
         )?;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                mutation.origin,
+                mutation.id,
+                event_kind,
+                fingerprint,
+                result_json,
+                sqlite_resource_revision,
+            ],
+        )?;
+        let resource_deltas = normalized_workspace_resource_deltas(
+            &self.session_id,
+            workspaces,
+            active_workspace.map(WorkspacePublicId::as_str),
+            &previous_topology,
+        )?;
+        tx.execute(
+            "INSERT INTO resource_events(
+               revision, previous_revision, origin, idempotency_key, deltas_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![
+                sqlite_resource_revision,
+                i64::try_from(previous_resource_revision)
+                    .context("resource revision exceeds SQLite integer range")?,
+                mutation.origin,
+                mutation.id,
+                canonical_json(&resource_deltas)?,
+            ],
+        )?;
+        prune_resource_events(&tx)?;
         tx.commit()?;
         Ok(RegistryCommit { revision, result: result.clone(), replayed: false })
     }
@@ -1544,6 +1654,88 @@ fn upsert_workspace_resource(
         params![workspace.public_id.as_str(), workspace.key, revision],
     )?;
     Ok(())
+}
+
+fn normalized_workspace_resource_deltas(
+    session_id: &SessionPublicId,
+    workspaces: &[RegistryWorkspace],
+    active_workspace: Option<&str>,
+    before: &ResourceTopologySnapshot,
+) -> anyhow::Result<Value> {
+    let mut deltas = workspaces
+        .iter()
+        .enumerate()
+        .map(|(index, workspace)| {
+            Ok(serde_json::json!({
+                "kind":"upsert",
+                "sequence":index,
+                "resource":"workspace",
+                "id":workspace.public_id,
+                "value":{
+                    "id":workspace.public_id,
+                    "session_id":session_id,
+                    "name":workspace.name,
+                    "index":u32::try_from(index)
+                        .context("workspace index exceeds public uint32 range")?,
+                    "focused":active_workspace == Some(workspace.public_id.as_str()),
+                },
+            }))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let live_workspaces =
+        workspaces.iter().map(|workspace| workspace.public_id.clone()).collect::<HashSet<_>>();
+    let removed_workspaces = before
+        .active_screens
+        .iter()
+        .filter(|(workspace, _)| !live_workspaces.contains(workspace))
+        .map(|(workspace, _)| workspace.clone())
+        .collect::<Vec<_>>();
+    let removed_workspace_ids = removed_workspaces.iter().cloned().collect::<HashSet<_>>();
+    let removed_screens = before
+        .screens
+        .iter()
+        .filter(|screen| removed_workspace_ids.contains(&screen.workspace_id))
+        .map(|screen| screen.public_id.clone())
+        .collect::<Vec<_>>();
+    let removed_screen_ids = removed_screens.iter().cloned().collect::<HashSet<_>>();
+    let removed_panes = before
+        .panes
+        .iter()
+        .filter(|pane| removed_screen_ids.contains(&pane.screen_id))
+        .map(|pane| pane.public_id.clone())
+        .collect::<Vec<_>>();
+    let removed_pane_ids = removed_panes.iter().cloned().collect::<HashSet<_>>();
+    let removed_tabs = before
+        .tabs
+        .iter()
+        .filter(|tab| removed_pane_ids.contains(&tab.pane_id))
+        .collect::<Vec<_>>();
+    let mut push_delete = |resource: &str, id: &str| {
+        let sequence = deltas.len();
+        deltas.push(serde_json::json!({
+            "kind":"delete",
+            "sequence":sequence,
+            "resource":resource,
+            "id":id,
+        }));
+    };
+    for tab in &removed_tabs {
+        match &tab.content_id {
+            ContentPublicId::Terminal(id) => push_delete("terminal", id.as_str()),
+            ContentPublicId::Browser(id) => push_delete("browser", id.as_str()),
+        }
+        push_delete("tab", tab.public_id.as_str());
+    }
+    for pane in &removed_panes {
+        push_delete("pane", pane.as_str());
+    }
+    for screen in &removed_screens {
+        push_delete("screen", screen.as_str());
+    }
+    for workspace in &removed_workspaces {
+        push_delete("workspace", workspace.as_str());
+    }
+    Ok(Value::Array(deltas))
 }
 
 fn tombstone_terminals_in_removed_workspaces(

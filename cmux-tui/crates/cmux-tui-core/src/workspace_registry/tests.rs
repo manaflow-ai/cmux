@@ -35,14 +35,21 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
 }
 
 #[test]
-fn legacy_workspace_commit_does_not_publish_a_resource_event() {
+fn workspace_commit_publishes_one_normalized_resource_event() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "legacy-only");
 
     let snapshot = registry.snapshot().unwrap();
     assert_eq!(snapshot.revision, 1);
-    assert_eq!(snapshot.resource_revision, 0);
-    assert!(registry.resource_events_after(0).unwrap().batches.is_empty());
+    assert_eq!(snapshot.resource_revision, 1);
+    let events = registry.resource_events_after(0).unwrap();
+    assert_eq!(events.batches.len(), 1);
+    assert_eq!(events.batches[0].previous_revision, 0);
+    assert_eq!(events.batches[0].revision, 1);
+    assert_eq!(events.batches[0].changes.as_array().unwrap().len(), 1);
+    assert_eq!(events.batches[0].changes[0]["kind"], "upsert");
+    assert_eq!(events.batches[0].changes[0]["resource"], "workspace");
+    assert!(events.batches[0].changes[0].get("event").is_none());
     assert_eq!(
         registry
             .connection
@@ -50,7 +57,7 @@ fn legacy_workspace_commit_does_not_publish_a_resource_event() {
                 row.get::<_, i64>(0)
             })
             .unwrap(),
-        0
+        1
     );
 }
 
