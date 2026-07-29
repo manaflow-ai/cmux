@@ -30532,6 +30532,7 @@ export default CMUXSessionRestore;
             env: env,
             cwd: hookCwd
         )
+        let hasExplicitLifecycleSessionId = normalizedHookValue(input.sessionId) != nil
         let sessionId = lifecycleSessionId
             ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
             ?? ""
@@ -30803,7 +30804,7 @@ export default CMUXSessionRestore;
             }
         }
         func isCurrentAnonymousHookOccupant() -> Bool {
-            guard lifecycleSessionId == nil else { return true }
+            guard !hasExplicitLifecycleSessionId else { return true }
             switch action {
             case .sessionStart, .noop:
                 return true
