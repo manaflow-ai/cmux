@@ -55,11 +55,14 @@ struct ConnectionStatusToastPresenter: ViewModifier {
                 requiresReauth: store.connectionRequiresReauth,
                 recoveryFailed: usesForegroundConnection && store.connectionRecoveryFailed,
                 isRecovering: usesForegroundConnection && store.isRecoveringConnection,
-                // With no selected workspace, follow the list policy rather
-                // than the raw foreground status: hidden-computers-only
-                // deliberately reads .connected so no toast advertises a
-                // Reconnect that cannot reach any visible Mac.
-                workspaceStatus: store.selectedWorkspace?.macConnectionStatus
+                // Explicit selection only: `selectedWorkspace` falls back to
+                // `workspaces.first`, which would attribute status to an
+                // arbitrary row after the selection is cleared. Without an
+                // explicit selection follow the list policy rather than the
+                // raw foreground status: hidden-computers-only deliberately
+                // reads .connected so no toast advertises a Reconnect that
+                // cannot reach any visible Mac.
+                workspaceStatus: store.explicitlySelectedWorkspace?.macConnectionStatus
                     ?? store.workspaceListConnectionStatus
             )
         )
@@ -84,9 +87,17 @@ struct ConnectionStatusToastPresenter: ViewModifier {
     }
 
     private func reconnectSelectedWorkspaceMac() {
-        let macDeviceID = store.selectedWorkspace?.macDeviceID
+        let explicitSelection = store.explicitlySelectedWorkspace
         Task {
-            await store.reconnectToMac(macDeviceID: macDeviceID)
+            if let explicitSelection {
+                await store.reconnectToMac(macDeviceID: explicitSelection.macDeviceID)
+            } else {
+                // No explicit selection: the capsule showed the aggregate
+                // list status, so the action follows the list recovery
+                // policy, which fails closed when several candidate Macs
+                // could be dialed.
+                await store.reconnectOrRefresh()
+            }
         }
     }
 }

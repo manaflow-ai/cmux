@@ -945,7 +945,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return workspaces.first { $0.id == selectedWorkspaceID } ?? workspaces.first
     }
 
-    var explicitlySelectedWorkspace: MobileWorkspacePreview? {
+    /// The explicitly selected workspace only — unlike ``selectedWorkspace``
+    /// this never falls back to `workspaces.first`, so status/action UI can't
+    /// attribute connection state to an arbitrary row when the selection was
+    /// cleared (e.g. after a failed cross-Mac open).
+    public var explicitlySelectedWorkspace: MobileWorkspacePreview? {
         guard let selectedWorkspaceID else { return nil }
         return workspaces.first { $0.id == selectedWorkspaceID }
     }
@@ -956,7 +960,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// workspace on a connected secondary Mac stays healthy while the
     /// foreground connection recovers.
     public var selectedWorkspaceUsesForegroundConnection: Bool {
-        guard let macID = selectedWorkspace?.macDeviceID, !macID.isEmpty else {
+        // Explicit selection only: the `selectedWorkspace` fallback to
+        // `workspaces.first` would attribute foreground recovery to an
+        // arbitrary row when nothing is selected. No selection reads as
+        // foreground, matching the aggregate list surfaces.
+        guard let macID = explicitlySelectedWorkspace?.macDeviceID, !macID.isEmpty else {
             return true
         }
         // Fall back to the retained recovery target: automatic recovery nils
