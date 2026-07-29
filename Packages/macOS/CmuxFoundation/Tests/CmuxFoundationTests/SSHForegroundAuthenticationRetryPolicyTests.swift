@@ -152,17 +152,24 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.temporaryFiles.isEmpty)
     }
 
-    @Test func proxyConfigurationFailureTakesPrecedenceOverGenericTransportMarker() throws {
+    @Test(arguments: [
+        "zsh: command not found: corp-proxy",
+        "zsh:1: no such file or directory: /opt/corp/proxy",
+        "bash: line 1: /opt/corp/proxy: No such file or directory",
+    ])
+    func proxyConfigurationFailureTakesPrecedenceOverGenericTransportMarker(
+        _ diagnostic: String
+    ) throws {
         let result = try run(
             """
-            printf '%s\\n' 'zsh: command not found: corp-proxy' >&2
+            printf '%s\\n' '\(diagnostic)' >&2
             printf '%s\\n' 'Connection closed by UNKNOWN port 65535' >&2
             exit 255
             """
         )
 
         #expect(result.status == 255)
-        #expect(result.stderr.contains("command not found"))
+        #expect(result.stderr.contains(diagnostic))
         #expect(result.stderr.contains("Connection closed by UNKNOWN port 65535"))
         #expect(result.temporaryFiles.isEmpty)
     }

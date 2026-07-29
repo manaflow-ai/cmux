@@ -28,6 +28,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "connection timed out",
             "connection refused",
             "connection reset by peer",
+            "connection reset by .* port [0-9]+",
             "connection closed by remote host",
             "connection closed by .* port [0-9]+",
             "temporary failure in name resolution",
@@ -48,7 +49,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "name or service not known",
             "nodename nor servname provided",
             "command not found",
-            "no such file or directory",
+            "(^|[^[:alnum:]_])(zsh|bash|sh|dash|ksh|fish|csh|tcsh|env):.*no such file or directory",
             "bad interpreter",
             "exec format error",
         ].joined(separator: "|")
