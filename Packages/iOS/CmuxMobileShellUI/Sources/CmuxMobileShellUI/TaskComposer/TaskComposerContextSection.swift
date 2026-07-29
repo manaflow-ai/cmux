@@ -8,14 +8,15 @@ import SwiftUI
 struct TaskComposerContextSection: View {
     @Binding var workspaceName: String
     let machines: [MobilePairedMac]
-    let selectedMacDeviceID: String
+    let selectedMacPairingID: String
+    let buildLabelsByID: [String: String]
     let directory: String
     let modelPickerVariant: TaskComposerModelPickerVariant
     let models: [MobileTaskAgentModel]
     let selectedModelID: String?
     let isDisabled: Bool
     let endWorkspaceNameEditing: () -> Void
-    let selectMachine: (String) -> Void
+    let selectMachine: (String, String?) -> Void
     let selectDirectory: () -> Void
     let selectModel: (String?) -> Void
 
@@ -32,7 +33,8 @@ struct TaskComposerContextSection: View {
 
             TaskComposerRoutePicker(
                 machines: machines,
-                selectedMacDeviceID: selectedMacDeviceID,
+                selectedMacPairingID: selectedMacPairingID,
+                buildLabelsByID: buildLabelsByID,
                 directory: directory,
                 isDisabled: isDisabled,
                 selectMachine: selectMachine,

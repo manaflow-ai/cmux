@@ -63,7 +63,7 @@ fi
 
 # iOS-affecting paths: mirror the push-trigger filter in ios-testflight.yml so the
 # notes only mention changes that could be in this build.
-PATHS="ios Packages/iOS Packages/Shared Sources/Mobile vendor/stack-auth-swift-sdk-prerelease scripts/ghosttykit-checksums.txt"
+PATHS="ios Packages/iOS Packages/Shared Sources/Mobile vendor/stack-auth-swift-sdk-prerelease ghostty ghostty.h scripts/ensure-ghosttykit.sh scripts/ghosttykit-checksums.txt scripts/install-zig-ci.sh scripts/validate-xcframework-archive.py .github/workflows/ios-testflight.yml"
 
 # First-line subjects of non-merge commits in range touching those paths. Squash
 # merges carry the PR title + "(#N)" as the subject, which is exactly what we want.

@@ -81,17 +81,11 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // new host, and the previously-active one now cleared) instead of the whole
         // account. Scoped to the current team — single-active is per (account, team).
         let previouslyActive: MobilePairedMac?
-        let existedBeforeUpsert: Bool
         if markActive, let account = stackUserID, !account.isEmpty {
             let existing = (try? await inner.loadAll(stackUserID: account, teamID: team)) ?? []
             previouslyActive = existing.first { $0.isActive }
-            existedBeforeUpsert = existing.contains {
-                cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
-                    && $0.instanceTag == instanceTag
-            }
         } else {
             previouslyActive = nil
-            existedBeforeUpsert = true
         }
         try await inner.upsert(
             macDeviceID: macDeviceID,
@@ -110,20 +104,21 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // selected on another device. Only `setCustomization` sends custom keys.
         guard let account = stackUserID, !account.isEmpty else { return }
         lastSignedInAccount = account
-        let allowsTombstoneRevive = await clearPendingDelete(
+        _ = await clearPendingDelete(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
             account: account,
             teamID: team
         )
-            || (markActive && !existedBeforeUpsert)
+        // Every server tombstone is a legacy-delete artifact. Always let a
+        // current local row revive it so obsolete deletes cannot block backup.
         await uploadCurrentRecord(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
             account: account,
             teamID: team,
             includesCustomizations: false,
-            allowTombstoneRevive: allowsTombstoneRevive
+            allowTombstoneRevive: true
         )
         // `markActive` clears the active flag of the account's previously-active
         // host locally; mirror THAT one record too so the backup keeps its
@@ -394,8 +389,92 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         stackUserID: String?,
         teamID: String?
     ) async throws {
-        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        // A general remove has no captured display team, so the local row and its
+        // backup tombstone share the live-resolved team.
         let team = await resolvedTeam(teamID)
+        try await removeMirroring(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            team: team,
+            backupTeam: team,
+            exactScope: false
+        )
+    }
+
+    /// Remove one exact tagged pairing in the EXACT captured team scope and
+    /// mirror the delete.
+    ///
+    /// Identical to ``remove(macDeviceID:instanceTag:stackUserID:teamID:)``
+    /// except a nil (team-less) `teamID` is NOT resolved to the currently-
+    /// selected team. The forget-hidden-computer path captures its scope before
+    /// an async revoke; if the user switches teams during that await, resolving
+    /// nil to the live team here would tombstone the delete under, and remove
+    /// the local row of, the newly-selected team instead of the team-less
+    /// pairing this call targets. Delegates to `inner.removeExactScope` so the
+    /// team-scoping decorator below also honors the captured scope.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await removeMirroring(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            team: teamID,
+            backupTeam: teamID,
+            exactScope: true
+        )
+    }
+
+    /// Remove the exact captured local row under `teamID` while routing the backup
+    /// tombstone to `backupTeamID` — the team the row was DISPLAYED under.
+    ///
+    /// A team-less row (`teamID == nil`) can be shown under, and forgotten from, a
+    /// selected team (legacy visibility). Its backup lives in that team's per-team
+    /// Durable Object, so reusing the nil local team for the tombstone would let
+    /// the server resolve the delete to whatever team is selected when it flushes,
+    /// wiping a same-device record from the wrong team's backup. The local delete
+    /// still honors `teamID` verbatim so the exact captured row is removed; only
+    /// the backup scope diverges to `backupTeamID`.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        backupTeamID: String?
+    ) async throws {
+        try await removeMirroring(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            team: teamID,
+            backupTeam: backupTeamID,
+            exactScope: true
+        )
+    }
+
+    /// Shared local-delete + backup-mirror body for both `remove` and
+    /// `removeExactScope`. `team` is already resolved by the caller (the live
+    /// selected team for `remove`, the captured scope verbatim for
+    /// `removeExactScope`) and scopes the LOCAL row delete. `backupTeam` scopes the
+    /// server backup tombstone: it equals `team` for every caller except a
+    /// team-less exact-scope forget shown under a selected team, where the local
+    /// row stays team-less (`team == nil`) but the backup must route to the
+    /// captured display team so it hits the right per-team Durable Object.
+    /// `exactScope` selects the matching inner delete so a team-less captured scope
+    /// is preserved all the way down.
+    private func removeMirroring(
+        macDeviceID rawMacDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        team: String?,
+        backupTeam: String?,
+        exactScope: Bool
+    ) async throws {
+        let macDeviceID = cmxCanonicalDeviceID(rawMacDeviceID)
         let account: String?
         if let stackUserID {
             account = stackUserID
@@ -407,9 +486,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             )
         }
         // Only mirror the delete while signed in; an anonymous removal has no
-        // per-user backup to delete and would just fail auth and log noise.
+        // per-user backup to delete and would just fail auth and log noise. The
+        // backup scope uses `backupTeam` (the display team), not the local `team`.
         let backupAccount = account ?? lastSignedInAccount
-        let scope = await scopeKey(account: backupAccount, teamID: team)
+        let scope = await scopeKey(account: backupAccount, teamID: backupTeam)
         if let scope {
             // Persist the delete intent before removing the only local row. If the
             // app dies or the network upload fails after the local delete, the next
@@ -427,14 +507,23 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         let draining = cancelInFlightRestoresReturningTasks()
         for task in draining { _ = await task.value }
         do {
-            try await inner.remove(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                stackUserID: account,
-                teamID: team
-            )
+            if exactScope {
+                try await inner.removeExactScope(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag,
+                    stackUserID: account,
+                    teamID: team
+                )
+            } else {
+                try await inner.remove(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag,
+                    stackUserID: account,
+                    teamID: team
+                )
+            }
             if let scope, let backupAccount {
-                await flushPendingDeletes(scope: scope, account: backupAccount, teamID: team)
+                await flushPendingDeletes(scope: scope, account: backupAccount, teamID: backupTeam)
             }
         } catch {
             if let scope {

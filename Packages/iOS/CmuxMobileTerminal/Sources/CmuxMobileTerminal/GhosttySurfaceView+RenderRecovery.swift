@@ -207,7 +207,6 @@ extension GhosttySurfaceView {
             pendingSurfaceFreeCount += 1
             enqueueSurfaceFree(
                 oldSurface,
-                bridge: oldBridge,
                 generation: surfaceGeneration,
                 on: oldQueue
             ) { [weak self] in
@@ -233,6 +232,7 @@ extension GhosttySurfaceView {
         lastRenderLayoutViewportHeight = nil
         lastRenderHasSourceLayoutViewport = false
         lastAppliedContentScale = 0
+        resetLastAppliedContainerSize()
 
         surfaceGeneration &+= 1
         outputQueueGeneration &+= 1

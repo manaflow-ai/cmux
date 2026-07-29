@@ -10,6 +10,9 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
     public var templateID: MobileTaskTemplate.ID?
     /// Selected Mac, validated against current paired Macs when restored.
     public var macDeviceID: String?
+    /// Paired app instance selected when the draft was saved, or `nil` for a
+    /// legacy draft or device-level selection. Missing keys decode as `nil`.
+    public var macInstanceTag: String?
     /// Working directory exactly as entered by the user.
     public var directory: String
     /// Whether the user replaced the suggested directory.
@@ -28,6 +31,7 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         modelID: String? = nil,
         templateID: MobileTaskTemplate.ID?,
         macDeviceID: String?,
+        macInstanceTag: String? = nil,
         directory: String,
         didEditDirectory: Bool,
         workspaceName: String? = nil,
@@ -38,6 +42,7 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         self.modelID = modelID
         self.templateID = templateID
         self.macDeviceID = macDeviceID
+        self.macInstanceTag = macInstanceTag
         self.directory = directory
         self.didEditDirectory = didEditDirectory
         self.workspaceName = workspaceName

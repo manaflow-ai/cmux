@@ -24,6 +24,7 @@ extension TaskComposerSheet {
             }
         }
         selectedMacDeviceID = snapshot.macDeviceID
+        selectedMacInstanceTag = snapshot.macInstanceTag
         directory = snapshot.directory
         didEditDirectory = snapshot.didEditDirectory
         submissionIdentity.adoptResolvedRequest(snapshot)
@@ -141,6 +142,7 @@ extension TaskComposerSheet {
             modelID: selectedModel?.id,
             templateID: selectedTemplateID,
             macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
+            macInstanceTag: selectedMacDeviceID.isEmpty ? nil : selectedMacInstanceTag,
             directory: directory,
             didEditDirectory: didEditDirectory,
             workspaceName: workspaceName,
@@ -156,6 +158,7 @@ extension TaskComposerSheet {
             prompt: prompt,
             modelID: selectedModel?.id,
             macDeviceID: selectedMacDeviceID,
+            macInstanceTag: selectedMacInstanceTag,
             directory: directory,
             workspaceName: workspaceName,
             didEditDirectory: didEditDirectory,

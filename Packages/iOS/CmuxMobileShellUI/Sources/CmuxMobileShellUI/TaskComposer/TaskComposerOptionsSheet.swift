@@ -13,7 +13,8 @@ struct TaskComposerOptionsSheet: View {
 
     @Binding var workspaceName: String
     let machines: [MobilePairedMac]
-    let selectedMacDeviceID: String
+    let selectedMacPairingID: String
+    let buildLabelsByID: [String: String]
     let directory: String
     let modelPickerVariant: TaskComposerModelPickerVariant
     let models: [MobileTaskAgentModel]
@@ -21,7 +22,7 @@ struct TaskComposerOptionsSheet: View {
     let isDisabled: Bool
     let directoryCandidates: [MobileTaskDirectoryCandidate]
     let endWorkspaceNameEditing: () -> Void
-    let selectMachine: (String) -> Void
+    let selectMachine: (String, String?) -> Void
     let selectDirectory: (String) -> Void
     let selectModel: (String?) -> Void
     let searchMac: (
@@ -40,7 +41,8 @@ struct TaskComposerOptionsSheet: View {
                 TaskComposerContextSection(
                     workspaceName: $workspaceName,
                     machines: machines,
-                    selectedMacDeviceID: selectedMacDeviceID,
+                    selectedMacPairingID: selectedMacPairingID,
+                    buildLabelsByID: buildLabelsByID,
                     directory: directory,
                     modelPickerVariant: modelPickerVariant,
                     models: models,
