@@ -285,6 +285,23 @@ struct WorkspaceFloatingDockParkingRegressionTests {
 @MainActor
 struct WorkspaceFloatingDockNamingAndOrderingTests {
     @Test
+    func renameAccessoryUsesStableKeyableChildPanelLifecycle() {
+        let controller = WorkspaceFloatingDockParkingAccessoryController(
+            dockID: UUID(),
+            onRestore: {},
+            onRename: { _ in true },
+            onReorderDrag: { _, _ in },
+            onReorderStep: { _ in },
+            onEditingEnded: {}
+        )
+        defer { controller.teardown() }
+
+        #expect(!controller.window.isFloatingPanel)
+        #expect(controller.window.canBecomeKey)
+        #expect(!controller.window.canBecomeMain)
+    }
+
+    @Test
     func renameValidationAndVisualReorderSharePersistedDockMetadata() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
