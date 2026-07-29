@@ -53,8 +53,10 @@ test "package consumer imports handwritten root and generated raw module" {
         rejectPublicDecl(cmux.Machine, "close");
         rejectPublicDecl(cmux.Machine, "rename");
         requirePublicDecl(cmux.Session, "createWorkspace");
+        requirePublicDecl(cmux.Session, "terminal");
         rejectPublicDecl(cmux.Session, "navigate");
         requirePublicDecl(cmux.Workspace, "run");
+        rejectPublicDecl(cmux.Workspace, "terminal");
         rejectPublicDecl(cmux.Workspace, "sendKeys");
         requirePublicDecl(cmux.Screen, "undoLayout");
         rejectPublicDecl(cmux.Screen, "run");

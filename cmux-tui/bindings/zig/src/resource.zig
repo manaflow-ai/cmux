@@ -8407,11 +8407,19 @@ fn HandleImpl(
         }
 
         pub fn terminal(self: Self, child: anytype) Terminal {
-            if (comptime !std.mem.eql(u8, scope, "tab")) {
-                @compileError("terminal() is available only on Tab");
+            if (comptime !std.mem.eql(u8, scope, "session") and
+                !std.mem.eql(u8, scope, "tab"))
+            {
+                @compileError(
+                    "terminal() is available only on Session and Tab",
+                );
             }
             var route = self.target.ancestors;
-            route.tab = self.target.selector;
+            if (comptime std.mem.eql(u8, scope, "session")) {
+                route.session = self.target.selector;
+            } else {
+                route.tab = self.target.selector;
+            }
             return Terminal.initScoped(self.client, child, route);
         }
 
@@ -10492,6 +10500,11 @@ fn HandleImpl(
                 "initial_content",
                 create.initial_content.wireName(),
             );
+            try encodeCorrelationKey(
+                Id,
+                &params,
+                create.correlation_key,
+            );
             return decodeTypedMutation(
                 CreatedPath,
                 try self.client.mutate(
@@ -11004,6 +11017,10 @@ pub const Session = struct {
 
     pub fn workspace(self: Self, child: anytype) Workspace {
         return self.impl().workspace(child);
+    }
+
+    pub fn terminal(self: Self, child: anytype) Terminal {
+        return self.impl().terminal(child);
     }
 
     pub fn connectedClient(
@@ -12546,6 +12563,14 @@ const FakeShared = struct {
                             "\"width_hint\":5}]}]}"
                     else if (std.mem.eql(u8, operation, "terminal.wait"))
                         "{\"matched\":true,\"text\":\"ready\"}"
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "terminal.wait_exit",
+                    ))
+                        "{\"state\":\"pending\",\"terminal_id\":" ++
+                            "\"term_0123456789abcdef0123456789abcdef\"," ++
+                            "\"lifecycle\":\"running\",\"revision\":\"11\"}"
                     else if (std.mem.eql(u8, operation, "terminal.copy"))
                         "{\"mode\":\"selection\",\"text\":\"copied\"}"
                     else if (std.mem.eql(
@@ -13210,6 +13235,7 @@ test "public facades expose only valid resource and stream capabilities" {
     });
     try expectHandleCapabilities(Session, &.{
         "workspace",
+        "terminal",
         "connectedClient",
         "pairingRequest",
         "frontendProjection",
@@ -13576,7 +13602,7 @@ test "selector handle construction is offline and nested routes are exact" {
     );
 }
 
-test "client session name selector keeps current machine route" {
+test "workspace create writes exact route and correlation key bytes" {
     var shared = FakeShared{
         .allocator = std.testing.allocator,
         .mode = .success,
@@ -13589,7 +13615,11 @@ test "client session name selector keeps current machine route" {
     const named = client.session(.{ .name = "release" });
     try std.testing.expectEqual(@as(usize, 0), shared.output.items.len);
     var created = try named.createWorkspace(
-        .{ .name = "sdk-tests", .initial_content = .empty },
+        .{
+            .name = "sdk-tests",
+            .initial_content = .empty,
+            .correlation_key = "create:key/01",
+        },
         try MutationOptions.withKey("session-selector-key"),
     );
     created.deinit();
@@ -13598,8 +13628,49 @@ test "client session name selector keeps current machine route" {
             "\"id\":\"zig-request-1\",\"operation\":" ++
             "\"workspace.create\",\"params\":{" ++
             "\"machine\":\"current\",\"session\":\"name:release\"," ++
-            "\"name\":\"sdk-tests\",\"initial_content\":\"empty\"}," ++
+            "\"name\":\"sdk-tests\",\"initial_content\":\"empty\"," ++
+            "\"correlation_key\":\"create:key/01\"}," ++
             "\"idempotency_key\":\"session-selector-key\"}\n",
+        shared.output.items,
+    );
+}
+
+test "session terminal emits only machine session and terminal selectors" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .typed_catalog,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+    var result = try client
+        .session(.{ .name = "release" })
+        .terminal(terminal_id)
+        .waitForExit(5000);
+    defer result.deinit();
+    switch (result.value) {
+        .pending => |pending| {
+            try std.testing.expectEqual(terminal_id, pending.terminal_id);
+            try std.testing.expectEqual(
+                TerminalLifecycle.running,
+                pending.lifecycle,
+            );
+            try std.testing.expectEqual(@as(u64, 11), pending.revision);
+        },
+        .exited => return error.ExpectedPending,
+    }
+    try std.testing.expectEqualStrings(
+        "{\"protocol\":\"cmux.protocol/1\",\"type\":\"request\"," ++
+            "\"id\":\"zig-request-1\",\"operation\":" ++
+            "\"terminal.wait_exit\",\"params\":{" ++
+            "\"machine\":\"current\",\"session\":\"name:release\"," ++
+            "\"terminal\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"timeout_ms\":\"5000\"}}\n",
         shared.output.items,
     );
 }
