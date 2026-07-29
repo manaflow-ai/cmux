@@ -325,29 +325,21 @@ extension MobileShellComposite {
         case .failed:
             return false
         case .stale:
-            // Revision churn is healthy. Drain a coalesced trailing fetch and
-            // verify it reached the newest invalidation observed while the
-            // first list request was in flight.
-            guard let task = scheduleNotificationFeedRefresh(
+            // Revision churn is healthy. Keep a coalesced trailing fetch armed,
+            // but do not couple control activation to the coalescer's lifetime:
+            // later invalidations can legitimately keep that task alive.
+            guard scheduleNotificationFeedRefresh(
                 macDeviceID: macDeviceID,
                 client: client,
                 displayName: normalizedDisplayName(
                     displayName,
                     fallback: macDeviceID
                 )
-            ) else {
+            ) != nil else {
                 return false
             }
-            await task.value
-            guard secondaryMacSubscriptions[macDeviceID] === subscription,
-                  !subscription.isTransitioningToFocus else {
-                return false
-            }
-            let appliedRevision =
-                notificationFeedSnapshotsByMac[macDeviceID]?.revision ?? -1
-            let knownRevision =
-                notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
-            return appliedRevision >= knownRevision
+            return secondaryMacSubscriptions[macDeviceID] === subscription
+                && !subscription.isTransitioningToFocus
         }
     }
 
