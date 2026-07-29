@@ -52,9 +52,9 @@ final class WorkspaceFloatingDockParkingAccessoryController {
                 width: accessoryView.preferredWidth,
                 height: Self.height
             ),
-            // Hover presentation uses orderFront without taking focus. Keeping
-            // the panel activatable lets inline rename complete the explicit
-            // palette -> owner -> accessory key-window handoff.
+            // Hover presentation uses orderFront without taking focus. Rename
+            // explicitly makes this key, matching the command palette's stable
+            // keyable child-panel lifecycle.
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -63,8 +63,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
             "cmux.workspace.float.parkingAccessory.\(dockID.uuidString)"
         )
         panel.isReleasedWhenClosed = false
-        panel.isFloatingPanel = true
-        panel.becomesKeyOnlyIfNeeded = true
+        panel.isFloatingPanel = false
         panel.hidesOnDeactivate = false
         panel.level = .floating
         panel.collectionBehavior = [.fullScreenAuxiliary]
@@ -76,9 +75,6 @@ final class WorkspaceFloatingDockParkingAccessoryController {
 
         accessoryView.onEditingChange = { [weak self] isEditing in
             self?.isEditing = isEditing
-            if !isEditing {
-                self?.panel.becomesKeyOnlyIfNeeded = true
-            }
         }
         accessoryView.onBeginRename = { [weak self] in
             self?.beginRenaming()
@@ -165,7 +161,6 @@ final class WorkspaceFloatingDockParkingAccessoryController {
             width: accessoryView.preferredWidth
         )
         setFrame(targetFrame, animated: true)
-        panel.becomesKeyOnlyIfNeeded = false
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(accessoryView.renameField)
     }
@@ -175,7 +170,6 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         let generation = presentationGeneration
         accessoryView.cancelRenaming(notify: false)
         isEditing = false
-        panel.becomesKeyOnlyIfNeeded = true
         guard panel.isVisible else {
             detach()
             return
