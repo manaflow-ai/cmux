@@ -977,6 +977,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored
     private var storedPairedMacsByCanonicalDeviceID:
         [String: [MobilePairedMac]] = [:]
+    /// Scope-bound physical-route alias groups for targeted presence edges.
+    /// The cache is built with the full stored snapshot so an event for a
+    /// historical device id can reconcile the current representative without
+    /// scanning every paired row on each heartbeat.
+    @ObservationIgnored
+    private var storedPairedMacAliasCanonicalIDsByCanonicalID:
+        [String: Set<String>] = [:]
     @ObservationIgnored
     private var storedPairedMacCacheScope: MobileShellScopeSnapshot?
     /// Coalesced retry after any control-pool dial or stream failure. One task
@@ -2413,13 +2420,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             grouping: macs,
             by: { cmxCanonicalDeviceID($0.macDeviceID) }
         )
+        storedPairedMacAliasCanonicalIDsByCanonicalID =
+            Self.physicalMacAliasCanonicalIDsByCanonicalID(
+                in: macs,
+                supportedKinds: runtime?.supportedRouteKinds ?? [],
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            )
         storedPairedMacCacheScope = scope
     }
 
     private func clearStoredPairedMacCache() {
         storedPairedMacsIncludingHidden = []
         storedPairedMacsByCanonicalDeviceID = [:]
+        storedPairedMacAliasCanonicalIDsByCanonicalID = [:]
         storedPairedMacCacheScope = nil
+    }
+
+    private func expandedStoredAliasCanonicalIDs(
+        _ canonicalIDs: Set<String>,
+        scope: MobileShellScopeSnapshot
+    ) -> Set<String>? {
+        guard storedPairedMacCacheScope == scope else { return nil }
+        var expanded = canonicalIDs
+        for canonicalID in canonicalIDs {
+            expanded.formUnion(
+                storedPairedMacAliasCanonicalIDsByCanonicalID[
+                    canonicalID
+                ] ?? []
+            )
+        }
+        return expanded
     }
 
     /// Return only rows that can affect one targeted pool decision: the
@@ -2437,6 +2467,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         if let foregroundMacDeviceID {
             relevantIDs.insert(cmxCanonicalDeviceID(foregroundMacDeviceID))
+        }
+        for canonicalID in Array(relevantIDs) {
+            relevantIDs.formUnion(
+                storedPairedMacAliasCanonicalIDsByCanonicalID[
+                    canonicalID
+                ] ?? []
+            )
         }
         return relevantIDs.flatMap {
             storedPairedMacsByCanonicalDeviceID[$0] ?? []
@@ -4237,8 +4274,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
         }
         guard await isAggregationScopeValid(scope) else { return }
-        let requestedCanonicalIDs = onlyMacDeviceIDs.map {
+        let rawRequestedCanonicalIDs = onlyMacDeviceIDs.map {
             Set($0.map(cmxCanonicalDeviceID))
+        }
+        let requestedCanonicalIDs: Set<String>?
+        if let rawRequestedCanonicalIDs {
+            guard let expanded = expandedStoredAliasCanonicalIDs(
+                rawRequestedCanonicalIDs,
+                scope: scope
+            ) else {
+                // Startup and scope transitions have no trusted index yet. One
+                // coalesced full pass establishes it for following edges.
+                scheduleSecondaryAggregation()
+                return
+            }
+            requestedCanonicalIDs = expanded
+        } else {
+            requestedCanonicalIDs = nil
         }
         let loadedMacs: [MobilePairedMac]
         let authorityValidation: SecondaryStoredAuthorityValidation
