@@ -764,6 +764,114 @@ install_cmux_node_options() {
     fi
 }
 
+cmux_claude_wrapper_uses_native_install() {
+    case "$REAL_CLAUDE" in
+        "$HOME"/.local/bin/claude|"$HOME"/.local/share/claude/versions/*)
+            return 0
+            ;;
+    esac
+
+    if [[ -L "$REAL_CLAUDE" ]]; then
+        local link_target
+        link_target="$(readlink "$REAL_CLAUDE" 2>/dev/null || true)"
+        case "$link_target" in
+            "$HOME"/.local/share/claude/versions/*|../share/claude/versions/*)
+                return 0
+                ;;
+        esac
+    fi
+    return 1
+}
+
+cmux_claude_wrapper_updater_owner_is_live() {
+    local owner_pid="$1"
+    case "$owner_pid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    kill -0 "$owner_pid" 2>/dev/null || return 1
+
+    local owner_command
+    owner_command="$(ps -p "$owner_pid" -o command= 2>/dev/null || true)"
+    [[ -z "$owner_command" ]] && return 0
+    case "$owner_command" in
+        *claude*) return 0 ;;
+    esac
+    return 1
+}
+
+cmux_claude_wrapper_claim_updater_leadership() {
+    local runtime_root="${TMPDIR:-/tmp}"
+    runtime_root="${runtime_root%/}"
+
+    local install_key
+    install_key="$(printf '%s' "$HOME/.local/bin/claude" | cksum | awk '{print $1}')"
+    [[ -n "$install_key" ]] || return 0
+
+    local state_root="$runtime_root/cmux-claude-auto-updater"
+    local lock_dir="$state_root/$install_key"
+    local owner_file="$lock_dir/owner"
+    mkdir -p "$state_root" 2>/dev/null || return 0
+
+    if mkdir "$lock_dir" 2>/dev/null; then
+        if (umask 077; printf '%s\n' "$$" > "$owner_file"); then
+            return 0
+        fi
+        rmdir "$lock_dir" 2>/dev/null || true
+        return 0
+    fi
+
+    local owner_pid=""
+    IFS= read -r owner_pid < "$owner_file" 2>/dev/null || owner_pid=""
+    if cmux_claude_wrapper_updater_owner_is_live "$owner_pid"; then
+        return 1
+    fi
+
+    # A contender can observe the directory between mkdir and the owner write.
+    # Treat an ownerless new directory as held; a later launch can reap it.
+    if [[ -z "$owner_pid" ]]; then
+        local fresh_lock
+        fresh_lock="$(find "$lock_dir" -prune -mmin -1 -print 2>/dev/null || true)"
+        [[ -n "$fresh_lock" ]] && return 1
+    fi
+
+    rm -f "$owner_file" 2>/dev/null || return 0
+    if ! rmdir "$lock_dir" 2>/dev/null; then
+        owner_pid=""
+        IFS= read -r owner_pid < "$owner_file" 2>/dev/null || owner_pid=""
+        cmux_claude_wrapper_updater_owner_is_live "$owner_pid" && return 1
+        return 0
+    fi
+    if mkdir "$lock_dir" 2>/dev/null; then
+        if (umask 077; printf '%s\n' "$$" > "$owner_file"); then
+            return 0
+        fi
+        rmdir "$lock_dir" 2>/dev/null || true
+        return 0
+    fi
+    owner_pid=""
+    IFS= read -r owner_pid < "$owner_file" 2>/dev/null || owner_pid=""
+    cmux_claude_wrapper_updater_owner_is_live "$owner_pid" && return 1
+    return 0
+}
+
+coordinate_claude_auto_updater() {
+    [[ "${DISABLE_AUTOUPDATER:-}" == "1" ]] && return 0
+    [[ "${DISABLE_UPDATES:-}" == "1" ]] && return 0
+    [[ "${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-}" == "1" ]] && return 0
+    cmux_claude_wrapper_uses_native_install || return 0
+
+    if cmux_claude_wrapper_claim_updater_leadership; then
+        return 0
+    fi
+
+    # Claude's native install is shared by every cmux session. Keep one native
+    # updater alive and prevent followers from racing the same binary swap.
+    export DISABLE_AUTOUPDATER=1
+    if [[ ! ${FORCE_AUTOUPDATE_PLUGINS+x} ]]; then
+        export FORCE_AUTOUPDATE_PLUGINS=1
+    fi
+}
+
 encode_launch_argv() {
     {
         printf '%s\0' "$REAL_CLAUDE"
@@ -875,6 +983,8 @@ if ! should_inject_claude_hooks "$@"; then
     clear_inherited_claude_auth_selection_env
     exec_real_claude_passthrough "$@"
 fi
+
+coordinate_claude_auto_updater
 
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
 # independent sessions even when the parent shell was launched from Claude Code.
