@@ -143,19 +143,20 @@ and `xcrun` cannot run inside App Sandbox. Other developer-tool shims under
 xcrun: error: cannot be used within an App Sandbox.
 ```
 
-Resolve and launch a real executable directly. Common Git installations include:
+For local development, real Git paths reported to avoid the Xcode shim include:
 
 - `/opt/homebrew/bin/git`
 - `/Library/Developer/CommandLineTools/usr/bin/git`
 - `/Applications/Xcode.app/Contents/Developer/usr/bin/git`
 
-These locations vary by machine and Xcode installation. Resolve a known,
-supported installation path in the containing app or let the user configure
-one; a file-selection or bookmark grant authorizes data access, not an arbitrary
-executable. Store the resulting URL and report a clear error if it is no longer
-executable. For a predictable distribution path, embed and sign a helper with
-the extension. A directly launched tool still inherits the extension's sandbox
-and file access.
+Treat host-installed paths as development-only diagnostics, not portable
+distribution targets: their availability and sandbox access vary by machine. A
+file-selection or bookmark grant authorizes data access, not an arbitrary
+executable. For a distributed extension, follow Apple's [sandboxed helper-tool
+guidance](https://developer.apple.com/documentation/xcode/embedding-a-helper-tool-in-a-sandboxed-app):
+embed and sign the required executable or helper in the extension's own bundle
+and configure sandbox inheritance as appropriate. A child tool still inherits
+the extension's sandbox and file access.
 
 ### Set a readable working directory
 
