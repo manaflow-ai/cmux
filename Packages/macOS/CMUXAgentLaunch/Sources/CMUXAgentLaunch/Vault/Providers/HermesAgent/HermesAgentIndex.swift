@@ -51,21 +51,9 @@ public struct HermesAgentTranscriptTurn: Equatable, Sendable {
 
 public enum HermesAgentIndexError: Error, Equatable, Sendable {
     case missingDatabase
+    /// The database and sidecars exceed the caller's aggregate snapshot limit.
+    case snapshotTooLarge(maximumBytes: Int)
     case sqlite(String)
-}
-
-private struct HermesAgentDatabaseSnapshot {
-    let databaseURL: URL
-    private let directoryURL: URL
-
-    init(databaseURL: URL, directoryURL: URL) {
-        self.databaseURL = databaseURL
-        self.directoryURL = directoryURL
-    }
-
-    func remove() {
-        try? FileManager.default.removeItem(at: directoryURL)
-    }
 }
 
 public enum HermesAgentIndex {
@@ -103,7 +91,10 @@ public enum HermesAgentIndex {
 
         let snapshot: HermesAgentDatabaseSnapshot
         do {
-            guard let madeSnapshot = try makeSnapshot(stateDBPath: stateDBPath, prefix: "cmux-hermes-agent-search") else {
+            guard let madeSnapshot = try HermesAgentDatabaseSnapshotService().make(
+                stateDBPath: stateDBPath,
+                prefix: "cmux-hermes-agent-search"
+            ) else {
                 return HermesAgentIndexResult(sessions: [], errors: [])
             }
             snapshot = madeSnapshot
@@ -134,6 +125,7 @@ public enum HermesAgentIndex {
     ///   - latest: Whether the limit selects the newest suffix instead of the oldest prefix.
     ///   - preservingOpeningUser: Whether a latest suffix reserves one slot for the opening user request.
     ///   - stateDBPath: Hermes state database to snapshot and query.
+    ///   - maximumSnapshotBytes: Optional aggregate byte limit for the database, WAL, and SHM snapshot.
     /// - Returns: At most `limit` turns ordered from oldest to newest.
     /// - Throws: ``HermesAgentIndexError`` when the database cannot be read.
     public static func loadTranscript(
@@ -141,16 +133,23 @@ public enum HermesAgentIndex {
         limit: Int,
         latest: Bool = false,
         preservingOpeningUser: Bool = false,
-        stateDBPath: String = Self.defaultStateDBPath()
+        stateDBPath: String = Self.defaultStateDBPath(),
+        maximumSnapshotBytes: Int? = nil
     ) throws -> [HermesAgentTranscriptTurn] {
         guard limit > 0 else { return [] }
-        guard let snapshot = try makeSnapshot(stateDBPath: stateDBPath, prefix: "cmux-hermes-agent-preview") else {
+        guard let snapshot = try HermesAgentDatabaseSnapshotService().make(
+            stateDBPath: stateDBPath,
+            prefix: "cmux-hermes-agent-preview",
+            maximumTotalBytes: maximumSnapshotBytes
+        ) else {
             throw HermesAgentIndexError.missingDatabase
         }
         defer { snapshot.remove() }
+        try Task.checkCancellation()
 
         return try withDatabase(snapshot.databaseURL.path) { db in
             func openingUserTurn() throws -> HermesAgentTranscriptTurn? {
+                try Task.checkCancellation()
                 let sql = """
                     SELECT role, content, tool_name, tool_calls
                     FROM messages
@@ -165,6 +164,7 @@ public enum HermesAgentIndex {
                 }
                 defer { sqlite3_finalize(stmt) }
 
+                try Task.checkCancellation()
                 let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
                 guard sqlite3_bind_text(stmt, 1, sessionId, -1, destructor) == SQLITE_OK else {
                     throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
@@ -337,6 +337,7 @@ public enum HermesAgentIndex {
         var turns: [HermesAgentTranscriptTurn] = []
         var stepResult = sqlite3_step(stmt)
         while stepResult == SQLITE_ROW {
+            try Task.checkCancellation()
             let role = sqliteText(stmt, 0) ?? "event"
             let content = decodedContentText(sqliteText(stmt, 1))
             let toolName = sqliteText(stmt, 2)
@@ -354,31 +355,6 @@ public enum HermesAgentIndex {
             throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "step failed")
         }
         return turns
-    }
-
-    private static func makeSnapshot(stateDBPath: String, prefix: String) throws -> HermesAgentDatabaseSnapshot? {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: stateDBPath) else { return nil }
-
-        let snapshotDir = fileManager.temporaryDirectory
-            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
-
-        let snapshotDB = snapshotDir.appendingPathComponent("state.db", isDirectory: false)
-        do {
-            try fileManager.copyItem(atPath: stateDBPath, toPath: snapshotDB.path)
-            for sidecar in ["-wal", "-shm"] {
-                let source = stateDBPath + sidecar
-                let destination = snapshotDB.path + sidecar
-                if fileManager.fileExists(atPath: source) {
-                    try fileManager.copyItem(atPath: source, toPath: destination)
-                }
-            }
-        } catch {
-            try? fileManager.removeItem(at: snapshotDir)
-            throw error
-        }
-        return HermesAgentDatabaseSnapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
     }
 
     private static func withDatabase<T>(_ path: String, _ body: (OpaquePointer) throws -> T) throws -> T {
@@ -454,6 +430,8 @@ public enum HermesAgentIndex {
             switch error {
             case .missingDatabase:
                 return "missing database"
+            case .snapshotTooLarge(let maximumBytes):
+                return "snapshot exceeds \(maximumBytes) bytes"
             case let .sqlite(message):
                 return message
             }

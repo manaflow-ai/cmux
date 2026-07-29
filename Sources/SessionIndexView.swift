@@ -1067,6 +1067,7 @@ enum SessionTranscriptLoader {
     private static let openingTranscriptByteLimit = 4 * 1024 * 1024
     private static let openCodeRowsPerRetainedTurn = 4
     private static let openCodeOpeningRowLimit = 512
+    private static let transferDatabaseSnapshotByteLimit = 128 * 1_024 * 1_024
 
     // Wrapping `Data(string.utf8)` in a helper keeps large needle array literals
     // cheap to type-check. The Xcode 27 / Swift 6.4 expression solver otherwise
@@ -1198,24 +1199,24 @@ enum SessionTranscriptLoader {
             let databasePath = source.openCodeDatabasePath
             // OpenCode is SQLite-backed. Keep its synchronous query work off
             // the main actor so presenting the popover only flips UI state.
-            return try await Task.detached(priority: .userInitiated) {
+            return try await performSynchronousLoad {
                 try loadOpenCodeSynchronously(
                     sessionId: sessionId,
                     databasePath: databasePath,
                     retention: source.retention
                 )
-            }.value
+            }
         }
         if source.agent == .hermesAgent {
             let sessionId = source.sessionId
             let stateDatabaseURL = source.hermesStateDatabaseURL
-            return try await Task.detached(priority: .userInitiated) {
+            return try await performSynchronousLoad {
                 try loadHermesAgentSynchronously(
                     sessionId: sessionId,
                     stateDatabaseURL: stateDatabaseURL,
                     retention: source.retention
                 )
-            }.value
+            }
         }
         guard let url = source.fileURL else {
             throw SessionTranscriptLoadError.missingFile
@@ -1223,23 +1224,42 @@ enum SessionTranscriptLoader {
         let agent = source.agent
         let sessionId = source.sessionId
         if agent.id == "antigravity" {
-            return try await Task.detached(priority: .userInitiated) {
+            return try await performSynchronousLoad {
                 try loadAntigravityHistorySynchronously(
                     from: url,
                     sessionId: sessionId,
                     retention: source.retention
                 )
-            }.value
+            }
         }
         let usesGrokTranscriptLayout = source.usesGrokTranscriptLayout
-        return try await Task.detached(priority: .userInitiated) {
+        return try await performSynchronousLoad {
             try loadSynchronously(
                 from: url,
                 agent: agent,
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
                 retention: source.retention
             )
-        }.value
+        }
+    }
+
+    /// Runs blocking transcript I/O in a structured child so cancellation reaches the loader.
+    private static func performSynchronousLoad<T: Sendable>(
+        _ operation: @Sendable @escaping () throws -> T
+    ) async throws -> T {
+        try Task.checkCancellation()
+        return try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask(priority: .userInitiated) {
+                try Task.checkCancellation()
+                let value = try operation()
+                try Task.checkCancellation()
+                return value
+            }
+            guard let value = try await group.next() else {
+                throw CancellationError()
+            }
+            return value
+        }
     }
 
     private static func loadSynchronously(
@@ -1584,7 +1604,10 @@ enum SessionTranscriptLoader {
         do {
             guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(
                 prefix: "cmux-opencode-preview",
-                sourcePath: databasePath
+                sourcePath: databasePath,
+                maximumTotalBytes: retention.requiresCompleteLatestScan
+                    ? transferDatabaseSnapshotByteLimit
+                    : nil
             ) else {
                 throw SessionTranscriptLoadError.missingFile
             }
@@ -1812,7 +1835,10 @@ enum SessionTranscriptLoader {
                 limit: queryLimit,
                 latest: retention.keepsLatestTurns,
                 preservingOpeningUser: retention.keepsLatestTurns,
-                stateDBPath: stateDatabaseURL?.path ?? HermesAgentIndex.defaultStateDBPath()
+                stateDBPath: stateDatabaseURL?.path ?? HermesAgentIndex.defaultStateDBPath(),
+                maximumSnapshotBytes: retention.requiresCompleteLatestScan
+                    ? transferDatabaseSnapshotByteLimit
+                    : nil
             )
             let didHitTurnLimit = !retention.keepsLatestTurns && turns.count > retention.limit
             var previewTurns: [SessionTranscriptTurn] = turns.prefix(retention.limit).enumerated().compactMap { index, turn -> SessionTranscriptTurn? in
@@ -1833,6 +1859,10 @@ enum SessionTranscriptLoader {
             return coalesce(previewTurns, retention: retention)
         } catch HermesAgentIndexError.missingDatabase {
             throw SessionTranscriptLoadError.missingFile
+        } catch HermesAgentIndexError.snapshotTooLarge(let maximumBytes) {
+            throw SessionTranscriptLoadError.databaseError(
+                "Hermes database snapshot exceeds the \(maximumBytes)-byte transfer limit."
+            )
         } catch let HermesAgentIndexError.sqlite(message) {
             throw SessionTranscriptLoadError.databaseError(message)
         }

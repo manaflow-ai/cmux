@@ -74,6 +74,22 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func openCodeSnapshotRejectsAggregateAboveLimit() throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let database = fixture.appendingPathComponent("opencode.db")
+        try Data(repeating: 0x41, count: 32).write(to: database)
+
+        #expect(throws: CocoaError.self) {
+            _ = try OpenCodeDatabaseSnapshot.make(
+                prefix: "cmux-opencode-bounded-test",
+                sourcePath: database.path,
+                maximumTotalBytes: 8
+            )
+        }
+    }
+
+    @Test
     func forkCacheIdentityChangesWhenTranscriptPathChanges() {
         let first = SessionRestorableAgentSnapshot(
             kind: .codex,

@@ -157,6 +157,25 @@ struct HermesAgentIndexTests {
         #expect(turns.map(\.content) == ["opening request", "latest follow-up", "latest answer"])
     }
 
+    @Test("Rejects transcript snapshots above the aggregate byte limit")
+    func rejectsTranscriptSnapshotAboveAggregateByteLimit() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+
+        #expect(
+            throws: HermesAgentIndexError.snapshotTooLarge(maximumBytes: 8)
+        ) {
+            _ = try HermesAgentIndex.loadTranscript(
+                sessionId: "session-a",
+                limit: 10,
+                stateDBPath: dbURL.path,
+                maximumSnapshotBytes: 8
+            )
+        }
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hermes-index-\(UUID().uuidString)", isDirectory: true)

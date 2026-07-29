@@ -97,7 +97,8 @@ nonisolated struct AgentConversationSource: Sendable {
     }
 }
 
-/// One pluggable source adapter. Returning nil lets the registry try a fallback.
+/// One pluggable source adapter. Returning nil lets the registry try a fallback
+/// only when cmux did not capture a deterministic transcript source.
 nonisolated protocol AgentConversationSourceAdapter: Sendable {
     func supports(_ source: AgentConversationSource) -> Bool
     func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]?
@@ -123,10 +124,25 @@ nonisolated struct AgentConversationReaderRegistry: Sendable {
         var lastError: (any Error)?
         for adapter in adapters where adapter.supports(source) {
             do {
-                if let turns = try await adapter.read(source), !turns.isEmpty {
+                let turns = try await adapter.read(source)
+                if let turns, !turns.isEmpty {
                     return turns
                 }
+                if source.hasDeterministicTranscriptSource {
+                    guard case .some = turns else {
+                        throw AgentConversationExportError.sourceUnavailable(source.kind.rawValue)
+                    }
+                    throw AgentConversationExportError.emptyConversation
+                }
+            } catch let error as CancellationError {
+                throw error
             } catch {
+                if source.hasDeterministicTranscriptSource {
+                    agentConversationExportLogger.error(
+                        "Authoritative conversation reader failed kind=\(source.kind.rawValue, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                    )
+                    throw error
+                }
                 lastError = error
             }
         }
@@ -197,7 +213,9 @@ nonisolated struct DirectTranscriptAgentConversationSourceAdapter: AgentConversa
 
 nonisolated struct IndexedAgentConversationSourceAdapter: AgentConversationSourceAdapter {
     func supports(_ source: AgentConversationSource) -> Bool {
-        source.kind != .opencode && source.kind != .hermesAgent
+        !source.hasDeterministicTranscriptSource
+            && source.kind != .opencode
+            && source.kind != .hermesAgent
     }
 
     func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
