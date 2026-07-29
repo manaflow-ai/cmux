@@ -41,7 +41,6 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.groupSelectedWorkspaces`
 - `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
 - `shortcuts.bindings.reopenClosedWorkspace`
-- `shortcuts.bindings.reopenClosedBrowserPanel` (legacy ID for **Reopen Last Closed**)
 - `shortcuts.bindings.moveWorkspaceUp`
 - `shortcuts.bindings.moveWorkspaceDown`
 
@@ -121,6 +120,7 @@ Values for `shortcuts.bindings.<action>`:
 
 ## Browser
 
+- `shortcuts.bindings.reopenClosedBrowserPanel`
 - `shortcuts.bindings.splitBrowserRight`
 - `shortcuts.bindings.splitBrowserDown`
 - `shortcuts.bindings.openBrowser`

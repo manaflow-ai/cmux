@@ -249,7 +249,7 @@ export const shortcutCategories: ShortcutCategory[] = [
         },
       },
       { id: "closeWorkspace", combos: [["⌘", "⇧", "W"]], description: { en: "Close workspace", ja: "ワークスペースを閉じる" } },
-      { id: "reopenClosedWorkspace", combos: [], description: { en: "Reopen closed workspace", ja: "閉じたワークスペースを再度開く" }, note: { en: "unbound by default", ja: "デフォルトでは未割り当て" } },
+      { id: "reopenClosedWorkspace", combos: [["⌘", "⇧", "T"]], description: { en: "Reopen closed workspace", ja: "閉じたワークスペースを再度開く" } },
     ],
   },
   {
@@ -274,8 +274,9 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
       {
         id: "reopenClosedBrowserPanel",
-        combos: [["⌘", "⇧", "T"]],
+        combos: [],
         description: { en: "Reopen last closed", ja: "最後に閉じた項目を再度開く" },
+        note: { en: "unbound by default", ja: "デフォルトでは未割り当て" },
       },
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
       { id: "clearScreenKeepScrollback", combos: [["⌘", "⇧", "K"]], description: { en: "Clear screen (keep scrollback)", ja: "画面をクリア（スクロールバックを保持）" } },

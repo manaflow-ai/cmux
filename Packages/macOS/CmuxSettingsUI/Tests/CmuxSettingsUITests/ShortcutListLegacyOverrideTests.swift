@@ -90,23 +90,6 @@ import Testing
         #expect(model.effective(for: .nextSidebarTab) == legacyShortcut)
     }
 
-    @Test func legacyWorkspaceOverrideDisplacesReopenLastClosedDefault() throws {
-        let commandShiftT = try #require(ShortcutAction.reopenClosedBrowserPanel.defaultShortcut)
-        let (defaultsStore, suiteName) = try makeDefaultsStore(
-            legacyBindings: [.reopenClosedWorkspace: commandShiftT]
-        )
-        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
-        let model = ShortcutListModel(
-            jsonStore: makeJSONStore(),
-            userDefaultsStore: defaultsStore,
-            catalog: SettingCatalog(),
-            errorLog: SettingsErrorLog()
-        )
-
-        #expect(model.effective(for: .reopenClosedWorkspace) == commandShiftT)
-        #expect(model.effective(for: .reopenClosedBrowserPanel) == nil)
-    }
-
     @Test func invalidLegacyShowHideChordDisplaysNoEffectiveHotkey() throws {
         let invalidChord = StoredShortcut(
             first: ShortcutStroke(key: "b", control: true),
