@@ -419,7 +419,7 @@ function parseAccount(value: unknown): SubrouterAccount {
 function parseAccountHealth(
   value: unknown,
 ): { readonly ok: boolean; readonly message?: string } | undefined {
-  if (value === undefined) return undefined;
+  if (value === undefined || value === null) return undefined;
   if (!isRecord(value) || typeof value.ok !== "boolean") {
     throw new SubrouterClientError("parseAccountHealth", null);
   }

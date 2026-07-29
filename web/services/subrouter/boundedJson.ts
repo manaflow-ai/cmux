@@ -31,7 +31,14 @@ export async function readBoundedJsonRecord(
       chunks.push(value);
     }
   } catch {
+    await reader.cancel().catch(() => {});
     return { ok: false, status: 400 };
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // Cancellation can release the lock before this cleanup runs.
+    }
   }
 
   const merged = new Uint8Array(totalBytes);

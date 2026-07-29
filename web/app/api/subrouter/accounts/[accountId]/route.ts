@@ -3,6 +3,7 @@ import {
   jsonResponse,
 } from "../../../../../services/vms/routeHelpers";
 import {
+  normalizeAccountId,
   subrouterErrorResponse,
 } from "../../../../../services/subrouter/routeHelpers";
 import { resolveSubrouterRequestContext } from "../../../../../services/subrouter/requestContext";
@@ -16,9 +17,9 @@ type RouteContext = {
 };
 
 export async function DELETE(request: Request, context: RouteContext): Promise<Response> {
-  const { accountId } = await context.params;
-  const normalizedAccountId = accountId.trim();
-  if (!normalizedAccountId || normalizedAccountId.length > 200) {
+  const { accountId: rawAccountId } = await context.params;
+  const accountId = normalizeAccountId(rawAccountId);
+  if (!accountId) {
     return jsonResponse({ error: "invalid_request" }, 400);
   }
 
@@ -39,7 +40,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
     if (!tenant) {
       return jsonResponse({ ok: true, teamId: team.teamId });
     }
-    await client.deleteAccount(tenant.tenantKey, normalizedAccountId);
+    await client.deleteAccount(tenant.tenantKey, accountId);
     return jsonResponse({ ok: true, teamId: team.teamId });
   } catch (err) {
     return subrouterErrorResponse(err);

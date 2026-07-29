@@ -30,6 +30,11 @@ export type AuthorizedSubrouterTeam = {
   readonly personal: boolean;
 };
 
+export function normalizeAccountId(raw: string): string | null {
+  const accountId = raw.trim();
+  return accountId && accountId.length <= 200 ? accountId : null;
+}
+
 export async function resolveTeam(
   request: Request,
   user: AuthedUser,

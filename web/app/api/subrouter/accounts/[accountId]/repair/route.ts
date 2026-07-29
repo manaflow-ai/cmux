@@ -1,7 +1,10 @@
 import { cloudDb } from "../../../../../../db/client";
 import { readSubrouterAccountInput } from "../../../../../../services/subrouter/accountInput";
 import { resolveSubrouterRequestContext } from "../../../../../../services/subrouter/requestContext";
-import { subrouterErrorResponse } from "../../../../../../services/subrouter/routeHelpers";
+import {
+  normalizeAccountId,
+  subrouterErrorResponse,
+} from "../../../../../../services/subrouter/routeHelpers";
 import { getTenantForTeam } from "../../../../../../services/subrouter/tenants";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 
@@ -17,8 +20,8 @@ export async function POST(
   routeContext: RouteContext,
 ): Promise<Response> {
   const { accountId: rawAccountId } = await routeContext.params;
-  const accountId = rawAccountId.trim();
-  if (!accountId || accountId.length > 200) {
+  const accountId = normalizeAccountId(rawAccountId);
+  if (!accountId) {
     return jsonResponse({ error: "invalid_request" }, 400);
   }
 

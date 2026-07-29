@@ -50,6 +50,9 @@ const {
   SubrouterAuthorizationTimeoutError,
   withSubrouterAuthorizationDeadline,
 } = await import("../services/vms/auth");
+const { readBoundedJsonRecord } = await import(
+  "../services/subrouter/boundedJson"
+);
 
 beforeAll(() => {
   useStubDb = true;
@@ -90,6 +93,21 @@ describe("subrouter accounts route", () => {
     ]);
 
     expect(result).toBeInstanceOf(SubrouterAuthorizationTimeoutError);
+  });
+
+  test("bounded JSON releases a body reader after stream errors", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error("stream failed"));
+      },
+    });
+    const result = await readBoundedJsonRecord({
+      body,
+      headers: new Headers(),
+    } as Request, 1024);
+
+    expect(result).toEqual({ ok: false, status: 400 });
+    expect(body.locked).toBe(false);
   });
 
   test("revokes the exact native Stack session on logout", async () => {
@@ -462,6 +480,28 @@ describe("subrouter accounts route", () => {
     expect(body).not.toContain("refresh-secret");
     expect(upstream.adminCreates).toBe(0);
     expect(upstream.tenantListCalls).toBe(1);
+  });
+
+  test("treats explicit null account health as absent", async () => {
+    seedTenantMapping(fakeDb);
+    upstream.accounts = [{
+      id: "acct-without-health",
+      provider: "codex",
+      auth_mode: "oauth",
+      label: "Codex Team",
+      health: null,
+    }];
+
+    const response = await accountsRoute.GET(request("/api/subrouter/accounts"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      teamId: "team-a",
+      accounts: [{
+        id: "acct-without-health",
+        kind: "codex",
+        label: "Codex Team",
+      }],
+    });
   });
 
   test("strips unknown upstream account fields before returning to the browser", async () => {
@@ -1011,10 +1051,19 @@ describe("subrouter accounts route", () => {
     }));
     let active = 0;
     let maxActive = 0;
+    let releasePermissions!: () => void;
+    const permissionsReleased = new Promise<void>((resolve) => {
+      releasePermissions = resolve;
+    });
+    let reportOverlap!: () => void;
+    const overlapObserved = new Promise<void>((resolve) => {
+      reportOverlap = resolve;
+    });
     const listPermissions = mock(async () => {
       active += 1;
       maxActive = Math.max(maxActive, active);
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      if (active >= 2) reportOverlap();
+      await permissionsReleased;
       active -= 1;
       return [
         { id: "subrouter:use" },
@@ -1032,7 +1081,10 @@ describe("subrouter accounts route", () => {
       hasPermission,
     };
 
-    const response = await teamsRoute.GET(request("/api/subrouter/teams"));
+    const responsePromise = teamsRoute.GET(request("/api/subrouter/teams"));
+    await overlapObserved;
+    releasePermissions();
+    const response = await responsePromise;
     const body = await response.json() as {
       teams: Array<{ id: string }>;
     };

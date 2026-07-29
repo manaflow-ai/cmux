@@ -53,6 +53,26 @@ export class SubrouterAuthorizationUnavailableError extends Error {
   override readonly name = "SubrouterAuthorizationUnavailableError";
 }
 
+export type NativeStackTokens = {
+  readonly accessToken: string;
+  readonly refreshToken: string;
+};
+
+export function parseNativeStackTokens(
+  request: Request,
+): NativeStackTokens | null {
+  const authorization = request.headers.get("authorization");
+  const refreshToken = request.headers.get("x-stack-refresh-token")?.trim();
+  if (
+    !authorization?.toLowerCase().startsWith("bearer ") ||
+    !refreshToken
+  ) {
+    return null;
+  }
+  const accessToken = authorization.slice("bearer ".length).trim();
+  return accessToken ? { accessToken, refreshToken } : null;
+}
+
 type VerifyRequestOptions = {
   readonly requestedTeamId?: string | null;
   readonly allowCookie?: boolean;
@@ -80,14 +100,22 @@ export async function withSubrouterAuthorizationDeadline<T>(
 ): Promise<T> {
   assertSubrouterAuthorizationConfiguration();
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    subrouterStackAuthorizationTimeoutMs(),
-  );
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new SubrouterAuthorizationTimeoutError(
+        "Stack authorization deadline exceeded",
+      ));
+    }, subrouterStackAuthorizationTimeoutMs());
+  });
   try {
-    return await operation(controller.signal);
+    return await Promise.race([
+      operation(controller.signal),
+      deadline,
+    ]);
   } finally {
-    clearTimeout(timeout);
+    if (timeout !== undefined) clearTimeout(timeout);
   }
 }
 
@@ -332,21 +360,14 @@ export async function verifyRequest(
   const refreshHeader = request.headers.get("x-stack-refresh-token");
 
   if (authHeader !== null || refreshHeader !== null) {
-    if (!authHeader?.toLowerCase().startsWith("bearer ") || !refreshHeader) {
-      return null;
-    }
-    const accessToken = authHeader.slice("bearer ".length).trim();
-    const refreshToken = refreshHeader.trim();
-    if (accessToken && refreshToken) {
-      const user = await stackAuthorizationCall(
-        () => stackServerApp.getUser({
-          tokenStore: { accessToken, refreshToken },
-        }),
-        options.subrouterAuthorizationSignal,
-      );
-      if (user) {
-        return await authedUserFromStackUser(user, options);
-      }
+    const tokens = parseNativeStackTokens(request);
+    if (!tokens) return null;
+    const user = await stackAuthorizationCall(
+      () => stackServerApp.getUser({ tokenStore: tokens }),
+      options.subrouterAuthorizationSignal,
+    );
+    if (user) {
+      return await authedUserFromStackUser(user, options);
     }
     // A caller that presents native credentials must succeed or fail as that
     // native session. Falling back to an ambient browser cookie would let an
@@ -387,7 +408,13 @@ async function authedUserFromStackUser(
   // Full pagination is reserved for the explicit team-picker route. Other
   // callers resolve one requested team with Stack's exact-ID search so shared
   // VM authentication never inherits an unbounded multi-page dependency.
-  const listedTeamRaw = options.listAllTeams === true
+  const needsListedTeams = !selectedTeam ||
+    (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
+  const listedTeamRaw = options.subrouterAuthorizationSignal === undefined
+    ? needsListedTeams && typeof user.listTeams === "function"
+      ? await user.listTeams()
+      : []
+    : options.listAllTeams === true
     ? await listAllStackTeams(user, options.subrouterAuthorizationSignal)
     : requestedTeamId && requestedTeamId !== selectedTeam?.id
     ? await findStackTeam(

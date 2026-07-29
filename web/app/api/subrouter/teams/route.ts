@@ -23,22 +23,26 @@ export async function GET(request: Request): Promise<Response> {
       if (!user) return unauthorized();
 
       const authorized = await authorizedSubrouterTeams(user);
-      const teams = authorized.map((team) => ({
-        id: team.teamId,
-        name: team.teamName,
-        personal: team.personal,
-        permissions: {
-          use: team.use,
-          manageAccounts: team.manageAccounts,
-        },
-      }));
+      const preferredTeamId = user.selectedTeamId;
+      let selectedTeamId: string | null = null;
+      const teams = [];
+      for (const team of authorized) {
+        if (team.teamId === preferredTeamId) {
+          selectedTeamId = preferredTeamId;
+        }
+        teams.push({
+          id: team.teamId,
+          name: team.teamName,
+          personal: team.personal,
+          permissions: {
+            use: team.use,
+            manageAccounts: team.manageAccounts,
+          },
+        });
+      }
 
       return jsonResponse({
-        selectedTeamId: user.selectedTeamId && teams.some(
-          (team) => team.id === user.selectedTeamId,
-        )
-          ? user.selectedTeamId
-          : null,
+        selectedTeamId,
         teams,
       });
     });
