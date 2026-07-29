@@ -1942,14 +1942,10 @@ def _javascript_timer_alias_positions(
     )
 
     def destructured_aliases(pattern: str) -> set[str]:
-        return {
-            alias
-            for alias in aliases
-            if re.search(
-                rf"(?<![$\w]){re.escape(alias)}(?![$\w])",
-                pattern,
-            )
-        }
+        return _javascript_bound_aliases_in_pattern(
+            "{" + pattern + "}",
+            aliases,
+        )
 
     callable_parameter_bindings: dict[int, set[str]] = {}
     callable_parameter_ranges: list[tuple[int, int]] = []
