@@ -7,6 +7,7 @@ import unittest
 from runner import (
     FIXTURES,
     LANGUAGES,
+    RAW_CATALOG,
     ConformanceFailure,
     FakeServer,
     assert_case_response,
@@ -24,6 +25,13 @@ class FixtureTests(unittest.TestCase):
             LANGUAGES,
             ("python", "typescript", "rust", "go", "java", "cpp", "zig"),
         )
+
+    def test_raw_metadata_baseline_is_frozen_to_protocol_10(self) -> None:
+        catalog = json.loads(RAW_CATALOG.read_text())
+        self.assertEqual(catalog["source_commit"], "34741cdc96")
+        self.assertEqual(catalog["protocol"], 10)
+        self.assertEqual(len(catalog["commands"]), 83)
+        self.assertEqual(len(catalog["events"]), 44)
 
     def test_security_fixture_requires_local_denial_and_no_wire_write(self) -> None:
         cases = {case["name"]: case for case in self.fixtures["fake_cases"]}

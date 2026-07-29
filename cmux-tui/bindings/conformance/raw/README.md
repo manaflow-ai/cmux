@@ -1,9 +1,10 @@
-# SDK conformance
+# Raw protocol-10 SDK conformance
 
-This suite sends one declarative contract through the public Python,
-TypeScript, Rust, Go, Java, C++, and Zig SDK APIs. It audits all 83 commands
-and 44 events through generated public metadata, then runs identical protocol
-fixtures against each language.
+This legacy suite exercises generated protocol-10 APIs through the explicit
+`raw` package in Python, TypeScript, Rust, Go, Java, C++, and Zig. The public
+resource API conformance suite lives one directory above this file.
+Metadata coverage requires the protocol-10 baseline from commit `34741cdc96`.
+Later additive capability-gated protocol-10 operations may also appear.
 
 The deterministic fake server covers partial frames, exact `uint64` limits,
 oversized responses, invalid UTF-8, timeouts, events before acknowledgement,
@@ -25,7 +26,7 @@ audit, and three live cases per language.
 From the repository root:
 
 ```sh
-python3 cmux-tui/bindings/conformance/runner.py \
+python3 cmux-tui/bindings/conformance/raw/runner.py \
   --require python,typescript,rust,go,java,cpp,zig
 ```
 

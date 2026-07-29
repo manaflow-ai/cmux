@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BINDINGS_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+BINDINGS_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 OUT_DIR="${1:-$SCRIPT_DIR/out}"
 SOURCES_FILE="$OUT_DIR/sources.txt"
 

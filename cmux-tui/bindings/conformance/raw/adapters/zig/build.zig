@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const cmux_tui = b.addModule("cmux_tui", .{
-        .root_source_file = b.path("../../../zig/src/cmux.zig"),
+        .root_source_file = b.path("../../../../zig/src/cmux.zig"),
         .target = target,
         .optimize = optimize,
     });

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	cmux "github.com/manaflow-ai/cmux/cmux-tui/bindings/go"
+	cmux "github.com/manaflow-ai/cmux/cmux-tui/bindings/go/raw"
 )
 
 type request struct {

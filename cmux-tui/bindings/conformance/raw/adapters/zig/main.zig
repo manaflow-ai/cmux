@@ -1,7 +1,7 @@
 // Protocol-10 conformance adapter for the public Zig SDK.
 
 const std = @import("std");
-const cmux = @import("cmux_tui");
+const cmux = @import("cmux_tui").raw;
 
 const Allocator = std.mem.Allocator;
 const Value = std.json.Value;

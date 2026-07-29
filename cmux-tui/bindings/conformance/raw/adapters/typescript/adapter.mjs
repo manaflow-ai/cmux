@@ -10,7 +10,7 @@ import {
   COMMAND_METADATA,
   EVENT_METADATA,
   UnixSocketTransport,
-} from "../../../typescript/dist/src/index.js";
+} from "../../../../typescript/dist/src/raw/index.js";
 import { Buffer } from "node:buffer";
 
 const UINT64_KEYS = new Set([
@@ -89,10 +89,14 @@ function makeClient(request, enableProviderAuthority = false) {
   const maxInboundMessageBytes = Number(request.max_frame_bytes ?? 16 * 1024 * 1024);
   const transportOptions = { maxInboundMessageBytes };
   const makeTransport = () => new UnixSocketTransport(request.socket_path, transportOptions);
+  const authorities = request.authority === "local-admin"
+    ? ["frontend", "local-admin"]
+    : undefined;
   return new CmuxClient({
     socketPath: request.socket_path,
     timeoutMs: Number(request.timeout_ms ?? 1000),
     maxBufferedEvents: Number(request.max_buffered_events ?? 256),
+    authorities,
     enableProviderAuthority,
     transport: makeTransport(),
     streamTransportFactory: makeTransport,

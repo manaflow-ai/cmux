@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the protocol-10 SDK conformance suite through language adapters."""
+"""Run the explicitly raw protocol-10 SDK conformance suite."""
 
 from __future__ import annotations
 
@@ -20,12 +20,12 @@ from typing import Any, Mapping, Sequence
 
 
 HERE = Path(__file__).resolve().parent
-BINDINGS = HERE.parent
+BINDINGS = HERE.parent.parent
 MUX_DIR = BINDINGS.parent
 ROOT = MUX_DIR.parent
 FIXTURES = HERE / "fixtures.json"
-SDK_SCHEMA = MUX_DIR / "spec" / "sdk-schema.json"
-BUILD = HERE / ".build"
+RAW_CATALOG = HERE / "catalog-v10.json"
+BUILD = HERE.parent / ".build" / "raw"
 LANGUAGES = ("python", "typescript", "rust", "go", "java", "cpp", "zig")
 UINT64_MAX = 18_446_744_073_709_551_615
 
@@ -646,29 +646,31 @@ def run_metadata_audit(adapter: Adapter) -> None:
         raise ConformanceFailure("metadata commands/events must be arrays")
     actual_commands = {item["name"] for item in commands if isinstance(item, dict) and "name" in item}
     actual_events = {item["name"] for item in events if isinstance(item, dict) and "name" in item}
-    schema = json.loads(SDK_SCHEMA.read_text())
-    expected_commands = set(schema["commands"])
-    expected_events = set(schema["events"])
-    if actual_commands != expected_commands:
+    catalog = json.loads(RAW_CATALOG.read_text())
+    if catalog.get("source_commit") != "34741cdc96" or catalog.get("protocol") != 10:
+        raise ConformanceFailure("raw catalog is not the frozen protocol-10 snapshot")
+    expected_commands = set(catalog["commands"])
+    expected_events = set(catalog["events"])
+    if not expected_commands.issubset(actual_commands):
         raise ConformanceFailure(
-            f"command metadata mismatch: missing={sorted(expected_commands - actual_commands)}, "
-            f"extra={sorted(actual_commands - expected_commands)}"
+            f"command metadata is missing frozen protocol-10 operations: "
+            f"{sorted(expected_commands - actual_commands)}"
         )
-    if actual_events != expected_events:
+    if not expected_events.issubset(actual_events):
         raise ConformanceFailure(
-            f"event metadata mismatch: missing={sorted(expected_events - actual_events)}, "
-            f"extra={sorted(actual_events - expected_events)}"
+            f"event metadata is missing frozen protocol-10 events: "
+            f"{sorted(expected_events - actual_events)}"
         )
     authorities = {
         item.get("authority")
         for item in commands
         if isinstance(item, dict) and item.get("authority")
     }
-    expected_authorities = {command["authority"] for command in schema["commands"].values()}
-    if authorities != expected_authorities:
+    expected_authorities = set(catalog["authorities"])
+    if not expected_authorities.issubset(authorities):
         raise ConformanceFailure(
-            f"authority metadata mismatch: expected={sorted(expected_authorities)}, "
-            f"actual={sorted(authorities)}"
+            f"authority metadata is missing frozen authorities: "
+            f"{sorted(expected_authorities - authorities)}"
         )
     streams = {
         stream
@@ -676,15 +678,11 @@ def run_metadata_audit(adapter: Adapter) -> None:
         if isinstance(item, dict)
         for stream in item.get("streams", [])
     }
-    expected_streams = {
-        stream
-        for event in schema["events"].values()
-        for stream in event["streams"]
-    }
-    if streams != expected_streams:
+    expected_streams = set(catalog["streams"])
+    if not expected_streams.issubset(streams):
         raise ConformanceFailure(
-            f"event stream metadata mismatch: expected={sorted(expected_streams)}, "
-            f"actual={sorted(streams)}"
+            f"event stream metadata is missing frozen streams: "
+            f"{sorted(expected_streams - streams)}"
         )
 
 

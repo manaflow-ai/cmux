@@ -1,10 +1,10 @@
 //! Protocol-10 conformance adapter for the public Rust SDK.
 
-use cmux_client::{
-    AttachBuilder, BrowserBackRequest, COMMANDS, ClientConfig, CloseWorkspaceRequest, CmuxClient,
-    CmuxError, CreateTerminalRequest, EVENTS, Event, MarkWorkspacesProviderManagedRequest,
-    Optional, PairingResponseRequest, Pane, PingRequest, RenameWorkspaceRequest,
-    SetClientInfoRequest, SubscriptionBuilder, TabKind, WaitForRequest,
+use cmux_client::raw::{
+    AttachBuilder, BrowserBackRequest, COMMANDS, Client as CmuxClient, ClientConfig,
+    CloseWorkspaceRequest, CreateTerminalRequest, EVENTS, Error as CmuxError, Event,
+    MarkWorkspacesProviderManagedRequest, Optional, PairingResponseRequest, Pane, PingRequest,
+    RenameWorkspaceRequest, SetClientInfoRequest, SubscriptionBuilder, TabKind, WaitForRequest,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -180,7 +180,7 @@ fn surface(request: &Request) -> Result<u64, CmuxError> {
 fn open_stream(
     client: &mut CmuxClient,
     request: &Request,
-) -> Result<cmux_client::CmuxStream, CmuxError> {
+) -> Result<cmux_client::raw::Stream, CmuxError> {
     match request.stream.as_str() {
         "subscribe-coarse" => SubscriptionBuilder::coarse().open(client),
         "subscribe-deltas" => SubscriptionBuilder::deltas().open(client),
@@ -284,9 +284,9 @@ fn event_value(event: Event) -> Value {
             "url": value.url,
             "title": value.title,
             "status": match value.status {
-                cmux_client::BrowserStateEventStatus::Starting => "starting",
-                cmux_client::BrowserStateEventStatus::Live => "live",
-                cmux_client::BrowserStateEventStatus::Failed => "failed",
+                cmux_client::raw::BrowserStateEventStatus::Starting => "starting",
+                cmux_client::raw::BrowserStateEventStatus::Live => "live",
+                cmux_client::raw::BrowserStateEventStatus::Failed => "failed",
             },
             "frames_stalled": value.frames_stalled,
         }),
@@ -480,7 +480,7 @@ fn real_flow(request: &Request) -> Result<Value, CmuxError> {
     result
 }
 
-fn find_surface(tree: &cmux_client::Tree, surface: u64) -> Option<(u64, bool)> {
+fn find_surface(tree: &cmux_client::raw::Tree, surface: u64) -> Option<(u64, bool)> {
     for workspace in &tree.workspaces {
         for screen in &workspace.screens {
             for pane in &screen.panes {

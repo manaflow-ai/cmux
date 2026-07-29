@@ -1,27 +1,27 @@
 package com.cmux.conformance;
 
-import com.cmux.Bytes;
-import com.cmux.CmuxAuthorityException;
-import com.cmux.CmuxClient;
-import com.cmux.CmuxCommandException;
-import com.cmux.CmuxDecodeException;
-import com.cmux.CmuxStream;
-import com.cmux.CmuxTimeoutException;
-import com.cmux.Json;
-import com.cmux.UInt64;
-import com.cmux.generated.Authority;
-import com.cmux.generated.ClientChangedEvent;
-import com.cmux.generated.CommandMetadata;
-import com.cmux.generated.Commands;
-import com.cmux.generated.CreateTerminalRequest;
-import com.cmux.generated.EventMetadata;
-import com.cmux.generated.Events;
-import com.cmux.generated.MarkWorkspacesProviderManagedRequest;
-import com.cmux.generated.OutputEvent;
-import com.cmux.generated.PairingResponseRequest;
-import com.cmux.generated.ProtocolEvent;
-import com.cmux.generated.SetClientInfoRequest;
-import com.cmux.generated.UnknownEvent;
+import com.cmux.raw.Bytes;
+import com.cmux.raw.CmuxAuthorityException;
+import com.cmux.raw.CmuxClient;
+import com.cmux.raw.CmuxCommandException;
+import com.cmux.raw.CmuxDecodeException;
+import com.cmux.raw.CmuxStream;
+import com.cmux.raw.CmuxTimeoutException;
+import com.cmux.raw.Json;
+import com.cmux.raw.UInt64;
+import com.cmux.raw.Authority;
+import com.cmux.raw.ClientChangedEvent;
+import com.cmux.raw.CommandMetadata;
+import com.cmux.raw.Commands;
+import com.cmux.raw.CreateTerminalRequest;
+import com.cmux.raw.EventMetadata;
+import com.cmux.raw.Events;
+import com.cmux.raw.MarkWorkspacesProviderManagedRequest;
+import com.cmux.raw.OutputEvent;
+import com.cmux.raw.PairingResponseRequest;
+import com.cmux.raw.ProtocolEvent;
+import com.cmux.raw.SetClientInfoRequest;
+import com.cmux.raw.UnknownEvent;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -343,7 +343,7 @@ public final class Adapter {
                 }
                 case "frontend" -> {
                     client.browserBack(
-                        com.cmux.generated.BrowserBackRequest.builder()
+                        com.cmux.raw.BrowserBackRequest.builder()
                             .surface(UInt64.of(7))
                             .build()
                     );
@@ -392,12 +392,12 @@ public final class Adapter {
     }
 
     private record SurfaceContext(
-        com.cmux.generated.Workspace workspace,
-        com.cmux.generated.Tab tab
+        com.cmux.raw.Workspace workspace,
+        com.cmux.raw.Tab tab
     ) {}
 
     private static SurfaceContext findSurface(
-        com.cmux.generated.Tree tree,
+        com.cmux.raw.Tree tree,
         UInt64 surface
     ) {
         for (var workspace : tree.workspaces()) {
@@ -430,11 +430,11 @@ public final class Adapter {
             "sdk-conformance-renamed"
         );
         try (CmuxClient client = client(request);
-             CmuxStream<com.cmux.generated.DeltaStreamEvent> stream =
+             CmuxStream<com.cmux.raw.DeltaStreamEvent> stream =
                  client.subscribeDeltas()) {
             var identity = client.identify();
             var created = client.newWorkspace(
-                com.cmux.generated.NewWorkspaceRequest.builder()
+                com.cmux.raw.NewWorkspaceRequest.builder()
                     .name(workspaceName)
                     .cols(80)
                     .rows(24)
@@ -445,20 +445,20 @@ public final class Adapter {
             boolean closed = false;
             try {
                 client.send(
-                    com.cmux.generated.SendRequest.builder()
+                    com.cmux.raw.SendRequest.builder()
                         .surface(surface)
                         .text("printf '" + marker + "\\n'\r")
                         .build()
                 );
                 var waited = client.waitFor(
-                    com.cmux.generated.WaitForRequest.builder()
+                    com.cmux.raw.WaitForRequest.builder()
                         .surface(surface)
                         .pattern(marker)
                         .timeoutMs(UInt64.of(5_000))
                         .build()
                 );
                 var screenText = client.readScreen(
-                    com.cmux.generated.ReadScreenRequest.builder()
+                    com.cmux.raw.ReadScreenRequest.builder()
                         .surface(surface)
                         .build()
                 );
@@ -470,17 +470,17 @@ public final class Adapter {
                 }
                 workspace = context.workspace().id();
                 boolean terminalCreated =
-                    context.tab().kind() == com.cmux.generated.TabKind.PTY
+                    context.tab().kind() == com.cmux.raw.TabKind.PTY
                     && !context.tab().dead();
                 var renamedResult = client.renameWorkspace(
-                    com.cmux.generated.RenameWorkspaceRequest.builder()
+                    com.cmux.raw.RenameWorkspaceRequest.builder()
                         .workspace(workspace)
                         .name(renamedName)
                         .build()
                 );
                 boolean renamed = renamedResult.workspace().equals(workspace);
                 client.closeWorkspace(
-                    com.cmux.generated.CloseWorkspaceRequest.builder()
+                    com.cmux.raw.CloseWorkspaceRequest.builder()
                         .workspace(workspace)
                         .build()
                 );
@@ -528,7 +528,7 @@ public final class Adapter {
                 if (workspace != null && !closed) {
                     try {
                         client.closeWorkspace(
-                            com.cmux.generated.CloseWorkspaceRequest.builder()
+                            com.cmux.raw.CloseWorkspaceRequest.builder()
                                 .workspace(workspace)
                                 .build()
                         );

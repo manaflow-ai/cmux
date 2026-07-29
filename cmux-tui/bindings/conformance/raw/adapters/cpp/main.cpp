@@ -1,6 +1,6 @@
 // Protocol-10 conformance adapter for the public C++ SDK.
 
-#include <cmux/client.hpp>
+#include <cmux/raw/client.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -18,17 +18,18 @@
 namespace {
 
 using namespace std::chrono_literals;
+namespace raw = cmux::raw;
 
-cmux::Error error(cmux::ErrorCode code, std::string message) {
-    return cmux::make_error(code, std::move(message));
+raw::Error error(raw::ErrorCode code, std::string message) {
+    return raw::make_error(code, std::move(message));
 }
 
-const cmux::Json* field(const cmux::Json& object, std::string_view name) {
+const raw::Json* field(const raw::Json& object, std::string_view name) {
     return object.find(name);
 }
 
 std::string string_field(
-    const cmux::Json& object,
+    const raw::Json& object,
     std::string_view name,
     std::string fallback = {}) {
     const auto* value = field(object, name);
@@ -38,7 +39,7 @@ std::string string_field(
 }
 
 std::uint64_t uint_field(
-    const cmux::Json& object,
+    const raw::Json& object,
     std::string_view name,
     std::uint64_t fallback) {
     const auto* value = field(object, name);
@@ -47,8 +48,8 @@ std::uint64_t uint_field(
     return number ? number.value() : fallback;
 }
 
-cmux::ClientOptions options(const cmux::Json& request) {
-    cmux::ClientOptions result;
+raw::ClientOptions options(const raw::Json& request) {
+    raw::ClientOptions result;
     result.socket_path = string_field(request, "socket_path");
     result.timeout = std::chrono::milliseconds(uint_field(request, "timeout_ms", 1000));
     const auto max_frame = static_cast<std::size_t>(
@@ -60,18 +61,18 @@ cmux::ClientOptions options(const cmux::Json& request) {
     return result;
 }
 
-cmux::Json metadata() {
-    cmux::Json::Array commands;
-    for (const auto& item : cmux::command_metadata()) {
-        commands.emplace_back(cmux::Json::Object{
+raw::Json metadata() {
+    raw::Json::Array commands;
+    for (const auto& item : raw::command_metadata()) {
+        commands.emplace_back(raw::Json::Object{
             {"name", std::string(item.name)},
             {"authority", std::string(item.authority)},
             {"stream", std::string(item.stream_kind)},
         });
     }
-    cmux::Json::Array events;
-    for (const auto& item : cmux::event_metadata()) {
-        cmux::Json::Array streams;
+    raw::Json::Array events;
+    for (const auto& item : raw::event_metadata()) {
+        raw::Json::Array streams;
         std::string text(item.streams);
         std::size_t start = 0;
         while (start <= text.size()) {
@@ -81,25 +82,25 @@ cmux::Json metadata() {
             if (comma == std::string::npos) break;
             start = comma + 1;
         }
-        events.emplace_back(cmux::Json::Object{
+        events.emplace_back(raw::Json::Object{
             {"name", std::string(item.name)},
             {"streams", std::move(streams)},
         });
     }
-    return cmux::Json::Object{
+    return raw::Json::Object{
         {"commands", std::move(commands)},
         {"events", std::move(events)},
     };
 }
 
-cmux::Result<cmux::Json> identify(const cmux::Json& request) {
-    auto connected = cmux::Client::connect(options(request));
+raw::Result<raw::Json> identify(const raw::Json& request) {
+    auto connected = raw::Client::connect(options(request));
     if (!connected) return std::move(connected).error();
     auto client = std::move(connected).value();
     auto identified = client.identify();
     if (!identified) return std::move(identified).error();
     const auto& value = identified.value();
-    return cmux::Json(cmux::Json::Object{
+    return raw::Json(raw::Json::Object{
         {"app", "cmux-tui"},
         {"protocol", value.protocol},
         {"workspace_revision", std::to_string(value.workspace_revision)},
@@ -107,70 +108,70 @@ cmux::Result<cmux::Json> identify(const cmux::Json& request) {
     });
 }
 
-cmux::Result<cmux::Json> nullable_literal(const cmux::Json& request) {
-    auto connected = cmux::Client::connect(options(request));
+raw::Result<raw::Json> nullable_literal(const raw::Json& request) {
+    auto connected = raw::Client::connect(options(request));
     if (!connected) return std::move(connected).error();
     auto client = std::move(connected).value();
-    cmux::CreateTerminalRequest create;
+    raw::CreateTerminalRequest create;
     create.key = std::string("workspace-key");
     auto placement = client.create_terminal(create);
     if (!placement) return std::move(placement).error();
-    cmux::Json lifecycle;
+    raw::Json lifecycle;
     if (placement.value().lifecycle) {
         lifecycle = *placement.value().lifecycle;
     }
-    return cmux::Json(cmux::Json::Object{
+    return raw::Json(raw::Json::Object{
         {"lifecycle", std::move(lifecycle)},
     });
 }
 
-cmux::Result<cmux::Json> optional_non_null_response(const cmux::Json& request) {
-    auto connected = cmux::Client::connect(options(request));
+raw::Result<raw::Json> optional_non_null_response(const raw::Json& request) {
+    auto connected = raw::Client::connect(options(request));
     if (!connected) return std::move(connected).error();
     auto client = std::move(connected).value();
     auto identified = client.identify();
     if (!identified) return std::move(identified).error();
-    return cmux::Json(cmux::Json::Object{
+    return raw::Json(raw::Json::Object{
         {"present", identified.value().capabilities.has_value()},
     });
 }
 
-cmux::Result<cmux::Json> optional_nullable_request(const cmux::Json& request) {
+raw::Result<raw::Json> optional_nullable_request(const raw::Json& request) {
     const auto presence = string_field(request, "presence");
-    cmux::SetClientInfoRequest info;
+    raw::SetClientInfoRequest info;
     if (presence == "null") {
-        info.name = cmux::Field<std::string>::null();
+        info.name = raw::Field<std::string>::null();
     } else if (presence == "value") {
         info.name = std::string("conformance-client");
     } else if (presence != "omitted") {
         return error(
-            cmux::ErrorCode::invalid_argument,
+            raw::ErrorCode::invalid_argument,
             "unknown presence " + presence);
     }
-    auto connected = cmux::Client::connect(options(request));
+    auto connected = raw::Client::connect(options(request));
     if (!connected) return std::move(connected).error();
     auto client = std::move(connected).value();
     auto updated = client.set_client_info(info);
     if (!updated) return std::move(updated).error();
-    return cmux::Json(cmux::Json::Object{{"presence", presence}});
+    return raw::Json(raw::Json::Object{{"presence", presence}});
 }
 
-cmux::Result<cmux::EventStream> open_stream(
-    cmux::Client& client,
-    const cmux::Json& request) {
+raw::Result<raw::EventStream> open_stream(
+    raw::Client& client,
+    const raw::Json& request) {
     const auto kind = string_field(request, "stream");
     const auto surface = uint_field(request, "surface", 7);
     if (kind == "subscribe-coarse") return client.subscribe();
     if (kind == "subscribe-deltas") return client.subscribe_deltas();
-    cmux::AttachSurfaceRequest attach;
-    attach.surface = cmux::Id{surface};
+    raw::AttachSurfaceRequest attach;
+    attach.surface = raw::Id{surface};
     attach.mode = kind == "attach-render"
-        ? cmux::AttachSurfaceRequestMode::render
-        : cmux::AttachSurfaceRequestMode::bytes;
+        ? raw::AttachSurfaceRequestMode::render
+        : raw::AttachSurfaceRequestMode::bytes;
     if (kind == "attach-byte") return client.attach_bytes(attach);
     if (kind == "attach-render") return client.attach_render(attach);
     if (kind == "attach-browser") return client.attach_browser(attach);
-    return error(cmux::ErrorCode::invalid_argument, "unknown stream " + kind);
+    return error(raw::ErrorCode::invalid_argument, "unknown stream " + kind);
 }
 
 bool uint64_key(std::string_view key) {
@@ -182,7 +183,7 @@ bool uint64_key(std::string_view key) {
         || (key.size() >= 9 && key.substr(key.size() - 9) == "_revision");
 }
 
-cmux::Json normalize(cmux::Json value, std::string_view key = {}) {
+raw::Json normalize(raw::Json value, std::string_view key = {}) {
     if (value.is_object()) {
         auto fields = value.as_object();
         if (!fields) return value;
@@ -204,9 +205,9 @@ cmux::Json normalize(cmux::Json value, std::string_view key = {}) {
     return value;
 }
 
-cmux::Json event_value(cmux::Event event) {
-    if (const auto* unknown = std::get_if<cmux::UnknownEvent>(&event.value)) {
-        return cmux::Json::Object{
+raw::Json event_value(raw::Event event) {
+    if (const auto* unknown = std::get_if<raw::UnknownEvent>(&event.value)) {
+        return raw::Json::Object{
             {"event", unknown->name},
             {"unknown", true},
             {"raw", normalize(unknown->raw)},
@@ -215,21 +216,21 @@ cmux::Json event_value(cmux::Event event) {
     return normalize(std::move(event.raw));
 }
 
-cmux::Result<cmux::Json> run_stream(const cmux::Json& request) {
-    auto connected = cmux::Client::connect(options(request));
+raw::Result<raw::Json> run_stream(const raw::Json& request) {
+    auto connected = raw::Client::connect(options(request));
     if (!connected) return std::move(connected).error();
     auto client = std::move(connected).value();
     auto opened = open_stream(client, request);
     if (!opened) return std::move(opened).error();
     auto stream = std::move(opened).value();
-    cmux::Json::Array events;
+    raw::Json::Array events;
     bool terminal = false;
     const auto count = static_cast<std::size_t>(uint_field(request, "events", 1));
     const auto timeout = std::chrono::milliseconds(uint_field(request, "timeout_ms", 1000));
     for (std::size_t index = 0; index < std::max<std::size_t>(count, 1); ++index) {
         auto received = stream.next(timeout);
         if (!received) {
-            if (terminal || received.error().code == cmux::ErrorCode::closed) {
+            if (terminal || received.error().code == raw::ErrorCode::closed) {
                 terminal = true;
                 break;
             }
@@ -239,14 +240,14 @@ cmux::Result<cmux::Json> run_stream(const cmux::Json& request) {
         terminal = event.name() == "overflow" || event.name() == "detached";
         events.emplace_back(event_value(std::move(event)));
     }
-    return cmux::Json(cmux::Json::Object{
+    return raw::Json(raw::Json::Object{
         {"events", std::move(events)},
         {"terminal", terminal},
     });
 }
 
-cmux::Result<cmux::Json> required_nullable_event(const cmux::Json& request) {
-    auto connected = cmux::Client::connect(options(request));
+raw::Result<raw::Json> required_nullable_event(const raw::Json& request) {
+    auto connected = raw::Client::connect(options(request));
     if (!connected) return std::move(connected).error();
     auto client = std::move(connected).value();
     auto opened = open_stream(client, request);
@@ -256,20 +257,20 @@ cmux::Result<cmux::Json> required_nullable_event(const cmux::Json& request) {
         std::chrono::milliseconds(uint_field(request, "timeout_ms", 1000)));
     if (!received) return std::move(received).error();
     const auto* changed =
-        std::get_if<cmux::ClientChangedEvent>(&received.value().value);
+        std::get_if<raw::ClientChangedEvent>(&received.value().value);
     if (changed == nullptr) {
         return error(
-            cmux::ErrorCode::decode,
+            raw::ErrorCode::decode,
             "expected client-changed event, received "
                 + std::string(received.value().name()));
     }
-    cmux::Json name;
+    raw::Json name;
     if (changed->name) name = *changed->name;
-    return cmux::Json(cmux::Json::Object{{"name", std::move(name)}});
+    return raw::Json(raw::Json::Object{{"name", std::move(name)}});
 }
 
-cmux::Result<cmux::Json> optional_non_null_event(const cmux::Json& request) {
-    auto connected = cmux::Client::connect(options(request));
+raw::Result<raw::Json> optional_non_null_event(const raw::Json& request) {
+    auto connected = raw::Client::connect(options(request));
     if (!connected) return std::move(connected).error();
     auto client = std::move(connected).value();
     auto opened = open_stream(client, request);
@@ -278,25 +279,25 @@ cmux::Result<cmux::Json> optional_non_null_event(const cmux::Json& request) {
     auto received = stream.next(
         std::chrono::milliseconds(uint_field(request, "timeout_ms", 1000)));
     if (!received) return std::move(received).error();
-    const auto* output = std::get_if<cmux::OutputEvent>(&received.value().value);
+    const auto* output = std::get_if<raw::OutputEvent>(&received.value().value);
     if (output == nullptr) {
         return error(
-            cmux::ErrorCode::decode,
+            raw::ErrorCode::decode,
             "expected output event, received "
                 + std::string(received.value().name()));
     }
-    return cmux::Json(cmux::Json::Object{
+    return raw::Json(raw::Json::Object{
         {"present", output->colors.has_value()},
     });
 }
 
-cmux::Result<cmux::Json> close_pending_stream(const cmux::Json& request) {
-    auto connected = cmux::Client::connect(options(request));
+raw::Result<raw::Json> close_pending_stream(const raw::Json& request) {
+    auto connected = raw::Client::connect(options(request));
     if (!connected) return std::move(connected).error();
     auto client = std::move(connected).value();
     auto opened = open_stream(client, request);
     if (!opened) return std::move(opened).error();
-    auto stream = std::make_shared<cmux::EventStream>(std::move(opened).value());
+    auto stream = std::make_shared<raw::EventStream>(std::move(opened).value());
     std::atomic<bool> finished{false};
     std::thread reader([stream, &finished] {
         (void)stream->next(10s);
@@ -314,15 +315,15 @@ cmux::Result<cmux::Json> close_pending_stream(const cmux::Json& request) {
     const bool unblocked = finished.load(std::memory_order_acquire);
     if (unblocked) reader.join();
     else reader.detach();
-    return cmux::Json(cmux::Json::Object{{"unblocked", unblocked}});
+    return raw::Json(raw::Json::Object{{"unblocked", unblocked}});
 }
 
-cmux::Result<cmux::Json> authority(const cmux::Json& request) {
+raw::Result<raw::Json> authority(const raw::Json& request) {
     const auto authority_name = string_field(request, "authority");
     auto client_options = options(request);
     client_options.authorities.provider_authority =
         authority_name == "provider-authority";
-    auto connected = cmux::Client::connect(std::move(client_options));
+    auto connected = raw::Client::connect(std::move(client_options));
     if (!connected) return std::move(connected).error();
     auto client = std::move(connected).value();
     std::string command;
@@ -331,57 +332,57 @@ cmux::Result<cmux::Json> authority(const cmux::Json& request) {
         if (!result) return std::move(result).error();
         command = "ping";
     } else if (authority_name == "frontend") {
-        auto result = client.browser_back(cmux::BrowserBackRequest{cmux::Id{7}});
+        auto result = client.browser_back(raw::BrowserBackRequest{raw::Id{7}});
         if (!result) return std::move(result).error();
         command = "browser-back";
     } else if (authority_name == "local-admin") {
-        auto result = client.pairing_response(cmux::PairingResponseRequest{false, 1});
+        auto result = client.pairing_response(raw::PairingResponseRequest{false, 1});
         if (!result) return std::move(result).error();
         command = "pairing-response";
     } else if (authority_name == "provider-authority") {
         auto result = client.mark_workspaces_provider_managed(
-            cmux::MarkWorkspacesProviderManagedRequest{"conformance-authority"});
+            raw::MarkWorkspacesProviderManagedRequest{"conformance-authority"});
         if (!result) return std::move(result).error();
         command = "mark-workspaces-provider-managed";
     } else {
-        return error(cmux::ErrorCode::invalid_argument, "unknown authority " + authority_name);
+        return error(raw::ErrorCode::invalid_argument, "unknown authority " + authority_name);
     }
-    return cmux::Json(cmux::Json::Object{{"command", std::move(command)}});
+    return raw::Json(raw::Json::Object{{"command", std::move(command)}});
 }
 
-cmux::Result<cmux::Json> authority_denied(const cmux::Json& request) {
-    auto connected = cmux::Client::connect(options(request));
+raw::Result<raw::Json> authority_denied(const raw::Json& request) {
+    auto connected = raw::Client::connect(options(request));
     if (!connected) return std::move(connected).error();
     auto client = std::move(connected).value();
     auto result = client.mark_workspaces_provider_managed(
-        cmux::MarkWorkspacesProviderManagedRequest{"conformance-authority"});
-    if (!result && result.error().code == cmux::ErrorCode::authority) {
-        return cmux::Json(cmux::Json::Object{{"denied", true}});
+        raw::MarkWorkspacesProviderManagedRequest{"conformance-authority"});
+    if (!result && result.error().code == raw::ErrorCode::authority) {
+        return raw::Json(raw::Json::Object{{"denied", true}});
     }
     if (!result) return std::move(result).error();
     return error(
-        cmux::ErrorCode::invalid_argument,
+        raw::ErrorCode::invalid_argument,
         "default client allowed provider-authority command");
 }
 
 struct SurfaceContext {
-    cmux::Id workspace{};
+    raw::Id workspace{};
     bool terminal_created = false;
 };
 
 std::optional<SurfaceContext> find_surface(
-    const cmux::Tree& tree,
-    cmux::Id surface) {
+    const raw::Tree& tree,
+    raw::Id surface) {
     for (const auto& workspace : tree.workspaces) {
         for (const auto& screen : workspace.screens) {
             for (const auto& pane : screen.panes) {
-                const auto* live = std::get_if<cmux::LivePane>(&pane.value);
+                const auto* live = std::get_if<raw::LivePane>(&pane.value);
                 if (live == nullptr) continue;
                 for (const auto& tab : live->tabs) {
                     if (tab.surface == surface) {
                         return SurfaceContext{
                             workspace.id,
-                            tab.kind == cmux::TabKind::pty && !tab.dead,
+                            tab.kind == raw::TabKind::pty && !tab.dead,
                         };
                     }
                 }
@@ -391,8 +392,8 @@ std::optional<SurfaceContext> find_surface(
     return std::nullopt;
 }
 
-cmux::Result<cmux::Json> real_flow(const cmux::Json& request) {
-    auto connected = cmux::Client::connect(options(request));
+raw::Result<raw::Json> real_flow(const raw::Json& request) {
+    auto connected = raw::Client::connect(options(request));
     if (!connected) return std::move(connected).error();
     auto client = std::move(connected).value();
     auto identity = client.identify();
@@ -408,7 +409,7 @@ cmux::Result<cmux::Json> real_flow(const cmux::Json& request) {
     const auto renamed_name = string_field(
         request, "renamed_name", "sdk-conformance-renamed");
 
-    cmux::NewWorkspaceRequest create;
+    raw::NewWorkspaceRequest create;
     create.name = workspace_name;
     create.cols = std::uint16_t{80};
     create.rows = std::uint16_t{24};
@@ -416,27 +417,27 @@ cmux::Result<cmux::Json> real_flow(const cmux::Json& request) {
     if (!created) return std::move(created).error();
     const auto surface = created.value().surface;
 
-    cmux::SendRequest send;
+    raw::SendRequest send;
     send.surface = surface;
     send.text = "printf '" + marker + "\\n'\r";
     auto sent = client.send(send);
     if (!sent) return std::move(sent).error();
 
-    auto waited = client.wait_for(cmux::WaitForRequest{marker, surface, 5'000});
+    auto waited = client.wait_for(raw::WaitForRequest{marker, surface, 5'000});
     if (!waited) return std::move(waited).error();
-    auto screen = client.read_screen(cmux::ReadScreenRequest{surface});
+    auto screen = client.read_screen(raw::ReadScreenRequest{surface});
     if (!screen) return std::move(screen).error();
     auto tree = client.list_workspaces();
     if (!tree) return std::move(tree).error();
     const auto context = find_surface(tree.value(), surface);
     if (!context) {
         return error(
-            cmux::ErrorCode::decode,
+            raw::ErrorCode::decode,
             "created surface is absent from the tree");
     }
     const auto workspace = context->workspace;
 
-    cmux::RenameWorkspaceRequest rename;
+    raw::RenameWorkspaceRequest rename;
     rename.name = renamed_name;
     rename.workspace = workspace;
     auto renamed_result = client.rename_workspace(rename);
@@ -446,11 +447,11 @@ cmux::Result<cmux::Json> real_flow(const cmux::Json& request) {
     const bool renamed = std::any_of(
         renamed_tree.value().workspaces.begin(),
         renamed_tree.value().workspaces.end(),
-        [&](const cmux::Workspace& item) {
+        [&](const raw::Workspace& item) {
             return item.id == workspace && item.name == renamed_name;
         });
 
-    cmux::CloseWorkspaceRequest close;
+    raw::CloseWorkspaceRequest close;
     close.workspace = workspace;
     auto closed_result = client.close_workspace(close);
     if (!closed_result) return std::move(closed_result).error();
@@ -459,7 +460,7 @@ cmux::Result<cmux::Json> real_flow(const cmux::Json& request) {
     const bool disappeared = std::none_of(
         remaining.value().workspaces.begin(),
         remaining.value().workspaces.end(),
-        [&](const cmux::Workspace& item) {
+        [&](const raw::Workspace& item) {
             return item.id == workspace;
         });
 
@@ -492,9 +493,9 @@ cmux::Result<cmux::Json> real_flow(const cmux::Json& request) {
         if (position <= previous) stream_ordered = false;
         previous = position;
     }
-    cmux::Json::Array observed_json;
+    raw::Json::Array observed_json;
     for (const auto& name : observed) observed_json.emplace_back(name);
-    return cmux::Json(cmux::Json::Object{
+    return raw::Json(raw::Json::Object{
         {"identified", identity.value().protocol == 10},
         {"workspace_created", workspace.value > 0},
         {"terminal_created", context->terminal_created},
@@ -512,7 +513,7 @@ cmux::Result<cmux::Json> real_flow(const cmux::Json& request) {
     });
 }
 
-cmux::Result<cmux::Json> dispatch(const cmux::Json& request) {
+raw::Result<raw::Json> dispatch(const raw::Json& request) {
     const auto operation = string_field(request, "op");
     if (operation == "metadata") return metadata();
     if (operation == "identify") return identify(request);
@@ -534,22 +535,22 @@ cmux::Result<cmux::Json> dispatch(const cmux::Json& request) {
     if (operation == "authority") return authority(request);
     if (operation == "authority-denied") return authority_denied(request);
     if (operation == "real-flow") return real_flow(request);
-    return error(cmux::ErrorCode::invalid_argument, "unknown adapter operation " + operation);
+    return error(raw::ErrorCode::invalid_argument, "unknown adapter operation " + operation);
 }
 
-std::string classify(const cmux::Error& value) {
+std::string classify(const raw::Error& value) {
     std::string message = value.message;
     for (auto& character : message) {
         if (character >= 'A' && character <= 'Z') character += 'a' - 'A';
     }
-    if (value.code == cmux::ErrorCode::timeout) return "timeout";
+    if (value.code == raw::ErrorCode::timeout) return "timeout";
     if (message.find("exceed") != std::string::npos
         || message.find("limit") != std::string::npos
         || message.find("too large") != std::string::npos) {
         return "limit";
     }
-    if (value.code == cmux::ErrorCode::command) return "command";
-    if (value.code == cmux::ErrorCode::decode
+    if (value.code == raw::ErrorCode::command) return "command";
+    if (value.code == raw::ErrorCode::decode
         || message.find("utf-8") != std::string::npos
         || message.find("json") != std::string::npos) {
         return "decode";
@@ -562,15 +563,15 @@ std::string classify(const cmux::Error& value) {
 int main() {
     std::ostringstream input;
     input << std::cin.rdbuf();
-    auto parsed = cmux::Json::parse(input.str());
+    auto parsed = raw::Json::parse(input.str());
     if (!parsed) {
         std::cerr << parsed.error().message << '\n';
         return 2;
     }
     auto request = std::move(parsed).value();
-    cmux::Json::Object response{
+    raw::Json::Object response{
         {"contract_version", std::uint64_t{1}},
-        {"id", request.find("id") == nullptr ? cmux::Json{} : *request.find("id")},
+        {"id", request.find("id") == nullptr ? raw::Json{} : *request.find("id")},
     };
     auto result = dispatch(request);
     if (result) {
@@ -581,12 +582,12 @@ int main() {
         response.emplace("ok", false);
         response.emplace(
             "error",
-            cmux::Json::Object{
+            raw::Json::Object{
                 {"kind", classify(failure)},
                 {"message", failure.message},
             });
     }
-    auto encoded = cmux::Json(std::move(response)).encode();
+    auto encoded = raw::Json(std::move(response)).encode();
     if (!encoded) {
         std::cerr << encoded.error().message << '\n';
         return 2;

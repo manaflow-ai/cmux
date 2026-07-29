@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-ROOT = Path(__file__).resolve().parents[5]
+ROOT = Path(__file__).resolve().parents[6]
 sys.path.insert(0, str(ROOT / "cmux-tui" / "bindings" / "python"))
 
-import cmux  # noqa: E402
+from cmux import raw as cmux  # noqa: E402
 
 
 UINT64_KEYS = {
