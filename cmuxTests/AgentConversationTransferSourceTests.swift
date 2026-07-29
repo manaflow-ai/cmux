@@ -79,6 +79,59 @@ struct AgentConversationTransferSourceTests {
         #expect(Set(harnessArgument.choices.map(\.value)) == ["claude", "codex", "opencode"])
     }
 
+    @Test(arguments: [RestorableAgentKind.opencode, .hermesAgent])
+    func providerWithoutCapturedStorageIdentityIsNotTransferable(
+        kind: RestorableAgentKind
+    ) throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: kind,
+            sessionId: "uncaptured-provider-session"
+        )
+        let source = AgentConversationSource(snapshot: snapshot)
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelId)
+
+        #expect(!source.hasDeterministicTranscriptSource)
+        #expect(
+            workspace.agentConversationForkSelection(
+                forPanelId: panelId,
+                request: .init(targetHarness: .claude, destination: .right)
+            ) == nil
+        )
+    }
+
+    @Test(arguments: ["hermes", "hermes-agent"])
+    func processDetectedHermesCapturesHomeWithoutReplayingIt(
+        launcher: String
+    ) throws {
+        let command = AgentLaunchCommandSnapshot(
+            processDetectedLauncher: launcher,
+            executablePath: "/opt/homebrew/bin/hermes",
+            arguments: ["/opt/homebrew/bin/hermes"],
+            workingDirectory: nil,
+            environment: ["HOME": "/tmp/captured-hermes-home"]
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: "process-detected-hermes",
+            launchCommand: command
+        )
+        let source = AgentConversationSource(snapshot: snapshot)
+        let replayEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: command.environment ?? [:],
+            kind: RestorableAgentKind.hermesAgent.rawValue
+        )
+
+        #expect(command.environment?["HOME"] == "/tmp/captured-hermes-home")
+        #expect(
+            source.hermesStateDatabaseURL?.path
+                == "/tmp/captured-hermes-home/.hermes/state.db"
+        )
+        #expect(source.hasDeterministicTranscriptSource)
+        #expect(replayEnvironment["HOME"] == nil)
+    }
+
     @Test
     func hermesTransferUsesCapturedHermesHome() async throws {
         let directory = try makeTemporaryDirectory()

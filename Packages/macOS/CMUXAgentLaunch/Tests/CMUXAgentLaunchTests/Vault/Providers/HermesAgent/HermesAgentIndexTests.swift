@@ -1,7 +1,7 @@
-import CMUXAgentLaunch
 import Foundation
 import SQLite3
 import Testing
+@testable import CMUXAgentLaunch
 
 @Suite("HermesAgentIndex")
 struct HermesAgentIndexTests {
@@ -214,6 +214,59 @@ struct HermesAgentIndexTests {
         }
     }
 
+    @Test("Online backup stays consistent when the WAL changes between steps")
+    func onlineBackupStaysConsistentAcrossConcurrentCommit() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceURL = root.appendingPathComponent("live.db", isDirectory: false)
+        let snapshotURL = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        try exec(sourceURL, """
+        PRAGMA journal_mode = WAL;
+        CREATE TABLE records (
+          id INTEGER PRIMARY KEY,
+          generation INTEGER NOT NULL,
+          payload TEXT NOT NULL
+        );
+        WITH RECURSIVE rows(id) AS (
+          SELECT 1
+          UNION ALL
+          SELECT id + 1 FROM rows WHERE id < 512
+        )
+        INSERT INTO records (id, generation, payload)
+        SELECT id, 1, hex(randomblob(2048)) FROM rows;
+        """)
+
+        var committedNewGeneration = false
+        let service = SQLiteDatabaseSnapshotService(
+            pagesPerStep: 1,
+            stepObserver: {
+                guard !committedNewGeneration else { return }
+                committedNewGeneration = true
+                try exec(sourceURL, """
+                BEGIN IMMEDIATE;
+                UPDATE records SET generation = 2;
+                COMMIT;
+                """)
+            }
+        )
+
+        try service.copyDatabase(
+            from: sourceURL.path,
+            to: snapshotURL.path
+        )
+
+        #expect(committedNewGeneration)
+        #expect(FileManager.default.fileExists(atPath: snapshotURL.path))
+        #expect(!FileManager.default.fileExists(atPath: snapshotURL.path + "-wal"))
+        #expect(!FileManager.default.fileExists(atPath: snapshotURL.path + "-shm"))
+        #expect(
+            try scalarInt(
+                snapshotURL,
+                "SELECT COUNT(*) FROM records WHERE generation <> 2"
+            ) == 0
+        )
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hermes-index-\(UUID().uuidString)", isDirectory: true)
@@ -286,5 +339,28 @@ struct HermesAgentIndexTests {
             sqlite3_free(error)
             throw HermesAgentIndexError.sqlite(message)
         }
+    }
+
+    private func scalarInt(_ dbURL: URL, _ sql: String) throws -> Int64 {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let db else {
+            throw HermesAgentIndexError.sqlite("open failed")
+        }
+        defer { sqlite3_close(db) }
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            sqlite3_finalize(statement)
+            throw HermesAgentIndexError.sqlite(
+                sqlite3_errmsg(db).map { String(cString: $0) } ?? "prepare failed"
+            )
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw HermesAgentIndexError.sqlite("step failed")
+        }
+        return sqlite3_column_int64(statement, 0)
     }
 }

@@ -69,6 +69,8 @@ struct AgentConversationCrossHarnessForkTests {
             sessionId: "uncaptured-storage-session"
         ))
 
+        #expect(!source.hasDeterministicTranscriptSource)
+        #expect(!IndexedAgentConversationSourceAdapter().supports(source))
         await #expect {
             try await registry.read(source)
         } throws: { error in
