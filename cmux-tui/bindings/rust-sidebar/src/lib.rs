@@ -7,11 +7,11 @@
 
 use cmux::{
     ColorHex, Error, RenderCursor, RenderPatch, RenderRow, RenderRun, RenderScroll, RenderSnapshot,
-    Result, SidebarInputOptions, SidebarView, SidebarViewItem, SidebarViewStream, Size,
+    Result, SidebarInputOptions, SidebarView, SidebarViewItem, SidebarViewStream, Size, StreamEnd,
 };
 use crossterm::event::{
-    EnhancedKeyEvent, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MediaKeyCode,
-    ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MediaKeyCode, ModifierKeyCode,
+    MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -19,8 +19,6 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget, Wrap};
 use serde_json::{Value, json};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
 
@@ -75,7 +73,11 @@ impl SidebarModel {
         }
     }
 
-    fn apply(&mut self, item: SidebarViewItem) {
+    /// Reconciles one typed attachment item into the latest renderable frame.
+    ///
+    /// Applications that own stream recovery can use this reducer without
+    /// using [`SidebarRuntime`].
+    pub fn apply_item(&mut self, item: SidebarViewItem) {
         match item {
             SidebarViewItem::Snapshot { render, .. } => {
                 self.apply_snapshot(render);
@@ -133,17 +135,32 @@ impl SidebarModel {
 
 enum WorkerUpdate {
     Item(Box<SidebarViewItem>),
+}
+
+enum WorkerLifecycle {
     Failed(String),
-    Ended,
+    Ended(StreamEnd),
+    QueueOverflow,
+}
+
+/// Typed state for the current attachment lease.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SidebarRuntimeState {
+    Attached,
+    Ended(StreamEnd),
+    QueueOverflow,
+    Failed(String),
 }
 
 /// Live sidebar stream, input forwarder, and Ratatui model.
 pub struct SidebarRuntime {
     view: SidebarView,
     receiver: Receiver<WorkerUpdate>,
+    lifecycle: Receiver<WorkerLifecycle>,
     model: SidebarModel,
     cancellation: cmux::StreamCancellation,
-    overflowed: Arc<AtomicBool>,
+    state: SidebarRuntimeState,
+    queue_capacity: usize,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -162,21 +179,16 @@ impl SidebarRuntime {
         if let Some((columns, rows)) = config.initial_columns.zip(config.initial_rows) {
             view.resize(Size::new(columns, rows)?)?;
         }
-        let stream = view.attach()?;
-        let cancellation = stream.cancellation();
-        let (sender, receiver) = mpsc::sync_channel(config.queue_capacity);
-        let overflowed = Arc::new(AtomicBool::new(false));
-        let overflowed_worker = Arc::clone(&overflowed);
-        let worker = thread::Builder::new()
-            .name("cmux-sidebar-stream".to_string())
-            .spawn(move || stream_worker(stream, sender, overflowed_worker))
-            .map_err(|error| Error::Connection(format!("cannot start sidebar worker: {error}")))?;
+        let (receiver, lifecycle, cancellation, worker) =
+            spawn_stream_worker(&view, config.queue_capacity)?;
         Ok(Self {
             view,
             receiver,
+            lifecycle,
             model: SidebarModel::new(config.fallback_title),
             cancellation,
-            overflowed,
+            state: SidebarRuntimeState::Attached,
+            queue_capacity: config.queue_capacity,
             worker: Some(worker),
         })
     }
@@ -189,38 +201,46 @@ impl SidebarRuntime {
         &self.model
     }
 
+    pub fn state(&self) -> &SidebarRuntimeState {
+        &self.state
+    }
+
     /// Drains currently queued updates without blocking.
     pub fn poll_updates(&mut self) -> usize {
         let mut applied = 0;
+        while let Ok(WorkerUpdate::Item(item)) = self.receiver.try_recv() {
+            self.model.apply_item(*item);
+            applied += 1;
+        }
         loop {
-            match self.receiver.try_recv() {
-                Ok(WorkerUpdate::Item(item)) => {
-                    self.model.apply(*item);
+            match self.lifecycle.try_recv() {
+                Ok(WorkerLifecycle::Ended(end)) => {
+                    self.model.status = Some(format!("ended: {:?}", end.reason).to_lowercase());
+                    self.model.error = end.error.as_ref().map(|error| error.message.clone());
+                    self.state = SidebarRuntimeState::Ended(end);
                     applied += 1;
                 }
-                Ok(WorkerUpdate::Failed(error)) => {
-                    self.model.error = Some(error);
+                Ok(WorkerLifecycle::Failed(error)) => {
+                    self.model.error = Some(error.clone());
+                    self.state = SidebarRuntimeState::Failed(error);
                     applied += 1;
                 }
-                Ok(WorkerUpdate::Ended) => {
-                    self.model.status = Some("closed".to_string());
+                Ok(WorkerLifecycle::QueueOverflow) => {
+                    self.model.error = Some(
+                        "sidebar update queue overflowed; reopen the attachment to recover"
+                            .to_string(),
+                    );
+                    self.state = SidebarRuntimeState::QueueOverflow;
                     applied += 1;
                 }
                 Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
             }
         }
-        if self.overflowed.swap(false, Ordering::AcqRel) {
-            self.model.error = Some(
-                "sidebar update queue overflowed; attachment was canceled, reopen to recover"
-                    .to_string(),
-            );
-            applied += 1;
-        }
         applied
     }
 
     pub fn widget(&self) -> SidebarWidget<'_> {
-        SidebarWidget { model: &self.model }
+        SidebarWidget::new(&self.model)
     }
 
     pub fn resize(&self, columns: u16, rows: u16) -> Result<()> {
@@ -245,19 +265,46 @@ impl SidebarRuntime {
         }
     }
 
-    /// Cancels the attachment and waits for the worker to stop.
-    pub fn shutdown(mut self) -> Result<()> {
-        self.cancellation.cancel()?;
+    /// Opens a fresh attachment after a terminal end or local queue overflow.
+    ///
+    /// The latest frame is retained until the new stream supplies a snapshot.
+    pub fn reattach(&mut self) -> Result<()> {
+        if matches!(self.state, SidebarRuntimeState::Attached) {
+            return Err(Error::InvalidArgument("sidebar attachment is still active".to_string()));
+        }
         if let Some(worker) = self.worker.take() {
             worker.join().map_err(|_| Error::Connection("sidebar worker panicked".to_string()))?;
         }
+        let (receiver, lifecycle, cancellation, worker) =
+            spawn_stream_worker(&self.view, self.queue_capacity)?;
+        self.receiver = receiver;
+        self.lifecycle = lifecycle;
+        self.cancellation = cancellation;
+        self.worker = Some(worker);
+        self.state = SidebarRuntimeState::Attached;
+        self.model.status = None;
+        self.model.error = None;
+        Ok(())
+    }
+
+    /// Cancels the attachment and waits for the worker to stop.
+    pub fn shutdown(mut self) -> Result<()> {
+        if matches!(self.state, SidebarRuntimeState::Attached) {
+            self.cancellation.cancel()?;
+        }
+        if let Some(worker) = self.worker.take() {
+            worker.join().map_err(|_| Error::Connection("sidebar worker panicked".to_string()))?;
+        }
+        self.poll_updates();
         Ok(())
     }
 }
 
 impl Drop for SidebarRuntime {
     fn drop(&mut self) {
-        let _ = self.cancellation.cancel();
+        if matches!(self.state, SidebarRuntimeState::Attached) {
+            let _ = self.cancellation.cancel();
+        }
         // A blocking join in Drop could stall terminal teardown if a peer is
         // unresponsive. Dropping JoinHandle detaches the already-canceled
         // worker; explicit shutdown waits and reports errors.
@@ -265,28 +312,61 @@ impl Drop for SidebarRuntime {
     }
 }
 
+type SpawnedWorker =
+    (Receiver<WorkerUpdate>, Receiver<WorkerLifecycle>, cmux::StreamCancellation, JoinHandle<()>);
+
+fn spawn_stream_worker(view: &SidebarView, queue_capacity: usize) -> Result<SpawnedWorker> {
+    let stream = view.attach()?;
+    let cancellation = stream.cancellation();
+    let (sender, receiver) = mpsc::sync_channel(queue_capacity);
+    let (lifecycle_sender, lifecycle) = mpsc::channel();
+    let worker = thread::Builder::new()
+        .name("cmux-sidebar-stream".to_string())
+        .spawn(move || stream_worker(stream, sender, lifecycle_sender))
+        .map_err(|error| Error::Connection(format!("cannot start sidebar worker: {error}")))?;
+    Ok((receiver, lifecycle, cancellation, worker))
+}
+
 fn stream_worker(
     mut stream: SidebarViewStream,
     sender: SyncSender<WorkerUpdate>,
-    overflowed: Arc<AtomicBool>,
+    lifecycle: mpsc::Sender<WorkerLifecycle>,
 ) {
     loop {
         let update = match stream.recv() {
             Ok(Some(item)) => WorkerUpdate::Item(Box::new(item.value)),
             Ok(None) => {
-                let _ = sender.try_send(WorkerUpdate::Ended);
+                let event = stream.end().cloned().map_or_else(
+                    || {
+                        WorkerLifecycle::Failed(
+                            "sidebar attachment ended without stream_end metadata".to_string(),
+                        )
+                    },
+                    WorkerLifecycle::Ended,
+                );
+                let _ = lifecycle.send(event);
                 return;
             }
             Err(error) => {
-                let _ = sender.try_send(WorkerUpdate::Failed(error.to_string()));
+                let event = stream.end().cloned().map_or_else(
+                    || WorkerLifecycle::Failed(error.to_string()),
+                    WorkerLifecycle::Ended,
+                );
+                let _ = lifecycle.send(event);
                 return;
             }
         };
         match sender.try_send(update) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
-                overflowed.store(true, Ordering::Release);
-                let _ = stream.cancel();
+                match stream.cancel() {
+                    Ok(()) => {
+                        let _ = lifecycle.send(WorkerLifecycle::QueueOverflow);
+                    }
+                    Err(error) => {
+                        let _ = lifecycle.send(WorkerLifecycle::Failed(error.to_string()));
+                    }
+                }
                 return;
             }
             Err(TrySendError::Disconnected(_)) => {
@@ -300,6 +380,36 @@ fn stream_worker(
 /// Borrowed Ratatui widget for the latest [`SidebarModel`].
 pub struct SidebarWidget<'a> {
     model: &'a SidebarModel,
+    block: Option<Block<'a>>,
+    footer: Vec<Line<'a>>,
+}
+
+impl<'a> SidebarWidget<'a> {
+    pub fn new(model: &'a SidebarModel) -> Self {
+        Self {
+            model,
+            block: Some(Block::default().borders(Borders::ALL).title(model.title.clone())),
+            footer: Vec::new(),
+        }
+    }
+
+    /// Replaces the default titled border with an application-owned block.
+    pub fn block(mut self, block: Block<'a>) -> Self {
+        self.block = Some(block);
+        self
+    }
+
+    /// Renders only the sidebar contents for composition inside an outer widget.
+    pub fn without_block(mut self) -> Self {
+        self.block = None;
+        self
+    }
+
+    /// Appends an application-owned status or control line after cmux content.
+    pub fn footer(mut self, line: impl Into<Line<'a>>) -> Self {
+        self.footer.push(line.into());
+        self
+    }
 }
 
 impl Widget for SidebarWidget<'_> {
@@ -324,10 +434,12 @@ impl Widget for SidebarWidget<'_> {
         if let Some(error) = &self.model.error {
             lines.push(Line::from(Span::styled(error.clone(), Style::default().fg(Color::Red))));
         }
-        Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(self.model.title.clone()))
-            .wrap(Wrap { trim: false })
-            .render(area, buffer);
+        lines.extend(self.footer);
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+        match self.block {
+            Some(block) => paragraph.block(block).render(area, buffer),
+            None => paragraph.render(area, buffer),
+        }
     }
 }
 
@@ -377,32 +489,20 @@ fn ratatui_color(color: &ColorHex) -> Color {
 }
 
 /// Converts supported Crossterm events to stable sidebar input records.
+#[allow(unreachable_patterns)]
 pub fn encode_event(event: &Event) -> Option<Value> {
     match event {
         Event::Key(key) => Some(encode_key(*key)),
-        Event::EnhancedKey(key) => Some(encode_enhanced_key(key)),
         Event::Mouse(mouse) => Some(encode_mouse(*mouse)),
         Event::Paste(text) => Some(json!({"kind": "paste", "text": text})),
         Event::FocusGained => Some(json!({"kind": "focus", "focused": true})),
         Event::FocusLost => Some(json!({"kind": "focus", "focused": false})),
         Event::Resize(_, _) => None,
+        // cmux's application workspace carries a private Crossterm extension.
+        // Public consumers use upstream Crossterm, so unknown future variants
+        // remain unsupported instead of entering this crate's API.
+        _ => None,
     }
-}
-
-fn encode_enhanced_key(key: &EnhancedKeyEvent) -> Value {
-    let mut value = encode_key(key.key_event);
-    if let Value::Object(object) = &mut value {
-        object.insert(
-            "shifted_key".to_string(),
-            key.shifted_key.map_or(Value::Null, |value| Value::String(value.to_string())),
-        );
-        object.insert(
-            "base_layout_key".to_string(),
-            key.base_layout_key.map_or(Value::Null, |value| Value::String(value.to_string())),
-        );
-        object.insert("text".to_string(), Value::String(key.text.clone()));
-    }
-    value
 }
 
 fn encode_key(key: KeyEvent) -> Value {
@@ -533,7 +633,7 @@ fn mouse_button(button: MouseButton) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyEventState, MouseEvent};
+    use crossterm::event::MouseEvent;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
@@ -569,22 +669,6 @@ mod tests {
             encode_event(&Event::Paste("exact\npaste".to_string())).unwrap(),
             json!({"kind": "paste", "text": "exact\npaste"})
         );
-
-        let enhanced = Event::EnhancedKey(EnhancedKeyEvent {
-            key_event: KeyEvent {
-                code: KeyCode::Char('a'),
-                modifiers: KeyModifiers::SHIFT,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            },
-            shifted_key: Some('A'),
-            base_layout_key: Some('q'),
-            text: "Ä".to_string(),
-        });
-        let encoded = encode_event(&enhanced).unwrap();
-        assert_eq!(encoded["shifted_key"], "A");
-        assert_eq!(encoded["base_layout_key"], "q");
-        assert_eq!(encoded["text"], "Ä");
     }
 
     #[test]
@@ -634,7 +718,12 @@ mod tests {
         let backend = TestBackend::new(24, 8);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| frame.render_widget(SidebarWidget { model: &model }, frame.area()))
+            .draw(|frame| {
+                frame.render_widget(
+                    SidebarWidget::new(&model).footer("application controls"),
+                    frame.area(),
+                );
+            })
             .unwrap();
         let rendered = terminal
             .backend()
@@ -647,6 +736,7 @@ mod tests {
         assert!(rendered.contains("one"));
         assert!(rendered.contains("live"));
         assert!(rendered.contains("problem"));
+        assert!(rendered.contains("application controls"));
         let styled = terminal.backend().buffer().cell((1, 1)).unwrap();
         assert_eq!(styled.fg, Color::Rgb(255, 0, 0));
         assert!(styled.modifier.contains(Modifier::BOLD));

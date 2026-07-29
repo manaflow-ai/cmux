@@ -7,7 +7,7 @@ patches, renders resolved colors and attributes as a Ratatui widget, and
 forwards Crossterm keyboard, mouse, paste, focus, and resize input.
 
 ```rust
-use cmux_sidebar::{SidebarConfig, SidebarRuntime};
+use cmux_sidebar::{SidebarConfig, SidebarRuntime, SidebarRuntimeState};
 
 # fn example(view: cmux::SidebarView) -> cmux::Result<()> {
 let mut sidebar = SidebarRuntime::start(
@@ -21,14 +21,36 @@ let mut sidebar = SidebarRuntime::start(
 )?;
 sidebar.poll_updates();
 # let _widget = sidebar.widget();
+if !matches!(sidebar.state(), SidebarRuntimeState::Attached) {
+    sidebar.reattach()?;
+}
 sidebar.shutdown()?;
 # Ok(())
 # }
 ```
 
-Queue overflow cancels the attachment and puts a recovery message in the
-render model. `shutdown` cancels and joins the worker. Dropping the runtime
-cancels only the attachment lease and never deletes or disables the view.
+`SidebarRuntimeState::Ended` preserves the complete typed stream end, including
+the cursor, recovery directive, and protocol error. Queue overflow has its own
+typed state. `reattach` opens a fresh lease while retaining the last frame.
+`shutdown` cancels and joins the worker. Dropping the runtime cancels only the
+attachment lease and never deletes or disables the view.
+
+Applications that own their stream and recovery policy can reuse the public
+pieces independently:
+
+```rust
+# use cmux::{SidebarViewItem, StreamEnd};
+# use cmux_sidebar::{SidebarModel, SidebarWidget};
+# use ratatui::text::Line;
+# fn example(item: SidebarViewItem, end: StreamEnd) {
+let mut model = SidebarModel::new("project");
+model.apply_item(item);
+let widget = SidebarWidget::new(&model)
+    .without_block()
+    .footer(Line::from(format!("ended: {:?}", end.reason)));
+# let _ = widget;
+# }
+```
 
 Run the example:
 

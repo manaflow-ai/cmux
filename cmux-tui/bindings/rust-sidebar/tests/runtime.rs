@@ -1,6 +1,6 @@
 use base64::Engine;
-use cmux::{Config, SessionId, SidebarViewId};
-use cmux_sidebar::{SidebarConfig, SidebarRuntime};
+use cmux::{Config, SessionId, SidebarViewId, StreamEndReason};
+use cmux_sidebar::{SidebarConfig, SidebarRuntime, SidebarRuntimeState};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -167,6 +167,25 @@ fn end_canceled(stream: &mut UnixStream, stream_id: &str) {
     .unwrap();
 }
 
+fn end_gap(stream: &mut UnixStream, stream_id: &str) {
+    writeln!(
+        stream,
+        "{}",
+        json!({
+            "protocol": "cmux.protocol/1",
+            "type": "stream_end",
+            "stream_id": stream_id,
+            "reason": "gap",
+            "cursor": {
+                "generation": "sidebar-test",
+                "revision": "9"
+            },
+            "recovery": "reopen_from_snapshot"
+        })
+    )
+    .unwrap();
+}
+
 #[test]
 fn runtime_receives_render_snapshots_forwards_input_and_cancels_cleanly() {
     let path = socket_path();
@@ -294,6 +313,7 @@ fn bounded_queue_overflow_cancels_and_reports_recovery() {
         SidebarConfig { queue_capacity: 1, ..SidebarConfig::default() },
     )
     .unwrap();
+    thread::sleep(Duration::from_millis(50));
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
         runtime.poll_updates();
@@ -304,6 +324,78 @@ fn bounded_queue_overflow_cancels_and_reports_recovery() {
         thread::sleep(Duration::from_millis(5));
     }
     assert!(runtime.model().error.as_deref().unwrap().contains("overflowed"));
+    runtime.shutdown().unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn preserves_structured_gap_and_reattaches_without_discarding_the_last_frame() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (control, _) = listener.accept().unwrap();
+
+        let (mut first, _) = listener.accept().unwrap();
+        let mut first_reader = BufReader::new(first.try_clone().unwrap());
+        let first_attach = request(&mut first_reader);
+        let first_id = first_attach["params"]["stream_id"].as_str().unwrap().to_string();
+        success(&mut first, &first_attach, json!({"stream_id": first_id}));
+        snapshot(&mut first, &first_id, 0);
+        end_gap(&mut first, &first_id);
+
+        let (mut second, _) = listener.accept().unwrap();
+        let mut second_reader = BufReader::new(second.try_clone().unwrap());
+        let second_attach = request(&mut second_reader);
+        let second_id = second_attach["params"]["stream_id"].as_str().unwrap().to_string();
+        success(&mut second, &second_attach, json!({"stream_id": second_id}));
+        patch(&mut second, &second_id, 0, "recovered");
+
+        let cancel = request(&mut second_reader);
+        assert_eq!(cancel["operation"], "stream.cancel");
+        success(&mut second, &cancel, json!({}));
+        end_canceled(&mut second, &second_id);
+        drop(control);
+    });
+
+    let client =
+        cmux::Client::connect(Config::from_socket_path(&path).with_timeout(Duration::from_secs(2)))
+            .unwrap();
+    let view = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .sidebar_view(SidebarViewId::parse(VIEW).unwrap());
+    let mut runtime = SidebarRuntime::start(view, SidebarConfig::default()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        runtime.poll_updates();
+        if matches!(
+            runtime.state(),
+            SidebarRuntimeState::Ended(end) if end.reason == StreamEndReason::Gap
+        ) {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(5));
+    }
+    let SidebarRuntimeState::Ended(gap) = runtime.state() else {
+        unreachable!();
+    };
+    assert_eq!(gap.cursor.as_ref().unwrap().revision, 9);
+    assert_eq!(gap.recovery.as_deref(), Some("reopen_from_snapshot"));
+    assert_eq!(runtime.model().rows[0].runs[0].text, "agent one");
+
+    runtime.reattach().unwrap();
+    loop {
+        runtime.poll_updates();
+        if runtime.model().rows.first().is_some_and(|row| row.runs[0].text == "recovered") {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(matches!(runtime.state(), SidebarRuntimeState::Attached));
+
     runtime.shutdown().unwrap();
     client.close().unwrap();
     server.join().unwrap();
