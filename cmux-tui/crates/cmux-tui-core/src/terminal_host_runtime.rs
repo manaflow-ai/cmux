@@ -4208,6 +4208,7 @@ mod unix {
             ));
             fs::create_dir_all(&root).unwrap();
             let ready = root.join("ready");
+            let descendant = root.join("descendant");
             let _failure = crate::process_session::force_post_spawn_failure_for_test(ready.clone());
             let bootstrap = HostBootstrap {
                 min_version: PROTOCOL_VERSION,
@@ -4233,7 +4234,14 @@ mod unix {
                 command: vec![
                     "/bin/sh".into(),
                     "-c".into(),
-                    format!("trap '' HUP TERM; echo $$ > {}; exec /bin/sleep 60", ready.display()),
+                    format!(
+                        "trap '' HUP TERM; \
+                         (trap '' HUP TERM; exec /bin/sleep 60) & \
+                         echo $! > {}; \
+                         echo $$ > {}; exec /bin/sleep 60",
+                        descendant.display(),
+                        ready.display()
+                    ),
                 ],
                 extra_env: Vec::new(),
                 default_colors: DefaultColors::default(),
@@ -4245,6 +4253,8 @@ mod unix {
             };
             assert!(error.to_string().contains("forced post-spawn PTY initialization failure"));
             let pid = fs::read_to_string(&ready).unwrap().trim().parse::<libc::pid_t>().unwrap();
+            let descendant_pid =
+                fs::read_to_string(&descendant).unwrap().trim().parse::<libc::pid_t>().unwrap();
             let mut status = 0;
             // SAFETY: the marker contains the exact child PID spawned by this test.
             let result = unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) };
@@ -4256,10 +4266,33 @@ mod unix {
                     libc::waitpid(pid, &raw mut status, 0);
                 }
             }
+            let descendant_deadline = Instant::now() + Duration::from_secs(2);
+            let descendant_gone = loop {
+                // SAFETY: signal zero performs a non-mutating liveness probe.
+                if unsafe { libc::kill(descendant_pid, 0) } < 0
+                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+                {
+                    break true;
+                }
+                if Instant::now() >= descendant_deadline {
+                    break false;
+                }
+                thread::sleep(Duration::from_millis(10));
+            };
+            if !descendant_gone {
+                // SAFETY: the marker names the test's retained-session descendant.
+                unsafe {
+                    libc::kill(descendant_pid, libc::SIGKILL);
+                }
+            }
             let _ = fs::remove_dir_all(root);
 
             assert_eq!(result, -1, "failed hosted PTY initialization left child {pid} unreaped");
             assert_eq!(wait_error.raw_os_error(), Some(libc::ECHILD));
+            assert!(
+                descendant_gone,
+                "failed hosted PTY initialization left descendant {descendant_pid} running"
+            );
         }
 
         #[cfg(target_os = "linux")]
