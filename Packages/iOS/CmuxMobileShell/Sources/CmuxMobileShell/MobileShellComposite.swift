@@ -665,6 +665,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Live same-account Iroh discovery. This is distinct from route refresh so
     /// only a current broker response may initiate a first pairing.
     let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
+    /// Revokes a hidden computer's account bindings when the user forgets it.
+    /// Optional so tests and non-iOS hosts run without the transport graph; when
+    /// `nil`, the Forget action is a no-op and the row stays put.
+    let personalIrohForget: (any MobileIrohMacForgetting)?
     /// Live presence subscription (the `workers/presence` Durable Object edge).
     /// Optional and failure-tolerant like the registry: when `nil` or down, the
     /// device tree simply keeps its registry "last seen" hints.
@@ -1101,6 +1105,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
+        personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
@@ -1137,6 +1142,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
         self.personalIrohDiscovery = personalIrohDiscovery
+        self.personalIrohForget = personalIrohForget
         self.presence = presence
         self.identityProvider = identityProvider
         self.teamIDProvider = teamIDProvider
@@ -1935,6 +1941,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         stackUserID: String?
     ) async -> Bool {
         guard !isReconnectingStoredMac else { return false }
+        if let accountID = stackUserID ?? identityProvider?.currentUserID {
+            clearTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
         isReconnectingStoredMac = true
         return await reconnectActiveMacIfAvailable(stackUserID: stackUserID)
     }
@@ -1974,6 +1983,55 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.didFinishStoredMacReconnectAttempt = true
         }
         defer { restoringDeadline.cancel() }
+        // Run the awaited restore/dial phase under the same hard ceiling for
+        // startup, team changes, manual fallback, and automatic recovery. The
+        // generation claim above remains synchronous, preserving serialization
+        // while the unstructured operation can be abandoned if an FFI dial
+        // ignores cancellation.
+        let deadlineNanoseconds = runtime?.reconnectAttemptDeadlineNanoseconds
+            ?? 30_000_000_000
+        let race = await Self.raceAgainstDeadline(
+            nanoseconds: deadlineNanoseconds
+        ) { [weak self] in
+            await self?.performReconnectActiveMacAttempt(
+                stackUserID: stackUserID,
+                refreshBackupBeforeDial: refreshBackupBeforeDial,
+                generation: generation
+            ) ?? .superseded
+        }
+        registerAbandonedReconnectDial(race.abandoned)
+        if race.wasCancelled {
+            finishStoredMacReconnectAttempt(generation: generation)
+            return .superseded
+        }
+        if let outcome = race.value {
+            if outcome.didConnect, multiMacAggregationEnabled {
+                // Start secondary dials only after the bounded foreground
+                // operation has handed ownership back to this shared entry.
+                // This preserves foreground-first ordering even though the
+                // deadline race executes the awaited phase in a child task.
+                scheduleSecondaryAggregation()
+            }
+            return outcome
+        }
+        MobileDebugLog.anchormux(
+            "storedMacReconnect deadline expired generation=\(generation)"
+        )
+        finishStoredMacReconnectAttempt(generation: generation)
+        if Self.shouldRecordReconnectBackoff(
+            abandonedDialCount: abandonedReconnectDialCount
+        ),
+           let accountID = stackUserID ?? identityProvider?.currentUserID {
+            recordTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
+        return .failed(.timedOut)
+    }
+
+    private func performReconnectActiveMacAttempt(
+        stackUserID: String?,
+        refreshBackupBeforeDial: Bool,
+        generation: Int
+    ) async -> StoredMacReconnectOutcome {
         // No store / not signed in: can't determine a stored Mac here. Resolve the
         // restoring gate (so a returning user doesn't spin on RestoringSessionView)
         // but leave the persisted hint intact for a future attempt.
@@ -6360,6 +6418,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         ifStillCurrent: (() -> Bool)? = nil
     ) async throws -> MobilePairingFailureCategory? {
+        // A bounded reconnect can outlive its owning task when an FFI dial
+        // ignores cancellation. Its authority closure must be checked before
+        // claiming the foreground generation or clearing the established
+        // client, otherwise the abandoned attempt briefly disconnects the
+        // newer session even though every later adoption guard rejects it.
+        guard ifStillCurrent?() ?? true else { return nil }
         let generation = UUID()
         var liveConnectionGeneration = generation
         let ticketMacDeviceID = ticket.macDeviceID
@@ -6794,7 +6858,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     // Aggregate the user's other Macs' workspaces in the background.
                     // Best-effort; never blocks the foreground connect.
-                    if multiMacAggregationEnabled {
+                    if multiMacAggregationEnabled, !isReconnectingStoredMac {
                         self.scheduleSecondaryAggregation()
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))

@@ -449,6 +449,50 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    /// Exact-scope removal deletes ONLY the row at `scopedTeamID(teamID)` and
+    /// never the team-less build-scope fallback (`scopedTeamID(nil)`) that
+    /// `removeUnlocked` also drops for the general `remove`. The forget flow has
+    /// already captured the row's own team, so there is no nil `teamID` to
+    /// re-resolve here; over-deleting the fallback would discard an unrelated
+    /// team-less pairing that shares this build scope. Runs inside `mutationGate`
+    /// so it cannot race a concurrent upsert.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await mutationGate.withLock {
+            try await inner.removeExactScope(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(teamID)
+            )
+        }
+    }
+
+    /// Preserve the independently captured backup team while scoping only the
+    /// local row's team to this iOS build. The backup layer below owns routing
+    /// that tombstone and must see the original display team.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        backupTeamID: String?
+    ) async throws {
+        try await mutationGate.withLock {
+            try await inner.removeExactScope(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(teamID),
+                backupTeamID: backupTeamID
+            )
+        }
+    }
+
     public func removeAll() async throws {
         try await mutationGate.withLock {
             try await removeAllUnlocked()
