@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96.
+// cmux-tui mux protocol 10, IR 5863d0daf0c4945c9a9c9da9f24e4ba7cc56e3a321f6003060db397109f6f223.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -315,6 +315,34 @@ pub enum Layout {
         expanded: Id,
         panes: Vec<Id>,
     },
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutUndoConfirmationRequired {
+    pub closes_panes: Vec<Id>,
+    pub confirmation_required: bool,
+    pub revision: u64,
+    pub screen: Id,
+    pub undone: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LayoutUndoResult {
+    LayoutUndoUndone(LayoutUndoUndone),
+    LayoutUndoConfirmationRequired(LayoutUndoConfirmationRequired),
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutUndoUndone {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub confirmation_required: Option<bool>,
+    pub revision: u64,
+    pub screen: Id,
+    pub undone: bool,
 }
 
 #[rustfmt::skip]
@@ -702,6 +730,268 @@ pub struct TerminalEventsResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalKey {
+    #[serde(rename = "unidentified")]
+    Unidentified,
+    #[serde(rename = "backquote")]
+    Backquote,
+    #[serde(rename = "backslash")]
+    Backslash,
+    #[serde(rename = "bracket-left")]
+    BracketLeft,
+    #[serde(rename = "bracket-right")]
+    BracketRight,
+    #[serde(rename = "comma")]
+    Comma,
+    #[serde(rename = "digit0")]
+    Digit0,
+    #[serde(rename = "digit1")]
+    Digit1,
+    #[serde(rename = "digit2")]
+    Digit2,
+    #[serde(rename = "digit3")]
+    Digit3,
+    #[serde(rename = "digit4")]
+    Digit4,
+    #[serde(rename = "digit5")]
+    Digit5,
+    #[serde(rename = "digit6")]
+    Digit6,
+    #[serde(rename = "digit7")]
+    Digit7,
+    #[serde(rename = "digit8")]
+    Digit8,
+    #[serde(rename = "digit9")]
+    Digit9,
+    #[serde(rename = "equal")]
+    Equal,
+    #[serde(rename = "a")]
+    A,
+    #[serde(rename = "b")]
+    B,
+    #[serde(rename = "c")]
+    C,
+    #[serde(rename = "d")]
+    D,
+    #[serde(rename = "e")]
+    E,
+    #[serde(rename = "f")]
+    F,
+    #[serde(rename = "g")]
+    G,
+    #[serde(rename = "h")]
+    H,
+    #[serde(rename = "i")]
+    I,
+    #[serde(rename = "j")]
+    J,
+    #[serde(rename = "k")]
+    K,
+    #[serde(rename = "l")]
+    L,
+    #[serde(rename = "m")]
+    M,
+    #[serde(rename = "n")]
+    N,
+    #[serde(rename = "o")]
+    O,
+    #[serde(rename = "p")]
+    P,
+    #[serde(rename = "q")]
+    Q,
+    #[serde(rename = "r")]
+    R,
+    #[serde(rename = "s")]
+    S,
+    #[serde(rename = "t")]
+    T,
+    #[serde(rename = "u")]
+    U,
+    #[serde(rename = "v")]
+    V,
+    #[serde(rename = "w")]
+    W,
+    #[serde(rename = "x")]
+    X,
+    #[serde(rename = "y")]
+    Y,
+    #[serde(rename = "z")]
+    Z,
+    #[serde(rename = "minus")]
+    Minus,
+    #[serde(rename = "period")]
+    Period,
+    #[serde(rename = "quote")]
+    Quote,
+    #[serde(rename = "semicolon")]
+    Semicolon,
+    #[serde(rename = "slash")]
+    Slash,
+    #[serde(rename = "backspace")]
+    Backspace,
+    #[serde(rename = "enter")]
+    Enter,
+    #[serde(rename = "space")]
+    Space,
+    #[serde(rename = "tab")]
+    Tab,
+    #[serde(rename = "delete")]
+    Delete,
+    #[serde(rename = "end")]
+    End,
+    #[serde(rename = "home")]
+    Home,
+    #[serde(rename = "insert")]
+    Insert,
+    #[serde(rename = "page-down")]
+    PageDown,
+    #[serde(rename = "page-up")]
+    PageUp,
+    #[serde(rename = "arrow-down")]
+    ArrowDown,
+    #[serde(rename = "arrow-left")]
+    ArrowLeft,
+    #[serde(rename = "arrow-right")]
+    ArrowRight,
+    #[serde(rename = "arrow-up")]
+    ArrowUp,
+    #[serde(rename = "numpad0")]
+    Numpad0,
+    #[serde(rename = "numpad1")]
+    Numpad1,
+    #[serde(rename = "numpad2")]
+    Numpad2,
+    #[serde(rename = "numpad3")]
+    Numpad3,
+    #[serde(rename = "numpad4")]
+    Numpad4,
+    #[serde(rename = "numpad5")]
+    Numpad5,
+    #[serde(rename = "numpad6")]
+    Numpad6,
+    #[serde(rename = "numpad7")]
+    Numpad7,
+    #[serde(rename = "numpad8")]
+    Numpad8,
+    #[serde(rename = "numpad9")]
+    Numpad9,
+    #[serde(rename = "numpad-add")]
+    NumpadAdd,
+    #[serde(rename = "numpad-backspace")]
+    NumpadBackspace,
+    #[serde(rename = "numpad-comma")]
+    NumpadComma,
+    #[serde(rename = "numpad-decimal")]
+    NumpadDecimal,
+    #[serde(rename = "numpad-divide")]
+    NumpadDivide,
+    #[serde(rename = "numpad-enter")]
+    NumpadEnter,
+    #[serde(rename = "numpad-equal")]
+    NumpadEqual,
+    #[serde(rename = "numpad-multiply")]
+    NumpadMultiply,
+    #[serde(rename = "numpad-subtract")]
+    NumpadSubtract,
+    #[serde(rename = "numpad-up")]
+    NumpadUp,
+    #[serde(rename = "numpad-down")]
+    NumpadDown,
+    #[serde(rename = "numpad-right")]
+    NumpadRight,
+    #[serde(rename = "numpad-left")]
+    NumpadLeft,
+    #[serde(rename = "numpad-begin")]
+    NumpadBegin,
+    #[serde(rename = "numpad-home")]
+    NumpadHome,
+    #[serde(rename = "numpad-end")]
+    NumpadEnd,
+    #[serde(rename = "numpad-insert")]
+    NumpadInsert,
+    #[serde(rename = "numpad-delete")]
+    NumpadDelete,
+    #[serde(rename = "numpad-page-up")]
+    NumpadPageUp,
+    #[serde(rename = "numpad-page-down")]
+    NumpadPageDown,
+    #[serde(rename = "escape")]
+    Escape,
+    #[serde(rename = "f1")]
+    F1,
+    #[serde(rename = "f2")]
+    F2,
+    #[serde(rename = "f3")]
+    F3,
+    #[serde(rename = "f4")]
+    F4,
+    #[serde(rename = "f5")]
+    F5,
+    #[serde(rename = "f6")]
+    F6,
+    #[serde(rename = "f7")]
+    F7,
+    #[serde(rename = "f8")]
+    F8,
+    #[serde(rename = "f9")]
+    F9,
+    #[serde(rename = "f10")]
+    F10,
+    #[serde(rename = "f11")]
+    F11,
+    #[serde(rename = "f12")]
+    F12,
+    #[serde(rename = "f13")]
+    F13,
+    #[serde(rename = "f14")]
+    F14,
+    #[serde(rename = "f15")]
+    F15,
+    #[serde(rename = "f16")]
+    F16,
+    #[serde(rename = "f17")]
+    F17,
+    #[serde(rename = "f18")]
+    F18,
+    #[serde(rename = "f19")]
+    F19,
+    #[serde(rename = "f20")]
+    F20,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalKeyAction {
+    #[serde(rename = "press")]
+    Press,
+    #[serde(rename = "release")]
+    Release,
+    #[serde(rename = "repeat")]
+    Repeat,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalKeyInput {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub action: Optional<TerminalKeyAction>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub base_layout_codepoint: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub composing: Option<bool>,
+    pub consumed_mods: TerminalModifiers,
+    pub key: TerminalKey,
+    pub macos_option_as_alt: bool,
+    pub mods: TerminalModifiers,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shifted_codepoint: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub unshifted_codepoint: Optional<String>,
+    pub utf8: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TerminalLifecycle {
     #[serde(rename = "launching")]
     Launching,
@@ -713,6 +1003,18 @@ pub enum TerminalLifecycle {
     Exited,
     #[serde(rename = "tombstoned")]
     Tombstoned,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalModifiers {
+    pub alt: bool,
+    pub caps_lock: bool,
+    pub control: bool,
+    pub num_lock: bool,
+    pub shift: bool,
+    #[serde(rename = "super")]
+    pub super_: bool,
 }
 
 #[rustfmt::skip]

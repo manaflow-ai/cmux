@@ -325,10 +325,12 @@ impl Iterator for ResourceStream {
 
 impl Drop for ResourceStream {
     fn drop(&mut self) {
-        // This releases only the connection-local stream lease. It never
-        // closes or deletes the resource being observed. Drop sends a
-        // best-effort detached request rather than blocking for confirmation.
-        let _ = self.cancellation.cancel();
+        // An active stream still owns a connection-local lease, so release it
+        // with a best-effort detached request. A terminal stream_end already
+        // released that lease and must not be followed by a redundant cancel.
+        if self.end.is_none() {
+            let _ = self.cancellation.cancel();
+        }
         self.connection.close();
     }
 }

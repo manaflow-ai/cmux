@@ -543,6 +543,67 @@ fn cancel_discards_unread_items_and_waits_for_response_and_end() {
 }
 
 #[test]
+fn dropping_completed_and_gap_streams_does_not_send_cancel() {
+    for (reason, recovery) in [("completed", None), ("gap", Some("resubscribe"))] {
+        let path = socket_path();
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (_control, _) = listener.accept().unwrap();
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let open = request(&mut reader);
+            let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
+            success(&mut stream, &open, json!({"stream_id": stream_id}));
+
+            let mut end = json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_end",
+                "stream_id": stream_id,
+                "reason": reason
+            });
+            if let Some(recovery) = recovery {
+                end["recovery"] = json!(recovery);
+            }
+            writeln!(stream, "{end}").unwrap();
+
+            stream.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+            let mut possible_cancel = String::new();
+            match reader.read_line(&mut possible_cancel) {
+                Ok(0) => {}
+                Ok(_) => panic!("{reason} stream sent cancel after stream_end: {possible_cancel}"),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(error) => panic!("unexpected read error: {error}"),
+            }
+        });
+
+        let client = connect(&path);
+        let mut events = client
+            .session(SessionId::parse(SESSION).unwrap())
+            .events(EventStreamOptions::default())
+            .unwrap();
+        if reason == "completed" {
+            assert!(events.recv().unwrap().is_none());
+        } else {
+            match events.recv().unwrap_err() {
+                Error::StreamEnded { reason, recovery, .. } => {
+                    assert_eq!(reason, "gap");
+                    assert_eq!(recovery.as_deref(), Some("resubscribe"));
+                }
+                other => panic!("unexpected gap error: {other:?}"),
+            }
+        }
+        drop(events);
+        client.close().unwrap();
+        server.join().unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
 fn renderer_grant_is_typed_and_redacts_the_one_use_token() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();

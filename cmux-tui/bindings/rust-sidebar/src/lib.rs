@@ -1,4 +1,4 @@
-//! Optional Ratatui wrapper for a cmux [`SidebarView`](cmux::SidebarView).
+//! Optional Ratatui wrapper for a cmux [`SidebarView`].
 //!
 //! This crate owns a typed attachment stream on a worker thread, moves updates
 //! through a bounded queue, renders the latest frame, and forwards Crossterm

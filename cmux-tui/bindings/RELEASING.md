@@ -9,7 +9,7 @@ cmux-sdk-vX.Y.Z
 Historical releases used `mux-sdk-vX.Y.Z`; the publish workflows still accept
 that prefix so old release history remains connected. These tags are separate
 from app release tags such as `vX.Y.Z`. Current SDK package versions are
-`0.4.0`.
+`1.0.0`.
 
 ## Support matrix
 
@@ -17,7 +17,7 @@ from app release tags such as `vX.Y.Z`. Current SDK package versions are
 | --- | --- | --- | --- |
 | TypeScript | Node.js 20; browser ESM for the browser entry | none | npm package |
 | Python | CPython 3.9 | none | PyPI wheel and source distribution |
-| Rust | Rust 1.88 | `libc`, `serde`, `serde_json` | crates.io crate |
+| Rust | Rust 1.88 | base: `base64`, `getrandom`, `libc`, `serde`, `serde_json`; sidebar: `crossterm`, `ratatui`, `serde_json` | crates.io crates `cmux-client` and `cmux-sidebar` |
 | Go | Go 1.22 | standard library only | Go module tag |
 | Java | Java 17 | standard library only | Maven artifact |
 | C++ | C++20 and CMake 3.20 | standard library and platform socket APIs | installable CMake package |
@@ -32,12 +32,13 @@ events. The shared conformance suite verifies their common wire behavior.
   `manaflow-ai/cmux`, workflow `.github/workflows/sdk-publish-python.yml`, and
   environment `pypi`. The workflow uses OIDC trusted publishing and PyPI
   attestations, so no PyPI token is stored in GitHub.
-- crates.io: publish or claim the first `cmux-client` crate release manually if
-  crates.io still requires an initial release, then add a trusted publisher for
-  owner `manaflow-ai`, repo `cmux`, workflow
+- crates.io: publish or claim the first `cmux-client` and `cmux-sidebar` releases
+  manually if crates.io still requires initial releases, then add trusted
+  publishers for owner `manaflow-ai`, repo `cmux`, workflow
   `.github/workflows/sdk-publish-crates.yml`, and environment `crates-io`. The
   workflow exchanges GitHub OIDC for a short-lived crates.io token via
-  `rust-lang/crates-io-auth-action`.
+  `rust-lang/crates-io-auth-action`. It publishes `cmux-client`, waits for that
+  version to reach the crates.io index, then publishes `cmux-sidebar`.
 - npm: configure trusted publishing and required 2FA policy for package `cmux`,
   workflow `.github/workflows/sdk-publish-npm.yml`, and environment `npm`.
   Warning: the live npm package name `cmux` is currently a different cloud-VM CLI
@@ -56,8 +57,8 @@ events. The shared conformance suite verifies their common wire behavior.
 
 ## Cutting a release
 
-1. Update TypeScript, Python, Rust, Java, C++, and Zig package metadata to the
-   same version. Go follows the shared Git tag.
+1. Update TypeScript, Python, both Rust crate manifests, Java, C++, and Zig
+   package metadata to the same version. Go follows the shared Git tag.
 2. Verify synchronized versions:
 
    ```bash
@@ -75,16 +76,17 @@ events. The shared conformance suite verifies their common wire behavior.
    ```
 
 6. Watch the SDK workflows. Python and Rust publish automatically after their
-   conformance gates pass. Go validates only. Java reports the Maven Central
-   TODO. npm validates on tag push but does not publish until a maintainer runs
-   `sdk publish npm` manually with `confirm_npm_cmux: true`.
+   conformance gates pass. Rust publishes `cmux-client` before `cmux-sidebar`.
+   Go validates only. Java reports the Maven Central TODO. npm validates on tag
+   push but does not publish until a maintainer runs `sdk publish npm` manually
+   with `confirm_npm_cmux: true`.
 
 ## Safety checks
 
 Each SDK workflow is triggered by `cmux-sdk-v*` tags, legacy `mux-sdk-v*` tags,
 or `workflow_dispatch`. The version guard extracts `X.Y.Z` from the tag, or uses
-the manual `version` input, and fails unless the TypeScript, Python, and Rust
-package manifest versions all match.
+the manual `version` input, and fails unless the TypeScript, Python, and both
+Rust package manifest versions all match.
 
 Publish jobs use least-privilege permissions. OIDC-capable registries use
 `id-token: write` only on the publish job. No long-lived registry tokens are

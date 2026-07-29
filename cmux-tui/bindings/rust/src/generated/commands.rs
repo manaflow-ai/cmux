@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96.
+// cmux-tui mux protocol 10, IR 5863d0daf0c4945c9a9c9da9f24e4ba7cc56e3a321f6003060db397109f6f223.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -165,6 +165,17 @@ pub struct BrowserWheelRequest {
 
 #[rustfmt::skip]
 pub type BrowserWheelResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClearHistoryRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub fallback_key: Optional<T::TerminalKeyInput>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type ClearHistoryResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -512,6 +523,21 @@ pub struct NewPaneRequest {
 
 #[rustfmt::skip]
 pub type NewPaneResult = T::SurfaceResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewPaneRightRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cols: Optional<u16>,
+    pub pane: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub width: Optional<f32>,
+}
+
+#[rustfmt::skip]
+pub type NewPaneRightResult = T::SurfaceResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -914,10 +940,24 @@ pub type SetRatioResult = T::EmptyResult;
 pub struct SetSplitRatioRequest {
     pub ratio: f32,
     pub split: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<u64>,
 }
 
 #[rustfmt::skip]
 pub type SetSplitRatioResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetViewportPaneWidthRequest {
+    pub pane: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<u64>,
+    pub width: f32,
+}
+
+#[rustfmt::skip]
+pub type SetViewportPaneWidthResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -998,6 +1038,19 @@ pub struct TerminalEventsRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub after_revision: Option<u64>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UndoLayoutRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub confirm_close: Option<bool>,
+    pub pane: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub revision: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type UndoLayoutResult = T::LayoutUndoResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1087,6 +1140,14 @@ impl CmuxClient {
 
     pub fn browser_wheel(&mut self, request: BrowserWheelRequest) -> Result<BrowserWheelResult> {
         self.execute(&BROWSER_WHEEL_METADATA, &request)
+    }
+
+    pub fn clear_history(&mut self, request: ClearHistoryRequest) -> Result<ClearHistoryResult> {
+        if !request.fallback_key.is_missing() {
+            self.require_protocol_field("clear-history", 9)?;
+            self.require_capability_field("clear-history", "clear-history-key-v1")?;
+        }
+        self.execute(&CLEAR_HISTORY_METADATA, &request)
     }
 
     pub fn clear_window_title(&mut self, request: ClearWindowTitleRequest) -> Result<ClearWindowTitleResult> {
@@ -1234,6 +1295,10 @@ impl CmuxClient {
 
     pub fn new_pane(&mut self, request: NewPaneRequest) -> Result<NewPaneResult> {
         self.execute(&NEW_PANE_METADATA, &request)
+    }
+
+    pub fn new_pane_right(&mut self, request: NewPaneRightRequest) -> Result<NewPaneRightResult> {
+        self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
 
     pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<NewScreenResult> {
@@ -1412,7 +1477,19 @@ impl CmuxClient {
     }
 
     pub fn set_split_ratio(&mut self, request: SetSplitRatioRequest) -> Result<SetSplitRatioResult> {
+        if !request.transaction.is_missing() {
+            self.require_protocol_field("set-split-ratio", 9)?;
+            self.require_capability_field("set-split-ratio", "layout-undo-v1")?;
+        }
         self.execute(&SET_SPLIT_RATIO_METADATA, &request)
+    }
+
+    pub fn set_viewport_pane_width(&mut self, request: SetViewportPaneWidthRequest) -> Result<SetViewportPaneWidthResult> {
+        if !request.transaction.is_missing() {
+            self.require_protocol_field("set-viewport-pane-width", 9)?;
+            self.require_capability_field("set-viewport-pane-width", "layout-undo-v1")?;
+        }
+        self.execute(&SET_VIEWPORT_PANE_WIDTH_METADATA, &request)
     }
 
     pub fn set_window_title(&mut self, request: SetWindowTitleRequest) -> Result<SetWindowTitleResult> {
@@ -1448,6 +1525,10 @@ impl CmuxClient {
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {
         self.execute(&TERMINAL_EVENTS_METADATA, &request)
+    }
+
+    pub fn undo_layout(&mut self, request: UndoLayoutRequest) -> Result<UndoLayoutResult> {
+        self.execute(&UNDO_LAYOUT_METADATA, &request)
     }
 
     pub fn vt_state(&mut self, request: VtStateRequest) -> Result<T::VtStateResult> {
