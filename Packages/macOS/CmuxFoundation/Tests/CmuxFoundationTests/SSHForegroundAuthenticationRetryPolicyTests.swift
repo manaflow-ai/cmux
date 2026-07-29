@@ -82,6 +82,16 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.temporaryFiles.isEmpty)
     }
 
+    @Test func mapsServerAliveTimeoutToRetryableStatus() throws {
+        let result = try run(
+            "printf '%s\\n' 'Timeout, server example.test not responding.' >&2; exit 255"
+        )
+
+        #expect(result.status == 254)
+        #expect(result.stderr.contains("Timeout, server example.test not responding."))
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
     @Test(arguments: ["Connection refused", "Connection reset by peer"])
     func mapsDirectConnectionStartupFailureToRetryableStatus(_ diagnostic: String) throws {
         let result = try run(
