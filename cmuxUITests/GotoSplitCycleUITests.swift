@@ -123,71 +123,51 @@ final class GotoSplitCycleUITests: XCTestCase {
 
     private func launchWithThreePaneLayout() -> (XCUIApplication, () -> Void) {
         let fileManager = FileManager.default
-        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            XCTFail("Missing Application Support directory")
-            return (XCUIApplication(), {})
-        }
-
-        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let nativeConfigURL = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        let cmuxConfigURLs = [
-            appSupport
-                .appendingPathComponent("com.cmuxterm.app.debug.goto.split.cycle", isDirectory: true)
-                .appendingPathComponent("config.ghostty", isDirectory: false),
-            appSupport
-                .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
-                .appendingPathComponent("config.ghostty", isDirectory: false),
-        ]
-        let configURLs = [nativeConfigURL] + cmuxConfigURLs
+        let isolatedHome = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ui-test-goto-split-cycle-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let ghosttyDir = isolatedHome
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+        let configURL = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
 
         do {
             try fileManager.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
-            for url in cmuxConfigURLs {
-                try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            }
         } catch {
-            XCTFail("Failed to create Ghostty config dir: \(error)")
+            XCTFail("Failed to create isolated Ghostty config directory: \(error)")
             return (XCUIApplication(), {})
         }
 
-        let originalConfigData = configURLs.map { url in
-            (url, try? Data(contentsOf: url))
-        }
-        let cleanup: () -> Void = {
-            for (url, data) in originalConfigData {
-                if let data {
-                    try? data.write(to: url, options: .atomic)
-                } else {
-                    try? fileManager.removeItem(at: url)
-                }
-            }
-        }
-
-        let home = fileManager.homeDirectoryForCurrentUser
         let configContents = """
         # cmux goto_split cycle UI test
-        working-directory = \(home.path)
+        working-directory = \(isolatedHome.path)
 
         """
 
         do {
-            for url in configURLs {
-                try configContents.write(to: url, atomically: true, encoding: .utf8)
-            }
+            try configContents.write(to: configURL, atomically: true, encoding: .utf8)
         } catch {
-            XCTFail("Failed to write Ghostty config: \(error)")
-            cleanup()
+            XCTFail("Failed to write isolated Ghostty config: \(error)")
+            try? fileManager.removeItem(at: isolatedHome)
             return (XCUIApplication(), {})
         }
 
         let app = XCUIApplication()
+        app.launchEnvironment["HOME"] = isolatedHome.path
+        app.launchEnvironment["CFFIXED_USER_HOME"] = isolatedHome.path
+        app.launchEnvironment["XDG_CONFIG_HOME"] =
+            isolatedHome.appendingPathComponent(".config", isDirectory: true).path
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_LAYOUT"] = "three_pane_terminal"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_USE_GHOSTTY_CONFIG"] = "1"
         launchAndEnsureForeground(app)
 
-        return (app, cleanup)
+        return (app, {
+            app.terminate()
+            try? fileManager.removeItem(at: isolatedHome)
+        })
     }
 
     // MARK: - Data Polling
