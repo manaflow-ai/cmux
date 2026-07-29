@@ -4068,6 +4068,51 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn local_pty_does_not_inherit_launcher_command() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_LOCAL_LAUNCHER_ENV";
+        const LAUNCHER_ENV: &str = "CMUX_TUI_LAUNCHER_COMMAND";
+        const TEST_NAME: &str = "surface::tests::local_pty_does_not_inherit_launcher_command";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .env(LAUNCHER_ENV, "npx cmux@1.2.3")
+                .status()
+                .unwrap();
+            assert!(status.success(), "local PTY environment subprocess failed: {status}");
+            return;
+        }
+
+        let root = std::env::temp_dir()
+            .join(format!("cmux-local-launcher-env-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let result = root.join("launcher.txt");
+        let mux = Mux::new_for_test("local-launcher-env", SurfaceOptions::default());
+        let options = SurfaceOptions {
+            command: Some(vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "printf '%s' \"${CMUX_TUI_LAUNCHER_COMMAND-unset}\" > \
+                 \"$CMUX_TUI_TEST_RESULT\"; exec /bin/sleep 60"
+                    .into(),
+            ]),
+            extra_env: vec![("CMUX_TUI_TEST_RESULT".into(), result.to_string_lossy().into_owned())],
+            ..SurfaceOptions::default()
+        };
+        let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !result.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let inherited = std::fs::read_to_string(&result).unwrap();
+        let _ = surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(1));
+        let _ = std::fs::remove_dir_all(root);
+
+        assert_eq!(inherited, "unset", "local PTY inherited launcher replay metadata");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn failed_local_pty_initialization_reaps_spawned_child() {
         let root = std::env::temp_dir()
             .join(format!("cmux-local-spawn-failure-{}", crate::workspace_registry::new_uuid_v4()));

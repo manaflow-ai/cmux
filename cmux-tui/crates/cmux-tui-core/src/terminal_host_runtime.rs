@@ -4128,6 +4128,77 @@ mod unix {
         }
 
         #[test]
+        fn host_pty_does_not_inherit_launcher_command() {
+            const CHILD_ENV: &str = "CMUX_TUI_TEST_HOST_LAUNCHER_ENV";
+            const LAUNCHER_ENV: &str = "CMUX_TUI_LAUNCHER_COMMAND";
+            const TEST_NAME: &str =
+                "terminal_host_runtime::unix::tests::host_pty_does_not_inherit_launcher_command";
+            if std::env::var_os(CHILD_ENV).is_none() {
+                let status = Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", TEST_NAME])
+                    .env(CHILD_ENV, "1")
+                    .env(LAUNCHER_ENV, "npx cmux@1.2.3")
+                    .status()
+                    .unwrap();
+                assert!(status.success(), "host PTY environment subprocess failed: {status}");
+                return;
+            }
+
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-launcher-env-{}",
+                crate::workspace_registry::new_uuid_v4()
+            ));
+            fs::create_dir_all(&root).unwrap();
+            let result = root.join("launcher.txt");
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: root.join("host.sock").to_string_lossy().into_owned(),
+                record_path: root.join("host.json").to_string_lossy().into_owned(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf '%s' \"${CMUX_TUI_LAUNCHER_COMMAND-unset}\" > \
+                     \"$CMUX_TUI_TEST_RESULT\"; exec /bin/sleep 60"
+                        .into(),
+                ],
+                extra_env: vec![(
+                    "CMUX_TUI_TEST_RESULT".into(),
+                    result.to_string_lossy().into_owned(),
+                )],
+                default_colors: DefaultColors::default(),
+            };
+
+            let host = spawn_host_runtime(&launch, &bootstrapped).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !result.exists() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let inherited = fs::read_to_string(&result).unwrap();
+            host.request_termination();
+            let _ = host.wait_for_child_exit(Duration::from_secs(1));
+            let _ = fs::remove_dir_all(root);
+
+            assert_eq!(inherited, "unset", "host PTY inherited launcher replay metadata");
+        }
+
+        #[test]
         fn failed_host_pty_initialization_reaps_spawned_child() {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-spawn-failure-{}",
