@@ -1633,6 +1633,60 @@ def verify_late_resume_cannot_replace_clear_successor(cli_path: str) -> None:
                 f"successor_stop_commands={successor_stop_commands!r}"
             )
 
+        stopped_late_resume_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {
+                "session_id": retired_session_id,
+                "source": "resume",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        stopped_late_resume_commands = server.commands[stopped_late_resume_start:]
+        if has_command_with(
+            stopped_late_resume_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "A delayed resume replaced the stopped clear successor:\n"
+                f"stopped_late_resume_commands={stopped_late_resume_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        stopped_surface_owner = state["activeSessionsBySurface"][surface_id]
+        if stopped_surface_owner.get("sessionId") != successor_session_id:
+            raise RuntimeError(
+                "A delayed resume stole ownership after the clear successor stopped:\n"
+                f"stopped_surface_owner={stopped_surface_owner!r}\nstate={state!r}"
+            )
+
+        next_prompt_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": successor_session_id,
+                "turn_id": "successor-turn-2",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        next_prompt_commands = server.commands[next_prompt_start:]
+        if not has_command_with(
+            next_prompt_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "The stopped successor could not begin another turn after a delayed resume:\n"
+                f"next_prompt_commands={next_prompt_commands!r}"
+            )
+
 
 def main() -> int:
     try:
