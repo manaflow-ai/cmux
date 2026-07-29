@@ -277,13 +277,16 @@ final class ClaudeHookSessionStore {
 
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
-    private static let maxClearBackgroundWorkTransferAgeSeconds: TimeInterval = 60
+    private static let minimumClearBackgroundWorkTransferAgeSeconds: TimeInterval = 5 * 60
+    private static let maxConfiguredSessionEndHookBudgetSeconds: TimeInterval = 60
+    private static let clearBackgroundWorkTransferSafetyMarginSeconds: TimeInterval = 60
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
 
     private let statePath: String
     private let fileManager: FileManager
+    private let maxClearBackgroundWorkTransferAgeSeconds: TimeInterval
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
@@ -302,6 +305,19 @@ final class ClaudeHookSessionStore {
         } else {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
+        let overrideBudgetMilliseconds = processEnv["CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS"]
+            .flatMap { Int64($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        let overrideBudgetSeconds = overrideBudgetMilliseconds.map {
+            TimeInterval(max(Int64(0), $0)) / 1_000
+        } ?? 0
+        let effectiveHookBudgetSeconds = max(
+            Self.maxConfiguredSessionEndHookBudgetSeconds,
+            overrideBudgetSeconds
+        )
+        self.maxClearBackgroundWorkTransferAgeSeconds = max(
+            Self.minimumClearBackgroundWorkTransferAgeSeconds,
+            effectiveHookBudgetSeconds + Self.clearBackgroundWorkTransferSafetyMarginSeconds
+        )
         self.fileManager = fileManager
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
@@ -1845,7 +1861,7 @@ final class ClaudeHookSessionStore {
         state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
             active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
         }
-        let clearTransferCutoff = now - Self.maxClearBackgroundWorkTransferAgeSeconds
+        let clearTransferCutoff = now - maxClearBackgroundWorkTransferAgeSeconds
         state.clearBackgroundWorkTransfersBySurface =
             state.clearBackgroundWorkTransfersBySurface.filter { _, transfer in
                 transfer.updatedAt >= clearTransferCutoff
@@ -24519,7 +24535,10 @@ struct CMUXCLI {
             }
             var establishedLifecycle: AgentHibernationLifecycleState?
             var sessionStoreMutationFailed = false
-            if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
+            let shouldPersistSessionStart =
+                !isForkSessionLaunch
+                && (!isClearSessionStart || shouldEstablishActiveSession)
+            if let sessionId = parsedInput.sessionId, shouldPersistSessionStart {
                 // Only /clear or replacement of a stopped owner establishes a
                 // boundary. SessionStart does not start a turn; /clear carries
                 // independently observed background work that survives the boundary.
