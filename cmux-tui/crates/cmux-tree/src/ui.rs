@@ -1,6 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use cmux_tui_scrollbar::{ScrollbarState, ScrollbarStyle, viewport_thumb_geometry};
+use cmux_tui_chrome::{
+    RailDividerStyle, RailState, ScrollbarState, ScrollbarStyle, viewport_thumb_geometry,
+};
 use ratatui::Frame;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -15,7 +17,7 @@ use crate::trajectory::{LineTone, build_trajectory};
 const SELECTED_BG: Color = Color::Indexed(236);
 const SELECTED_FG: Color = Color::Indexed(255);
 const DIM_FG: Color = Color::Indexed(242);
-const BORDER_FG: Color = Color::Indexed(238);
+const RAIL_BORDER_FG: Color = Color::Indexed(237);
 const ACTIVE_BORDER_FG: Color = Color::Indexed(110);
 const INFO_FG: Color = Color::Indexed(110);
 const WARNING_FG: Color = Color::Indexed(179);
@@ -96,10 +98,14 @@ fn prepare_column(frame: &mut Frame, area: Rect, focused: bool, divider: bool) {
     }
     if divider {
         let x = area.x + area.width - 1;
-        let style = Style::default().fg(if focused { ACTIVE_BORDER_FG } else { BORDER_FG });
-        for y in area.y..area.y + area.height {
-            buffer[(x, y)].set_symbol("│").set_style(style);
-        }
+        RailDividerStyle::new(RAIL_BORDER_FG, ACTIVE_BORDER_FG).draw(
+            buffer,
+            x,
+            area.y,
+            area.height,
+            Style::default(),
+            if focused { RailState::Focused } else { RailState::Idle },
+        );
     }
 }
 

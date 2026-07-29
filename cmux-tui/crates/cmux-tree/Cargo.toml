@@ -21,7 +21,7 @@ path = "src/hook_main.rs"
 [dependencies]
 anyhow.workspace = true
 crossterm.workspace = true
-cmux-tui-scrollbar.workspace = true
+cmux-tui-chrome.workspace = true
 ratatui.workspace = true
 serde.workspace = true
 serde_json.workspace = true

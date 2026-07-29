@@ -110,13 +110,16 @@ pub fn build_trajectory(
                     width,
                     LineTone::User,
                 ),
-                "agentMessage" => render_message(
-                    &mut view,
-                    catalog.codex(),
-                    item.get("text").and_then(Value::as_str).unwrap_or_default(),
-                    width,
-                    LineTone::Agent,
-                ),
+                "agentMessage" => {
+                    push_section_break(&mut view);
+                    render_message(
+                        &mut view,
+                        catalog.codex(),
+                        item.get("text").and_then(Value::as_str).unwrap_or_default(),
+                        width,
+                        LineTone::Agent,
+                    );
+                }
                 _ if !rendered_internals => {
                     render_work_group(
                         &mut view, turn, &internals, stopped, width, catalog, expansion,
@@ -249,6 +252,12 @@ fn render_message(
 ) {
     view.lines.push(line(label, 0, tone));
     push_wrapped(view, text.as_ref(), width, 1, LineTone::Normal);
+}
+
+fn push_section_break(view: &mut TrajectoryView) {
+    if view.lines.last().is_some_and(|line| !line.text.is_empty()) {
+        view.lines.push(line("", 0, LineTone::Normal));
+    }
 }
 
 fn user_message_text(item: &Value, catalog: Catalog) -> String {

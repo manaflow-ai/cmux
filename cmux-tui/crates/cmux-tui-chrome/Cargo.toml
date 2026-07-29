@@ -1,11 +1,11 @@
 [package]
-name = "cmux-tui-scrollbar"
+name = "cmux-tui-chrome"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Shared cmux TUI scrollbar visuals and viewport geometry"
+description = "Shared cmux TUI chrome, scrollbar visuals, and viewport geometry"
 
 [lints]
 workspace = true

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
-use cmux_tui_scrollbar::{viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry};
+use cmux_tui_chrome::{viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry};
 use crossterm::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };

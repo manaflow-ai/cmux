@@ -8,7 +8,7 @@ members = [
     "crates/cmux-tui-core",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
-    "crates/cmux-tui-scrollbar",
+    "crates/cmux-tui-chrome",
     "crates/cmux-tui",
     "crates/cmux-tree",
 ]
@@ -36,7 +36,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
-cmux-tui-scrollbar = { path = "crates/cmux-tui-scrollbar" }
+cmux-tui-chrome = { path = "crates/cmux-tui-chrome" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

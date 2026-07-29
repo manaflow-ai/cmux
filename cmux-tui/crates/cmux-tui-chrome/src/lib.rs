@@ -1,6 +1,48 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
+
+/// The focused and idle divider treatment used by cmux's vertical rails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RailDividerStyle {
+    idle_fg: Color,
+    focused_fg: Color,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RailState {
+    Idle,
+    Focused,
+}
+
+impl RailDividerStyle {
+    pub const fn new(idle_fg: Color, focused_fg: Color) -> Self {
+        Self { idle_fg, focused_fg }
+    }
+
+    pub fn draw(
+        self,
+        buffer: &mut Buffer,
+        x: u16,
+        y: u16,
+        height: u16,
+        base: Style,
+        state: RailState,
+    ) {
+        if height == 0 {
+            return;
+        }
+        let (glyph, style) = match state {
+            RailState::Idle => ("│", base.fg(self.idle_fg)),
+            RailState::Focused => ("┃", base.fg(self.focused_fg).add_modifier(Modifier::BOLD)),
+        };
+        for row in y..y.saturating_add(height) {
+            if let Some(cell) = buffer.cell_mut((x, row)) {
+                cell.set_symbol(glyph).set_style(style);
+            }
+        }
+    }
+}
 
 /// The single scrollbar visual language used by cmux TUI surfaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +150,22 @@ pub fn viewport_drag_offset(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rail_divider_uses_cmux_focus_weight_and_color() {
+        let style = RailDividerStyle::new(Color::Indexed(237), Color::Indexed(110));
+        let rail = Rect { x: 0, y: 0, width: 1, height: 2 };
+        let mut buffer = Buffer::empty(rail);
+
+        style.draw(&mut buffer, rail.x, rail.y, rail.height, Style::default(), RailState::Idle);
+        assert_eq!(buffer[(0, 0)].symbol(), "│");
+        assert_eq!(buffer[(0, 0)].fg, Color::Indexed(237));
+
+        style.draw(&mut buffer, rail.x, rail.y, rail.height, Style::default(), RailState::Focused);
+        assert_eq!(buffer[(0, 0)].symbol(), "┃");
+        assert_eq!(buffer[(0, 0)].fg, Color::Indexed(110));
+        assert!(buffer[(0, 0)].modifier.contains(Modifier::BOLD));
+    }
 
     #[test]
     fn viewport_thumb_is_absent_when_every_row_is_visible() {

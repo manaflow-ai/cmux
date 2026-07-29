@@ -1,5 +1,6 @@
 //! Shared visual primitives for the machine and workspace rails.
 
+use cmux_tui_chrome::{RailDividerStyle, RailState};
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
@@ -99,8 +100,8 @@ pub struct RailPalette {
     pub dim: Style,
     pub active: Style,
     pub header: Style,
-    pub border: Style,
-    pub border_symbol: &'static str,
+    pub divider: RailDividerStyle,
+    pub divider_state: RailState,
     pub rail: Color,
 }
 
@@ -128,10 +129,8 @@ impl RailPalette {
             } else {
                 base.fg(chrome.sidebar_dim_fg)
             },
-            border: base
-                .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
-                .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }),
-            border_symbol: if focused { "┃" } else { "│" },
+            divider: RailDividerStyle::new(chrome.sidebar_border, app.config.theme.border_active),
+            divider_state: if focused { RailState::Focused } else { RailState::Idle },
             rail: app.config.theme.sidebar_rail,
         }
     }
@@ -147,8 +146,8 @@ pub fn prepare(frame: &mut Frame, area: Rect, palette: RailPalette) {
         for x in area.x..border_x {
             buf[(x, y)].set_symbol(" ").set_style(palette.base);
         }
-        buf[(border_x, y)].set_symbol(palette.border_symbol).set_style(palette.border);
     }
+    palette.divider.draw(buf, border_x, area.y, area.height, palette.base, palette.divider_state);
 }
 
 pub fn header(frame: &mut Frame, area: Rect, label: &str, palette: RailPalette) {
@@ -293,8 +292,8 @@ mod tests {
             dim: Style::default(),
             active: Style::default().add_modifier(Modifier::BOLD),
             header: Style::default(),
-            border: Style::default(),
-            border_symbol: "│",
+            divider: RailDividerStyle::new(Color::Reset, Color::Reset),
+            divider_state: RailState::Idle,
             rail: Color::Cyan,
         };
         terminal

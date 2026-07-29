@@ -6,7 +6,7 @@ use ratatui::style::Style;
 
 use crate::config::ChromeTheme;
 
-pub(crate) use cmux_tui_scrollbar::{
+pub(crate) use cmux_tui_chrome::{
     ScrollbarState, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
 };
 
@@ -21,11 +21,11 @@ pub(crate) fn thumb_geometry(scrollbar: &Scrollbar, track_height: u16) -> (u16, 
 
 /// Adapts cmux's chrome theme and core layout rectangle to the shared widget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ScrollbarStyle(cmux_tui_scrollbar::ScrollbarStyle);
+pub(crate) struct ScrollbarStyle(cmux_tui_chrome::ScrollbarStyle);
 
 impl ScrollbarStyle {
     pub(crate) fn from_chrome(chrome: ChromeTheme) -> Self {
-        Self(cmux_tui_scrollbar::ScrollbarStyle::new(
+        Self(cmux_tui_chrome::ScrollbarStyle::new(
             chrome.scrollbar_thumb_fg,
             chrome.scrollbar_thumb_active_fg,
         ))

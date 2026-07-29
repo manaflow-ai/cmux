@@ -204,7 +204,7 @@ name = "cmux-tree"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cmux-tui-scrollbar",
+ "cmux-tui-chrome",
  "crossterm",
  "ratatui",
  "serde",
@@ -220,10 +220,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-tui-chrome",
  "cmux-tui-core",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
- "cmux-tui-scrollbar",
  "crossterm",
  "getrandom 0.3.4",
  "ghostty-vt",
@@ -247,6 +247,13 @@ dependencies = [
  "base64",
  "serde_json",
  "tungstenite",
+]
+
+[[package]]
+name = "cmux-tui-chrome"
+version = "0.1.0"
+dependencies = [
+ "ratatui",
 ]
 
 [[package]]
@@ -290,13 +297,6 @@ dependencies = [
  "serde_json",
  "subtle",
  "zeroize",
-]
-
-[[package]]
-name = "cmux-tui-scrollbar"
-version = "0.1.0"
-dependencies = [
- "ratatui",
 ]
 
 [[package]]

@@ -3,6 +3,7 @@
 //! (the status bar starts after the sidebar) and rebuilds the click hit map
 //! as it draws.
 
+use cmux_tui_chrome::{RailDividerStyle, RailState};
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
@@ -271,9 +272,7 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
     let palette = rail::RailPalette::for_app(app, app.workspace_sidebar_focused());
     {
         let buf = frame.buffer_mut();
-        for y in area.y..area.y + height {
-            buf[(border_x, y)].set_symbol(palette.border_symbol).set_style(palette.border);
-        }
+        palette.divider.draw(buf, border_x, area.y, height, palette.base, palette.divider_state);
     }
     // The divider column is a drag handle exactly like the built-in sidebar's;
     // without this hit zone, drag-resize is dead whenever a plugin owns the
@@ -298,9 +297,14 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
             );
             {
                 let buf = frame.buffer_mut();
-                for y in area.y..area.y + height {
-                    buf[(border_x, y)].set_symbol(palette.border_symbol).set_style(palette.border);
-                }
+                palette.divider.draw(
+                    buf,
+                    border_x,
+                    area.y,
+                    height,
+                    palette.base,
+                    palette.divider_state,
+                );
             }
             return;
         }
@@ -545,10 +549,8 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         .fg(chrome.sidebar_selected_fg)
         .add_modifier(Modifier::BOLD);
     let focused = app.workspace_sidebar_focused();
-    let border = base
-        .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
-        .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() });
-    let border_symbol = if focused { "┃" } else { "│" };
+    let divider = RailDividerStyle::new(chrome.sidebar_border, app.config.theme.border_active);
+    let divider_state = if focused { RailState::Focused } else { RailState::Idle };
     let header_style = if focused {
         Style::default()
             .bg(chrome.status_active_bg)
@@ -580,8 +582,8 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         for x in area.x..area.x + content_width {
             buf[(x, y)].set_symbol(" ").set_style(base);
         }
-        buf[(area.x + width - 1, y)].set_symbol(border_symbol).set_style(border);
     }
+    divider.draw(buf, area.x + width - 1, area.y, height, base, divider_state);
 
     if focused {
         for x in area.x..area.x + content_width {
