@@ -1125,6 +1125,101 @@ describe("Iroh trust broker database behavior", () => {
     expect(row?.appInstanceId).toBe(newerApp);
   });
 
+  dbTest("rejects a stale same-millisecond challenge that completes after a newer one", async () => {
+    const repo = requiredRepository();
+    const userId = "user-slot-same-ms-reversed";
+    const deviceId = randomUUID();
+    const endpoint = "5c".repeat(32);
+    const tag = "stable";
+
+    // Same in-place heartbeat shape as the reversed-heartbeat case: signed
+    // fields never change, only the mutable appInstanceId differs, so whichever
+    // challenge lands last dictates the stored appInstanceId.
+    const prepare = async (input: { appInstanceId: string; suffix: string; now: Date }) => {
+      const nonceHash = input.suffix.repeat(64);
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId: input.appInstanceId,
+        tag,
+        endpointId: endpoint,
+        identityGeneration: 1,
+        payloadSha256: `${input.suffix}${"0".repeat(63)}`,
+        nonceHash,
+        now: input.now,
+        expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
+      }));
+      return { id: challenge.id, nonceHash, appInstanceId: input.appInstanceId };
+    };
+
+    const register = (
+      prepared: { id: string; nonceHash: string; appInstanceId: string },
+      now: Date,
+    ) => repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: prepared.id,
+      nonceHash: prepared.nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId: prepared.appInstanceId,
+        tag,
+        platform: "ios",
+        endpointId: endpoint,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now,
+    });
+
+    // Establish the slot at t0.
+    const initial = await Effect.runPromise(
+      register(await prepare({ appInstanceId: randomUUID(), suffix: "1", now: NOW }), NOW),
+    );
+    expect(initial.created).toBe(true);
+
+    // Two heartbeat challenges minted at the SAME millisecond — `createdAt`
+    // comes from a JavaScript Date, so concurrent mints collide on the ms
+    // clock. Issuance ORDER still distinguishes them: `older` was minted
+    // before `newer`.
+    const sameInstant = new Date(NOW.getTime() + 1_000);
+    const olderApp = randomUUID();
+    const newerApp = randomUUID();
+    const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: sameInstant });
+    const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: sameInstant });
+
+    // The NEWER challenge lands first and refreshes the slot, advancing the
+    // registration high-water mark to the shared mint instant.
+    const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 1_500)));
+    expect(newerResult.created).toBe(false);
+    expect(newerResult.binding.appInstanceId).toBe(newerApp);
+
+    // The OLDER same-millisecond challenge completes second. A `<`-only
+    // timestamp gate cannot see it is stale (equal timestamps pass), so
+    // without a strict issuance tie-breaker it would clobber the newer
+    // incarnation's mutable fields back to the stale appInstanceId.
+    const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 2_000)));
+    expect(stale._tag).toBe("Failure");
+    const causeError = stale._tag === "Failure"
+      ? (stale.cause as unknown as { error?: unknown }).error
+      : undefined;
+    expect(causeError).toMatchObject({
+      _tag: "IrohConflictError",
+      code: "challenge_superseded",
+    });
+
+    // The slot still reflects the NEWER heartbeat, never the older one.
+    const [sameMsRow] = await requiredSql()<Array<{ appInstanceId: string }>>`
+      select app_instance_id as "appInstanceId"
+      from iroh_endpoint_bindings
+      where user_id = ${userId} and device_uuid = ${deviceId}
+        and tag = ${tag} and revoked_at is null
+    `;
+    expect(sameMsRow?.appInstanceId).toBe(newerApp);
+  });
+
   dbTest("revokes a retired incarnation's pair grants instead of reassigning them", async () => {
     const repo = requiredRepository();
     const initiatorUser = "user-rekey-grant-initiator";
