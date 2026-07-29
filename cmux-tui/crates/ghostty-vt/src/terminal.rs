@@ -726,6 +726,8 @@ pub struct Terminal {
     raw: sys::GhosttyTerminal,
     instance_id: u64,
     history_epoch: u64,
+    // Detect fixed-size scrollback eviction without scanning retained rows.
+    history_anchor: sys::GhosttyTrackedGridRef,
     mouse_mode_revision: u64,
     mouse_mode_scan: MouseModeScan,
     kitty_inflight: Box<KittyInFlightTracker>,
@@ -1816,6 +1818,7 @@ impl Terminal {
             raw,
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
             history_epoch: NEXT_HISTORY_EPOCH.fetch_add(1, Ordering::Relaxed),
+            history_anchor: ptr::null_mut(),
             mouse_mode_revision: 0,
             mouse_mode_scan: MouseModeScan::default(),
             kitty_inflight: Box::new(KittyInFlightTracker::default()),
@@ -1869,6 +1872,34 @@ impl Terminal {
         self.history_epoch
     }
 
+    fn bump_history_epoch(&mut self) {
+        self.history_epoch = NEXT_HISTORY_EPOCH.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn ensure_history_anchor(&mut self) {
+        if !self.history_anchor.is_null() || self.scrollback_rows() == 0 {
+            return;
+        }
+        let point = sys::GhosttyPoint {
+            tag: sys::GHOSTTY_POINT_TAG_HISTORY,
+            value: sys::GhosttyPointValue {
+                coordinate: sys::GhosttyPointCoordinate { x: 0, y: 0 },
+            },
+        };
+        let mut anchor: sys::GhosttyTrackedGridRef = ptr::null_mut();
+        if check(unsafe { sys::ghostty_terminal_grid_ref_track(self.raw, point, &mut anchor) })
+            .is_ok()
+        {
+            self.history_anchor = anchor;
+        }
+    }
+
+    fn reset_history_anchor(&mut self) {
+        unsafe { sys::ghostty_tracked_grid_ref_free(self.history_anchor) };
+        self.history_anchor = ptr::null_mut();
+        self.ensure_history_anchor();
+    }
+
     /// Feed VT-encoded bytes (pty output) into the terminal.
     pub fn vt_write(&mut self, data: &[u8]) {
         let _ = self.vt_write_with_normalized(data);
@@ -1884,6 +1915,10 @@ impl Terminal {
         if data.is_empty() {
             return Cow::Borrowed(data);
         }
+        self.ensure_history_anchor();
+        let previous_history_rows = self.scrollback_rows();
+        let previous_graphics_generation = kitty::generation(self).unwrap_or(0);
+        let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
         if self.mouse_mode_scan.feed(&normalized) {
             self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
@@ -1895,8 +1930,21 @@ impl Terminal {
         self.palette_override.write(&normalized);
         self.color_overrides.write(&normalized);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
-        if !normalized.is_empty() {
-            self.history_epoch = NEXT_HISTORY_EPOCH.fetch_add(1, Ordering::Relaxed);
+        let history_rows = self.scrollback_rows();
+        let graphics_generation = kitty::generation(self).unwrap_or(0);
+        let history_anchor_evicted = !self.history_anchor.is_null()
+            && !unsafe { sys::ghostty_tracked_grid_ref_has_value(self.history_anchor) };
+        if previous_history_rows != history_rows
+            || previous_graphics_generation != graphics_generation
+            || history_anchor_missing
+            || history_anchor_evicted
+        {
+            self.bump_history_epoch();
+        }
+        if history_rows == 0 || history_anchor_evicted {
+            self.reset_history_anchor();
+        } else if self.history_anchor.is_null() {
+            self.ensure_history_anchor();
         }
         normalized
     }
@@ -2313,7 +2361,8 @@ impl Terminal {
                 cell_height_px,
             )
         })?;
-        self.history_epoch = NEXT_HISTORY_EPOCH.fetch_add(1, Ordering::Relaxed);
+        self.bump_history_epoch();
+        self.reset_history_anchor();
         Ok(())
     }
 
@@ -3881,6 +3930,8 @@ fn vt_replay_row_window(total_rows: u64, screen_rows: u64, cols: u16, max_bytes:
 impl Drop for Terminal {
     fn drop(&mut self) {
         unsafe {
+            sys::ghostty_tracked_grid_ref_free(self.history_anchor);
+            self.history_anchor = ptr::null_mut();
             // Clear callbacks first so a hypothetical late invocation can't
             // touch the freed Box.
             sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_WRITE_PTY, ptr::null());
@@ -4001,9 +4052,9 @@ mod tests {
 
     #[test]
     fn history_epochs_change_across_mutations_and_terminal_instances() {
-        let mut first = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        let mut first = Terminal::new(8, 2, 1_000, Callbacks::default()).unwrap();
         let initial = first.history_epoch();
-        first.vt_write(b"output");
+        first.vt_write(b"first\r\nsecond\r\nthird");
         let after_output = first.history_epoch();
         first.resize(40, 12, 8, 16).unwrap();
         let after_resize = first.history_epoch();
@@ -4012,6 +4063,16 @@ mod tests {
         assert!(after_output > initial);
         assert!(after_resize > after_output);
         assert_ne!(second.history_epoch(), after_resize);
+    }
+
+    #[test]
+    fn history_epoch_changes_for_kitty_anchor_mutations() {
+        let mut terminal = Terminal::new(8, 2, 1_000, Callbacks::default()).unwrap();
+        let initial = terminal.history_epoch();
+
+        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=8,p=1,s=1,v=1,c=1,r=1,C=1,q=2;/wAA\x1b\\");
+
+        assert!(terminal.history_epoch() > initial);
     }
 
     #[test]
