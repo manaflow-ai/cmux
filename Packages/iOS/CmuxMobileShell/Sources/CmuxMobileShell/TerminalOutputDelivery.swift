@@ -43,7 +43,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.payload = .theme(frame)
         self.replacementScope = .terminalTheme
         self.viewportPolicy = nil
-        self.endSequence = frame.stateSeq
+        self.endSequence = nil
     }
 
     init(

@@ -672,14 +672,18 @@ func makeConnectedStore(
     router: LivenessHostRouter,
     box: TransportBox,
     clock: TestClock,
-    probeTimeoutNanoseconds: UInt64 = 200_000_000
+    probeTimeoutNanoseconds: UInt64 = 200_000_000,
+    inputAckRetryClock: any Clock<Duration> = ContinuousClock()
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
         now: { clock.now },
         livenessProbeTimeoutNanoseconds: probeTimeoutNanoseconds
     )
-    let store = MobileShellComposite.preview(runtime: runtime)
+    let store = MobileShellComposite.preview(
+        runtime: runtime,
+        terminalInputAckResubscribeClock: inputAckRetryClock
+    )
     store.signIn()
     let ticket = try makeTicket(clock: clock)
     let connected = await store.connectPairingURL(try attachURL(for: ticket))

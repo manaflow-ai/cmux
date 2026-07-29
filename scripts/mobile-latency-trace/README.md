@@ -64,7 +64,7 @@ connection write supplies each wire sample.
 
 Raw-input batches continue to use their process-local `n=<batch>` identity:
 `in.send` marks departure from the iOS drain loop and `in.settled` marks the
-actual response/error settlement. Because `in.resp` and `in.settled` are emitted
-from the same pipelined settlement, the analyzer associates the next
-`in.resp` at or after each `in.send` even if its log timestamp follows
-`in.settled`.
+actual response/error settlement (`ok=1` for success, `ok=0` for failure).
+Because `in.resp` and `in.settled` are emitted from the same pipelined
+settlement, the analyzer associates the next `in.resp` at or after each
+successfully settled `in.send` even if its log timestamp follows `in.settled`.

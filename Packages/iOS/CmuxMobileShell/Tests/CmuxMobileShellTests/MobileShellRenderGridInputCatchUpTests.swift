@@ -5,6 +5,107 @@ import Testing
 @testable import CmuxMobileShell
 
 @MainActor
+@Test func renderGridInputAckRetriesSubscriptionWhenFreshnessWindowExpires() async throws {
+    let clock = TestClock()
+    let retryClock = InputAckRetryClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.enqueueTerminalInputSequences([100])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        inputAckRetryClock: retryClock
+    )
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 1,
+        text: "fresh-event"
+    ))
+    let freshEventDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fresh-event") }
+    }
+    #expect(freshEventDelivered)
+    let subscribeCount = await router.count(of: "mobile.events.subscribe")
+
+    await store.submitTerminalRawInput(Data("a".utf8), surfaceID: "live-terminal")
+    let retryArmed = try await pollUntil { retryClock.sleeperCount == 1 }
+    #expect(retryArmed, "a fresh ACK must arm one deferred subscription retry")
+    #expect(await router.count(of: "mobile.events.subscribe") == subscribeCount)
+
+    clock.advance(by: MobileShellComposite.terminalInputAckResubscribeSilenceThreshold)
+    retryClock.advance(
+        by: .seconds(MobileShellComposite.terminalInputAckResubscribeSilenceThreshold)
+    )
+    let retried = await router.waitForCount(
+        of: "mobile.events.subscribe",
+        atLeast: subscribeCount + 1
+    )
+    #expect(retried, "the deferred retry must re-subscribe when the freshness window expires")
+    collector.unmount()
+}
+
+@MainActor
+@Test func renderGridInputAckRetryIsCancelledByArrivingEvent() async throws {
+    let clock = TestClock()
+    let retryClock = InputAckRetryClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.enqueueTerminalInputSequences([100])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        inputAckRetryClock: retryClock
+    )
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 1,
+        text: "fresh-event"
+    ))
+    let freshEventDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fresh-event") }
+    }
+    #expect(freshEventDelivered)
+    let subscribeCount = await router.count(of: "mobile.events.subscribe")
+
+    await store.submitTerminalRawInput(Data("a".utf8), surfaceID: "live-terminal")
+    let retryArmed = try await pollUntil { retryClock.sleeperCount == 1 }
+    #expect(retryArmed)
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 2,
+        text: "later-event"
+    ))
+    let retryCancelled = try await pollUntil { retryClock.sleeperCount == 0 }
+    #expect(retryCancelled, "any arriving terminal event must cancel the deferred retry")
+
+    clock.advance(by: MobileShellComposite.terminalInputAckResubscribeSilenceThreshold)
+    retryClock.advance(
+        by: .seconds(MobileShellComposite.terminalInputAckResubscribeSilenceThreshold)
+    )
+    let extraSubscribe = await router.waitForCount(
+        of: "mobile.events.subscribe",
+        atLeast: subscribeCount + 1,
+        timeoutNanoseconds: 500_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!extraSubscribe, "a cancelled retry must not issue an extra subscription")
+    collector.unmount()
+}
+
+@MainActor
 @Test func renderGridInputAcksOnlyResubscribeAfterEventStreamSilence() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

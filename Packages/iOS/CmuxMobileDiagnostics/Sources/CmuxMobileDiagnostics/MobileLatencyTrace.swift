@@ -3,6 +3,10 @@ import Foundation
 
 /// Low-overhead, opt-in latency stamps for DEBUG mobile builds.
 public enum MobileLatencyTrace {
+    #if DEBUG
+    private static let writer = MobileLatencyTraceWriter(capacity: 4_096)
+    #endif
+
     /// Whether latency tracing is enabled for this process.
     public static let isEnabled: Bool = {
         #if DEBUG
@@ -108,7 +112,7 @@ public enum MobileLatencyTrace {
         fields: String
     ) {
         let suffix = fields.isEmpty ? "" : " \(fields)"
-        MobileDebugLog.shared.append("LAT \(stage) t=\(uptimeMicroseconds)\(suffix)")
+        writer.enqueue("LAT \(stage) t=\(uptimeMicroseconds)\(suffix)")
     }
     #endif
 }

@@ -360,7 +360,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         )
                         if applied {
                             #if DEBUG
-                            surfaceView.markLatencyAppliedSequence(frame.stateSeq)
                             MobileLatencyTrace.stampElapsed(
                                 "ap.done",
                                 since: latencyApplyStart
@@ -368,6 +367,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                                 "s=\(latencySurfaceToken) seq=\(frame.stateSeq) " +
                                     "path=verified us=\($0)"
                             }
+                            // Verified replay has already submitted, read back,
+                            // and revealed its tokened presentation before
+                            // `applyVerifiedRenderGrid` returns. Stamp that exact
+                            // frame here, after `ap.done`, instead of associating
+                            // it with a later ordinary redraw.
+                            MobileLatencyTrace.stamp(
+                                "rd.present",
+                                "s=\(latencySurfaceToken) seq=\(frame.stateSeq)"
+                            )
                             #endif
                             store.terminalOutputDidProcess(
                                 surfaceID: surfaceID,

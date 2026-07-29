@@ -181,17 +181,19 @@ def pair_input_batches(
     for sent in ios.get("in.send", []):
         number = sent.integer("n")
         settled = settled_by_number.get(number)
-        if settled is None or settled.time_us < sent.time_us:
+        sent_order = (sent.time_us, sent.ordinal)
+        if settled is None or (settled.time_us, settled.ordinal) < sent_order:
             continue
         response = None
-        while response_index < len(responses):
-            candidate = responses[response_index]
-            if candidate.time_us < sent.time_us:
+        if settled.integer("ok") == 1:
+            while response_index < len(responses):
+                candidate = responses[response_index]
+                if (candidate.time_us, candidate.ordinal) < sent_order:
+                    response_index += 1
+                    continue
+                response = candidate
                 response_index += 1
-                continue
-            response = candidate
-            response_index += 1
-            break
+                break
         pairs.append((sent, settled, response))
     return pairs
 
@@ -596,7 +598,7 @@ def run_selftest() -> None:
     ios_fixture = """
 prefix LAT probe.send t=1000 i=0
 LAT in.send t=1100 n=1 bytes=1
-LAT in.settled t=1390 n=1
+LAT in.settled t=1390 n=1 ok=1
 LAT in.resp t=1400 s=aaaaaaaa ack_seq=10
 LAT ev.grid t=1700 s=aaaaaaaa seq=10 bytes=100 dec_us=100
 LAT gate t=1750 s=bbbbbbbb seq=10 out=delivered
@@ -610,7 +612,7 @@ LAT rd.present t=2500 s=aaaaaaaa seq=10
 LAT sync.applied t=5000 coll=workspaces rev=2
 LAT probe.send t=10000 i=1
 LAT in.send t=10100 n=2 bytes=1
-LAT in.settled t=10500 n=2
+LAT in.settled t=10500 n=2 ok=1
 LAT in.resp t=10500 s=aaaaaaaa ack_seq=20
 LAT ev.grid t=11000 s=aaaaaaaa seq=20 bytes=120 dec_us=200
 LAT gate t=11100 s=aaaaaaaa seq=20 out=delivered
@@ -656,6 +658,20 @@ LAT host.write t=10900 s=aaaaaaaa conn=11111111 seq=20 us=200
     input_pairs = pair_input_batches(by_stage(parse_log(ios_fixture, "ios")))
     assert input_pairs[0][2] is not None
     assert input_pairs[0][2].time_us > input_pairs[0][1].time_us
+    failed_then_successful_fixture = by_stage(parse_log(
+        """
+LAT in.send t=10 n=1 bytes=1
+LAT in.settled t=20 n=1 ok=0
+LAT in.send t=30 n=2 bytes=1
+LAT in.settled t=40 n=2 ok=1
+LAT in.resp t=50 s=aaaaaaaa ack_seq=2
+""",
+        "ios",
+    ))
+    failed_then_successful_pairs = pair_input_batches(failed_then_successful_fixture)
+    assert failed_then_successful_pairs[0][2] is None
+    assert failed_then_successful_pairs[1][2] is not None
+    assert failed_then_successful_pairs[1][2].integer("ack_seq") == 2
     presentation_fixture = by_stage(parse_log(
         """
 LAT ap.done t=10 s=aaaaaaaa seq=1
