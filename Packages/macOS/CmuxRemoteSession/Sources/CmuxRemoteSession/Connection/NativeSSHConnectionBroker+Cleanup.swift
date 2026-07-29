@@ -77,7 +77,7 @@ extension NativeSSHConnectionBroker {
               cleanupProcessIDByControlMaster[key] == nil else {
             return
         }
-        guard let authorization = controlMasterOwnershipRegistry.beginReset(
+        guard let authorization = controlMasterOwnershipRegistry.beginCleanup(
             controlPath: key.controlPath
         ) else {
             scheduleCleanupRetry(for: key)

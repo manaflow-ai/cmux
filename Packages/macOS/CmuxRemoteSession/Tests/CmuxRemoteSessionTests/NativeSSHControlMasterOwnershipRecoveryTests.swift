@@ -136,7 +136,13 @@ private final class DenyingControlMasterOwnershipRegistry:
 
     func beginReset(
         controlPath: String
-    ) -> NativeSSHControlMasterResetAuthorization? {
+    ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
+        nil
+    }
+
+    func beginCleanup(
+        controlPath: String
+    ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
         nil
     }
 }

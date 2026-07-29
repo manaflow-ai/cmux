@@ -17,7 +17,12 @@ final class NativeSSHControlMasterOwnershipRegistry:
     private struct Entry {
         let descriptor: Int32
         var leases: Set<NativeSSHControlMasterLeaseIdentity>
-        var resetID: UUID?
+        var exclusiveUseID: UUID?
+    }
+
+    private enum ExclusiveUsePurpose {
+        case conflictedMasterReset
+        case ordinaryCleanup
     }
 
     // lint:allow lock - registry operations are short nonblocking fd updates.
@@ -56,11 +61,11 @@ final class NativeSSHControlMasterOwnershipRegistry:
     ) -> Bool {
         lock.withLock {
             if controlPathByLease[lease] == controlPath {
-                return entries[controlPath]?.resetID == nil
+                return entries[controlPath]?.exclusiveUseID == nil
             }
             removeLeaseLocked(lease)
             if var entry = entries[controlPath] {
-                guard entry.resetID == nil else { return false }
+                guard entry.exclusiveUseID == nil else { return false }
                 entry.leases.insert(lease)
                 entries[controlPath] = entry
                 controlPathByLease[lease] = controlPath
@@ -80,7 +85,7 @@ final class NativeSSHControlMasterOwnershipRegistry:
             entries[controlPath] = Entry(
                 descriptor: descriptor,
                 leases: [lease],
-                resetID: nil
+                exclusiveUseID: nil
             )
             controlPathByLease[lease] = controlPath
             return true
@@ -95,7 +100,26 @@ final class NativeSSHControlMasterOwnershipRegistry:
 
     func beginReset(
         controlPath: String
-    ) -> NativeSSHControlMasterResetAuthorization? {
+    ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
+        beginExclusiveUse(
+            controlPath: controlPath,
+            purpose: .conflictedMasterReset
+        )
+    }
+
+    func beginCleanup(
+        controlPath: String
+    ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
+        beginExclusiveUse(
+            controlPath: controlPath,
+            purpose: .ordinaryCleanup
+        )
+    }
+
+    private func beginExclusiveUse(
+        controlPath: String,
+        purpose: ExclusiveUsePurpose
+    ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
         guard let authenticationPath =
             sharingOptions.resolvedControlMasterAuthenticationLockPath(
                 controlPath: controlPath
@@ -110,12 +134,20 @@ final class NativeSSHControlMasterOwnershipRegistry:
             return nil
         }
 
-        let resetID = UUID()
+        let exclusiveUseID = UUID()
         let authorized = lock.withLock {
-            beginOwnershipResetLocked(
-                controlPath: controlPath,
-                resetID: resetID
-            )
+            switch purpose {
+            case .conflictedMasterReset:
+                beginOwnershipResetLocked(
+                    controlPath: controlPath,
+                    exclusiveUseID: exclusiveUseID
+                )
+            case .ordinaryCleanup:
+                beginOwnershipCleanupLocked(
+                    controlPath: controlPath,
+                    exclusiveUseID: exclusiveUseID
+                )
+            }
         }
         guard authorized else {
             releaseAuthenticationLock(authenticationDescriptor)
@@ -123,39 +155,39 @@ final class NativeSSHControlMasterOwnershipRegistry:
             return nil
         }
 
-        return NativeSSHControlMasterResetAuthorization { [self] in
-            finishReset(
+        return NativeSSHControlMasterExclusiveUseAuthorization { [self] in
+            finishExclusiveUse(
                 controlPath: controlPath,
-                resetID: resetID,
+                exclusiveUseID: exclusiveUseID,
                 authenticationDescriptor: authenticationDescriptor
             )
         }
     }
 
+    private func beginOwnershipCleanupLocked(
+        controlPath: String,
+        exclusiveUseID: UUID
+    ) -> Bool {
+        guard entries[controlPath] == nil else {
+            return false
+        }
+        return beginUnownedExclusiveUseLocked(
+            controlPath: controlPath,
+            exclusiveUseID: exclusiveUseID
+        )
+    }
+
     private func beginOwnershipResetLocked(
         controlPath: String,
-        resetID: UUID
+        exclusiveUseID: UUID
     ) -> Bool {
         guard var entry = entries[controlPath] else {
-            guard let lockPath =
-                sharingOptions.resolvedControlMasterOwnershipLockPath(
-                    controlPath: controlPath
-                ),
-                  let descriptor = openLockFile(lockPath) else {
-                return false
-            }
-            guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-                _ = Darwin.close(descriptor)
-                return false
-            }
-            entries[controlPath] = Entry(
-                descriptor: descriptor,
-                leases: [],
-                resetID: resetID
+            return beginUnownedExclusiveUseLocked(
+                controlPath: controlPath,
+                exclusiveUseID: exclusiveUseID
             )
-            return true
         }
-        guard entry.resetID == nil else {
+        guard entry.exclusiveUseID == nil else {
             return false
         }
         _ = flock(entry.descriptor, LOCK_UN)
@@ -165,23 +197,46 @@ final class NativeSSHControlMasterOwnershipRegistry:
             }
             return false
         }
-        entry.resetID = resetID
+        entry.exclusiveUseID = exclusiveUseID
         entries[controlPath] = entry
         return true
     }
 
-    private func finishReset(
+    private func beginUnownedExclusiveUseLocked(
         controlPath: String,
-        resetID: UUID,
+        exclusiveUseID: UUID
+    ) -> Bool {
+        guard let lockPath =
+            sharingOptions.resolvedControlMasterOwnershipLockPath(
+                controlPath: controlPath
+            ),
+              let descriptor = openLockFile(lockPath) else {
+            return false
+        }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            _ = Darwin.close(descriptor)
+            return false
+        }
+        entries[controlPath] = Entry(
+            descriptor: descriptor,
+            leases: [],
+            exclusiveUseID: exclusiveUseID
+        )
+        return true
+    }
+
+    private func finishExclusiveUse(
+        controlPath: String,
+        exclusiveUseID: UUID,
         authenticationDescriptor: Int32
     ) {
         lock.withLock {
             guard var entry = entries[controlPath],
-                  entry.resetID == resetID else {
+                  entry.exclusiveUseID == exclusiveUseID else {
                 return
             }
             _ = flock(entry.descriptor, LOCK_UN)
-            entry.resetID = nil
+            entry.exclusiveUseID = nil
             if entry.leases.isEmpty {
                 _ = Darwin.close(entry.descriptor)
                 entries.removeValue(forKey: controlPath)
@@ -203,7 +258,7 @@ final class NativeSSHControlMasterOwnershipRegistry:
             return
         }
         entry.leases.remove(lease)
-        guard entry.leases.isEmpty, entry.resetID == nil else {
+        guard entry.leases.isEmpty, entry.exclusiveUseID == nil else {
             entries[controlPath] = entry
             return
         }

@@ -17,7 +17,13 @@ final class PermissiveNativeSSHControlMasterOwnershipRegistry:
 
     func beginReset(
         controlPath: String
-    ) -> NativeSSHControlMasterResetAuthorization? {
-        NativeSSHControlMasterResetAuthorization {}
+    ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
+        NativeSSHControlMasterExclusiveUseAuthorization {}
+    }
+
+    func beginCleanup(
+        controlPath: String
+    ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
+        NativeSSHControlMasterExclusiveUseAuthorization {}
     }
 }

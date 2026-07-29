@@ -7,5 +7,8 @@ protocol NativeSSHControlMasterOwnershipTracking: Sendable {
     func release(lease: NativeSSHControlMasterLeaseIdentity)
     func beginReset(
         controlPath: String
-    ) -> NativeSSHControlMasterResetAuthorization?
+    ) -> NativeSSHControlMasterExclusiveUseAuthorization?
+    func beginCleanup(
+        controlPath: String
+    ) -> NativeSSHControlMasterExclusiveUseAuthorization?
 }

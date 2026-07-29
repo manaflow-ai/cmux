@@ -99,11 +99,13 @@ extension RemoteSessionCoordinator {
             let sharingOptions = SSHConnectionSharingOptions()
             guard let resolvedPath = sharingOptions.cmuxOwnedControlPath(
                 in: reverseRelayResolvedControlMasterSSHOptions
-            ),
-                  connectionBroker.retainResolvedControlMasterLease(
-                      for: configuration,
-                      controlPath: resolvedPath
-                  ) else {
+            ) else {
+                return reverseRelayResolvedControlMasterSSHOptions
+            }
+            guard connectionBroker.retainResolvedControlMasterLease(
+                for: configuration,
+                controlPath: resolvedPath
+            ) else {
                 return nil
             }
             return reverseRelayResolvedControlMasterSSHOptions

@@ -19,7 +19,6 @@ enum NativeSSHControlMasterResetOutcome: Sendable, Equatable {
 final class NativeSSHControlMasterResetCoordinator {
     private struct InFlightReset {
         let id: UUID
-        var authorizationKeys: Set<NativeSSHControlMasterResetKey>
         let task: Task<NativeSSHControlMasterResetOutcome, Never>
     }
 
@@ -74,15 +73,6 @@ final class NativeSSHControlMasterResetCoordinator {
             leases.removeValue(forKey: ownerWorkspaceID)
         } else {
             leases[ownerWorkspaceID] = ownerLeases
-        }
-        for reset in inFlightResets.values {
-            let remainsOwned = reset.authorizationKeys.contains {
-                authorizationKey in
-                leases.values.contains { $0[authorizationKey] != nil }
-            }
-            if !remainsOwned {
-                reset.task.cancel()
-            }
         }
     }
 
@@ -143,9 +133,7 @@ final class NativeSSHControlMasterResetCoordinator {
         ) else {
             return .ignored("workspace no longer owns this cmux SSH master")
         }
-        if var inFlight = inFlightResets[resolvedControlPath] {
-            inFlight.authorizationKeys.insert(key)
-            inFlightResets[resolvedControlPath] = inFlight
+        if let inFlight = inFlightResets[resolvedControlPath] {
             return await inFlight.task.value
         }
         guard let lease = NativeSSHControlMasterLeaseIdentity(
@@ -199,7 +187,6 @@ final class NativeSSHControlMasterResetCoordinator {
         }
         inFlightResets[resolvedControlPath] = InFlightReset(
             id: resetID,
-            authorizationKeys: [key],
             task: task
         )
         let outcome = await task.value

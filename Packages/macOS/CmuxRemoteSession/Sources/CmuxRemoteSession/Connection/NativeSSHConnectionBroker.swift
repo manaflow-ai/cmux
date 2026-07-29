@@ -34,7 +34,7 @@ public final class NativeSSHConnectionBroker {
     var cleanupTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     var cleanupTerminationRequested: Set<UUID> = []
     var cleanupAuthorizations: [
-        UUID: NativeSSHControlMasterResetAuthorization
+        UUID: NativeSSHControlMasterExclusiveUseAuthorization
     ] = [:]
 
     /// Creates the process-wide broker with continuous-clock jitter and local cleanup launching.

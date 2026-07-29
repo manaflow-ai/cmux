@@ -26,6 +26,7 @@ final class BlockingControlMasterResetRunner:
         lock.withLock { _requests.append(request) }
         startsContinuation.yield()
         release.wait()
+        try operation?.throwIfCancelled()
         return RemoteCommandResult(status: 0, stdout: "", stderr: "")
     }
 

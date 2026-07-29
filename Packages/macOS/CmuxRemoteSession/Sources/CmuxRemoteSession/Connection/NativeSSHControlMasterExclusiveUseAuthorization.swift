@@ -1,8 +1,10 @@
 internal import Foundation
 
-/// Holds the resolved authentication and process-ownership locks for one reset.
+/// Holds authentication and process-ownership locks for one exclusive operation.
 // SAFETY: `lock` serializes every read and mutation of the release closure.
-final class NativeSSHControlMasterResetAuthorization: @unchecked Sendable {
+final class NativeSSHControlMasterExclusiveUseAuthorization:
+    @unchecked Sendable
+{
     // lint:allow lock - release can arrive from task completion or deinit.
     private let lock = NSLock()
     private var releaseHandler: (@Sendable () -> Void)?

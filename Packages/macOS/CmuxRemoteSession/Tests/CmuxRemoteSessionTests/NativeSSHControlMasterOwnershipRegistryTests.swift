@@ -129,6 +129,42 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         authorization.release()
     }
 
+    @Test("Ordinary cleanup never overrides a live local lease")
+    func cleanupRespectsLocalLease() throws {
+        let scratchDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-control-cleanup-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: scratchDirectory) }
+        let registry = NativeSSHControlMasterOwnershipRegistry(
+            sharingOptions: SSHConnectionSharingOptions(
+                userID: Int(getuid()),
+                authenticationLockDirectoryPath: scratchDirectory.path
+            )
+        )
+        let controlPath = resolvedControlPath(userID: Int(getuid()))
+        let lease = NativeSSHControlMasterLeaseIdentity(
+            ownerWorkspaceID: UUID(),
+            generation: UUID()
+        )
+
+        #expect(registry.retain(controlPath: controlPath, lease: lease))
+        #expect(registry.beginCleanup(controlPath: controlPath) == nil)
+
+        let reset = try #require(
+            registry.beginReset(controlPath: controlPath)
+        )
+        reset.release()
+        #expect(registry.beginCleanup(controlPath: controlPath) == nil)
+
+        registry.release(lease: lease)
+        let cleanup = try #require(
+            registry.beginCleanup(controlPath: controlPath)
+        )
+        cleanup.release()
+    }
+
     @Test("Authorization deinit restores the process shared lease")
     func authorizationDeinitRestoresSharedLease() throws {
         let scratchDirectory = FileManager.default.temporaryDirectory

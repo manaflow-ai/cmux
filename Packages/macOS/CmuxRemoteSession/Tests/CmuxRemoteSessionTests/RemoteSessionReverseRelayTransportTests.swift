@@ -282,6 +282,56 @@ struct RemoteSessionReverseRelayTransportTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
+    @Test("A cached custom ControlPath remains reusable")
+    func cachedCustomControlPathRemainsReusable() async throws {
+        let runner = RecordingProcessRunner()
+        let fixture = try await RemoteSessionReverseRelayStartupTests
+            .makeCoordinator(
+                runner: runner,
+                sshOptions: [
+                    "StrictHostKeyChecking=accept-new",
+                    "ControlMaster=auto",
+                    "ControlPersist=600",
+                    "ControlPath=~/.ssh/custom-%C",
+                ]
+            )
+        let coordinator = fixture.coordinator
+        defer {
+            try? FileManager.default.removeItem(
+                at: fixture.scratchDirectory
+            )
+        }
+
+        let first = coordinator.queue.sync {
+            coordinator.startReverseRelayViaControlMasterLocked(
+                forwardSpec: "127.0.0.1:64044:127.0.0.1:55001",
+                relayPort: 64_044
+            )
+        }
+        coordinator.queue.sync {
+            coordinator.stopReverseRelayViaControlMasterLocked()
+        }
+        let second = coordinator.queue.sync {
+            coordinator.startReverseRelayViaControlMasterLocked(
+                forwardSpec: "127.0.0.1:64044:127.0.0.1:55002",
+                relayPort: 64_044
+            )
+        }
+
+        guard case .started = first else {
+            Issue.record("Expected the initial custom-master relay to start")
+            return
+        }
+        guard case .started = second else {
+            Issue.record("Expected the cached custom master to remain usable")
+            return
+        }
+        #expect(runner.requests.filter {
+            Self.isControlCommand("forward", in: $0.arguments)
+        }.count == 2)
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     @Test("A standalone non-bind failure publishes only a generic retry status")
     func standaloneFailurePublishesSanitizedStatus() async throws {
         let rawFailure = "Permission denied: secret diagnostic"
