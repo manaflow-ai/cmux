@@ -7,13 +7,17 @@ import SwiftUI
 /// This is the only notification-feed view that retains a store reference.
 struct NotificationFeedStoreView: View {
     @Bindable var store: CMUXMobileShellStore
+    @Environment(\.mobilePrimarySearchDestination) private var isSearchDestination
     let items: [MobileNotificationFeedItem]
     let status: MobileNotificationFeedStatus
+    let projection: NotificationFeedProjection
+    let selectedMacDeviceIDs: Set<String>?
 
     var body: some View {
         NotificationFeedView(
-            items: items,
             status: status,
+            projection: projection,
+            refreshesOnAppear: !isSearchDestination,
             actions: actions
         )
         .onDisappear {
@@ -34,7 +38,7 @@ struct NotificationFeedStoreView: View {
                 Task { await store.markNotificationFeedItemUnread(item) }
             },
             markAllRead: {
-                Task { await store.markNotificationFeedItemsRead(items) }
+                Task { await store.markNotificationFeedItemsRead(scopedTo: selectedMacDeviceIDs) }
             },
             refresh: {
                 await store.refreshNotificationFeed()

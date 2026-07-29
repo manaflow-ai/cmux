@@ -9,6 +9,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onOuterFocus: () -> Void
+    var unreadSurfaceIDs: Set<UUID> = []
     @Environment(\.displayScale) private var displayScale
     @State private var containerSize: CGSize = .zero
 
@@ -40,6 +41,10 @@ struct RemoteTmuxWindowMirrorSplitView: View {
             }
             .onAppear {
                 mirror.isVisibleForSizing = isVisibleInUI
+                if !isVisibleInUI {
+                    mirror.cancelPendingControlPaneFocus()
+                    mirror.cancelPendingCreatedPaneFocus()
+                }
                 // The workspace keeps every tab's content alive and hides
                 // deselected tabs at SwiftUI opacity 0, which never reaches
                 // the AppKit split tree this mirror renders: the hidden
@@ -53,6 +58,10 @@ struct RemoteTmuxWindowMirrorSplitView: View {
             }
             .onChange(of: isVisibleInUI) { _, visible in
                 mirror.isVisibleForSizing = visible
+                if !visible {
+                    mirror.cancelPendingControlPaneFocus()
+                    mirror.cancelPendingCreatedPaneFocus()
+                }
                 mirror.bonsplitController.isInteractive = visible
                 if visible { becameVisible() }
             }
@@ -76,7 +85,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                     portalPriority: portalPriority,
                     isSplit: true,
                     appearance: appearance,
-                    hasUnreadNotification: false,
+                    hasUnreadNotification: unreadSurfaceIDs.contains(panel.id),
                     terminalAgentContext: "",
                     onFocus: {
                         onOuterFocus()

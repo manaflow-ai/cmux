@@ -54,10 +54,13 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
-    func clearBinding() {
+    func clearBinding(agentSessionEnded: Bool) {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            _ = workspace.clearSurfaceResumeBinding(panelId: surfaceID)
+            _ = workspace.clearSurfaceResumeBinding(
+                panelId: surfaceID,
+                agentSessionEnded: agentSessionEnded
+            )
         case .dock(_, let dock, let surfaceID):
             _ = dock.clearSurfaceResumeBinding(panelId: surfaceID)
         }
@@ -223,32 +226,47 @@ extension TerminalController {
 
     private func surfaceResumeBindingWithApproval(
         _ binding: SurfaceResumeBindingSnapshot
-    ) -> SurfaceResumeBindingSnapshot {
-        let existingRecord = SurfaceResumeApprovalStore.matchingRecord(for: binding)
-        var effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+    ) -> SurfaceResumeApprovalLookup<SurfaceResumeBindingSnapshot> {
+        let context: (
+            effectiveBinding: SurfaceResumeBindingSnapshot,
+            existingRecord: SurfaceResumeApprovalRecord?
+        )
+        switch SurfaceResumeApprovalStore.approvalProposalContext(for: binding) {
+        case .pendingSigningSecret:
+            return .pendingSigningSecret
+        case let .resolved(resolvedContext):
+            context = resolvedContext
+        }
+        var effectiveBinding = context.effectiveBinding
         if let promptlessCLIManualBinding = SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
             to: binding,
-            existingRecord: existingRecord
+            existingRecord: context.existingRecord
         ) {
-            return promptlessCLIManualBinding
+            return .resolved(promptlessCLIManualBinding)
         }
         guard SurfaceResumeApprovalStore.shouldPromptForProposal(
             binding: binding,
-            existingRecord: existingRecord,
+            existingRecord: context.existingRecord,
             isMainThread: Thread.isMainThread,
             isRunningTests: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
         ) else {
-            return effectiveBinding
+            return .resolved(effectiveBinding)
         }
         let policy = surfacePromptForResumeApproval(binding: effectiveBinding)
         guard let record = SurfaceResumeApprovalStore.approve(binding: binding, policy: policy) else {
-            return effectiveBinding
+            return .resolved(effectiveBinding)
         }
-        effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
         effectiveBinding.approvalPolicy = record.policy
         effectiveBinding.approvalRecordId = record.id
         effectiveBinding.autoResume = record.policy == .auto
-        return effectiveBinding
+        return .resolved(effectiveBinding)
+    }
+
+    private var surfaceResumeApprovalPendingMessage: String {
+        String(
+            localized: "surfaceResumeApproval.pending.message",
+            defaultValue: "Resume approval data is still loading. Retry the request."
+        )
     }
 
     private func surfacePromptForResumeApproval(
@@ -316,7 +334,13 @@ extension TerminalController {
         guard let locatedBinding = target.registeredBinding(binding, inputs: inputs) else {
             return .setFailed
         }
-        let effectiveBinding = surfaceResumeBindingWithApproval(locatedBinding)
+        let effectiveBinding: SurfaceResumeBindingSnapshot
+        switch surfaceResumeBindingWithApproval(locatedBinding) {
+        case .pendingSigningSecret:
+            return .approvalPending(message: surfaceResumeApprovalPendingMessage)
+        case let .resolved(binding):
+            effectiveBinding = binding
+        }
         guard target.setBinding(effectiveBinding) else {
             return .emptyResumeCommand
         }
@@ -339,6 +363,10 @@ extension TerminalController {
         ) else {
             return .surfaceNotFound
         }
+        if let binding = target.binding,
+           case .pendingSigningSecret = SurfaceResumeApprovalStore.applyingStoredApprovalLookup(to: binding) {
+            return .approvalPending(message: surfaceResumeApprovalPendingMessage)
+        }
         return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
     }
 
@@ -347,7 +375,8 @@ extension TerminalController {
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .windowUnavailable
@@ -367,7 +396,7 @@ extension TerminalController {
         if let expectedSource, currentBinding?.source != expectedSource {
             return .result(surfaceResumeSnapshot(target: target, binding: currentBinding, cleared: false))
         }
-        target.clearBinding()
+        target.clearBinding(agentSessionEnded: agentSessionEnded)
         return .result(surfaceResumeSnapshot(target: target, binding: nil, cleared: true))
     }
 }

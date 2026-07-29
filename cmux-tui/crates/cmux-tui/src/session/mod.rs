@@ -13,13 +13,17 @@ pub(crate) mod tree;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY;
-use cmux_tui_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
-    SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
-    SurfaceResizeReporter, WorkspaceId, ZoomMode,
+use cmux_tui_core::server::{
+    LAYOUT_UNDO_CAPABILITY, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
-use ghostty_vt::{MouseInput, RenderState, Terminal};
+use cmux_tui_core::{
+    BrowserFrame, BrowserStatus, ClearHistoryFailure, DefaultColors, LayoutRatioError,
+    LayoutUndoError, LayoutUndoResult, Mux, MuxEventReceiver, PaneId, ScreenId,
+    SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
+    SurfaceResizeReporter, ViewportWidthError, WorkspaceId, ZoomMode,
+};
+use ghostty_vt::{KeyInput, MouseInput, RenderState, Terminal};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -27,6 +31,9 @@ pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
 };
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
+
+pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
+    "remote server does not support clear-history; restart the cmux-tui server";
 
 #[derive(Clone)]
 pub enum Session {
@@ -46,6 +53,100 @@ pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
         .is_some_and(remote::RemoteRequestError::is_timeout)
 }
 
+pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: SurfaceId) -> bool {
+    let expected = format!("unknown surface {surface}");
+    error
+        .downcast_ref::<remote::RemoteRequestError>()
+        .is_some_and(|error| error.rejection_message() == Some(expected.as_str()))
+}
+
+fn normalize_remote_layout_undo_error(error: anyhow::Error) -> anyhow::Error {
+    let Some(remote) = error.downcast_ref::<remote::RemoteRequestError>() else {
+        return error;
+    };
+    match remote.rejection_code() {
+        Some(LayoutUndoError::UNAVAILABLE_CODE) => LayoutUndoError::Unavailable.into(),
+        Some(LayoutUndoError::STALE_CODE) => LayoutUndoError::Stale(
+            remote
+                .rejection_message()
+                .unwrap_or(crate::localization::catalog().layout.layout_changed_before_undo)
+                .to_string(),
+        )
+        .into(),
+        _ => error,
+    }
+}
+
+fn localized_layout_ratio_error(error: LayoutRatioError) -> anyhow::Error {
+    let messages = &crate::localization::catalog().layout;
+    let message = match error {
+        LayoutRatioError::UnknownPaneSplit { pane } => messages.unknown_pane_split(pane),
+        LayoutRatioError::UnknownSplit { split } => messages.unknown_split(split),
+        LayoutRatioError::UnrepresentableViewportWidth { split, ratio, width } => {
+            messages.unrepresentable_viewport_width(split, ratio, width)
+        }
+    };
+    anyhow::anyhow!(message)
+}
+
+fn normalize_remote_split_ratio_error(
+    error: anyhow::Error,
+    split: SplitId,
+    ratio: f32,
+) -> anyhow::Error {
+    let Some(remote) = error.downcast_ref::<remote::RemoteRequestError>() else {
+        return error;
+    };
+    let messages = &crate::localization::catalog().layout;
+    match remote.rejection_code() {
+        Some(LayoutRatioError::UNKNOWN_TARGET_CODE) => {
+            anyhow::anyhow!(messages.unknown_split(split))
+        }
+        Some(LayoutRatioError::OUT_OF_RANGE_CODE) => {
+            anyhow::anyhow!(messages.unrepresentable_viewport_ratio(split, ratio))
+        }
+        _ => error,
+    }
+}
+
+fn validate_viewport_width(width: f32) -> anyhow::Result<()> {
+    if width.is_finite()
+        && (cmux_tui_core::MIN_VIEWPORT_PANE_WIDTH..=cmux_tui_core::MAX_VIEWPORT_PANE_WIDTH)
+            .contains(&width)
+    {
+        return Ok(());
+    }
+    anyhow::bail!(crate::localization::catalog().layout.viewport_width_out_of_range)
+}
+
+fn localized_viewport_width_error(error: ViewportWidthError) -> anyhow::Error {
+    let messages = &crate::localization::catalog().layout;
+    match error {
+        ViewportWidthError::OutOfRange { .. } => {
+            anyhow::anyhow!(messages.viewport_width_out_of_range)
+        }
+        ViewportWidthError::PaneNotResizable { pane } => {
+            anyhow::anyhow!(messages.pane_without_resizable_column(pane))
+        }
+    }
+}
+
+fn normalize_remote_viewport_width_error(error: anyhow::Error, pane: PaneId) -> anyhow::Error {
+    let Some(remote) = error.downcast_ref::<remote::RemoteRequestError>() else {
+        return error;
+    };
+    let messages = &crate::localization::catalog().layout;
+    match remote.rejection_code() {
+        Some(ViewportWidthError::OUT_OF_RANGE_CODE) => {
+            anyhow::anyhow!(messages.viewport_width_out_of_range)
+        }
+        Some(ViewportWidthError::COLUMN_MISSING_CODE) => {
+            anyhow::anyhow!(messages.pane_without_resizable_column(pane))
+        }
+        _ => error,
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn test_remote_timeout_error() -> anyhow::Error {
     remote::RemoteRequestError::Timeout.into()
@@ -62,7 +163,23 @@ pub(crate) fn test_remote_transport_error() -> anyhow::Error {
 
 #[cfg(test)]
 pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
-    remote::RemoteRequestError::Rejected("unknown surface".to_string()).into()
+    test_remote_rejected_error_with_message("unknown surface")
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::Error {
+    remote::RemoteRequestError::Rejected { error: message.to_string(), code: None, delivery: None }
+        .into()
+}
+
+#[cfg(test)]
+fn test_remote_rejected_error_with_code(message: &str, code: &str) -> anyhow::Error {
+    remote::RemoteRequestError::Rejected {
+        error: message.to_string(),
+        code: Some(code.to_string()),
+        delivery: None,
+    }
+    .into()
 }
 
 pub struct SidebarPluginSurface {
@@ -76,6 +193,8 @@ pub struct ClientSizeInfo {
     pub surface: SurfaceId,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
+    #[serde(default = "default_true")]
+    pub size_participating: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -89,8 +208,6 @@ pub struct ClientInfo {
     pub sizes: Vec<ClientSizeInfo>,
     #[serde(rename = "self")]
     pub is_self: bool,
-    #[serde(default = "default_true")]
-    pub size_participating: bool,
 }
 
 fn default_true() -> bool {
@@ -134,6 +251,15 @@ pub enum SurfaceHandle {
 }
 
 impl Session {
+    pub(crate) fn allocate_layout_resize_owner(&self) -> u64 {
+        match self {
+            Session::Local(mux) => mux.allocate_in_process_resize_owner(),
+            // Remote layout transactions are scoped by the server-assigned
+            // control-client ID, so this local value is never serialized.
+            Session::Remote(_) => 0,
+        }
+    }
+
     pub fn clients(&self) -> anyhow::Result<Vec<ClientInfo>> {
         let value = match self {
             Session::Local(mux) => mux.control_clients_json(0),
@@ -142,15 +268,22 @@ impl Session {
         serde_json::from_value(value).map_err(Into::into)
     }
 
-    pub fn set_client_sizing(&self, client: u64, enabled: bool) -> anyhow::Result<()> {
+    pub fn set_client_sizing(
+        &self,
+        surface: SurfaceId,
+        client: u64,
+        enabled: bool,
+    ) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux
-                .set_client_size_participation(client, enabled)
-                .map(|_| ())
-                .ok_or_else(|| anyhow::anyhow!("unknown client {client}")),
+            Session::Local(mux) => {
+                mux.set_client_size_participation(surface, client, enabled).map(|_| ()).ok_or_else(
+                    || anyhow::anyhow!("client {client} is not attached to terminal {surface}"),
+                )
+            }
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
+                    "surface": surface,
                     "client": client,
                     "enabled": enabled,
                 }))
@@ -158,15 +291,17 @@ impl Session {
         }
     }
 
-    pub fn use_only_client_sizing(&self, client: u64) -> anyhow::Result<()> {
+    pub fn use_only_client_sizing(&self, surface: SurfaceId, client: u64) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux
-                .use_only_client_size(client)
-                .map(|_| ())
-                .ok_or_else(|| anyhow::anyhow!("unknown client {client}")),
+            Session::Local(mux) => {
+                mux.use_only_client_size(surface, client).map(|_| ()).ok_or_else(|| {
+                    anyhow::anyhow!("client {client} has no reported size for terminal {surface}")
+                })
+            }
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
+                    "surface": surface,
                     "client": client,
                     "enabled": true,
                     "exclusive": true,
@@ -175,15 +310,16 @@ impl Session {
         }
     }
 
-    pub fn use_all_client_sizing(&self) -> anyhow::Result<()> {
+    pub fn use_all_client_sizing(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.use_all_client_sizes();
-                Ok(())
-            }
+            Session::Local(mux) => mux
+                .use_all_client_sizes(surface)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface}")),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
+                    "surface": surface,
                     "enabled": true,
                 }))
                 .map(|_| ()),
@@ -686,15 +822,20 @@ impl Session {
         }
     }
 
-    pub fn zoom_pane(&self, pane: Option<PaneId>) -> anyhow::Result<()> {
+    pub fn zoom_pane(&self, pane: Option<PaneId>, mode: ZoomMode) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                let _ = mux.zoom_pane(pane, ZoomMode::Toggle);
+                let _ = mux.zoom_pane(pane, mode);
                 Ok(())
             }
-            Session::Remote(remote) => remote
-                .request(json!({"cmd": "zoom-pane", "pane": pane, "mode": "toggle"}))
-                .map(|_| ()),
+            Session::Remote(remote) => {
+                let mode = match mode {
+                    ZoomMode::Toggle => "toggle",
+                    ZoomMode::On => "on",
+                    ZoomMode::Off => "off",
+                };
+                remote.request(json!({"cmd": "zoom-pane", "pane": pane, "mode": mode})).map(|_| ())
+            }
         }
     }
 
@@ -729,15 +870,154 @@ impl Session {
         }
     }
 
-    pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> anyhow::Result<()> {
+    pub fn new_pane_right(
+        &self,
+        pane: PaneId,
+        width: f32,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<SurfaceId> {
+        validate_viewport_width(width)?;
         match self {
-            Session::Local(mux) => mux
-                .set_split_ratio(split, ratio)
-                .then_some(())
-                .ok_or_else(|| anyhow::anyhow!("unknown split {split}")),
+            Session::Local(mux) => mux.new_pane_right(pane, width, size).map(|surface| surface.id),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(VIEWPORT_SPLITS_CAPABILITY) {
+                    anyhow::bail!(
+                        crate::localization::catalog().layout.remote_viewport_panes_unsupported
+                    );
+                }
+                let result = remote.request(with_size(
+                    json!({"cmd": "new-pane-right", "pane": pane, "width": width}),
+                    size,
+                ))?;
+                response_surface(&result, "pane")
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> anyhow::Result<()> {
+        self.set_split_ratio_inner(split, ratio, None)
+    }
+
+    pub fn set_split_ratio_in_transaction(
+        &self,
+        split: SplitId,
+        ratio: f32,
+        owner: u64,
+        transaction: u64,
+    ) -> anyhow::Result<()> {
+        self.set_split_ratio_inner(split, ratio, Some((owner, transaction)))
+    }
+
+    fn set_split_ratio_inner(
+        &self,
+        split: SplitId,
+        ratio: f32,
+        transaction: Option<(u64, u64)>,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => transaction
+                .map_or_else(
+                    || mux.set_split_ratio_checked(split, ratio),
+                    |(owner, transaction)| {
+                        mux.set_split_ratio_in_process_transaction_checked(
+                            split,
+                            ratio,
+                            owner,
+                            transaction,
+                        )
+                    },
+                )
+                .map_err(localized_layout_ratio_error),
             Session::Remote(remote) => remote
-                .request(json!({"cmd": "set-split-ratio", "split": split, "ratio": ratio}))
-                .map(|_| ()),
+                .request(json!({
+                    "cmd": "set-split-ratio",
+                    "split": split,
+                    "ratio": ratio,
+                    "transaction": transaction.map(|(_, transaction)| transaction),
+                }))
+                .map(|_| ())
+                .map_err(|error| normalize_remote_split_ratio_error(error, split, ratio)),
+        }
+    }
+
+    pub fn set_viewport_pane_width_in_transaction(
+        &self,
+        pane: PaneId,
+        width: f32,
+        owner: u64,
+        transaction: u64,
+    ) -> anyhow::Result<()> {
+        self.set_viewport_pane_width_inner(pane, width, Some((owner, transaction)))
+    }
+
+    fn set_viewport_pane_width_inner(
+        &self,
+        pane: PaneId,
+        width: f32,
+        transaction: Option<(u64, u64)>,
+    ) -> anyhow::Result<()> {
+        validate_viewport_width(width)?;
+        match self {
+            Session::Local(mux) => transaction
+                .map_or_else(
+                    || mux.set_viewport_pane_width_checked(pane, width),
+                    |(owner, transaction)| {
+                        mux.set_viewport_pane_width_in_process_transaction_checked(
+                            pane,
+                            width,
+                            owner,
+                            transaction,
+                        )
+                    },
+                )
+                .map_err(localized_viewport_width_error),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(VIEWPORT_COLUMN_RESIZE_CAPABILITY) {
+                    anyhow::bail!(
+                        crate::localization::catalog().layout.remote_viewport_resize_unsupported
+                    );
+                }
+                remote
+                    .request(json!({
+                        "cmd": "set-viewport-pane-width",
+                        "pane": pane,
+                        "width": width,
+                        "transaction": transaction.map(|(_, transaction)| transaction),
+                    }))
+                    .map(|_| ())
+                    .map_err(|error| normalize_remote_viewport_width_error(error, pane))
+            }
+        }
+    }
+
+    pub fn undo_layout(
+        &self,
+        pane: PaneId,
+        revision: Option<u64>,
+        confirm_close: bool,
+    ) -> anyhow::Result<LayoutUndoResult> {
+        match self {
+            Session::Local(mux) => mux.undo_layout(pane, revision, confirm_close),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(LAYOUT_UNDO_CAPABILITY) {
+                    anyhow::bail!(
+                        crate::localization::catalog().layout.remote_layout_undo_unsupported
+                    );
+                }
+                let result = remote
+                    .request(json!({
+                        "cmd": "undo-layout",
+                        "pane": pane,
+                        "revision": revision,
+                        "confirm_close": confirm_close,
+                    }))
+                    .map_err(normalize_remote_layout_undo_error)?;
+                crate::layout_undo::decode_layout_undo_result(
+                    &result,
+                    &crate::localization::catalog().layout,
+                )
+            }
         }
     }
 
@@ -752,6 +1032,49 @@ impl Session {
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-surface", "surface": surface})).map(|_| ())
+            }
+        }
+    }
+
+    pub fn clear_history_classified(&self, surface: SurfaceId) -> Result<(), ClearHistoryFailure> {
+        match self {
+            Session::Local(mux) => mux
+                .surface(surface)
+                .ok_or_else(|| {
+                    ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                        "unknown surface {surface}"
+                    ))
+                })?
+                .clear_history_or_encode_key_classified(None),
+            Session::Remote(remote) => remote.clear_history_classified(surface),
+        }
+    }
+
+    pub fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
+        match self {
+            Session::Local(mux) => mux
+                .surface(surface)
+                .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
+            Session::Remote(remote) => remote.supports_clear_history_key_fallback(surface),
+        }
+    }
+
+    pub fn clear_history_or_send_key_classified(
+        &self,
+        surface: SurfaceId,
+        fallback_key: &KeyInput,
+    ) -> Result<(), ClearHistoryFailure> {
+        match self {
+            Session::Local(mux) => mux
+                .surface(surface)
+                .ok_or_else(|| {
+                    ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                        "unknown surface {surface}"
+                    ))
+                })?
+                .clear_history_or_encode_key_classified(Some(fallback_key)),
+            Session::Remote(remote) => {
+                remote.clear_history_or_send_key_classified(surface, fallback_key)
             }
         }
     }
@@ -1252,13 +1575,23 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn browser_frame(&self) -> Option<BrowserFrame> {
+    pub fn browser_frame(&self) -> Option<Arc<BrowserFrame>> {
         match self {
-            SurfaceHandle::Local(surface, _) => surface.browser_frame(),
+            SurfaceHandle::Local(surface, _) => surface.browser_frame_shared(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
                 surface.browser_frame()
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn has_browser_frame(&self) -> bool {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.has_browser_frame(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.has_browser_frame()
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => false,
         }
     }
 
@@ -1474,10 +1807,56 @@ pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Ses
 }
 
 #[cfg(test)]
-mod tests {
-    use cmux_tui_core::{Mux, SurfaceOptions};
+pub(crate) fn test_remote_session_with_blocked_attach_transport_failure(
+    reached: Arc<std::sync::Barrier>,
+    release: Arc<std::sync::Barrier>,
+) -> Session {
+    Session::Remote(remote::test_session_with_blocked_attach_transport_failure(reached, release))
+}
 
-    use super::{Session, resize_action};
+#[cfg(test)]
+mod tests {
+    use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
+
+    use super::{
+        Session, is_remote_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
+        test_remote_rejected_error_with_code, test_remote_rejected_error_with_message,
+        test_remote_transport_error,
+    };
+
+    #[test]
+    fn remote_surface_unavailable_matches_only_the_requested_surface_rejection() {
+        assert!(is_remote_surface_unavailable(
+            &test_remote_rejected_error_with_message("unknown surface 77"),
+            77
+        ));
+        assert!(!is_remote_surface_unavailable(
+            &test_remote_rejected_error_with_message("unknown surface 78"),
+            77
+        ));
+        assert!(!is_remote_surface_unavailable(&test_remote_transport_error(), 77));
+    }
+
+    #[test]
+    fn remote_layout_undo_error_codes_restore_typed_failures() {
+        let stale = normalize_remote_layout_undo_error(test_remote_rejected_error_with_code(
+            "layout changed",
+            LayoutUndoError::STALE_CODE,
+        ));
+        assert!(matches!(
+            stale.downcast_ref::<LayoutUndoError>(),
+            Some(LayoutUndoError::Stale(message)) if message == "layout changed"
+        ));
+
+        let unavailable = normalize_remote_layout_undo_error(test_remote_rejected_error_with_code(
+            "no layout change to undo",
+            LayoutUndoError::UNAVAILABLE_CODE,
+        ));
+        assert!(matches!(
+            unavailable.downcast_ref::<LayoutUndoError>(),
+            Some(LayoutUndoError::Unavailable)
+        ));
+    }
 
     #[test]
     fn first_layout_after_attach_sends_ordered_resize() {

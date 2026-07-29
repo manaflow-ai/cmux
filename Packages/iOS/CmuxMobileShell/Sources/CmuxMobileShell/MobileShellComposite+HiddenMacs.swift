@@ -146,6 +146,122 @@ extension MobileShellComposite {
         }
     }
 
+    /// Revokes a hidden computer's account bindings, then drops its local row.
+    ///
+    /// The revoke is the meaningful action: it removes the binding from every
+    /// device on the account. On success the paired-Mac row and its hidden
+    /// marker are cleared so the computer disappears from every section; a Mac
+    /// that is still online re-registers a fresh binding and reappears on its
+    /// next connect. Returns `false` (leaving the row untouched) when no forget
+    /// capability is wired or the revoke fails, so the caller can surface an
+    /// error instead of a silent no-op.
+    public func forgetHiddenComputer(_ computer: MobileHiddenComputer) async -> Bool {
+        guard let personalIrohForget else { return false }
+        // Capture the scope BEFORE the network revoke so local cleanup targets the
+        // account/team that owned the row, not whatever scope is current after the
+        // await (the user can sign out or switch accounts while the call is in
+        // flight).
+        guard let scope = await currentScopeSnapshot() else { return false }
+        do {
+            // Pin the revoke to the ROW's owning account, not the live session.
+            // A row owned by account A can still be on screen right after auth
+            // switches to account B (the list has not refreshed yet). The runtime
+            // forget checks this pinned account against the live session and fails
+            // closed on a mismatch, so passing the live account here would let it
+            // revoke B's matching device/tag while local cleanup deletes A's row.
+            // `computer.stackUserID` is the row's captured owner; fall back to the
+            // display scope only for a legacy row that never stored one.
+            try await personalIrohForget.forgetComputer(
+                macDeviceID: computer.macDeviceID,
+                instanceTag: computer.instanceTag,
+                expectedAccountID: computer.stackUserID ?? scope.userID
+            )
+        } catch {
+            hiddenMacsLog.error(
+                "forget hidden computer revoke failed: \(String(describing: error), privacy: .private)"
+            )
+            return false
+        }
+        // Always clear the durable row and hidden marker, even if the scope changed
+        // while the revoke was in flight. The row is deleted against ITS OWN stored
+        // scope (`computer.stackUserID`/`computer.teamID`), not the live display
+        // scope: a team-less row is visible under any selected team (legacy
+        // visibility), so deleting with the display team would miss the team-less
+        // row and it would resurface once the marker cleared. The hidden marker and
+        // on-screen refresh still gate on the captured display `scope` (that is how
+        // the marker was keyed when the row was hidden). Skipping this would report
+        // success while leaving the row behind, so returning to the old scope would
+        // show the supposedly forgotten computer.
+        return await removeStoredPairedMacRow(
+            macDeviceID: computer.macDeviceID,
+            instanceTag: computer.instanceTag,
+            rowStackUserID: computer.stackUserID ?? scope.userID,
+            rowTeamID: computer.teamID,
+            displayScope: scope
+        )
+    }
+
+    /// Drops one pairing's stored row and hidden marker so it fully disappears.
+    ///
+    /// Removes the durable row first (the only step that can fail): if it throws,
+    /// the hidden marker is left intact so the forgotten computer stays hidden
+    /// rather than resurfacing as a normal computer, and `false` is returned so the
+    /// caller surfaces a retryable error instead of a silent partial cleanup. The
+    /// marker is cleared only after the row is gone, so a still-online Mac that
+    /// re-registers a fresh row is not re-hidden by a stale marker.
+    private func removeStoredPairedMacRow(
+        macDeviceID: String,
+        instanceTag: String?,
+        rowStackUserID: String,
+        rowTeamID: String?,
+        displayScope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        if let pairedMacStore {
+            do {
+                // Delete the EXACT row scope, not `remove` (which re-resolves a
+                // nil/team-less `teamID` to the currently-selected team) and not the
+                // live display scope. `rowTeamID` is the row's OWN team (nil for a
+                // team-less pairing); passing it verbatim deletes exactly the row the
+                // user forgot. Using the display team here would miss a team-less row
+                // shown under a selected team, or delete the wrong team's row after a
+                // mid-revoke team switch.
+                //
+                // The server backup, however, lives in a per-team Durable Object, so
+                // a team-less row's tombstone must route to the team it was DISPLAYED
+                // under (`displayScope.teamID`), captured before the revoke. Reusing
+                // the nil local team for the backup would let the server resolve the
+                // delete to whatever team is selected at flush time and wipe a
+                // same-device record from the wrong team's backup.
+                try await pairedMacStore.removeExactScope(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag,
+                    stackUserID: rowStackUserID,
+                    teamID: rowTeamID,
+                    backupTeamID: displayScope.teamID
+                )
+            } catch {
+                hiddenMacsLog.error(
+                    "forget hidden computer row removal failed: \(String(describing: error), privacy: .private)"
+                )
+                return false
+            }
+        }
+        // The hidden marker was keyed by the display scope when the row was hidden,
+        // so clear it (and gate the on-screen refresh) against that scope.
+        await clearHiddenMacDeviceID(
+            macDeviceID,
+            instanceTag: instanceTag,
+            scope: displayScope
+        )
+        guard await isScopeCurrent(displayScope) else { return true }
+        await loadPairedMacs()
+        await loadRegistryDevices()
+        // Mirror the hide path: once the last stored Mac is gone, drop the saved
+        // reconnect hint so the app does not keep trying to redial a forgotten Mac.
+        clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
+        return true
+    }
+
     /// Unhides one stored pairing immediately without requiring network access.
     public func unhideMacDeviceID(
         _ macDeviceID: String,
@@ -162,11 +278,19 @@ extension MobileShellComposite {
         await loadRegistryDevices()
     }
 
-    /// Hides the logical computer represented by a visible stored Mac id.
+    /// Hides the legacy untagged computer represented by a visible stored Mac id.
+    ///
+    /// Tagged row actions must use
+    /// ``hideStoredPairedMacEntries(representativeID:aliasIDs:)`` so a physical
+    /// Mac's sibling app instances remain visible.
     public func hideMac(macDeviceID: String) async {
-        guard let scope = await currentScopeSnapshot() else { return }
-        let macDeviceIDs = Array(Set(pairedMacAliasIDs(for: macDeviceID))).sorted()
-        await hideStoredMacDeviceIDs(macDeviceIDs, scope: scope)
+        await hideStoredPairedMacEntries(
+            representativeID: MobilePairedMac.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: nil
+            ),
+            aliasIDs: pairedMacAliasIDs(for: macDeviceID)
+        )
     }
 
     /// Hides one exact tagged app instance without hiding sibling instances.
@@ -179,10 +303,48 @@ extension MobileShellComposite {
         await hideStoredPairedMacs(targets, scope: scope)
     }
 
+    /// Hides the stored pairing entries represented by one visible computer row.
+    ///
+    /// Raw device IDs in `aliasIDs` inherit the representative's instance tag
+    /// before matching, while already-composite pairing IDs retain their embedded
+    /// tag. Targets are then selected by exact ``MobilePairedMac/id`` equality.
+    /// - Parameters:
+    ///   - representativeID: The visible row's composite pairing ID.
+    ///   - aliasIDs: Stored IDs coalesced into that row. An empty array falls
+    ///     back to `representativeID`.
+    public func hideStoredPairedMacEntries(
+        representativeID: String,
+        aliasIDs: [String]
+    ) async {
+        guard !representativeID.isEmpty,
+              let scope = await currentScopeSnapshot() else { return }
+        let representative = MobilePairedMac.pairingIdentity(from: representativeID)
+        let targetPairingIDs: Set<String> = Set(
+            ([representativeID] + aliasIDs).compactMap { storedID in
+                guard !storedID.isEmpty else { return nil }
+                let identity = MobilePairedMac.pairingIdentity(from: storedID)
+                return MobilePairedMac.pairingID(
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: identity.instanceTag ?? representative.instanceTag
+                )
+            }
+        )
+        let targets = pairedMacsForIdentityMatching.filter {
+            targetPairingIDs.contains($0.id)
+        }
+        guard !targets.isEmpty else { return }
+        await hideStoredPairedMacs(targets, scope: scope)
+    }
+
     /// Hides exactly one stored paired-Mac row.
     public func hideStoredMac(macDeviceID: String) async {
-        guard let scope = await currentScopeSnapshot() else { return }
-        await hideStoredMacDeviceIDs([macDeviceID], scope: scope)
+        await hideStoredPairedMacEntries(
+            representativeID: MobilePairedMac.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: nil
+            ),
+            aliasIDs: [macDeviceID]
+        )
     }
 
     /// Hides exactly one tagged stored pairing.
@@ -192,34 +354,6 @@ extension MobileShellComposite {
             $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
         }
         guard !targets.isEmpty else { return }
-        await hideStoredPairedMacs(targets, scope: scope)
-    }
-
-    func hideStoredMacDeviceIDs(
-        _ macDeviceIDs: [String],
-        scope: MobileShellScopeSnapshot
-    ) async {
-        guard !macDeviceIDs.isEmpty else { return }
-        let targetIDSet = Set(macDeviceIDs)
-        var targets = pairedMacsForIdentityMatching.filter {
-            targetIDSet.contains($0.macDeviceID)
-        }
-        let foundPhysicalIDs = Set(targets.map(\.macDeviceID))
-        for id in targetIDSet.subtracting(foundPhysicalIDs) {
-            let identity = MobilePairedMac.pairingIdentity(from: id)
-            let now = Date()
-            targets.append(MobilePairedMac(
-                macDeviceID: identity.macDeviceID,
-                displayName: nil,
-                routes: [],
-                createdAt: now,
-                lastSeenAt: now,
-                isActive: false,
-                stackUserID: scope.userID,
-                teamID: scope.teamID,
-                instanceTag: identity.instanceTag
-            ))
-        }
         await hideStoredPairedMacs(targets, scope: scope)
     }
 
@@ -246,8 +380,14 @@ extension MobileShellComposite {
         }
 
         invalidateStoredMacReconnectAttempt()
+        let foregroundPairingID = foregroundMacDeviceID.map {
+            MobilePairedMac.pairingID(
+                macDeviceID: $0,
+                instanceTag: connectedMacInstanceTag
+            )
+        }
         let isActiveMac = targets.contains(where: \.isActive)
-            || foregroundMacDeviceID.map(targetPhysicalIDs.contains) == true
+            || foregroundPairingID.map(targetPairingIDs.contains) == true
         if isActiveMac {
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }
@@ -255,6 +395,9 @@ extension MobileShellComposite {
         let remainingPhysicalIDs = Set(pairedMacsForIdentityMatching
             .filter { !targetPairingIDs.contains($0.id) }
             .map(\.macDeviceID))
+        // Workspace state is keyed by PHYSICAL device id, so it is shared by
+        // every app instance of a Mac. Prune it only when no visible sibling
+        // instance remains; a per-instance hide leaves the sibling's state.
         let fullyHiddenPhysicalIDs = targetPhysicalIDs.subtracting(remainingPhysicalIDs)
         for id in fullyHiddenPhysicalIDs {
             if let subscription = secondaryMacSubscriptions[id] {
@@ -270,16 +413,16 @@ extension MobileShellComposite {
         clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
     }
 
-    /// Removes every workspace snapshot owned by a hidden stored Mac.
-    func pruneWorkspaceStateForHiddenMac(_ macDeviceID: String) {
-        guard !macDeviceID.isEmpty else { return }
-        if foregroundMacDeviceID == macDeviceID {
+    /// Removes every workspace snapshot owned by a hidden stored Mac identity.
+    func pruneWorkspaceStateForHiddenMac(_ storedMacID: String) {
+        guard !storedMacID.isEmpty else { return }
+        if foregroundMacDeviceID == storedMacID {
             foregroundMacDeviceID = nil
         }
         let pruned = workspacesByMac.reduce(into: [String: MacWorkspaceState]()) { result, entry in
             let (key, state) = entry
-            guard key != macDeviceID, state.macDeviceID != macDeviceID else { return }
-            let filteredWorkspaces = state.workspaces.filter { $0.macDeviceID != macDeviceID }
+            guard key != storedMacID, state.macDeviceID != storedMacID else { return }
+            let filteredWorkspaces = state.workspaces.filter { $0.macDeviceID != storedMacID }
             var filteredState = state
             filteredState.workspaces = filteredWorkspaces
             result[key] = filteredState
@@ -303,7 +446,9 @@ extension MobileShellComposite {
                 instanceTag: mac.instanceTag,
                 displayName: mac.resolvedName,
                 customColor: mac.customColor,
-                customIcon: mac.customIcon
+                customIcon: mac.customIcon,
+                stackUserID: mac.stackUserID,
+                teamID: mac.teamID
             )
         }
         hiddenComputers = entries.sorted {

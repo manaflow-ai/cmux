@@ -434,32 +434,39 @@ final class MobileHostService {
         )
     }
 
-    /// Render-grid fast path: the frame is already JSON-encoded, so the event
-    /// envelope is spliced around it without parsing the grid into a dictionary
-    /// and re-serializing it — this is the hottest producer in the app
-    /// (issue #8842).
+    /// Render-grid fast path: frames arrive already JSON-encoded, so the event
+    /// envelope is spliced around them without parsing the grid into a
+    /// dictionary and re-serializing it — this is the hottest producer in the
+    /// app (issue #8842). Each connection receives the anchor variant it
+    /// negotiated at subscribe time (viewport = v1 Mac-scroll mirror, screen =
+    /// v2 active-area anchor for local scrollback), admitted through the same
+    /// synchronous bounded queues as every other event.
     nonisolated static func emitRenderGridEvent(
-        payloadJSON: Data,
-        surfaceID: String,
-        isFullFrame: Bool
+        framesByAnchor: [MobileTerminalRenderGridFrame.Anchor: (payloadJSON: Data, isFullFrame: Bool)],
+        surfaceID: String
     ) {
         let topic = MobileHostEventTopicPolicy.renderGridTopic
-        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
+        guard !framesByAnchor.isEmpty,
+              MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
             return
         }
-        var envelope = Data(#"{"kind":"event","topic":"terminal.render_grid","payload":"#.utf8)
-        envelope.append(payloadJSON)
-        envelope.append(UInt8(ascii: "}"))
-        guard let frame = try? MobileSyncFrameCodec.encodeFrame(envelope) else {
-            mobileHostLog.error("mobile host dropped oversized render-grid event")
-            return
+        var encodedByAnchor: [MobileTerminalRenderGridFrame.Anchor: (frame: Data, isFullRenderGridFrame: Bool)] = [:]
+        for (anchor, item) in framesByAnchor {
+            var envelope = Data(#"{"kind":"event","topic":"terminal.render_grid","payload":"#.utf8)
+            envelope.append(item.payloadJSON)
+            envelope.append(UInt8(ascii: "}"))
+            guard let frame = try? MobileSyncFrameCodec.encodeFrame(envelope) else {
+                mobileHostLog.error("mobile host dropped oversized render-grid event")
+                continue
+            }
+            encodedByAnchor[anchor] = (frame, item.isFullFrame)
         }
-        deliverEventFrame(
-            frame,
-            topic: topic,
-            coalesceKey: surfaceID,
-            isFullRenderGridFrame: isFullFrame
-        )
+        guard !encodedByAnchor.isEmpty else { return }
+        deliverEventFrames(topic: topic, coalesceKey: surfaceID) { connection in
+            encodedByAnchor[
+                MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
+            ]
+        }
     }
 
     /// Encodes the shared event envelope once for every connection. Returns
@@ -493,15 +500,28 @@ final class MobileHostService {
     }
 
     /// Fans one encoded event frame out to every registered connection through
-    /// synchronous bounded admission, then acts on the admission outcomes:
-    /// starts at most one drain per connection, closes connections whose
-    /// non-droppable events overflowed, and requests full-frame resyncs for
-    /// surfaces whose queued render-grid frames were shed.
+    /// synchronous bounded admission.
     nonisolated private static func deliverEventFrame(
         _ frame: Data,
         topic: String,
         coalesceKey: String?,
         isFullRenderGridFrame: Bool
+    ) {
+        deliverEventFrames(topic: topic, coalesceKey: coalesceKey) { _ in
+            (frame, isFullRenderGridFrame)
+        }
+    }
+
+    /// Fans encoded event frames out to every registered connection through
+    /// synchronous bounded admission, then acts on the admission outcomes:
+    /// starts at most one drain per connection, closes connections whose
+    /// non-droppable events overflowed, and requests full-frame resyncs for
+    /// surfaces whose queued render-grid frames were shed. `frameFor` picks
+    /// each connection's frame variant; `nil` skips that connection.
+    nonisolated private static func deliverEventFrames(
+        topic: String,
+        coalesceKey: String?,
+        frameFor: (MobileHostConnection) -> (frame: Data, isFullRenderGridFrame: Bool)?
     ) {
         let connections = MobileHostConnectionRegistry.shared.snapshot()
         guard !connections.isEmpty else { return }
@@ -510,11 +530,12 @@ final class MobileHostService {
         #endif
         var resyncSurfaceIDs = Set<String>()
         for connection in connections {
+            guard let item = frameFor(connection) else { continue }
             let result = connection.enqueueEventFrame(
-                frame,
+                item.frame,
                 topic: topic,
                 coalesceKey: coalesceKey,
-                isFullRenderGridFrame: isFullRenderGridFrame
+                isFullRenderGridFrame: item.isFullRenderGridFrame
             )
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
             if result.startDrain {
@@ -1798,6 +1819,9 @@ actor MobileHostConnection {
     }
 
     private let id: UUID
+
+    /// Stable identity for cross-registry lookups (anchor preferences).
+    nonisolated var connectionID: UUID { id }
     private let transport: any CmxByteTransport
     private let writer: MobileHostSerializedTransportWriter
     private let independentEventWriter: (any MobileHostIndependentEventWriting)?
@@ -1821,6 +1845,12 @@ actor MobileHostConnection {
     private var firstFrameTimeoutTask: Task<Void, Never>?
     private var idleTimeoutTask: Task<Void, Never>?
     private var responseTasks: [UUID: ResponseTask] = [:]
+    /// PTY-writing requests are ordered PER SURFACE: ordering is only a
+    /// property of one terminal, and a connection-wide FIFO would let one
+    /// surface's slow request (a large paste_image) block typing on another.
+    private var orderedRequestQueuesBySurfaceKey: [String: MobileHostOrderedRequestQueue] = [:]
+    private var orderedRequestWorkerTasksBySurfaceKey: [String: Task<Void, Never>] = [:]
+    private var orderedRequestRunningFrameByteCountsBySurfaceKey: [String: Int] = [:]
     private var receiveTask: Task<Void, Never>?
     private var independentEventRevision: UInt64 = 0
     private var independentEventNegotiationInProgress = false
@@ -1964,6 +1994,12 @@ actor MobileHostConnection {
         for task in tasks {
             task.cancel()
         }
+        for (_, workerTask) in orderedRequestWorkerTasksBySurfaceKey {
+            workerTask.cancel()
+        }
+        orderedRequestWorkerTasksBySurfaceKey.removeAll()
+        orderedRequestQueuesBySurfaceKey.removeAll()
+        orderedRequestRunningFrameByteCountsBySurfaceKey.removeAll()
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
         for subscription in previousSubscriptions where !subscription.topics.isEmpty {
@@ -1972,6 +2008,7 @@ actor MobileHostConnection {
                 nextTopics: nil
             )
         }
+        MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         await independentEventWriter?.close()
         await transport.close()
@@ -2054,13 +2091,32 @@ actor MobileHostConnection {
         guard !isClosed else {
             return false
         }
+        let decodedRequest = MobileHostRPCEnvelope.decodeRequest(frame)
+        var activeFrameByteCounts = responseTasks.values.map(\.frameByteCount)
+        for (_, queue) in orderedRequestQueuesBySurfaceKey {
+            activeFrameByteCounts.append(contentsOf: queue.frameByteCounts)
+        }
+        activeFrameByteCounts.append(
+            contentsOf: orderedRequestRunningFrameByteCountsBySurfaceKey.values
+        )
         guard responseWorkQuota.allowsAdmission(
             frameByteCount: frame.count,
-            activeFrameByteCounts: responseTasks.values.lazy.map(\.frameByteCount)
+            activeFrameByteCounts: activeFrameByteCounts
         ) else { return false }
+        if case let .success(request) = decodedRequest,
+           request.isOrderedTerminalInput {
+            let surfaceKey = request.orderedInputSurfaceKey
+            orderedRequestQueuesBySurfaceKey[surfaceKey, default: MobileHostOrderedRequestQueue()]
+                .enqueue(MobileHostOrderedRequest(
+                    frameByteCount: frame.count,
+                    decodedRequest: decodedRequest
+                ))
+            startOrderedRequestWorkerIfNeeded(surfaceKey: surfaceKey)
+            return true
+        }
         let taskID = UUID()
         let task = Task { [weak self] in
-            await self?.respond(to: frame)
+            await self?.respond(to: decodedRequest)
             await self?.finishResponseTask(taskID)
         }
         responseTasks[taskID] = ResponseTask(
@@ -2070,9 +2126,71 @@ actor MobileHostConnection {
         return true
     }
 
+    private func startOrderedRequestWorkerIfNeeded(surfaceKey: String) {
+        guard orderedRequestWorkerTasksBySurfaceKey[surfaceKey] == nil else { return }
+        orderedRequestWorkerTasksBySurfaceKey[surfaceKey] = Task { [weak self] in
+            await self?.drainOrderedRequests(surfaceKey: surfaceKey)
+        }
+    }
+
+    private func drainOrderedRequests(surfaceKey: String) async {
+        while !Task.isCancelled, !isClosed,
+              let request = orderedRequestQueuesBySurfaceKey[surfaceKey]?.dequeue() {
+            orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = request.frameByteCount
+            // Serialize authorization + application only. The response write
+            // goes to a tracked concurrent task: a peer that stops reading
+            // stalls the serialized transport writer (issue #8842), and an
+            // inline await here would freeze every later terminal input behind
+            // that stall. Stalled response tasks stay in `responseTasks`, so
+            // their accumulated bytes eventually fail quota admission and
+            // close the connection instead of pinning it forever.
+            switch request.decodedRequest {
+            case let .success(decoded):
+                if let response = await successResponsePayload(for: decoded) {
+                    startResponseSendTask(response)
+                }
+            case .failure:
+                // Decode failures are never enqueued ordered; keep the
+                // defensive path identical to the concurrent one.
+                await respond(to: request.decodedRequest)
+            }
+            orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = nil
+        }
+        orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = nil
+        orderedRequestWorkerTasksBySurfaceKey[surfaceKey] = nil
+        if orderedRequestQueuesBySurfaceKey[surfaceKey]?.isEmpty == false, !isClosed {
+            startOrderedRequestWorkerIfNeeded(surfaceKey: surfaceKey)
+        } else {
+            orderedRequestQueuesBySurfaceKey[surfaceKey] = nil
+            if !hasActiveResponseWork {
+                startIdleTimeout()
+            }
+        }
+    }
+
+    private func startResponseSendTask(_ response: Data) {
+        guard !isClosed else { return }
+        let taskID = UUID()
+        let task = Task { [weak self] in
+            _ = await self?.sendResponse(response)
+            await self?.finishResponseTask(taskID)
+        }
+        responseTasks[taskID] = ResponseTask(
+            frameByteCount: response.count,
+            task: task
+        )
+    }
+
+    private var hasActiveResponseWork: Bool {
+        !responseTasks.isEmpty
+            || !orderedRequestWorkerTasksBySurfaceKey.isEmpty
+            || !orderedRequestRunningFrameByteCountsBySurfaceKey.isEmpty
+            || orderedRequestQueuesBySurfaceKey.values.contains { !$0.isEmpty }
+    }
+
     private func finishResponseTask(_ taskID: UUID) {
         responseTasks[taskID] = nil
-        if responseTasks.isEmpty {
+        if !hasActiveResponseWork {
             startIdleTimeout()
         }
     }
@@ -2109,7 +2227,7 @@ actor MobileHostConnection {
               didDecodeFirstFrame,
               !isClosed,
               subscriptions.isEmpty,
-              responseTasks.isEmpty else {
+              !hasActiveResponseWork else {
             return
         }
         idleTimeoutTask?.cancel()
@@ -2123,7 +2241,7 @@ actor MobileHostConnection {
     }
 
     private func closeIfIdleAfterFrame() async {
-        guard didDecodeFirstFrame, subscriptions.isEmpty, responseTasks.isEmpty else {
+        guard didDecodeFirstFrame, subscriptions.isEmpty, !hasActiveResponseWork else {
             return
         }
         await close(
@@ -2135,44 +2253,18 @@ actor MobileHostConnection {
         )
     }
 
-    private func respond(to frame: Data) async {
+    private func respond(
+        to decodedRequest: Result<MobileHostRPCRequest, MobileHostRPCError>
+    ) async {
         guard !isClosed, !Task.isCancelled else {
             return
         }
-        switch MobileHostRPCEnvelope.decodeRequest(frame) {
+        switch decodedRequest {
         case let .success(request):
-            let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
-            if tracksInteractiveActivity {
-                MobileHostRequestActivity.beginRequest()
-            }
-            defer {
-                if tracksInteractiveActivity {
-                    MobileHostRequestActivity.endRequest()
-                }
-            }
-            if let error = await authorizeRequest(request) {
-                guard !isClosed, !Task.isCancelled else {
-                    return
-                }
-                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
+            guard let response = await successResponsePayload(for: request) else {
                 return
             }
-            guard !isClosed, !Task.isCancelled else {
-                return
-            }
-            await onAuthorizedRequest(request)
-            guard !isClosed, !Task.isCancelled else {
-                return
-            }
-            if let intercepted = await handleSubscriptionRPC(request) {
-                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
-                return
-            }
-            let result = await handleRequest(request)
-            guard !isClosed, !Task.isCancelled else {
-                return
-            }
-            _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result))
+            _ = await sendResponse(response)
         case let .failure(error):
             guard !isClosed, !Task.isCancelled else {
                 return
@@ -2186,6 +2278,47 @@ actor MobileHostConnection {
                 )
             )
         }
+    }
+
+    /// Authorizes and applies one decoded request, returning its encoded
+    /// response envelope, or `nil` when the connection closed or the task was
+    /// cancelled before a response could be produced.
+    private func successResponsePayload(
+        for request: MobileHostRPCRequest
+    ) async -> Data? {
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
+        if tracksInteractiveActivity {
+            MobileHostRequestActivity.beginRequest()
+        }
+        defer {
+            if tracksInteractiveActivity {
+                MobileHostRequestActivity.endRequest()
+            }
+        }
+        if let error = await authorizeRequest(request) {
+            guard !isClosed, !Task.isCancelled else {
+                return nil
+            }
+            return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error)
+        }
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        await onAuthorizedRequest(request)
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        if let intercepted = await handleSubscriptionRPC(request) {
+            return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted)
+        }
+        let result = await handleRequest(request)
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result)
     }
 
     private func handleSubscriptionRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
@@ -2229,6 +2362,17 @@ actor MobileHostConnection {
                 topics: topics,
                 transport: selectedTransport
             )
+            if topics.contains("terminal.render_grid") {
+                // Anchor negotiation: "screen" clients own their local
+                // viewport/scrollback and receive active-area-anchored frames;
+                // everything else keeps the v1 viewport-mirror contract.
+                let anchor: MobileTerminalRenderGridFrame.Anchor =
+                    (request.params["render_grid_anchor"] as? String)
+                        == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+                    ? .screen
+                    : .viewport
+                MobileTerminalRenderGridAnchorRegistry.shared.set(anchor, connectionID: id)
+            }
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif
