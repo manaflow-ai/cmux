@@ -2750,17 +2750,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         ?? pushedRouteSyncTask
                     await routeSyncTask.value
                     guard !Task.isCancelled else { return }
+                    guard await self.isScopeCurrent(scope),
+                          self.presence != nil,
+                          self.multiMacAggregationEnabled else {
+                        return
+                    }
+                    // The scope check suspends. Drain any route operation that
+                    // started meanwhile before consuming the shared pending Mac
+                    // IDs, or its new edge would be cleared by this waiter's
+                    // defer before the new routes became authoritative.
                     if let currentRouteSyncOperationID =
                         self.pushedRouteSyncOperationID,
                        currentRouteSyncOperationID != routeSyncOperationID {
                         continue
                     }
                     break
-                }
-                guard await self.isScopeCurrent(scope),
-                      self.presence != nil,
-                      self.multiMacAggregationEnabled else {
-                    return
                 }
                 let needsFullRefresh =
                     self.secondaryAggregationAfterPushedRoutesNeedsFullRefresh
