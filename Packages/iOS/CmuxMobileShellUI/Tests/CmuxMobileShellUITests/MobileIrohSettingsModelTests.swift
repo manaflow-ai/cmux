@@ -89,6 +89,16 @@ struct MobileIrohSettingsModelTests {
         #expect(model.snapshot == .unavailable)
     }
 
+    @Test func relayOnlyMutationForwardsThePathPreference() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.setPathPreference(.relayOnly)
+        await waitUntil { controller.pathPreferenceMutations == [.relayOnly] }
+
+        #expect(!model.showsSaveError)
+    }
+
     @Test func customPrivatePathMutationsForwardExactMacScopedDraft() async {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         let model = MobileIrohSettingsModel(controller: controller)
@@ -274,6 +284,7 @@ private final class MobileIrohSettingsControllerDouble:
 {
     var snapshot: CmxIrohSettingsSnapshot
     var preferenceMutations: [CmxIrohRelayPreferenceDraft] = []
+    var pathPreferenceMutations: [CmxIrohPathPreference] = []
     var upsertError: Error?
     var snapshotAfterUpsertError: CmxIrohSettingsSnapshot?
     var streamCreations = 0
@@ -317,6 +328,9 @@ private final class MobileIrohSettingsControllerDouble:
 
     func setIrohRelayPreference(_ preference: CmxIrohRelayPreferenceDraft) async throws {
         preferenceMutations.append(preference)
+    }
+    func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
+        pathPreferenceMutations.append(preference)
     }
     func upsertIrohCustomRelay(_ relay: CmxIrohCustomRelayDraft, deviceSecret: String?) async throws {
         if let upsertError {
@@ -394,6 +408,7 @@ private final class MobileIrohSettingsControllerDouble:
             runtimeStatus: snapshot.runtimeStatus,
             selectedTransportPath: snapshot.selectedTransportPath,
             preference: snapshot.preference,
+            pathPreference: snapshot.pathPreference,
             managedRelays: snapshot.managedRelays,
             customRelays: snapshot.customRelays,
             privateNetworkMacs: snapshot.privateNetworkMacs,

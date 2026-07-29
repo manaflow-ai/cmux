@@ -30,8 +30,6 @@ public final class MobileDisplaySettings {
     private static let taskComposerEnabledKey = "cmux.mobile.taskComposerEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
-    private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
-    private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     #endif
@@ -43,15 +41,9 @@ public final class MobileDisplaySettings {
     public static let defaultWorkspacePreviewLineCount = 2
     /// Debug slider range for moving the unread dot left, in points.
     public static let unreadIndicatorLeftShiftRange: ClosedRange<Double> = 0...24
-    /// Debug slider range for moving the workspace profile picture left, in points.
-    public static let profilePictureLeftShiftRange: ClosedRange<Double> = 0...24
-    /// Debug slider range for the workspace profile picture size, in points.
-    public static let profilePictureSizeRange: ClosedRange<Double> = 36...64
     /// With the workspace list's 12pt leading row inset, 10pt unread gutter, and
     /// 11pt unread dot, this places the dot's leading edge 10pt from the screen.
     public static let defaultUnreadIndicatorLeftShift = 1.5
-    public static let defaultProfilePictureLeftShift = 4.0
-    public static let defaultProfilePictureSize = 45.0
 
     /// Whether workspace-list row titles wrap onto multiple lines instead of
     /// truncating to a single line. Defaults to `false` (single-line). Mutating
@@ -108,6 +100,20 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// History rows the terminal mirror hydrates when it connects (deeper
+    /// values scroll further back; larger one-time download at connect).
+    /// Defaults to ``MobileTerminalScrollbackPreference/defaultRows``.
+    /// Mutating this clamps to the supported range and writes through to the
+    /// injected ``UserDefaults`` under the shared preference key the shell
+    /// reads at hydration time.
+    public var terminalScrollbackRows: Int {
+        didSet {
+            let clamped = MobileTerminalScrollbackPreference.clamped(terminalScrollbackRows)
+            if clamped != terminalScrollbackRows { terminalScrollbackRows = clamped }
+            defaults.set(clamped, forKey: MobileTerminalScrollbackPreference.defaultsKey)
+        }
+    }
+
     /// How many lines a workspace row's activity preview shows (1 or 2).
     /// Defaults to 2. Mutating this clamps to the supported range and writes
     /// through to the injected ``UserDefaults``.
@@ -127,25 +133,6 @@ public final class MobileDisplaySettings {
             let clamped = Self.clamped(unreadIndicatorLeftShift, to: Self.unreadIndicatorLeftShiftRange)
             if clamped != unreadIndicatorLeftShift { unreadIndicatorLeftShift = clamped }
             defaults.set(clamped, forKey: Self.unreadIndicatorLeftShiftKey)
-        }
-    }
-
-    /// DEBUG-only layout tuning value, exposed in Settings > Developer. Positive
-    /// values move the workspace profile picture left without changing text layout.
-    public var profilePictureLeftShift: Double {
-        didSet {
-            let clamped = Self.clamped(profilePictureLeftShift, to: Self.profilePictureLeftShiftRange)
-            if clamped != profilePictureLeftShift { profilePictureLeftShift = clamped }
-            defaults.set(clamped, forKey: Self.profilePictureLeftShiftKey)
-        }
-    }
-
-    /// DEBUG-only layout tuning value, exposed in Settings > Developer.
-    public var profilePictureSize: Double {
-        didSet {
-            let clamped = Self.clamped(profilePictureSize, to: Self.profilePictureSizeRange)
-            if clamped != profilePictureSize { profilePictureSize = clamped }
-            defaults.set(clamped, forKey: Self.profilePictureSizeKey)
         }
     }
 
@@ -180,6 +167,7 @@ public final class MobileDisplaySettings {
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
         self.hapticFeedbackEnabled = haptics.isEnabled
         self.terminalFilesChipEnabled = defaults.bool(forKey: Self.terminalFilesChipEnabledKey)
+        self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
         self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
@@ -189,16 +177,6 @@ public final class MobileDisplaySettings {
         self.unreadIndicatorLeftShift = Self.clamped(
             storedUnreadLeftShift ?? Self.defaultUnreadIndicatorLeftShift,
             to: Self.unreadIndicatorLeftShiftRange
-        )
-        let storedProfileLeftShift = defaults.object(forKey: Self.profilePictureLeftShiftKey) as? Double
-        self.profilePictureLeftShift = Self.clamped(
-            storedProfileLeftShift ?? Self.defaultProfilePictureLeftShift,
-            to: Self.profilePictureLeftShiftRange
-        )
-        let storedProfilePictureSize = defaults.object(forKey: Self.profilePictureSizeKey) as? Double
-        self.profilePictureSize = Self.clamped(
-            storedProfilePictureSize ?? Self.defaultProfilePictureSize,
-            to: Self.profilePictureSizeRange
         )
         #if DEBUG
         self.taskComposerShellIconVariant = defaults.string(

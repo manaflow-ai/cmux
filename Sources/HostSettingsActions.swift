@@ -89,7 +89,12 @@ final class HostSettingsActions: SettingsHostActions {
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
+        AgentSessionAutoRetrySettings().notifyDidChange()
         AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
+    }
+
+    func agentSessionAutoRetrySettingDidChange() {
+        AgentSessionAutoRetrySettings().notifyDidChange()
     }
 
     func notifyShortcutSettingsDidChange() {
@@ -100,6 +105,14 @@ final class HostSettingsActions: SettingsHostActions {
         if !KeyboardShortcutSettings.settingsFileStore.reload() {
             KeyboardShortcutSettings.notifySettingsFileDidChange()
         }
+    }
+
+    func canRegisterSystemWideHotkey(
+        _ shortcut: CmuxSettings.StoredShortcut
+    ) -> Bool {
+        SystemWideHotkeySettings.registrationCandidate(
+            for: StoredShortcut(cmuxSettingsStoredShortcut: shortcut)
+        ) != nil
     }
 
     func applyLanguageOverride(_ language: AppLanguage) {
@@ -124,8 +137,53 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openSystemNotificationSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else { return }
-        NSWorkspace.shared.open(url)
+        TerminalNotificationStore.shared.openNotificationSettings()
+    }
+
+    func desktopNotificationAuthorizationStatus() -> DesktopNotificationAuthorizationState {
+        Self.desktopNotificationAuthorizationState(from: TerminalNotificationStore.shared.authorizationState)
+    }
+
+    func desktopNotificationAuthorizationStatusUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
+        AsyncStream { continuation in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: TerminalNotificationStore.authorizationStatusDidChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                continuation.yield(
+                    Self.desktopNotificationAuthorizationState(
+                        from: TerminalNotificationStore.shared.authorizationState
+                    )
+                )
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(
+                        Self.desktopNotificationAuthorizationState(
+                            from: TerminalNotificationStore.shared.authorizationState
+                        )
+                    )
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
+    func refreshDesktopNotificationAuthorizationStatus() {
+        TerminalNotificationStore.shared.refreshAuthorizationStatus()
     }
 
     func restartApp() {
@@ -340,6 +398,25 @@ final class HostSettingsActions: SettingsHostActions {
             activeConnectionCount: status.activeConnectionCount,
             routes: routes
         )
+    }
+
+    private static func desktopNotificationAuthorizationState(
+        from state: NotificationAuthorizationState
+    ) -> DesktopNotificationAuthorizationState {
+        switch state {
+        case .unknown:
+            return .unknown
+        case .notDetermined:
+            return .notDetermined
+        case .authorized:
+            return .authorized
+        case .denied:
+            return .denied
+        case .provisional:
+            return .provisional
+        case .ephemeral:
+            return .ephemeral
+        }
     }
 
     func mobilePairingDefaultDisplayName() -> String {

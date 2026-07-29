@@ -39,6 +39,7 @@ public struct CMUXMobileRootScene: View {
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
     private let privateNetworkSuggestionStore: MobilePrivateNetworkSuggestionStore
+    private let personalIrohForget: (any MobileIrohMacForgetting)?
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
@@ -93,6 +94,8 @@ public struct CMUXMobileRootScene: View {
     ///     presenting QR pairing.
     ///   - privateNetworkSuggestionStore: Process-memory address suggestions
     ///     shared with the shell's authenticated status handling.
+    ///   - personalIrohForget: Revokes a hidden computer's account bindings when
+    ///     the user forgets it from the Computers screen.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
     ///   - diagnosticLog: The privacy-safe structured connection log.
     public init(
@@ -108,6 +111,7 @@ public struct CMUXMobileRootScene: View {
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
         privateNetworkSuggestionStore: MobilePrivateNetworkSuggestionStore =
             MobilePrivateNetworkSuggestionStore(),
+        personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog
     ) {
@@ -122,6 +126,7 @@ public struct CMUXMobileRootScene: View {
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
         self.personalIrohDiscovery = personalIrohDiscovery
         self.privateNetworkSuggestionStore = privateNetworkSuggestionStore
+        self.personalIrohForget = personalIrohForget
         self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
@@ -144,6 +149,7 @@ public struct CMUXMobileRootScene: View {
         self.personalIrohRouteCatalog = nil
         self.personalIrohDiscovery = nil
         self.privateNetworkSuggestionStore = MobilePrivateNetworkSuggestionStore()
+        self.personalIrohForget = nil
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
@@ -373,6 +379,7 @@ public struct CMUXMobileRootScene: View {
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
+            personalIrohForget: personalIrohForget,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },

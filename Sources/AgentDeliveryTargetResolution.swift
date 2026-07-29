@@ -17,8 +17,9 @@ import Foundation
 ///   tty. A pane's pty device is fixed for the pane's lifetime and the
 ///   process's controlling terminal is a live kernel fact, so a unique match
 ///   is authoritative regardless of where the pane has been moved.
-/// - surface → workspace: `AppDelegate.workspaceContainingPanel`, which finds
-///   the workspace that CURRENTLY owns the panel (issue #5781 pane moves).
+/// - surface → notification owner: `AppDelegate.notificationSurfaceOwner`,
+///   which finds the workspace or Dock that CURRENTLY owns the panel (issue
+///   #5781 pane moves and Dock transfers).
 ///
 /// The CLI reaches this through the `agent.resolve_delivery_target` control
 /// method; in-app notification delivery reaches it through
@@ -107,7 +108,7 @@ extension AppDelegate {
     /// process's controlling tty matched against every surface's pty device
     /// (unique-match only), with the exact live process's start-time-keyed
     /// `CMUX_SURFACE_ID` environment re-homed through
-    /// `workspaceContainingPanel` as a nested-PTY fallback. Disagreement fails
+    /// `notificationSurfaceOwner` as a nested-PTY fallback. Disagreement fails
     /// closed.
     func liveAgentDeliveryTarget(forAgentPID pid: pid_t) -> AgentDeliveryTargetCandidate? {
         guard let identity = agentLiveProcessIdentity(pid: pid) else { return nil }
@@ -138,35 +139,45 @@ extension AppDelegate {
         }
         var envTarget: AgentDeliveryTargetCandidate?
         if let envSurfaceId = processScope?.surfaceID,
-           let owner = workspaceContainingPanel(panelId: envSurfaceId) {
-            envTarget = AgentDeliveryTargetCandidate(workspaceId: owner.workspace.id, surfaceId: envSurfaceId)
+           let owner = notificationSurfaceOwner(
+               surfaceID: envSurfaceId,
+               preferredTabID: processScope?.workspaceID
+           ) {
+            envTarget = AgentDeliveryTargetCandidate(
+                workspaceId: owner.tabID,
+                surfaceId: owner.surfaceID
+            )
         }
 
         return agentDeliveryTargetCombining(ttyTarget: ttyTarget, envTarget: envTarget)
     }
 
-    /// Delivery-time target for a notification addressed to
-    /// (`claimedTabId`, `surfaceId`). A surface-scoped notification follows
-    /// the surface to whichever workspace currently owns it; a workspace-only
-    /// notification requires the claimed workspace to still exist. Returns nil
-    /// when the target is gone (surface closed, workspace closed) — the
-    /// notification is undeliverable, matching the previous drop semantics.
+    /// Delivery-time target for an agent event addressed to
+    /// (`claimedTabId`, `surfaceId`). A surface-scoped event follows the
+    /// surface to whichever workspace or Dock currently owns it. A
+    /// workspace-only event requires the claimed workspace or window-Dock
+    /// owner to still exist. Returns nil when the target is gone (surface,
+    /// workspace, or window closed).
     func agentNotificationDeliveryTarget(
-        claimedTabId: UUID,
+        claimedTabId: UUID?,
         surfaceId: UUID?
     ) -> (tabId: UUID, surfaceId: UUID?)? {
         guard let surfaceId else {
+            guard let claimedTabId else { return nil }
+            if tabManagerForWindowDockOwner(claimedTabId) != nil {
+                return (claimedTabId, nil)
+            }
             let manager = tabManagerFor(tabId: claimedTabId) ?? tabManager
             guard manager?.tabs.contains(where: { $0.id == claimedTabId }) == true else { return nil }
             return (claimedTabId, nil)
         }
-        guard let owner = workspaceContainingPanel(
-            panelId: surfaceId,
-            preferredWorkspaceId: claimedTabId
+        guard let owner = notificationSurfaceOwner(
+            surfaceID: surfaceId,
+            preferredTabID: claimedTabId
         ) else {
             return nil
         }
-        return (owner.workspace.id, surfaceId)
+        return (owner.tabID, owner.surfaceID)
     }
 
     private func agentDeliveryTabManagers() -> [TabManager] {
@@ -237,13 +248,13 @@ extension TerminalController {
             )
         }
         if let claimedSurfaceId,
-           let owner = appDelegate.workspaceContainingPanel(
-               panelId: claimedSurfaceId,
-               preferredWorkspaceId: claimedWorkspaceId
+           let owner = appDelegate.notificationSurfaceOwner(
+               surfaceID: claimedSurfaceId,
+               preferredTabID: claimedWorkspaceId
            ) {
             return .ok([
-                "workspace_id": owner.workspace.id.uuidString,
-                "surface_id": claimedSurfaceId.uuidString,
+                "workspace_id": owner.tabID.uuidString,
+                "surface_id": owner.surfaceID.uuidString,
                 "source": "surface",
             ])
         }

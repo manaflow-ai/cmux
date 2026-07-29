@@ -20,6 +20,14 @@ private final class OptionDigitFocusableTestView: NSView {
         lastKeyDownCharactersIgnoringModifiers = event.charactersIgnoringModifiers
     }
 }
+
+private final class MarkedOptionTextView: NSTextView {
+    var keyDownCallCount = 0
+
+    override func keyDown(with event: NSEvent) {
+        keyDownCallCount += 1
+    }
+}
 #endif
 
 @MainActor
@@ -53,6 +61,209 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
                     "Option+2 should select workspace 2 when selectWorkspaceByNumber is rebound to Option+1...9"
                 )
             }
+        }
+    }
+
+    @Test
+    func focusHistoryRebindingRoutesNewShortcutsAndDropsDefaults() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let firstWorkspace = try #require(manager.selectedWorkspace)
+            let secondWorkspace = manager.addTab(select: true)
+
+            let reboundBack = StoredShortcut(
+                key: "y",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+            let reboundForward = StoredShortcut(
+                key: "u",
+                command: false,
+                shift: true,
+                option: true,
+                control: false
+            )
+
+            try withTemporaryShortcut(action: .focusHistoryBack, shortcut: reboundBack) {
+                try withTemporaryShortcut(action: .focusHistoryForward, shortcut: reboundForward) {
+                    let reboundBackEvent = try #require(makeKeyEvent(
+                        modifierFlags: [.option],
+                        characters: "¥",
+                        charactersIgnoringModifiers: "y",
+                        keyCode: 16,
+                        windowNumber: testWindow.windowNumber
+                    ))
+                    let defaultBackEvent = try #require(makeKeyEvent(
+                        modifierFlags: [.command],
+                        characters: "[",
+                        charactersIgnoringModifiers: "[",
+                        keyCode: 33,
+                        windowNumber: testWindow.windowNumber
+                    ))
+
+                    #expect(appDelegate.debugMatchesConfiguredShortcut(
+                        event: reboundBackEvent,
+                        action: .focusHistoryBack
+                    ))
+                    #expect(appDelegate.debugHandleCustomShortcut(event: reboundBackEvent))
+                    #expect(manager.selectedTabId == firstWorkspace.id)
+                    #expect(!appDelegate.debugMatchesConfiguredShortcut(
+                        event: defaultBackEvent,
+                        action: .focusHistoryBack
+                    ))
+                    #expect(!appDelegate.debugHandleCustomShortcut(event: defaultBackEvent))
+
+                    let reboundForwardEvent = try #require(makeKeyEvent(
+                        modifierFlags: [.option, .shift],
+                        characters: "¨",
+                        charactersIgnoringModifiers: "U",
+                        keyCode: 32,
+                        windowNumber: testWindow.windowNumber
+                    ))
+                    let defaultForwardEvent = try #require(makeKeyEvent(
+                        modifierFlags: [.command],
+                        characters: "]",
+                        charactersIgnoringModifiers: "]",
+                        keyCode: 30,
+                        windowNumber: testWindow.windowNumber
+                    ))
+
+                    #expect(appDelegate.debugMatchesConfiguredShortcut(
+                        event: reboundForwardEvent,
+                        action: .focusHistoryForward
+                    ))
+                    #expect(appDelegate.debugHandleCustomShortcut(event: reboundForwardEvent))
+                    #expect(manager.selectedTabId == secondWorkspace.id)
+                    #expect(!appDelegate.debugMatchesConfiguredShortcut(
+                        event: defaultForwardEvent,
+                        action: .focusHistoryForward
+                    ))
+                    #expect(!appDelegate.debugHandleCustomShortcut(event: defaultForwardEvent))
+                }
+            }
+        }
+    }
+
+    @Test
+    func focusHistoryRebindingMatchesCommandShiftOptionAndControlVariants() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let candidates: [(KeyboardShortcutSettings.Action, StoredShortcut, NSEvent.ModifierFlags, String, String, UInt16)] = [
+                (
+                    .focusHistoryBack,
+                    StoredShortcut(key: "y", command: true, shift: true, option: false, control: false),
+                    [.command, .shift],
+                    "Y",
+                    "Y",
+                    16
+                ),
+                (
+                    .focusHistoryForward,
+                    StoredShortcut(key: "u", command: false, shift: false, option: false, control: true),
+                    [.control],
+                    "\u{15}",
+                    "u",
+                    32
+                ),
+                (
+                    .focusHistoryBack,
+                    StoredShortcut(key: "y", command: false, shift: true, option: true, control: true),
+                    [.shift, .option, .control],
+                    "Y",
+                    "Y",
+                    16
+                ),
+            ]
+
+            for (action, shortcut, modifiers, characters, charactersIgnoringModifiers, keyCode) in candidates {
+                try withTemporaryShortcut(action: action, shortcut: shortcut) {
+                    let event = try #require(makeKeyEvent(
+                        modifierFlags: modifiers,
+                        characters: characters,
+                        charactersIgnoringModifiers: charactersIgnoringModifiers,
+                        keyCode: keyCode,
+                        windowNumber: testWindow.windowNumber
+                    ))
+
+                    #expect(appDelegate.debugMatchesConfiguredShortcut(event: event, action: action))
+                    #expect(appDelegate.debugHandleCustomShortcut(event: event))
+                }
+            }
+        }
+    }
+
+    @Test
+    func markedTextWinsOverConfiguredPrintableOptionShortcut() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let selectedWorkspace = manager.addTab(select: true)
+            let textView = MarkedOptionTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+            testWindow.contentView?.addSubview(textView)
+            testWindow.makeKeyAndOrderFront(nil)
+            #expect(testWindow.makeFirstResponder(textView))
+            textView.setMarkedText(
+                "marked",
+                selectedRange: NSRange(location: 6, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            #expect(textView.hasMarkedText())
+
+            let whenURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: whenURL) }
+            try #"{"shortcuts":{"when":{"switchRightSidebarToFiles":"true"}}}"#
+                .write(to: whenURL, atomically: true, encoding: .utf8)
+            KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+                primaryPath: whenURL.path, fallbackPath: nil, additionalFallbackPaths: [], startWatching: false
+            )
+            let reboundBack = StoredShortcut(
+                key: "y",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+            let event = try #require(makeKeyEvent(
+                modifierFlags: [.option],
+                characters: "¥",
+                charactersIgnoringModifiers: "y",
+                keyCode: 16,
+                windowNumber: testWindow.windowNumber
+            ))
+            try withTemporaryShortcut(action: .switchRightSidebarToFiles, shortcut: reboundBack) {
+                #expect(appDelegate.rightSidebarModeShortcut(for: event) == nil)
+                textView.unmarkText()
+                #expect(appDelegate.rightSidebarModeShortcut(for: event) == .files)
+                textView.setMarkedText(
+                    "marked",
+                    selectedRange: NSRange(location: 6, length: 0),
+                    replacementRange: NSRange(location: NSNotFound, length: 0)
+                )
+            }
+            try withTemporaryShortcut(action: .focusHistoryBack, shortcut: reboundBack) {
+                #expect(!appDelegate.debugHandleCustomShortcut(event: event))
+                #expect(manager.selectedTabId == selectedWorkspace.id)
+                #expect(testWindow.performKeyEquivalent(with: event))
+                #expect(textView.keyDownCallCount == 1)
+                #expect(textView.hasMarkedText())
+                #expect(manager.selectedTabId == selectedWorkspace.id)
+            }
+            textView.unmarkText()
         }
     }
 
@@ -245,14 +456,15 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
         modifierFlags: NSEvent.ModifierFlags,
         characters: String,
         charactersIgnoringModifiers: String,
-        keyCode: UInt16
+        keyCode: UInt16,
+        windowNumber: Int = 0
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
+            windowNumber: windowNumber,
             context: nil,
             characters: characters,
             charactersIgnoringModifiers: charactersIgnoringModifiers,

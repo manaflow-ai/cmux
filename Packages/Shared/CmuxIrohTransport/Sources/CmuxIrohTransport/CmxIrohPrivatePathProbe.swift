@@ -95,7 +95,7 @@ struct CmxIrohPrivatePathProbe: Sendable {
              .endpointUnavailable, .authorizationFailed, .accountMismatch,
              .admissionDenied, .admissionLeaseExpired, .admissionRevalidationFailed,
              .permissionDenied, .secureChannelFailed, .protocolViolation,
-             .superseded, .cancelled, .unknown, .none:
+             .superseded, .cancelled, .sendQueueOverflow, .unknown, .none:
             return .unavailable
         }
     }

@@ -205,17 +205,15 @@ struct IrohSettingsModelTests {
         await observation.value
     }
 
-    #if DEBUG
-    @Test func relayOnlyMutationUsesTheDebugControllerBoundary() async {
+    @Test func relayOnlyMutationForwardsThePathPreference() async {
         let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
         let model = IrohSettingsModel(controller: controller)
 
-        model.setDebugRelayOnly(true)
-        await waitUntil { controller.debugRelayOnlyMutations == [true] }
+        model.setPathPreference(.relayOnly)
+        await waitUntil { controller.pathPreferenceMutations == [.relayOnly] }
 
         #expect(!model.showsSaveError)
     }
-    #endif
 
     private func waitUntil(_ predicate: () -> Bool) async {
         var spins = 0
@@ -286,8 +284,7 @@ struct IrohSettingsModelTests {
 
 @MainActor
 private final class IrohSettingsControllerDouble:
-    CmxIrohSettingsControlling,
-    CmxIrohDebugSettingsControlling
+    CmxIrohSettingsControlling
 {
     struct CustomRelayMutation: Equatable {
         let relay: CmxIrohCustomRelayDraft
@@ -296,10 +293,10 @@ private final class IrohSettingsControllerDouble:
 
     var snapshot: CmxIrohSettingsSnapshot
     var preferenceMutations: [CmxIrohRelayPreferenceDraft] = []
+    var pathPreferenceMutations: [CmxIrohPathPreference] = []
     var customRelayMutations: [CustomRelayMutation] = []
     var customRelayError: Error?
     var snapshotAfterCustomRelayError: CmxIrohSettingsSnapshot?
-    var debugRelayOnlyMutations: [Bool] = []
     var streamCreations = 0
     var streamTerminated = false
     var report = DiagnosticReport.empty
@@ -330,6 +327,10 @@ private final class IrohSettingsControllerDouble:
 
     func setIrohRelayPreference(_ preference: CmxIrohRelayPreferenceDraft) async throws {
         preferenceMutations.append(preference)
+    }
+
+    func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
+        pathPreferenceMutations.append(preference)
     }
 
     func upsertIrohCustomRelay(
@@ -374,15 +375,6 @@ private final class IrohSettingsControllerDouble:
         exportData = Data()
     }
 
-    func setIrohDebugRelayOnly(_ enabled: Bool) async throws {
-        debugRelayOnlyMutations.append(enabled)
-    }
-
-    func setIrohDebugTransportVerificationMode(
-        _ mode: CmxIrohTransportVerificationMode
-    ) async throws {
-        debugRelayOnlyMutations.append(mode == .relayOnly)
-    }
 }
 
 private enum TestFailure: Error {

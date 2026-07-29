@@ -158,12 +158,12 @@ pub fn workspace_state_dir() -> Option<PathBuf> {
     }
     #[cfg(target_os = "linux")]
     {
-        return env_path("XDG_STATE_HOME")
-            .map(|state| state.join("cmux-tui").join("sessions"))
-            .or_else(|| {
+        env_path("XDG_STATE_HOME").map(|state| state.join("cmux-tui").join("sessions")).or_else(
+            || {
                 home_dir()
                     .map(|home| home.join(".local").join("state").join("cmux-tui").join("sessions"))
-            });
+            },
+        )
     }
     #[cfg(windows)]
     {

@@ -37,6 +37,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var artifactFilesEnabled: Bool = false
     var terminalFolderTapEnabled: Bool = true
     var terminalFilesChipEnabled: Bool = false
+    var showMissingFiles: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
@@ -52,6 +53,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFolderTapEnabled: terminalFolderTapEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
+            showMissingFiles: showMissingFiles,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled,
             visibleArtifactCount: visibleArtifactCount,
             onArtifactFilesRequested: onArtifactFilesRequested,
@@ -85,7 +87,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         view.artifactFilesEnabled = artifactFilesEnabled
+        // Screen-anchored sessions scroll the local mirror's own scrollback
+        // immediately (the Mac never repaints for a primary-screen scroll), so
+        // they keep the low-latency local authority even under verified replay.
         view.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
+            && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid
             : .legacyMirror
         #if DEBUG
@@ -129,10 +135,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
+            showMissingFiles: showMissingFiles,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
+            && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid
             : .legacyMirror
         if artifactCountModeChanged {
@@ -166,6 +174,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var artifactFilesEnabled: Bool
         var terminalFolderTapEnabled: Bool
         var artifactChipGate: TerminalArtifactChipFeatureGate
+        var showMissingFiles: Bool
         var sessionArtifactCountEnabled: Bool
         var visibleArtifactCount: Int
         var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
@@ -191,7 +200,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
         private var composerController: UIHostingController<TerminalComposerView>?
         var artifactChipController: UIHostingController<TerminalArtifactChipView>?
-        var lastArtifactChipRender: (count: Int, enabled: Bool)?
+        var artifactChipVisibility = TerminalArtifactChipVisibilityState()
+        /// Pending debounced chip unmount; cancelled whenever a positive count
+        /// arrives so transient zero counts cannot flicker the chip.
+        var artifactChipHideTask: Task<Void, Never>?
+        /// Injected so the hide grace period is testable and cancellable
+        /// (`DispatchQueue.asyncAfter` is banned for intentional delays).
+        let artifactChipHideClock: any Clock<Duration>
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
@@ -216,12 +231,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             artifactFilesEnabled: Bool,
             terminalFolderTapEnabled: Bool,
             terminalFilesChipEnabled: Bool,
+            showMissingFiles: Bool = false,
             sessionArtifactCountEnabled: Bool,
             visibleArtifactCount: Int,
             onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
             onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void,
             onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void,
-            onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
+            onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void,
+            artifactChipHideClock: any Clock<Duration> = ContinuousClock()
         ) {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
@@ -232,6 +249,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 artifactsAvailable: artifactFilesEnabled,
                 preferenceEnabled: terminalFilesChipEnabled
             )
+            self.showMissingFiles = showMissingFiles
             self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
             self.visibleArtifactCount = visibleArtifactCount
             self.artifactCountNeedsRefresh = artifactChipGate.isEnabled
@@ -239,6 +257,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.onArtifactPathTapped = onArtifactPathTapped
             self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
             self.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
+            self.artifactChipHideClock = artifactChipHideClock
             super.init()
         }
 
@@ -286,7 +305,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         surfaceView.retryViewportReport()
                         return
                     }
-                    surfaceView.markViewportReportConfirmed()
+                    surfaceView.markViewportReportConfirmed(reportID: report.id)
                     if let renderEpoch = effectiveGrid.renderEpoch,
                        let renderRevisionFloor = effectiveGrid.renderRevisionFloor {
                         self.verifiedReplayState.acknowledgeViewport(
@@ -641,6 +660,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // height flows separately through `sizeThatFits`. Clear background so the
             // terminal/glass shows through.
             controller.view.backgroundColor = .clear
+            // Keyboard geometry is owned explicitly by the surface's frame math;
+            // opting out here prevents the hosted field from avoiding it a second time.
+            controller.safeAreaRegions = .container
             return controller
         }
 
@@ -677,7 +699,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             let width = max(1, surfaceView.bounds.width)
             let target = CGSize(width: width, height: .greatestFiniteMagnitude)
             let fitting = controller.sizeThatFits(in: target)
-            surfaceView.setComposerBandHeight(fitting.height, animated: animated)
+            let clampedHeight = min(
+                fitting.height,
+                floor(surfaceView.bounds.height * 0.45)
+            )
+            if clampedHeight < fitting.height {
+                MobileDebugLog.anchormux(
+                    "composer.bandHeightClamped measured=\(fitting.height) clamped=\(clampedHeight)"
+                )
+            }
+            surfaceView.setComposerBandHeight(clampedHeight, animated: animated)
         }
 
         /// Re-measure the open composer after a non-text layout change (rotation /
