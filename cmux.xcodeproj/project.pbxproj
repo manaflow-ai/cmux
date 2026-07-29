@@ -2017,6 +2017,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8362B0010000000000000001 /* TerminalCallerTTYResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8362B0020000000000000002 /* TerminalCallerTTYResolverTests.swift */; };
 		E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
+		F87910190000000000000001 /* TerminalConfigurationReloadCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910190000000000000002 /* TerminalConfigurationReloadCoordinator.swift */; };
 		D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */; };
 		8054A0030000000000000003 /* TerminalController+BrowserAutomationRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054A0040000000000000004 /* TerminalController+BrowserAutomationRecovery.swift */; };
 		D35A00000000000000000011 /* TerminalController+BrowserDesignMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000011 /* TerminalController+BrowserDesignMode.swift */; };
@@ -4430,6 +4431,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		8362B0020000000000000002 /* TerminalCallerTTYResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCallerTTYResolverTests.swift; sourceTree = "<group>"; };
 		F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClearScreenKeepScrollbackTests.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
+		F87910190000000000000002 /* TerminalConfigurationReloadCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationReloadCoordinator.swift; sourceTree = "<group>"; };
 		D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentPromptDelivery.swift"; sourceTree = "<group>"; };
 		8054A0040000000000000004 /* TerminalController+BrowserAutomationRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserAutomationRecovery.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000011 /* TerminalController+BrowserDesignMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserDesignMode.swift"; sourceTree = "<group>"; };
@@ -5694,6 +5696,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7AB34400000000000000002 /* WorkspaceSurfaceConfig.swift */,
 				F87910180000000000000002 /* AppDelegate+WorkspaceTerminalFontSizeDebug.swift */,
 				F87910140000000000000002 /* DeferredWorkspaceTerminalFontSizeCoordinatorJoin.swift */,
+				F87910190000000000000002 /* TerminalConfigurationReloadCoordinator.swift */,
 				F87910120000000000000002 /* TerminalFontConfigurationReloadTransaction.swift */,
 				F87910010000000000000002 /* WorkspaceTerminalFontSizeChange.swift */,
 				F87910150000000000000002 /* TerminalFontSizeChangeInheritanceContext.swift */,
@@ -9109,6 +9112,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
 				8362A0030000000000000003 /* TerminalCallerTTYBinding.swift in Sources */,
 				8362A0010000000000000001 /* TerminalCallerTTYResolver.swift in Sources */,
+				F87910190000000000000001 /* TerminalConfigurationReloadCoordinator.swift in Sources */,
 				D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */,
 				8054A0030000000000000003 /* TerminalController+BrowserAutomationRecovery.swift in Sources */,
 				D35A00000000000000000011 /* TerminalController+BrowserDesignMode.swift in Sources */,

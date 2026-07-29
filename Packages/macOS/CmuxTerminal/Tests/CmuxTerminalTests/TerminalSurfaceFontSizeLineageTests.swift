@@ -1044,6 +1044,107 @@ private func setFontBindingResult(_ result: Bool)
     }
 
     @Test
+    func configurationReloadAppliesRelativeInputAfterAbsoluteInput() {
+        var state = TerminalFontSizeConfigurationReloadState(
+            transactionId: UUID(),
+            surfaceId: UUID(),
+            lineage: TerminalFontSizeLineage(
+                basePoints: 13,
+                isExplicitOverride: true
+            ),
+            inheritanceLineage: nil,
+            followsConfiguredFontSize: false,
+            targetConfiguredRuntimePoints: 26,
+            targetMagnificationPercent: 200
+        )
+
+        state.recordAbsoluteFontInput(
+            currentRuntimePoints: 20,
+            currentIsAdjusted: true
+        )
+        state.recordRelativeFontInput(
+            previousRuntimePoints: 20,
+            currentRuntimePoints: 21,
+            previousIsAdjusted: true,
+            currentIsAdjusted: true
+        )
+
+        #expect(
+            state.resolvedTarget(
+                configuredRuntimePoints: 26,
+                magnificationPercent: 200
+            ).durableRuntimePoints == 21
+        )
+    }
+
+    @Test
+    func configurationReloadAppliesRelativeInputAfterResetInput() {
+        var state = TerminalFontSizeConfigurationReloadState(
+            transactionId: UUID(),
+            surfaceId: UUID(),
+            lineage: TerminalFontSizeLineage(
+                basePoints: 13,
+                isExplicitOverride: true
+            ),
+            inheritanceLineage: nil,
+            followsConfiguredFontSize: false,
+            targetConfiguredRuntimePoints: 26,
+            targetMagnificationPercent: 200
+        )
+
+        state.recordResetFontInput()
+        state.recordRelativeFontInput(
+            previousRuntimePoints: 13,
+            currentRuntimePoints: 14,
+            previousIsAdjusted: false,
+            currentIsAdjusted: true
+        )
+
+        #expect(
+            state.resolvedTarget(
+                configuredRuntimePoints: 26,
+                magnificationPercent: 200
+            ).durableRuntimePoints == 27
+        )
+    }
+
+    @Test
+    func configurationReloadReanchorsRelativeInputAfterNativeReset() {
+        var state = TerminalFontSizeConfigurationReloadState(
+            transactionId: UUID(),
+            surfaceId: UUID(),
+            lineage: TerminalFontSizeLineage(
+                basePoints: 13,
+                isExplicitOverride: false
+            ),
+            inheritanceLineage: nil,
+            followsConfiguredFontSize: true,
+            targetConfiguredRuntimePoints: 26,
+            targetMagnificationPercent: 200
+        )
+
+        state.recordRelativeFontInput(
+            previousRuntimePoints: 13,
+            currentRuntimePoints: 14,
+            previousIsAdjusted: false,
+            currentIsAdjusted: true
+        )
+        state.recordRelativeFontInput(
+            previousRuntimePoints: 26,
+            currentRuntimePoints: 27,
+            previousIsAdjusted: false,
+            currentIsAdjusted: true
+        )
+
+        #expect(
+            state.resolvedTarget(
+                configuredRuntimePoints: 26,
+                magnificationPercent: 200
+            ).durableRuntimePoints == 27
+        )
+    }
+
+    @Test
     func configurationReloadKeepsClampedIncreaseExplicit() throws {
         try assertConfigurationReloadKeepsClampedInputExplicit(
             startingRuntimePoints:

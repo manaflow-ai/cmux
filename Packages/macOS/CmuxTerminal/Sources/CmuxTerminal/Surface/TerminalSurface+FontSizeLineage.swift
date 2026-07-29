@@ -268,11 +268,12 @@ extension TerminalSurface {
         magnificationPercent: Int
     ) {
         if var reloadState = pendingFontSizeConfigurationReloadState {
-            reloadState.recordLocalFontInput(
-                runtimePointDelta: 0,
-                usesConfiguredBase:
-                    !previousLineage.isExplicitOverride,
-                isExplicitOverride: true
+            reloadState.recordRelativeFontInput(
+                previousRuntimePoints: runtimePoints,
+                currentRuntimePoints: runtimePoints,
+                previousIsAdjusted:
+                    previousLineage.isExplicitOverride,
+                currentIsAdjusted: true
             )
             pendingFontSizeConfigurationReloadState =
                 reloadState
@@ -662,7 +663,6 @@ extension TerminalSurface {
             if pendingFontSizeConfigurationReloadState?
                     .transactionId == state.transactionId {
                 pendingFontSizeConfigurationReloadState = nil
-                pendingFontSizeExplicitInputBaseline = nil
             }
         }
 
@@ -777,7 +777,6 @@ extension TerminalSurface {
             }
         }
         pendingFontSizeConfigurationReloadState = nil
-        pendingFontSizeExplicitInputBaseline = nil
     }
 
     /// Captures the current font size and its surface-local ownership state.

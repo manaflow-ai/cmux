@@ -20,30 +20,51 @@ public struct TerminalFontSizeConfigurationReloadState: Sendable {
     var localInputUsesConfiguredBase = false
     var localInputIsExplicitOverride: Bool?
 
-    mutating func recordLocalFontInput(
-        runtimePointDelta: Float32,
-        absoluteRuntimePoints: Float32? = nil,
-        usesConfiguredBase: Bool,
-        isExplicitOverride: Bool
+    mutating func recordRelativeFontInput(
+        previousRuntimePoints: Float32,
+        currentRuntimePoints: Float32,
+        previousIsAdjusted: Bool,
+        currentIsAdjusted: Bool
     ) {
-        if let absoluteRuntimePoints {
-            localAbsoluteRuntimePoints =
-                absoluteRuntimePoints
-            localInputUsesConfiguredBase = false
-            localRuntimePointDelta = 0
-        } else if usesConfiguredBase {
+        let runtimePointDelta =
+            currentRuntimePoints
+            - previousRuntimePoints
+        if !previousIsAdjusted {
             localAbsoluteRuntimePoints = nil
             localInputUsesConfiguredBase = true
             localRuntimePointDelta = 0
-        } else if let currentAbsoluteRuntimePoints =
-                    localAbsoluteRuntimePoints {
+        }
+        if let currentAbsoluteRuntimePoints =
+                localAbsoluteRuntimePoints {
             localAbsoluteRuntimePoints =
                 currentAbsoluteRuntimePoints
                 + runtimePointDelta
         } else {
             localRuntimePointDelta += runtimePointDelta
         }
-        localInputIsExplicitOverride = isExplicitOverride
+        localInputIsExplicitOverride =
+            currentIsAdjusted
+        inheritanceLineage = resolvedTargetLineage()
+    }
+
+    mutating func recordResetFontInput() {
+        localAbsoluteRuntimePoints = nil
+        localInputUsesConfiguredBase = true
+        localRuntimePointDelta = 0
+        localInputIsExplicitOverride = false
+        inheritanceLineage = resolvedTargetLineage()
+    }
+
+    mutating func recordAbsoluteFontInput(
+        currentRuntimePoints: Float32,
+        currentIsAdjusted: Bool
+    ) {
+        localAbsoluteRuntimePoints =
+            currentRuntimePoints
+        localInputUsesConfiguredBase = false
+        localRuntimePointDelta = 0
+        localInputIsExplicitOverride =
+            currentIsAdjusted
         inheritanceLineage = resolvedTargetLineage()
     }
 

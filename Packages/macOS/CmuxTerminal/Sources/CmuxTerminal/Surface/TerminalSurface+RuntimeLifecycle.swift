@@ -621,6 +621,15 @@ extension TerminalSurface {
             return
         }
         guard let createdSurface = surface else { return }
+        guard let surfaceCallbackContext else {
+            preconditionFailure(
+                "A native terminal surface requires callback userdata"
+            )
+        }
+        installFontSizeActionObservation(
+            on: createdSurface,
+            callbackContext: surfaceCallbackContext
+        )
         if source == .scheduledRestore || source == .inputDemand {
             requiresRestoreSpawnPacing = false
         }

@@ -30,6 +30,9 @@ static float cmux_test_font_runtime_points = 0;
 static float cmux_test_font_configured_runtime_points = 0;
 static bool cmux_test_font_adjusted = false;
 static bool cmux_test_font_binding_succeeds = true;
+static void* cmux_test_font_callback_surface = NULL;
+static ghostty_font_size_action_cb cmux_test_font_callback = NULL;
+static void* cmux_test_font_callback_userdata = NULL;
 
 void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
@@ -142,6 +145,11 @@ bool ghostty_surface_binding_action(
 ) {
     if (surface == cmux_test_font_surface) {
         if (!cmux_test_font_binding_succeeds) return false;
+        const float previous_points =
+            cmux_test_font_runtime_points;
+        const bool previous_adjusted =
+            cmux_test_font_adjusted;
+        int32_t observed_action = -1;
         char buffer[128];
         const uintptr_t copy_len =
             action_len < sizeof(buffer) - 1
@@ -157,29 +165,69 @@ bool ghostty_surface_binding_action(
             ) == 0) {
             cmux_test_font_runtime_points =
                 strtof(buffer + strlen(set_prefix), NULL);
+            if (cmux_test_font_runtime_points > 255) {
+                cmux_test_font_runtime_points = 255;
+            }
+            if (cmux_test_font_runtime_points < 1) {
+                cmux_test_font_runtime_points = 1;
+            }
             cmux_test_font_adjusted = true;
+            observed_action = 3;
         } else if (strcmp(buffer, "reset_font_size") == 0) {
             cmux_test_font_runtime_points =
                 cmux_test_font_configured_runtime_points;
             cmux_test_font_adjusted = false;
+            observed_action = 2;
         } else if (strncmp(buffer, "increase_font_size:", 19) == 0) {
             cmux_test_font_runtime_points += strtof(buffer + 19, NULL);
             if (cmux_test_font_runtime_points > 255) {
                 cmux_test_font_runtime_points = 255;
             }
             cmux_test_font_adjusted = true;
+            observed_action = 0;
         } else if (strncmp(buffer, "decrease_font_size:", 19) == 0) {
             cmux_test_font_runtime_points -= strtof(buffer + 19, NULL);
             if (cmux_test_font_runtime_points < 1) {
                 cmux_test_font_runtime_points = 1;
             }
             cmux_test_font_adjusted = true;
+            observed_action = 1;
+        }
+        if (observed_action >= 0
+            && cmux_test_font_callback_surface == surface
+            && cmux_test_font_callback != NULL) {
+            cmux_test_font_callback(
+                cmux_test_font_callback_userdata,
+                observed_action,
+                previous_points,
+                cmux_test_font_runtime_points,
+                previous_adjusted,
+                cmux_test_font_adjusted);
         }
     }
     return true;
 }
+
+bool ghostty_surface_set_font_size_action_callback(
+    void *surface,
+    ghostty_font_size_action_cb callback,
+    void *userdata
+) {
+    if (surface == NULL || callback == NULL) return false;
+    cmux_test_font_callback_surface = surface;
+    cmux_test_font_callback = callback;
+    cmux_test_font_callback_userdata = userdata;
+    return true;
+}
+
 void ghostty_surface_config_new(void) {}
-void ghostty_surface_free(void) {}
+void ghostty_surface_free(void *surface) {
+    if (cmux_test_font_callback_surface == surface) {
+        cmux_test_font_callback_surface = NULL;
+        cmux_test_font_callback = NULL;
+        cmux_test_font_callback_userdata = NULL;
+    }
+}
 void ghostty_surface_free_text(void) {}
 float ghostty_surface_font_size(void *surface) {
     return surface == cmux_test_font_surface
@@ -290,6 +338,9 @@ void cmux_test_ghostty_font_state_end(void) {
     cmux_test_font_configured_runtime_points = 0;
     cmux_test_font_adjusted = false;
     cmux_test_font_binding_succeeds = true;
+    cmux_test_font_callback_surface = NULL;
+    cmux_test_font_callback = NULL;
+    cmux_test_font_callback_userdata = NULL;
 }
 
 void cmux_test_ghostty_font_binding_result(bool result) {

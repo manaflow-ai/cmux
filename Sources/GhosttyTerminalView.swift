@@ -449,15 +449,13 @@ class GhosttyApp {
     private(set) var effectiveTerminalColorSchemePreference: GhosttyConfig.ColorSchemePreference = .dark
     private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
     private var runtimeColorSchemeSynchronizationDepth = 0
-    private var reloadConfigurationDepth = 0
+    private var nativeReloadActionSuppressionDepth = 0
     typealias ConfigurationReloadCompletion =
         @MainActor () -> Void
-    private var pendingConfigurationReload:
-        TerminalPendingConfigurationReload?
+    private let configurationReloadCoordinator =
+        TerminalConfigurationReloadCoordinator()
     private let terminalFontConfigurationReloadReconciler =
         TerminalFontConfigurationReloadReconciler()
-    private var isWaitingForFontSizeWorkBeforeConfigurationReload =
-        false
     private(set) var appliedGlobalFontMagnificationPercent =
         GlobalFontMagnification.storedPercent
     private(set) var terminalFontConfigurationGeneration: UInt64 = 0
@@ -1882,30 +1880,17 @@ class GhosttyApp {
     private func enqueueConfigurationReload(
         _ request: TerminalPendingConfigurationReload
     ) {
-        guard reloadConfigurationDepth == 0 else {
-            logThemeAction(
-                "reload skipped source=\(request.source) soft=\(request.soft) reason=reentrant"
-            )
-            request.completions.forEach { $0() }
-            return
+        if configurationReloadCoordinator.enqueue(request) {
+            schedulePendingConfigurationReload()
         }
-        if var pendingConfigurationReload {
-            pendingConfigurationReload.merge(request)
-            self.pendingConfigurationReload =
-                pendingConfigurationReload
-        } else {
-            pendingConfigurationReload = request
-        }
-        schedulePendingConfigurationReload()
     }
 
     @MainActor
     private func schedulePendingConfigurationReload() {
-        guard pendingConfigurationReload != nil,
-              !isWaitingForFontSizeWorkBeforeConfigurationReload else {
+        guard configurationReloadCoordinator
+                .isWaitingForFontWork else {
             return
         }
-        isWaitingForFontSizeWorkBeforeConfigurationReload = true
         guard let arbiter =
                 AppDelegate.shared?.workspaceTerminalFontSizeArbiter else {
             performPendingConfigurationReload(completion: {})
@@ -1930,22 +1915,26 @@ class GhosttyApp {
     private func performPendingConfigurationReload(
         completion: @escaping @MainActor () -> Void
     ) {
-        guard let request = pendingConfigurationReload else {
-            isWaitingForFontSizeWorkBeforeConfigurationReload = false
+        guard let request =
+                configurationReloadCoordinator
+                    .takePendingRequest() else {
             completion()
             return
         }
-        pendingConfigurationReload = nil
         performConfigurationReload(request) { [weak self] in
             guard let self else {
                 request.completions.forEach { $0() }
                 completion()
                 return
             }
-            self.isWaitingForFontSizeWorkBeforeConfigurationReload =
-                false
+            let shouldScheduleNext =
+                self.configurationReloadCoordinator
+                    .finishReload()
+            self.drainPendingAppearanceSynchronization()
             request.completions.forEach { $0() }
-            self.schedulePendingConfigurationReload()
+            if shouldScheduleNext {
+                self.schedulePendingConfigurationReload()
+            }
             completion()
         }
     }
@@ -1959,7 +1948,6 @@ class GhosttyApp {
         let source = request.source
         let reloadSettingsFromFile = request.reloadSettingsFromFile
         let preferredColorScheme = request.preferredColorScheme
-        reloadConfigurationDepth += 1
         let fontTransaction =
             TerminalFontConfigurationReloadTransaction.prepare(
                 appliedMagnificationPercent:
@@ -1979,15 +1967,14 @@ class GhosttyApp {
         let reloadMagnificationPercent =
             fontTransaction.targetMagnificationPercent
         // Reusing the old Ghostty config cannot apply an imported scale.
-        // Promote this transaction so the observer's reentrant reload may
-        // remain safely coalesced by `reloadConfigurationDepth`.
+        // Promote this transaction. A reload requested by the magnification
+        // observer is queued behind this transaction by the coordinator.
         let soft =
             requestedSoft
             && !fontTransaction.magnificationDidChange
         let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
-            finishConfigurationReloadActivity()
             completion()
             return
         }
@@ -2010,7 +1997,9 @@ class GhosttyApp {
         if soft, let config {
             let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
-            ghostty_app_update_config(app, config)
+            suppressGhosttyReloadActions {
+                ghostty_app_update_config(app, config)
+            }
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
@@ -2019,7 +2008,6 @@ class GhosttyApp {
                 preferredColorScheme: effectiveReloadColorScheme
             )
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
-            finishConfigurationReloadActivity()
             completion()
             return
         }
@@ -2035,7 +2023,6 @@ class GhosttyApp {
                 )
             }
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
-            finishConfigurationReloadActivity()
             completion()
             return
         }
@@ -2083,6 +2070,8 @@ class GhosttyApp {
         let registryTraversal =
             Self.terminalSurfaceRegistry
                 .makeIncrementalTraversal()
+        configurationReloadCoordinator
+            .beginReconciliation()
         terminalFontConfigurationReloadReconciler
             .reconcileIncrementally(
                 captureNextWork: {
@@ -2157,7 +2146,12 @@ class GhosttyApp {
                     )
                 },
                 applyConfiguration: {
-                    ghostty_app_update_config(app, newConfig)
+                    self.suppressGhosttyReloadActions {
+                        ghostty_app_update_config(
+                            app,
+                            newConfig
+                        )
+                    }
                     self.appliedGlobalFontMagnificationPercent =
                         reloadMagnificationPercent
                     self.terminalFontConfigurationGeneration &+= 1
@@ -2209,19 +2203,19 @@ class GhosttyApp {
                 self.logThemeAction(
                     "reload end source=\(source) soft=\(soft) mode=full"
                 )
-                self.finishConfigurationReloadActivity()
                 completion()
             }
     }
 
     @MainActor
-    private func finishConfigurationReloadActivity() {
-        precondition(
-            reloadConfigurationDepth > 0,
-            "Configuration reload activity must balance"
-        )
-        reloadConfigurationDepth -= 1
-        drainPendingAppearanceSynchronization()
+    private func suppressGhosttyReloadActions<Result>(
+        _ body: () -> Result
+    ) -> Result {
+        nativeReloadActionSuppressionDepth += 1
+        defer {
+            nativeReloadActionSuppressionDepth -= 1
+        }
+        return body()
     }
 
     @MainActor
@@ -2233,6 +2227,11 @@ class GhosttyApp {
             source: source,
             preferredColorScheme: preferredColorScheme
         )
+    }
+
+    @MainActor
+    var isConfigurationReloadActive: Bool {
+        configurationReloadCoordinator.isReloadActive
     }
 
     @MainActor
@@ -2279,13 +2278,26 @@ class GhosttyApp {
     }
 
     func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
-        let (currentColorScheme, colorSchemeSource) =
-            GhosttyConfig.appearanceSyncColorSchemePreference(passedAppearance: appearance)
-        synchronizeThemeWithResolvedAppearance(
-            currentColorScheme,
-            colorSchemeSource: colorSchemeSource,
-            source: source
-        )
+        let synchronize: @MainActor () -> Void = {
+            let (currentColorScheme, colorSchemeSource) =
+                GhosttyConfig.appearanceSyncColorSchemePreference(
+                    passedAppearance: appearance
+                )
+            self.synchronizeThemeWithResolvedAppearance(
+                currentColorScheme,
+                colorSchemeSource: colorSchemeSource,
+                source: source
+            )
+        }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                synchronize()
+            }
+        } else {
+            DispatchQueue.main.sync {
+                synchronize()
+            }
+        }
     }
 
     private struct PendingAppearanceSynchronization {
@@ -2294,6 +2306,7 @@ class GhosttyApp {
         let source: String
     }
 
+    @MainActor
     private func synchronizeThemeWithResolvedAppearance(
         _ currentColorScheme: GhosttyConfig.ColorSchemePreference,
         colorSchemeSource: String,
@@ -2302,7 +2315,9 @@ class GhosttyApp {
         let plan = Self.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
             currentColorScheme: currentColorScheme,
-            isConfigurationReloadInProgress: reloadConfigurationDepth > 0
+            isConfigurationReloadInProgress:
+                configurationReloadCoordinator
+                    .isReloadActive
         )
         if backgroundLogEnabled {
             let previousLabel: String
@@ -2346,8 +2361,10 @@ class GhosttyApp {
         }
     }
 
+    @MainActor
     private func drainPendingAppearanceSynchronization() {
-        guard reloadConfigurationDepth == 0,
+        guard !configurationReloadCoordinator
+                .isReloadActive,
               let pendingAppearanceSynchronization else { return }
         self.pendingAppearanceSynchronization = nil
         synchronizeThemeWithResolvedAppearance(
@@ -2405,7 +2422,7 @@ class GhosttyApp {
     }
 
     private func shouldProcessGhosttyReloadAction(source: String, soft: Bool) -> Bool {
-        guard reloadConfigurationDepth == 0,
+        guard nativeReloadActionSuppressionDepth == 0,
               runtimeColorSchemeSynchronizationDepth == 0 else {
             logThemeAction("reload request skipped source=\(source) soft=\(soft) reason=reentrant")
             return false
@@ -5652,19 +5669,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
-        terminalSurface?.beginFontSizeExplicitInputObservation()
-        defer {
-            terminalSurface?
-                .finishFontSizeExplicitInputObservation(
-                    preservingAbsoluteRuntimePoints: {
-                        runtimePoints in
-                        currentKeyBindingSetsAbsoluteFontSize(
-                            event,
-                            runtimePoints: runtimePoints
-                        )
-                    }
-                )
-        }
         terminalSurface?.didReceiveExplicitInput()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -6102,19 +6106,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
-    }
-
-    private func currentKeyBindingSetsAbsoluteFontSize(
-        _ event: NSEvent,
-        runtimePoints: Float32
-    ) -> Bool {
-        return GhosttyApp.shared
-            .storedShortcut(
-                forBindingAction:
-                    "set_font_size:"
-                    + String(runtimePoints)
-            )?
-            .matches(event: event) == true
     }
 
     @discardableResult

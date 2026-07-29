@@ -5105,16 +5105,12 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             reloadCompleted.fulfill()
         }
 
-        XCTAssertEqual(
-            configurationReloadDepth(of: app),
-            1,
+        XCTAssertTrue(
+            app.isConfigurationReloadActive,
             "Appearance synchronization must stay deferred while incremental reconciliation is pending"
         )
         wait(for: [reloadCompleted], timeout: 5)
-        XCTAssertEqual(
-            configurationReloadDepth(of: app),
-            0
-        )
+        XCTAssertFalse(app.isConfigurationReloadActive)
         withExtendedLifetime(retainedPanels) {}
 #else
         throw XCTSkip(
@@ -5233,16 +5229,6 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             "Configuration generation requires DEBUG"
         )
 #endif
-    }
-
-    private func configurationReloadDepth(
-        of app: GhosttyApp
-    ) -> Int? {
-        Mirror(reflecting: app).children
-            .first {
-                $0.label == "reloadConfigurationDepth"
-            }?
-            .value as? Int
     }
 
     func testConfigurationFontReconcilerLateWorkCannotExtendCapture() {
