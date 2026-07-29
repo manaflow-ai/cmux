@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
@@ -83,17 +83,8 @@ pub fn load_or_create_iroh_secret(path: &Path) -> Result<SecretKey, ProviderErro
         ensure_secure_directory(parent, DirectoryAccess::OwnerOnly).map_err(io_provider_error)?;
     }
     if path.exists() {
-        let mut options = OpenOptions::new();
-        options.read(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.custom_flags(libc::O_NOFOLLOW);
-        }
-        let mut file = options.open(path).map_err(io_provider_error)?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes).map_err(io_provider_error)?;
-        let bytes: [u8; 32] = bytes.try_into().map_err(|bytes: Vec<u8>| {
+        let bytes = crate::secret_file::read_owner_only(path, 32).map_err(io_provider_error)?;
+        let bytes: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
             ProviderError::Configuration(format!(
                 "Iroh secret at {} is {} bytes, expected 32",
                 path.display(),
