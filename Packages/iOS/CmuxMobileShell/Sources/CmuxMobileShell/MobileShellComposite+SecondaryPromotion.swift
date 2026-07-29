@@ -194,15 +194,17 @@ extension MobileShellComposite {
         // Remove the target's control registration before disturbing the live
         // foreground. If this acknowledgement fails, its client is discarded
         // and the ordinary fresh-dial switch path can proceed.
-        guard await unsubscribeEventStream(
-            on: sub.client,
-            streamID: sub.streamID
-        ) else {
-            sub.cancel()
-            if secondaryMacSubscriptions[macID] === sub {
-                secondaryMacSubscriptions[macID] = nil
+        if sub.supportedHostCapabilities.contains("events.v1") {
+            guard await unsubscribeEventStream(
+                on: sub.client,
+                streamID: sub.streamID
+            ) else {
+                sub.cancel()
+                if secondaryMacSubscriptions[macID] === sub {
+                    secondaryMacSubscriptions[macID] = nil
+                }
+                return false
             }
-            return false
         }
         guard secondaryMacSubscriptions[macID] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
@@ -219,8 +221,8 @@ extension MobileShellComposite {
         // terminal registration is gone.
         var previousForegroundCanStayWarm = false
         if let previousForegroundConnection {
-            let terminalStopped = await unsubscribeTerminalEventStream(
-                on: previousForegroundConnection.client
+            let terminalStopped = await prepareFocusedConnectionForHandoff(
+                previousForegroundConnection
             )
             if terminalStopped {
                 // Presence, visibility, or account scope may change while the

@@ -3719,12 +3719,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .permanentFailure
         }
         let capabilities = Set(status.capabilities)
-        guard capabilities.contains("events.v1") else {
-            mobileShellLog.warning(
-                "secondary client rejected host without control events mac=\(mac.macDeviceID, privacy: .private)"
+        if !capabilities.contains("events.v1") {
+            mobileShellLog.info(
+                "secondary client using refresh-only fallback mac=\(mac.macDeviceID, privacy: .private)"
             )
-            await client.disconnect()
-            return .permanentFailure
         }
         return .connected(SecondaryClientHandle(
             client: client,
@@ -4408,7 +4406,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             client: client,
             displayName: displayName
         )
-        startSecondaryEventConsumer(subscription, displayName: displayName)
+        if subscription.supportedHostCapabilities.contains("events.v1") {
+            startSecondaryEventConsumer(
+                subscription,
+                displayName: displayName
+            )
+        }
         return .connected
     }
 
@@ -4725,6 +4728,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         subscription.isTransitioningToFocus = true
+        guard subscription.supportedHostCapabilities.contains("events.v1")
+        else {
+            return true
+        }
         // Drain the target's current reassertion while its timer owner remains
         // uncancelled. Canceling first can make an RPC await return locally
         // before the server has finished applying the subscribe.
@@ -4767,7 +4774,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         subscription.isTransitioningToFocus = false
-        ensureSecondaryControlKeepalive()
+        if subscription.supportedHostCapabilities.contains("events.v1") {
+            ensureSecondaryControlKeepalive()
+        }
         scheduleSecondaryPresenceAggregation(forMacDeviceID: macDeviceID)
     }
 

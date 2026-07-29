@@ -338,6 +338,90 @@ import Testing
         #expect(candidates.map(\.macDeviceID) == ["legacy-tailscale"])
     }
 
+    @Test func hostWithoutEventsUsesRefreshOnlyAggregationFallback() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "refresh-only-control",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-refresh-only",
+            displayName: "Refresh-only Mac",
+            routes: [route],
+            instanceTag: "refresh-only-tag",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-refresh-only",
+            instanceTag: "refresh-only-tag",
+            displayName: "Refresh-only Mac"
+        )
+        await router.setCapabilities(["workspace.actions.v1"])
+        let clock = ControlPoolManualClock()
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: TransportBox()
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" },
+            controlPlaneSchedulingClock: clock
+        )
+        shell.applyPresenceUpdate(
+            Self.snapshot([
+                Self.instance(
+                    deviceID: "mac-refresh-only",
+                    tag: "refresh-only-tag",
+                    online: true
+                ),
+            ]),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+
+        #expect(await router.waitForCount(
+            of: "workspace.list",
+            atLeast: 1
+        ))
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions["mac-refresh-only"] != nil
+                && shell.workspacesByMac["mac-refresh-only"]?.status
+                    == .connected
+        })
+        #expect(await router.count(of: "mobile.events.subscribe") == 0)
+        #expect(clock.sleeperCount == 0)
+
+        if let subscription =
+            shell.secondaryMacSubscriptions["mac-refresh-only"] {
+            subscription.cancel()
+            shell.secondaryMacSubscriptions["mac-refresh-only"] = nil
+            await subscription.client.disconnect()
+        }
+    }
+
     @Test func retryStateCoalescesPoolFailuresAndCapsBackoff() {
         var state = MobileControlPoolRetryState()
 
@@ -1285,7 +1369,7 @@ import Testing
             client: client,
             route: route,
             ticket: ticket,
-            supportedHostCapabilities: [],
+            supportedHostCapabilities: ["events.v1"],
             actionCapabilities: .none
         )
         shell.secondaryMacSubscriptions["mac-b"] = subscription
@@ -1367,7 +1451,7 @@ import Testing
                 ),
                 route: route,
                 ticket: ticket,
-                supportedHostCapabilities: [],
+                supportedHostCapabilities: ["events.v1"],
                 actionCapabilities: .none
             )
         }
@@ -1616,7 +1700,7 @@ import Testing
             client: client,
             route: route,
             ticket: ticket,
-            supportedHostCapabilities: [],
+            supportedHostCapabilities: ["events.v1"],
             actionCapabilities: .none
         )
         shell.secondaryMacSubscriptions["mac-b"] = subscription
@@ -1690,7 +1774,7 @@ import Testing
                 ),
                 route: route,
                 ticket: ticket,
-                supportedHostCapabilities: [],
+                supportedHostCapabilities: ["events.v1"],
                 actionCapabilities: .none
             )
         }
