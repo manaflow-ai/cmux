@@ -9356,7 +9356,8 @@ struct CMUXCLI {
             initialSSHStartupCommand = ptyStartupCommand
             remoteTerminalSSHStartupCommand = ptyStartupCommand
         }
-        if sshOptions.terminalTransport == .mosh {
+        if sshOptions.terminalTransport == .mosh,
+           !fallsBackToOpenSSHInteractiveSession {
             initialSSHStartupCommand = buildMoshTerminalStartupCommand(
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
