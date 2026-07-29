@@ -88,6 +88,70 @@ import Testing
             secondCompletedOperationID,
         ])
     }
+
+    @Test func nestedReleasesRestoreTheOriginalTombstone() async throws {
+        let originalOperationID = UUID()
+        let firstReservationID = UUID()
+        let secondReservationID = UUID()
+        let persistence = TransientLoadFailurePersistence(failFirstLoad: false)
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 1,
+            persistence: persistence
+        )
+
+        try cache.accept(operationID: originalOperationID)
+        #expect(try await cache.acceptAsynchronously(operationID: firstReservationID))
+        #expect(try await cache.acceptAsynchronously(operationID: secondReservationID))
+
+        #expect(
+            try await cache.releaseUnassociatedAcceptanceAsynchronously(
+                operationID: secondReservationID
+            )
+        )
+        #expect(cache.containsCompletedOperation(firstReservationID))
+        #expect(
+            try await cache.releaseUnassociatedAcceptanceAsynchronously(
+                operationID: firstReservationID
+            )
+        )
+
+        #expect(cache.containsCompletedOperation(originalOperationID))
+        #expect(cache.containsCompletedOperation(firstReservationID) == false)
+        #expect(cache.containsCompletedOperation(secondReservationID) == false)
+        #expect(persistence.savedOperationIDs == [originalOperationID])
+    }
+
+    @Test func releasingEvictedReservationCannotResurrectIt() async throws {
+        let originalOperationID = UUID()
+        let firstReservationID = UUID()
+        let secondReservationID = UUID()
+        let persistence = TransientLoadFailurePersistence(failFirstLoad: false)
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 1,
+            persistence: persistence
+        )
+
+        try cache.accept(operationID: originalOperationID)
+        #expect(try await cache.acceptAsynchronously(operationID: firstReservationID))
+        #expect(try await cache.acceptAsynchronously(operationID: secondReservationID))
+
+        #expect(
+            try await cache.releaseUnassociatedAcceptanceAsynchronously(
+                operationID: firstReservationID
+            )
+        )
+        #expect(
+            try await cache.releaseUnassociatedAcceptanceAsynchronously(
+                operationID: secondReservationID
+            )
+        )
+
+        #expect(cache.containsCompletedOperation(originalOperationID))
+        #expect(cache.containsCompletedOperation(firstReservationID) == false)
+        #expect(cache.containsCompletedOperation(secondReservationID) == false)
+        #expect(persistence.savedOperationIDs == [originalOperationID])
+        #expect(try await cache.acceptAsynchronously(operationID: firstReservationID))
+    }
 }
 
 private final class TransientLoadFailurePersistence:

@@ -2055,6 +2055,106 @@ struct FinalCloseRoutingRegressionTests {
         return window
     }
 
+    @Test("Tab close commits a windowless registered owner without closing a same-ID duplicate")
+    func tabCloseCommitsWindowlessRegisteredOwnerWithoutClosingDuplicate() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let duplicateWindow = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            duplicateWindow.orderOut(nil)
+        }
+        duplicateWindow.makeKeyAndOrderFront(nil)
+
+        app.closeMainWindowContainingTabId(workspace.id, recordHistory: false)
+
+        #expect(duplicateWindow.closeCallCount == 0)
+        #expect(manager.isFinalizedForWindowClose)
+        #expect(manager.tabs.isEmpty)
+        #expect(workspace.isRetiredFromOwningTabManager)
+        #expect(app.mainWindowContexts.values.contains { $0.windowId == windowId } == false)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+#if DEBUG
+        #expect(!app.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
+#endif
+    }
+
+    @Test("Tab close commits a windowless recoverable owner without closing a same-ID duplicate")
+    func tabCloseCommitsWindowlessRecoverableOwnerWithoutClosingDuplicate() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let ownerWindow = makeMainWindow(id: windowId)
+        let duplicateWindow = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            ownerWindow.orderOut(nil)
+            duplicateWindow.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            ownerWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        app.discardOrphanedMainWindowContext(context)
+        let route = try #require(app.recoverableMainWindowRoute(windowId: windowId))
+        route.window = nil
+        ownerWindow.identifier = nil
+        ownerWindow.orderOut(nil)
+        duplicateWindow.makeKeyAndOrderFront(nil)
+
+        app.closeMainWindowContainingTabId(workspace.id, recordHistory: false)
+
+        #expect(duplicateWindow.closeCallCount == 0)
+        #expect(manager.isFinalizedForWindowClose)
+        #expect(manager.tabs.isEmpty)
+        #expect(workspace.isRetiredFromOwningTabManager)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) == nil)
+#if DEBUG
+        #expect(!app.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
+#endif
+    }
+
     @Test("Windowless owner rejects a same-identifier close request")
     func windowlessOwnerRejectsSameIdentifierCloseRequest() throws {
         _ = NSApplication.shared
