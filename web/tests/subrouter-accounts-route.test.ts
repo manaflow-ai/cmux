@@ -16,10 +16,15 @@ let upstream: ReturnType<typeof createMockSubrouter>;
 let useStubDb = false;
 
 const getUser = mock(async () => currentUser);
+const nonRedirectingSignOut = mock(async () => {});
 const cloudDb = mock(() => fakeDb);
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
+  getNonRedirectingStackServerApp: () => ({
+    getUser,
+    signOut: nonRedirectingSignOut,
+  }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
 }));
@@ -62,13 +67,16 @@ beforeEach(() => {
   upstream = createMockSubrouter();
   globalThis.fetch = upstream.fetch as unknown as typeof fetch;
   getUser.mockClear();
+  nonRedirectingSignOut.mockClear();
   cloudDb.mockClear();
 });
 
 describe("subrouter accounts route", () => {
   test("revokes the exact native Stack session on logout", async () => {
-    const signOut = mock(async () => {});
-    currentUser = { ...stackUser(), signOut };
+    const redirectingUserSignOut = mock(async () => {
+      throw new Error("NEXT_REDIRECT");
+    });
+    currentUser = { ...stackUser(), signOut: redirectingUserSignOut };
 
     const response = await logoutRoute.POST(
       new Request("https://cmux.test/api/subrouter/logout", {
@@ -82,7 +90,13 @@ describe("subrouter accounts route", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
-    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(redirectingUserSignOut).not.toHaveBeenCalled();
+    expect(nonRedirectingSignOut).toHaveBeenCalledWith({
+      tokenStore: {
+        accessToken: "stack-access",
+        refreshToken: "stack-refresh",
+      },
+    });
     expect(getUser).toHaveBeenCalledWith({
       tokenStore: {
         accessToken: "stack-access",
@@ -92,15 +106,14 @@ describe("subrouter accounts route", () => {
   });
 
   test("logout never falls back to an ambient browser session", async () => {
-    const signOut = mock(async () => {});
-    currentUser = { ...stackUser(), signOut };
+    currentUser = stackUser();
 
     const response = await logoutRoute.POST(
       request("/api/subrouter/logout", { method: "POST", auth: "cookie" }),
     );
 
     expect(response.status).toBe(401);
-    expect(signOut).not.toHaveBeenCalled();
+    expect(nonRedirectingSignOut).not.toHaveBeenCalled();
     expect(getUser).not.toHaveBeenCalled();
   });
 
@@ -316,7 +329,7 @@ describe("subrouter accounts route", () => {
 
     expect(response.status).toBe(200);
     expect(json.account.kind).toBe("openai-apikey");
-    expect(upstream.lastCreateAccountUrl?.searchParams.get("validate")).toBeNull();
+    expect(upstream.lastCreateAccountUrl?.searchParams.get("validate")).toBe("1");
     expect(upstream.lastCreateAccountUrl?.searchParams.get("adopt")).toBe("1");
   });
 
@@ -397,7 +410,7 @@ describe("subrouter accounts route", () => {
     expect(body).not.toContain("should-never-leak");
   });
 
-  test("adopts refresh custody without central provider usage validation", async () => {
+  test("adopts refresh custody and validates the provider credential", async () => {
     const response = await accountsRoute.POST(
       request("/api/subrouter/accounts?validate=1", {
         method: "POST",
@@ -414,7 +427,7 @@ describe("subrouter accounts route", () => {
     expect(response.status).toBe(200);
     expect(json.account.kind).toBe("openai-apikey");
     expect(json.account.label).toBe("OpenAI");
-    expect(upstream.lastCreateAccountUrl?.searchParams.get("validate")).toBeNull();
+    expect(upstream.lastCreateAccountUrl?.searchParams.get("validate")).toBe("1");
     expect(upstream.lastCreateAccountUrl?.searchParams.get("adopt")).toBe("1");
     expect(upstream.lastCreateAccountBody).toEqual({
       provider: "openai-apikey",
@@ -477,7 +490,7 @@ describe("subrouter accounts route", () => {
 
     expect(response.status).toBe(200);
     expect(upstream.lastRepairAccount?.accountId).toBe("acct-1");
-    expect(upstream.lastRepairAccount?.validate).toBeNull();
+    expect(upstream.lastRepairAccount?.validate).toBe("1");
     expect(upstream.lastRepairAccount?.adopt).toBe("1");
     expect(upstream.lastRepairAccount?.body).toEqual({
       provider: "codex",
@@ -703,6 +716,42 @@ describe("subrouter accounts route", () => {
       "user-1",
     ]);
     expect(body.teams.find((team) => team.id === "user-1")?.personal).toBe(true);
+  });
+
+  test("follows Stack team pagination before resolving CLI permissions", async () => {
+    const firstPage = Object.assign(
+      [{ id: "team-a", displayName: "Team A" }],
+      { nextCursor: "page-2" },
+    );
+    const secondPage = Object.assign(
+      [{ id: "team-c", displayName: "Team C" }],
+      { nextCursor: null },
+    );
+    const listTeams = mock(async (...args: unknown[]) => {
+      const options = args[0] as { readonly cursor?: string } | undefined;
+      return options?.cursor === "page-2" ? secondPage : firstPage;
+    });
+    currentUser = { ...stackUser(), listTeams };
+
+    const response = await teamsRoute.GET(request("/api/subrouter/teams"));
+    const body = await response.json() as {
+      teams: Array<{ id: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.teams.map((team) => team.id)).toEqual([
+      "team-a",
+      "team-c",
+      "user-1",
+    ]);
+    expect(listTeams).toHaveBeenCalledTimes(2);
+    const listTeamCalls = (
+      listTeams as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls;
+    expect(listTeamCalls[1]?.[0]).toMatchObject({
+      cursor: "page-2",
+      limit: 100,
+    });
   });
 });
 
