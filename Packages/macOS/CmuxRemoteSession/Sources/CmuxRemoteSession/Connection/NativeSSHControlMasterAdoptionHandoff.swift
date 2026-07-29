@@ -10,7 +10,8 @@ public final class NativeSSHControlMasterAdoptionHandoff:
     @unchecked Sendable,
     Equatable
 {
-    let controlPath: String
+    /// Exact cmux-owned ControlPath held by this adoption lease.
+    public let controlPath: String
     let lease: NativeSSHControlMasterLeaseIdentity
     // lint:allow lock - transfer, cancellation, and deinit race to release once.
     private let lock = NSLock()
