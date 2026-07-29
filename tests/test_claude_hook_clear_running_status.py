@@ -236,6 +236,31 @@ def live_process_pid() -> Iterator[int]:
         process.wait(timeout=2)
 
 
+def assert_no_claude_lifecycle_mutations(
+    commands: list[str],
+    *,
+    context: str,
+) -> None:
+    forbidden_fragments = [
+        "set_agent_pid claude_code ",
+        "clear_agent_pid claude_code ",
+        "set_agent_lifecycle claude_code ",
+        "set_status claude_code ",
+        "clear_status claude_code ",
+        "clear_notifications ",
+        "notify_target_async ",
+        '"method":"surface.resume.set"',
+        '"method":"surface.resume.clear"',
+        '"method":"feed.push"',
+    ]
+    for fragment in forbidden_fragments:
+        if has_command(commands, fragment):
+            raise RuntimeError(
+                f"{context} published a rejected lifecycle mutation:\n"
+                f"fragment={fragment!r}\ncommands={commands!r}"
+            )
+
+
 def verify_stop_first_clear_transfers_background_work(cli_path: str) -> None:
     workspace_id = str(uuid.uuid4()).upper()
     surface_id = str(uuid.uuid4()).upper()
@@ -2529,6 +2554,635 @@ def verify_late_resume_cannot_replace_clear_successor(cli_path: str) -> None:
             )
 
 
+def verify_session_end_requires_current_process_generation(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    session_id = f"session-end-generation-{uuid.uuid4().hex}"
+
+    with live_process_pid() as displaced_pid:
+        with live_process_pid() as replacement_pid:
+            with HookSocketServer(
+                workspace_id=workspace_id,
+                surface_id=surface_id,
+            ) as server:
+                state_path = Path(server.root.name) / "session-end-generation-state.json"
+                env = hook_environment(server, workspace_id, surface_id, state_path)
+                displaced_env = env.copy()
+                displaced_env["CMUX_CLAUDE_PID"] = str(displaced_pid)
+                replacement_env = env.copy()
+                replacement_env["CMUX_CLAUDE_PID"] = str(replacement_pid)
+
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "prompt-submit",
+                    {
+                        "session_id": session_id,
+                        "turn_id": "displaced-turn",
+                        "cwd": "/tmp",
+                    },
+                    displaced_env,
+                )
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "stop",
+                    {
+                        "session_id": session_id,
+                        "turn_id": "displaced-turn",
+                        "cwd": "/tmp",
+                        "last_assistant_message": "old generation stopped",
+                        "background_tasks": [],
+                        "session_crons": [],
+                    },
+                    displaced_env,
+                )
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "session-start",
+                    {
+                        "session_id": session_id,
+                        "source": "resume",
+                        "cwd": "/tmp",
+                    },
+                    replacement_env,
+                )
+
+                stale_end_start = len(server.commands)
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "session-end",
+                    {
+                        "session_id": session_id,
+                        "reason": "clear",
+                        "cwd": "/tmp",
+                    },
+                    displaced_env,
+                )
+                stale_end_commands = server.commands[stale_end_start:]
+                assert_no_claude_lifecycle_mutations(
+                    stale_end_commands,
+                    context="A displaced-process SessionEnd",
+                )
+
+                state = json.loads(state_path.read_text())
+                record = state["sessions"].get(session_id)
+                if (
+                    record is None
+                    or record.get("pid") != replacement_pid
+                    or record.get("agentLifecycle") != "idle"
+                ):
+                    raise RuntimeError(
+                        "A displaced-process SessionEnd consumed the replacement "
+                        f"generation:\nrecord={record!r}\nstate={state!r}"
+                    )
+                surface_owner = state["activeSessionsBySurface"].get(surface_id)
+                if (
+                    surface_owner is None
+                    or surface_owner.get("sessionId") != session_id
+                ):
+                    raise RuntimeError(
+                        "A displaced-process SessionEnd cleared replacement "
+                        f"ownership:\nsurface_owner={surface_owner!r}\nstate={state!r}"
+                    )
+                if surface_id in state.get(
+                    "clearBackgroundWorkTransfersBySurface",
+                    {},
+                ):
+                    raise RuntimeError(
+                        "A displaced-process SessionEnd created a clear tombstone "
+                        f"for the replacement generation:\nstate={state!r}"
+                    )
+
+
+def verify_resume_checks_displaced_and_inactive_target_generations(
+    cli_path: str,
+) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    displaced_session_id = f"resume-displaced-{uuid.uuid4().hex}"
+    target_session_id = f"resume-inactive-target-{uuid.uuid4().hex}"
+
+    with live_process_pid() as displaced_pid:
+        with live_process_pid() as incoming_pid:
+            with live_process_pid() as target_pid:
+                with HookSocketServer(
+                    workspace_id=workspace_id,
+                    surface_id=surface_id,
+                ) as server:
+                    state_path = (
+                        Path(server.root.name)
+                        / "resume-dual-generation-state.json"
+                    )
+                    env = hook_environment(
+                        server,
+                        workspace_id,
+                        surface_id,
+                        state_path,
+                    )
+                    displaced_env = env.copy()
+                    displaced_env["CMUX_CLAUDE_PID"] = str(displaced_pid)
+                    incoming_env = env.copy()
+                    incoming_env["CMUX_CLAUDE_PID"] = str(incoming_pid)
+                    target_fixture_path = (
+                        Path(server.root.name)
+                        / "resume-inactive-target-fixture-state.json"
+                    )
+                    target_fixture_env = env.copy()
+                    target_fixture_env["CMUX_CLAUDE_PID"] = str(target_pid)
+                    target_fixture_env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(
+                        target_fixture_path
+                    )
+
+                    # Capture the target's authenticated newest generation
+                    # through the real hook path in an isolated store.
+                    run_claude_hook(
+                        cli_path,
+                        server.socket_path,
+                        "session-start",
+                        {
+                            "session_id": target_session_id,
+                            "source": "startup",
+                            "cwd": "/tmp",
+                        },
+                        target_fixture_env,
+                    )
+                    target_record = json.loads(
+                        target_fixture_path.read_text()
+                    )["sessions"][target_session_id]
+
+                    # Install the older stopped owner, then seed the authenticated
+                    # target record as inactive without changing pane ownership.
+                    run_claude_hook(
+                        cli_path,
+                        server.socket_path,
+                        "prompt-submit",
+                        {
+                            "session_id": displaced_session_id,
+                            "turn_id": "displaced-turn",
+                            "cwd": "/tmp",
+                        },
+                        displaced_env,
+                    )
+                    run_claude_hook(
+                        cli_path,
+                        server.socket_path,
+                        "stop",
+                        {
+                            "session_id": displaced_session_id,
+                            "turn_id": "displaced-turn",
+                            "cwd": "/tmp",
+                            "last_assistant_message": "displaced owner stopped",
+                            "background_tasks": [],
+                            "session_crons": [],
+                        },
+                        displaced_env,
+                    )
+                    state = json.loads(state_path.read_text())
+                    state["sessions"][target_session_id] = target_record
+                    state_path.write_text(json.dumps(state))
+
+                    resume_start = len(server.commands)
+                    run_claude_hook(
+                        cli_path,
+                        server.socket_path,
+                        "session-start",
+                        {
+                            "session_id": target_session_id,
+                            "source": "resume",
+                            "cwd": "/tmp",
+                        },
+                        incoming_env,
+                    )
+                    resume_commands = server.commands[resume_start:]
+                    assert_no_claude_lifecycle_mutations(
+                        resume_commands,
+                        context="A resume older than its inactive target",
+                    )
+
+                    state = json.loads(state_path.read_text())
+                    target_record = state["sessions"].get(target_session_id)
+                    if target_record is None or target_record.get("pid") != target_pid:
+                        raise RuntimeError(
+                            "A resume newer than the displaced owner but older than "
+                            "its inactive target rewrote that target:\n"
+                            f"target_record={target_record!r}\nstate={state!r}"
+                        )
+                    surface_owner = state["activeSessionsBySurface"].get(surface_id)
+                    if (
+                        surface_owner is None
+                        or surface_owner.get("sessionId") != displaced_session_id
+                    ):
+                        raise RuntimeError(
+                            "A resume that failed its target-generation check stole "
+                            f"the stopped owner's pane:\nstate={state!r}"
+                        )
+
+
+def verify_only_prompt_submit_replaces_stopped_owner(cli_path: str) -> None:
+    events: list[tuple[str, dict[str, object]]] = [
+        (
+            "notification",
+            {
+                "notification_type": "permission_prompt",
+                "message": "late permission request",
+            },
+        ),
+        (
+            "pre-tool-use",
+            {
+                "tool_name": "Bash",
+                "tool_input": {"command": "echo late"},
+            },
+        ),
+        (
+            "push-notification",
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "PushNotification",
+                "tool_input": {"message": "late push"},
+                "tool_response": {
+                    "message": "late push",
+                    "localSent": True,
+                },
+            },
+        ),
+        (
+            "stop",
+            {
+                "turn_id": "late-turn",
+                "last_assistant_message": "late stop",
+                "background_tasks": [],
+                "session_crons": [],
+            },
+        ),
+    ]
+
+    for subcommand, event_fields in events:
+        workspace_id = str(uuid.uuid4()).upper()
+        surface_id = str(uuid.uuid4()).upper()
+        stopped_session_id = f"{subcommand}-stopped-{uuid.uuid4().hex}"
+        candidate_session_id = f"{subcommand}-candidate-{uuid.uuid4().hex}"
+        with HookSocketServer(
+            workspace_id=workspace_id,
+            surface_id=surface_id,
+        ) as server:
+            state_path = (
+                Path(server.root.name)
+                / f"{subcommand}-stopped-owner-state.json"
+            )
+            env = hook_environment(server, workspace_id, surface_id, state_path)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "prompt-submit",
+                {
+                    "session_id": stopped_session_id,
+                    "turn_id": "owner-turn",
+                    "cwd": "/tmp",
+                },
+                env,
+            )
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "stop",
+                {
+                    "session_id": stopped_session_id,
+                    "turn_id": "owner-turn",
+                    "cwd": "/tmp",
+                    "last_assistant_message": "owner stopped",
+                    "background_tasks": [],
+                    "session_crons": [],
+                },
+                env,
+            )
+
+            candidate_payload = {
+                "session_id": candidate_session_id,
+                "cwd": "/tmp",
+                **event_fields,
+            }
+            candidate_start = len(server.commands)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                subcommand,
+                candidate_payload,
+                env,
+            )
+            candidate_commands = server.commands[candidate_start:]
+            assert_no_claude_lifecycle_mutations(
+                candidate_commands,
+                context=f"A different-session {subcommand} after Stop",
+            )
+
+            state = json.loads(state_path.read_text())
+            if candidate_session_id in state.get("sessions", {}):
+                raise RuntimeError(
+                    f"A different-session {subcommand} persisted over a stopped "
+                    f"owner:\nstate={state!r}"
+                )
+            surface_owner = state["activeSessionsBySurface"].get(surface_id)
+            if (
+                surface_owner is None
+                or surface_owner.get("sessionId") != stopped_session_id
+            ):
+                raise RuntimeError(
+                    f"A different-session {subcommand} replaced a stopped owner:\n"
+                    f"state={state!r}"
+                )
+
+            # UserPromptSubmit is the turn-establishing event that may claim
+            # a stopped owner's pane for the new session.
+            prompt_start = len(server.commands)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "prompt-submit",
+                {
+                    "session_id": candidate_session_id,
+                    "turn_id": "candidate-turn",
+                    "cwd": "/tmp",
+                },
+                env,
+            )
+            prompt_commands = server.commands[prompt_start:]
+            if not has_command_with(
+                prompt_commands,
+                f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+                f"--panel={surface_id}",
+            ):
+                raise RuntimeError(
+                    "UserPromptSubmit could not claim a stopped owner's pane "
+                    f"after rejected {subcommand}:\ncommands={prompt_commands!r}"
+                )
+            state = json.loads(state_path.read_text())
+            surface_owner = state["activeSessionsBySurface"].get(surface_id)
+            if (
+                surface_owner is None
+                or surface_owner.get("sessionId") != candidate_session_id
+            ):
+                raise RuntimeError(
+                    "UserPromptSubmit did not establish replacement ownership "
+                    f"after rejected {subcommand}:\nstate={state!r}"
+                )
+
+
+def verify_clear_end_without_work_creates_one_shot_tombstone(
+    cli_path: str,
+) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    source_session_id = f"no-work-clear-source-{uuid.uuid4().hex}"
+    unrelated_session_id = f"no-work-clear-unrelated-{uuid.uuid4().hex}"
+    replacement_session_id = f"no-work-clear-replacement-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "no-work-clear-tombstone-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": source_session_id,
+                "turn_id": "source-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": source_session_id,
+                "turn_id": "source-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "no work survives",
+                "background_tasks": [],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {
+                "session_id": source_session_id,
+                "reason": "clear",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+
+        state = json.loads(state_path.read_text())
+        tombstone = state.get("clearBackgroundWorkTransfersBySurface", {}).get(
+            surface_id
+        )
+        if tombstone is None:
+            raise RuntimeError(
+                "SessionEnd(clear) without surviving work did not tombstone the "
+                f"ownership gap:\nstate={state!r}"
+            )
+        if tombstone.get("preservedPendingBackgroundWork") is not False:
+            raise RuntimeError(
+                "The clear tombstone did not store work survival independently "
+                f"from ownership:\ntombstone={tombstone!r}"
+            )
+
+        unrelated_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            {
+                "session_id": unrelated_session_id,
+                "notification_type": "permission_prompt",
+                "message": "late unrelated notification",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        unrelated_commands = server.commands[unrelated_start:]
+        assert_no_claude_lifecycle_mutations(
+            unrelated_commands,
+            context="An unrelated event inside a no-work clear gap",
+        )
+
+        state = json.loads(state_path.read_text())
+        if unrelated_session_id in state.get("sessions", {}):
+            raise RuntimeError(
+                "An unrelated event persisted inside a no-work clear gap:\n"
+                f"state={state!r}"
+            )
+        if surface_id not in state.get(
+            "clearBackgroundWorkTransfersBySurface",
+            {},
+        ):
+            raise RuntimeError(
+                "An unrelated event consumed a no-work clear tombstone:\n"
+                f"state={state!r}"
+            )
+
+        replacement_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {
+                "session_id": replacement_session_id,
+                "source": "clear",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        replacement_commands = server.commands[replacement_start:]
+        if not has_command_with(
+            replacement_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "A matching clear start did not consume its no-work tombstone "
+                f"as Idle:\ncommands={replacement_commands!r}"
+            )
+        if has_command_with(
+            replacement_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "Tombstone ownership was conflated with surviving work:\n"
+                f"commands={replacement_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        if surface_id in state.get(
+            "clearBackgroundWorkTransfersBySurface",
+            {},
+        ):
+            raise RuntimeError(
+                "A matching clear start did not consume the one-shot tombstone:\n"
+                f"state={state!r}"
+            )
+
+
+def verify_clear_start_without_transfer_requires_matching_generation(
+    cli_path: str,
+) -> None:
+    with live_process_pid() as older_pid:
+        with live_process_pid() as current_pid:
+            for generation_kind in ["older", "unavailable"]:
+                workspace_id = str(uuid.uuid4()).upper()
+                surface_id = str(uuid.uuid4()).upper()
+                source_session_id = (
+                    f"clear-no-transfer-source-{generation_kind}-{uuid.uuid4().hex}"
+                )
+                replacement_session_id = (
+                    f"clear-no-transfer-replacement-{generation_kind}-"
+                    f"{uuid.uuid4().hex}"
+                )
+                with HookSocketServer(
+                    workspace_id=workspace_id,
+                    surface_id=surface_id,
+                ) as server:
+                    state_path = (
+                        Path(server.root.name)
+                        / f"clear-no-transfer-{generation_kind}-state.json"
+                    )
+                    env = hook_environment(
+                        server,
+                        workspace_id,
+                        surface_id,
+                        state_path,
+                    )
+                    current_env = env.copy()
+                    current_env["CMUX_CLAUDE_PID"] = str(current_pid)
+                    rejected_env = env.copy()
+                    if generation_kind == "older":
+                        rejected_env["CMUX_CLAUDE_PID"] = str(older_pid)
+                    else:
+                        rejected_env.pop("CMUX_CLAUDE_PID", None)
+
+                    run_claude_hook(
+                        cli_path,
+                        server.socket_path,
+                        "prompt-submit",
+                        {
+                            "session_id": source_session_id,
+                            "turn_id": "source-turn",
+                            "cwd": "/tmp",
+                        },
+                        current_env,
+                    )
+                    run_claude_hook(
+                        cli_path,
+                        server.socket_path,
+                        "stop",
+                        {
+                            "session_id": source_session_id,
+                            "turn_id": "source-turn",
+                            "cwd": "/tmp",
+                            "last_assistant_message": "source stopped",
+                            "background_tasks": [],
+                            "session_crons": [],
+                        },
+                        current_env,
+                    )
+
+                    # SessionEnd(clear) is intentionally absent: the active
+                    # owner is the only generation authority available.
+                    clear_start = len(server.commands)
+                    run_claude_hook(
+                        cli_path,
+                        server.socket_path,
+                        "session-start",
+                        {
+                            "session_id": replacement_session_id,
+                            "source": "clear",
+                            "cwd": "/tmp",
+                        },
+                        rejected_env,
+                    )
+                    clear_commands = server.commands[clear_start:]
+                    assert_no_claude_lifecycle_mutations(
+                        clear_commands,
+                        context=(
+                            f"A {generation_kind}-generation clear start without "
+                            "a transfer"
+                        ),
+                    )
+
+                    state = json.loads(state_path.read_text())
+                    if replacement_session_id in state.get("sessions", {}):
+                        raise RuntimeError(
+                            f"A {generation_kind}-generation clear start persisted "
+                            f"without a transfer:\nstate={state!r}"
+                        )
+                    surface_owner = state["activeSessionsBySurface"].get(surface_id)
+                    if (
+                        surface_owner is None
+                        or surface_owner.get("sessionId") != source_session_id
+                    ):
+                        raise RuntimeError(
+                            f"A {generation_kind}-generation clear start stole "
+                            f"ownership without a transfer:\nstate={state!r}"
+                        )
+                    if surface_id in state.get(
+                        "clearBackgroundWorkTransfersBySurface",
+                        {},
+                    ):
+                        raise RuntimeError(
+                            f"A {generation_kind}-generation clear start invented "
+                            f"a transfer:\nstate={state!r}"
+                        )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -2760,6 +3414,11 @@ def main() -> int:
         verify_new_generation_resume_clears_stale_background_work(cli_path)
         verify_new_generation_resume_discards_source_handoff(cli_path)
         verify_late_resume_cannot_replace_clear_successor(cli_path)
+        verify_session_end_requires_current_process_generation(cli_path)
+        verify_resume_checks_displaced_and_inactive_target_generations(cli_path)
+        verify_only_prompt_submit_replaces_stopped_owner(cli_path)
+        verify_clear_end_without_work_creates_one_shot_tombstone(cli_path)
+        verify_clear_start_without_transfer_requires_matching_generation(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
         return 1
