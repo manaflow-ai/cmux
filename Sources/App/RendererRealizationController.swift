@@ -58,7 +58,7 @@ final class RendererRealizationController {
     private let settingsProvider: () -> RendererRealizationSettings.Values
     private let nowProvider: () -> Date
     private let sleepFor: @MainActor (Duration) async throws -> Void
-    private let visibilityCoalescingWindow: Duration
+    private let visibilityCoalescingWindow: TimeInterval
     private let onEvaluationCompleted: () -> Void
     private let safetyTimerEnabled: Bool
     private let timerQueue = DispatchQueue(label: "com.cmux.renderer-realization", qos: .utility)
@@ -88,7 +88,7 @@ final class RendererRealizationController {
             sleepFor: { duration in
                 try await ContinuousClock().sleep(for: duration)
             },
-            visibilityCoalescingWindow: .milliseconds(16),
+            visibilityCoalescingWindow: 0.016,
             onEvaluationCompleted: {},
             safetyTimerEnabled: true
         )
@@ -102,7 +102,7 @@ final class RendererRealizationController {
         settingsProvider: @escaping () -> RendererRealizationSettings.Values,
         nowProvider: @escaping () -> Date,
         sleepFor: @escaping @MainActor (Duration) async throws -> Void,
-        visibilityCoalescingWindow: Duration = .milliseconds(16),
+        visibilityCoalescingWindow: TimeInterval = 0.016,
         onEvaluationCompleted: @escaping () -> Void = {},
         safetyTimerEnabled: Bool = false
     ) {
@@ -226,14 +226,33 @@ final class RendererRealizationController {
     nonisolated static func nextScheduledReclaimDeadline(
         inputs: [RendererRealizationPlannerInput],
         settings: RendererRealizationSettings.Values,
-        now: TimeInterval
+        now: TimeInterval,
+        coalescingWindow: TimeInterval = 0
     ) -> TimeInterval? {
         guard settings.enabled else { return nil }
-        return inputs.lazy
-            .filter { $0.isRealized && !$0.isVisible }
-            .map { $0.lastVisibleAt + settings.idleSeconds }
-            .filter { $0 > now }
-            .min()
+        var earliestDeadline: TimeInterval?
+        for input in inputs where input.isRealized && !input.isVisible {
+            let deadline = input.lastVisibleAt + settings.idleSeconds
+            guard deadline > now else { continue }
+            earliestDeadline = min(earliestDeadline ?? deadline, deadline)
+        }
+        guard let earliestDeadline, coalescingWindow > 0 else {
+            return earliestDeadline
+        }
+
+        // Visibility transitions collected in one coalescing window should
+        // also reclaim in one pass. Delay the earliest deadline by at most one
+        // window so sub-frame hide timestamps cannot fan back out into one
+        // global registry evaluation per surface.
+        let batchLimit = earliestDeadline + coalescingWindow
+        var batchDeadline = earliestDeadline
+        for input in inputs where input.isRealized && !input.isVisible {
+            let deadline = input.lastVisibleAt + settings.idleSeconds
+            if deadline > earliestDeadline, deadline <= batchLimit {
+                batchDeadline = max(batchDeadline, deadline)
+            }
+        }
+        return batchDeadline
     }
 
     @discardableResult
@@ -349,7 +368,8 @@ final class RendererRealizationController {
         guard let deadline = Self.nextScheduledReclaimDeadline(
             inputs: inputs,
             settings: settings,
-            now: now.timeIntervalSince1970
+            now: now.timeIntervalSince1970,
+            coalescingWindow: visibilityCoalescingWindow
         ) else {
             cancelReclaimDeadlineTask()
             return
@@ -389,7 +409,7 @@ final class RendererRealizationController {
         portalVisibilityEvaluationTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await self.sleepFor(self.visibilityCoalescingWindow)
+                try await self.sleepFor(.seconds(self.visibilityCoalescingWindow))
             } catch {
                 return
             }
