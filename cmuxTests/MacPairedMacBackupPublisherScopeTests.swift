@@ -18,7 +18,10 @@ import Testing
             payload: Data("payload".utf8)
         )
 
-        #expect(request.value(forHTTPHeaderField: "X-Cmux-Client-Scope") == "ios:v2:ZmVhdHVyZS1h")
+        #expect(
+            request.value(forHTTPHeaderField: "X-Cmux-Client-Scope")
+                == "ios:v3:ZGV2LmNtdXguaW9zLmZlYXR1cmUtYQ"
+        )
         #expect(request.value(forHTTPHeaderField: "X-Cmux-Team-Id") == "team-a")
     }
 

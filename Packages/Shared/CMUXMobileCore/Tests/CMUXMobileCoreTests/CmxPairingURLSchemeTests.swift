@@ -2,52 +2,55 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
-/// The pairing/attach URL scheme is channel-specific so the system Camera app
-/// can never hand a beta/prod QR to a dev build that also claimed the scheme:
-/// dev (Debug/tagged) builds register + emit `cmux-ios-dev`, Release (beta +
-/// prod) registers + emits `cmux-ios`. Parsers accept every channel's scheme so
-/// cross-channel pairing still works from inside the app.
+/// Every installed iOS bundle owns one pairing URL scheme. Parsers accept any
+/// syntactically valid cmux pairing scheme so an in-app scanner remains
+/// forward-compatible without multiple installed builds claiming one scheme.
 @Suite struct CmxPairingURLSchemeTests {
-    @Test func developmentBuildsEmitDevScheme() {
-        #expect(CmxPairingURLScheme.scheme(isDevelopmentBuild: true) == "cmux-ios-dev")
+    @Test func everyInstalledBundleEmitsItsOwnScheme() {
+        #expect(
+            CmxPairingURLScheme.scheme(
+                forIOSBundleIdentifier: "dev.cmux.app.internal"
+            ) == "cmux-ios-dev.cmux.app.internal"
+        )
+        #expect(
+            CmxPairingURLScheme.scheme(
+                forIOSBundleIdentifier: "dev.cmux.app.demo"
+            ) == "cmux-ios-dev.cmux.app.demo"
+        )
+        #expect(
+            CmxPairingURLScheme.scheme(
+                forIOSBundleIdentifier: "dev.cmux.ios.feature-a"
+            ) == "cmux-ios-dev.cmux.ios.feature-a"
+        )
     }
 
-    @Test func releaseBuildsEmitReleaseScheme() {
-        #expect(CmxPairingURLScheme.scheme(isDevelopmentBuild: false) == "cmux-ios")
-    }
-
-    @Test func currentMatchesThisBuildsCompileChannel() {
-        // `current` derives from the DEBUG compile flag, so a Debug test run
-        // emits the dev scheme and a Release test run emits the release scheme.
-        #if DEBUG
-        #expect(CmxPairingURLScheme.current == "cmux-ios-dev")
-        #else
-        #expect(CmxPairingURLScheme.current == "cmux-ios")
-        #endif
-    }
-
-    @Test func parserAcceptsEverySchemeRegardlessOfChannel() {
-        // Both channels' schemes parse, case-insensitively, so a phone on
-        // either channel can pair from a QR minted by either channel's Mac.
+    @Test func parserAcceptsNamespacedSchemes() {
+        #expect(CmxPairingURLScheme.isPairingScheme("cmux-ios-dev.cmux.app.internal"))
+        #expect(CmxPairingURLScheme.isPairingScheme("cmux-ios-dev.cmux.app.demo"))
+        #expect(CmxPairingURLScheme.isPairingScheme("CMUX-IOS-DEV.CMUX.IOS.FEATURE-A"))
+        // Old QR codes remain scannable inside an already-open app. New builds
+        // do not register these shared schemes with iOS.
         #expect(CmxPairingURLScheme.isPairingScheme("cmux-ios"))
         #expect(CmxPairingURLScheme.isPairingScheme("cmux-ios-dev"))
-        #expect(CmxPairingURLScheme.isPairingScheme("CMUX-IOS-DEV"))
     }
 
     @Test func parserRejectsForeignSchemes() {
         #expect(!CmxPairingURLScheme.isPairingScheme(nil))
         #expect(!CmxPairingURLScheme.isPairingScheme(""))
         #expect(!CmxPairingURLScheme.isPairingScheme("https"))
-        // A different cmux scheme that is not a pairing scheme must not match.
-        #expect(!CmxPairingURLScheme.isPairingScheme("cmux-ios-staging"))
+        #expect(!CmxPairingURLScheme.isPairingScheme("cmux-ios-*"))
     }
 
-    @Test func prefixCheckAcceptsBothChannelsAndRejectsOthers() {
-        #expect(CmxPairingURLScheme.hasPairingScheme("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
-        #expect(CmxPairingURLScheme.hasPairingScheme("cmux-ios-dev://attach?v=2&r=100.64.0.5:58465"))
-        #expect(CmxPairingURLScheme.hasPairingScheme("CMUX-IOS://attach?v=2"))
+    @Test func prefixCheckAcceptsNamespacedSchemesAndRejectsOthers() {
+        #expect(CmxPairingURLScheme.hasPairingScheme(
+            "cmux-ios-dev.cmux.app.internal://attach?v=2&r=100.64.0.5:58465"
+        ))
+        #expect(CmxPairingURLScheme.hasPairingScheme(
+            "CMUX-IOS-DEV.CMUX.IOS.FEATURE-A://attach?v=2"
+        ))
+        #expect(CmxPairingURLScheme.hasPairingScheme("cmux-ios://attach?v=2"))
+        #expect(CmxPairingURLScheme.hasPairingScheme("cmux-ios-dev://attach?v=2"))
         #expect(!CmxPairingURLScheme.hasPairingScheme("https://example.com"))
-        // A bare scheme name without "://" is not a deep link.
-        #expect(!CmxPairingURLScheme.hasPairingScheme("cmux-ios"))
+        #expect(!CmxPairingURLScheme.hasPairingScheme("cmux-ios-dev.cmux.app.internal"))
     }
 }
