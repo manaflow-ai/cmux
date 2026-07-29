@@ -21,10 +21,67 @@ struct MacConnection {
     let generation: UUID
     /// Human-readable name shown in per-Mac connection diagnostics.
     let displayName: String?
-    /// Authenticated or stored app-instance authority for this session.
-    let instanceTag: String?
+    /// Authority retained by the paired row when this session was established.
+    let storedInstanceTag: String?
+    /// App-instance identity proven by this live session.
+    let authenticatedInstanceTag: String?
+    /// The best live identity for diagnostics and connection snapshots.
+    var instanceTag: String? {
+        authenticatedInstanceTag ?? storedInstanceTag
+    }
     /// Host capabilities retained so a focused session can become control-only.
     let supportedHostCapabilities: Set<String>
     /// Workspace command capabilities retained across role changes.
     let actionCapabilities: MobileWorkspaceActionCapabilities
+
+    init(
+        macDeviceID: String,
+        ticket: CmxAttachTicket,
+        route: CmxAttachRoute,
+        client: MobileCoreRPCClient,
+        generation: UUID,
+        displayName: String?,
+        storedInstanceTag: String?,
+        authenticatedInstanceTag: String?,
+        supportedHostCapabilities: Set<String>,
+        actionCapabilities: MobileWorkspaceActionCapabilities
+    ) {
+        self.macDeviceID = macDeviceID
+        self.ticket = ticket
+        self.route = route
+        self.client = client
+        self.generation = generation
+        self.displayName = displayName
+        self.storedInstanceTag = storedInstanceTag
+        self.authenticatedInstanceTag = authenticatedInstanceTag
+        self.supportedHostCapabilities = supportedHostCapabilities
+        self.actionCapabilities = actionCapabilities
+    }
+
+    /// Convenience for callers whose stored and authenticated authorities are
+    /// intentionally identical.
+    init(
+        macDeviceID: String,
+        ticket: CmxAttachTicket,
+        route: CmxAttachRoute,
+        client: MobileCoreRPCClient,
+        generation: UUID,
+        displayName: String?,
+        instanceTag: String?,
+        supportedHostCapabilities: Set<String>,
+        actionCapabilities: MobileWorkspaceActionCapabilities
+    ) {
+        self.init(
+            macDeviceID: macDeviceID,
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: generation,
+            displayName: displayName,
+            storedInstanceTag: instanceTag,
+            authenticatedInstanceTag: instanceTag,
+            supportedHostCapabilities: supportedHostCapabilities,
+            actionCapabilities: actionCapabilities
+        )
+    }
 }

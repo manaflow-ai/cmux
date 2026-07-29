@@ -88,8 +88,8 @@ extension MobileShellComposite {
             client: connection.client,
             route: connection.route,
             ticket: connection.ticket,
-            storedInstanceTag: connection.instanceTag,
-            authenticatedInstanceTag: connection.instanceTag,
+            storedInstanceTag: connection.storedInstanceTag,
+            authenticatedInstanceTag: connection.authenticatedInstanceTag,
             supportedHostCapabilities: connection.supportedHostCapabilities,
             actionCapabilities: connection.actionCapabilities,
             displayName: connection.displayName
@@ -127,7 +127,7 @@ extension MobileShellComposite {
     /// falls back to a fresh dial. Retirement closes transport admission
     /// synchronously; awaiting disconnect guarantees the old peer session is
     /// gone before a replacement client can compete for it.
-    private func retireSecondaryPromotionCandidate(
+    func retireSecondaryPromotionCandidate(
         _ subscription: SecondaryMacSubscription,
         macDeviceID: String
     ) async {
@@ -338,7 +338,8 @@ extension MobileShellComposite {
             client: sub.client,
             generation: liveConnectionGeneration,
             displayName: displayName ?? connectedHostName,
-            instanceTag: activeMacInstanceTag,
+            storedInstanceTag: sub.storedInstanceTag,
+            authenticatedInstanceTag: sub.authenticatedInstanceTag,
             supportedHostCapabilities: sub.supportedHostCapabilities,
             actionCapabilities: sub.actionCapabilities
         ))

@@ -3692,7 +3692,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// separates network failures, which share the pool retry budget, from
     /// authority/build/route incompatibilities, which wait for a new external
     /// edge instead of polling forever.
-    private func makeSecondaryClient(
+    func makeSecondaryClient(
         for mac: MobilePairedMac
     ) async -> SecondaryClientAttempt {
         guard let runtime else { return .permanentFailure }
@@ -3822,7 +3822,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             reportedDeviceID: status.macDeviceID,
             reportedInstanceTag: status.macInstanceTag
         ) == .identityUnavailable,
-           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+           (MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+               || legacyTailscaleAuthorizationEvidence != nil) {
             // Status intentionally uses only a cached token. If it cannot prove
             // identity, perform one authorized request that may refresh Stack
             // credentials, then bind the status response to that exact token.
@@ -4948,6 +4949,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard drain.value == true,
                   !drain.wasCancelled,
                   secondaryMacSubscriptions[macDeviceID] === subscription else {
+                // A timed-out or cancelled reassertion may already have
+                // reached the host. It cannot safely return to control
+                // ownership, because a later acknowledgement could recreate
+                // that stream after another role transition.
+                await retireSecondaryPromotionCandidate(
+                    subscription,
+                    macDeviceID: macDeviceID
+                )
                 return false
             }
         }
@@ -5740,7 +5749,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 client: connection.client,
                 generation: connection.generation,
                 displayName: connectedHostName,
-                instanceTag: activeMacInstanceTag ?? connection.instanceTag,
+                storedInstanceTag: connection.storedInstanceTag,
+                authenticatedInstanceTag:
+                    activeMacInstanceTag
+                        ?? connection.authenticatedInstanceTag,
                 supportedHostCapabilities: supportedHostCapabilities,
                 actionCapabilities: Self.workspaceActionCapabilities(
                     from: supportedHostCapabilities,
@@ -7511,7 +7523,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       == cmxCanonicalDeviceID(connection.macDeviceID)
                       && MobileMacInstanceTagAuthority.sameStoredAuthority(
                           $0.instanceTag,
-                          connection.instanceTag
+                          connection.storedInstanceTag
                       )
               }),
               await isScopeCurrent(scope),

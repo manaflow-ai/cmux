@@ -1217,6 +1217,61 @@ import Testing
         }
     }
 
+    @Test func identityFreeLegacyTailscaleStatusUsesValidatedRepair()
+        async throws {
+        let route = try CmxAttachRoute(
+            id: "legacy-identity-repair",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.42", port: 56_584)
+        )
+        let mac = MobilePairedMac(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy Mac",
+            routes: [route],
+            createdAt: .distantPast,
+            lastSeenAt: .distantPast,
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            instanceTag: "legacy-tag",
+            legacyTailscaleRoutes: [route]
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "legacy-mac",
+            instanceTag: "legacy-tag",
+            displayName: "Legacy Mac"
+        )
+        await router.omitNextHostStatusIdentities()
+        let tokenRequests = PoolTransportAttemptCounter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            stackAccessTokenProvider: {
+                tokenRequests.increment()
+                return "fresh-stack-token"
+            },
+            now: { Date() },
+            supportedRouteKinds: [.tailscale]
+        )
+        let shell = MobileShellComposite(runtime: runtime, isSignedIn: true)
+
+        switch await shell.makeSecondaryClient(for: mac) {
+        case let .connected(handle):
+            #expect(handle.storedInstanceTag == "legacy-tag")
+            #expect(handle.authenticatedInstanceTag == "legacy-tag")
+            await handle.client.disconnect()
+        case .transientFailure:
+            Issue.record("validated legacy route failed transiently")
+        case .permanentFailure:
+            Issue.record("validated legacy route skipped authenticated repair")
+        }
+        #expect(await router.count(of: "mobile.host.status") == 2)
+        #expect(tokenRequests.count > 0)
+    }
+
     @Test func controlEventTaskDoesNotRetainShellStore() throws {
         let router = LivenessHostRouter()
         let runtime = LivenessTestRuntime(
@@ -2523,10 +2578,10 @@ import Testing
             macDeviceID: "mac-b"
         )))
         #expect(subscription.isTransitioningToFocus)
+        #expect(shell.secondaryMacSubscriptions["mac-b"] == nil)
+        #expect(shell.workspacesByMac["mac-b"]?.status != .connected)
 
         await router.releaseAllHeld()
-        subscription.detachKeepingClient()
-        shell.secondaryMacSubscriptions["mac-b"] = nil
         await client.disconnect()
     }
 
