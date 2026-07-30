@@ -351,19 +351,32 @@ import UIKit
             name: "Release",
             anchorWorkspaceID: "workspace-1"
         )
+        let capabilities = MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: true,
+            supportsWorkspaceMetadata: false,
+            supportsReadStateActions: true,
+            supportsCloseActions: false,
+            supportsMoveActions: false,
+            supportsGroupActions: true,
+            supportsGroupCreate: false
+        )
         let read = configuration(
             workspaceIDs: ["workspace-1"],
             groups: [group],
             items: [.groupHeader(group.id)],
+            actionCapabilities: capabilities,
             workspaceHasUnread: false,
-            groupHasUnreadByID: [group.id: false]
+            groupHasUnreadByID: [group.id: false],
+            setUnread: { _, _ in }
         )
         let unread = configuration(
             workspaceIDs: ["workspace-1"],
             groups: [group],
             items: [.groupHeader(group.id)],
+            actionCapabilities: capabilities,
             workspaceHasUnread: true,
-            groupHasUnreadByID: [group.id: true]
+            groupHasUnreadByID: [group.id: true],
+            setUnread: { _, _ in }
         )
         let coordinator = WorkspaceListTableCoordinator(configuration: read)
         let tableView = makeTableView()

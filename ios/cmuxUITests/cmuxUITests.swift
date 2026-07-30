@@ -406,12 +406,15 @@ final class cmuxUITests: XCTestCase {
             "MobileWorkspaceGroupHeader-seed-group-1"
         ]
         XCTAssertTrue(groupHeader.waitForExistence(timeout: 8))
-        groupHeader.press(forDuration: 1)
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 3))
+        groupName.press(forDuration: 1)
 
         let rename = app.descendants(matching: .any)[
             "MobileWorkspaceGroupRenameButton-seed-group-1"
         ]
         XCTAssertTrue(rename.waitForExistence(timeout: 3))
+        guard rename.exists else { return }
         rename.tap()
 
         let renameAlert = app.alerts[
@@ -421,7 +424,14 @@ final class cmuxUITests: XCTestCase {
             renameAlert.waitForExistence(timeout: 3),
             "Group rename must use a compact system alert instead of a sheet."
         )
-        XCTAssertTrue(app.textFields["WorkspaceGroupRenameField"].exists)
+        XCTAssertTrue(
+            renameAlert.textFields.firstMatch.exists,
+            "The rename alert must include an editable group-name field."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-group-rename-alert"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor
