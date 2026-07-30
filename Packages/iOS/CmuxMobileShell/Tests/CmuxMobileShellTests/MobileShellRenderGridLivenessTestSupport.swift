@@ -47,6 +47,7 @@ actor LivenessHostRouter {
     private var viewportRequestCount = 0
     private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
+    private var terminalInputSequences: [UInt64] = []
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     // This router models the current authenticated Mac host by default. Tests
@@ -226,6 +227,10 @@ actor LivenessHostRouter {
 
     func enqueueEmptyReplayResponses(count: Int = 1) {
         emptyReplayResponsesRemaining += count
+    }
+
+    func enqueueTerminalInputSequences(_ sequences: [UInt64]) {
+        terminalInputSequences.append(contentsOf: sequences)
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -435,8 +440,11 @@ actor LivenessHostRouter {
             if let viewportReport = viewportEffectiveGridOverride ?? viewportReport { result["columns"] = viewportReport.columns; result["rows"] = viewportReport.rows }
             return try? Self.resultFrame(id: id, result: result)
         case "terminal.input":
+            let terminalSequence = terminalInputSequences.isEmpty
+                ? 100
+                : terminalInputSequences.removeFirst()
             return try? Self.resultFrame(id: id, result: [
-                "terminal_seq": 100,
+                "terminal_seq": terminalSequence,
             ])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
@@ -664,14 +672,18 @@ func makeConnectedStore(
     router: LivenessHostRouter,
     box: TransportBox,
     clock: TestClock,
-    probeTimeoutNanoseconds: UInt64 = 200_000_000
+    probeTimeoutNanoseconds: UInt64 = 200_000_000,
+    inputAckRetryClock: any Clock<Duration> = ContinuousClock()
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
         now: { clock.now },
         livenessProbeTimeoutNanoseconds: probeTimeoutNanoseconds
     )
-    let store = MobileShellComposite.preview(runtime: runtime)
+    let store = MobileShellComposite.preview(
+        runtime: runtime,
+        terminalInputAckResubscribeClock: inputAckRetryClock
+    )
     store.signIn()
     let ticket = try makeTicket(clock: clock)
     let connected = await store.connectPairingURL(try attachURL(for: ticket))
