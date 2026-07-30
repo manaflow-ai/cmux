@@ -208,7 +208,7 @@ function mutationRevision(
   if (operation !== "register" && operation !== "revoke") return null;
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const revision = (value as Record<string, unknown>).revision;
-  return Number.isSafeInteger(revision) && (revision as number) >= 0
+  return Number.isSafeInteger(revision) && (revision as number) > 0
     ? revision as number
     : null;
 }
@@ -217,30 +217,46 @@ async function publishConnectivityInvalidation(
   request: Request,
   revision: number,
 ): Promise<void> {
-  const baseURL = env.CMUX_PRESENCE_BASE_URL;
-  if (!baseURL) return;
-  const authorization = request.headers.get("authorization")?.trim();
-  if (!authorization?.toLowerCase().startsWith("bearer ")) return;
+  const publication = buildConnectivityInvalidationRequest(request, revision);
+  if (!publication) return;
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(new Error("connectivity_invalidation_timeout")),
     INVALIDATION_TIMEOUT_MS,
   );
   try {
-    const url = new URL("/v1/connectivity/invalidate", baseURL);
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        authorization,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ revision }),
-      signal: controller.signal,
-    });
+    const response = await fetch(publication, { signal: controller.signal });
     if (!response.ok) throw new Error("connectivity_invalidation_rejected");
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** Builds the exact backend-only worker publication without performing I/O. */
+export function buildConnectivityInvalidationRequest(
+  request: Request,
+  revision: number,
+  configuration: {
+    readonly baseURL?: string;
+    readonly publisherSecret?: string;
+  } = {
+    baseURL: env.CMUX_PRESENCE_BASE_URL,
+    publisherSecret: env.CMUX_CONNECTIVITY_INVALIDATION_SECRET,
+  },
+): Request | null {
+  const { baseURL, publisherSecret } = configuration;
+  if (!baseURL || !publisherSecret) return null;
+  const authorization = request.headers.get("authorization")?.trim();
+  if (!authorization?.toLowerCase().startsWith("bearer ")) return null;
+  return new Request(new URL("/v1/connectivity/invalidate", baseURL), {
+    method: "POST",
+    headers: {
+      authorization,
+      "content-type": "application/json",
+      "x-cmux-connectivity-publisher-secret": publisherSecret,
+    },
+    body: JSON.stringify({ revision }),
+  });
 }
 
 function registrationFirewallPartition(

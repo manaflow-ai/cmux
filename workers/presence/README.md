@@ -20,7 +20,7 @@ solo-account user id).
 | `/v1/presence/snapshot` | GET | one-shot presence map |
 | `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events |
 | `/v1/connectivity/subscribe` | GET | quiet WebSocket isolated by the verified Stack user; carries only route-revision invalidations |
-| `/v1/connectivity/invalidate` | POST | publish `{revision}` to every connected Mac and iPhone for the verified Stack user |
+| `/v1/connectivity/invalidate` | POST | backend-only publication of `{revision}` to every connected Mac and iPhone for the verified Stack user |
 
 The heartbeat response returns `heartbeatIntervalMs` (15s) and
 `offlineTimeoutMs` (45s); hosts should follow the returned cadence rather than
@@ -52,6 +52,10 @@ No route, binding, endpoint, or path data crosses this channel. Mac and iPhone
 use the revision only to fetch and atomically install the complete
 `/api/connectivity/v2/sync` snapshot. Delivery is best-effort, so sleeping
 devices and reordered frames affect refresh latency rather than correctness.
+Publication also requires the server-only
+`X-Cmux-Connectivity-Publisher-Secret`, matched against the Worker's
+`CONNECTIVITY_INVALIDATION_SECRET`; a native client access token cannot forge
+a revision.
 
 ## Develop
 
@@ -81,6 +85,10 @@ Required GitHub repository secrets:
 
 - `CLOUDFLARE_API_TOKEN`: API token with Workers Scripts:Edit on the account.
 - `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account id.
+
+The Worker secret `CONNECTIVITY_INVALIDATION_SECRET` and web server secret
+`CMUX_CONNECTIVITY_INVALIDATION_SECRET` must contain the same random value of
+at least 32 characters.
 
 One-time Worker secrets (survive deploys; production Stack project values):
 
@@ -135,9 +143,11 @@ developer — multiple people dogfood worker changes simultaneously without
 clobbering each other or the shared baseline. Because Cloudflare secrets are
 scoped to each Worker, the script also provisions the new Worker with the dev
 Stack Auth values from your shell environment or `.dev.vars`
-(`STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`, optional `STACK_API_URL`);
-it refuses to deploy if those values are missing. The script prints the worker
-URL and the env var to export:
+(`STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`, and
+`CONNECTIVITY_INVALIDATION_SECRET`, plus optional `STACK_API_URL`); it refuses
+to deploy if those values are missing. Configure the web backend's
+`CMUX_CONNECTIVITY_INVALIDATION_SECRET` to the same value. The script prints the
+worker URL and the env var to export:
 
 ```
 export CMUX_PRESENCE_BASE_URL=https://cmux-presence-dev-<slug>.<subdomain>.workers.dev

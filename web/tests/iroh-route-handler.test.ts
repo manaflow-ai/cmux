@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import { IrohDatabaseError, IrohQuotaExceededError } from "../services/iroh/errors";
 import type { IrohFirewallCheck } from "../services/iroh/firewall";
-import { handleIrohRoute, IrohFirewallAdmission } from "../services/iroh/routeHandler";
+import {
+  buildConnectivityInvalidationRequest,
+  handleIrohRoute,
+  IrohFirewallAdmission,
+} from "../services/iroh/routeHandler";
 import type { IrohTrustBrokerShape } from "../services/iroh/trustBroker";
 import type { AuthedUser } from "../services/vms/auth";
 import { GET as retentionGet } from "../app/api/internal/iroh/retention/route";
@@ -25,6 +29,31 @@ const USER: AuthedUser = {
 };
 
 describe("Iroh route boundary", () => {
+  test("builds an account-authenticated backend-only invalidation", async () => {
+    const publication = buildConnectivityInvalidationRequest(
+      authedPost("/api/devices/iroh/register", {}),
+      7,
+      {
+        baseURL: "https://presence.example.test/dev",
+        publisherSecret: "s".repeat(64),
+      },
+    );
+
+    expect(publication?.url).toBe(
+      "https://presence.example.test/v1/connectivity/invalidate",
+    );
+    expect(publication?.headers.get("authorization")).toBe("Bearer test-access");
+    expect(
+      publication?.headers.get("x-cmux-connectivity-publisher-secret"),
+    ).toBe("s".repeat(64));
+    expect(await publication?.json()).toEqual({ revision: 7 });
+    expect(buildConnectivityInvalidationRequest(
+      authedPost("/api/devices/iroh/register", {}),
+      7,
+      { baseURL: "https://presence.example.test" },
+    )).toBeNull();
+  });
+
   test("publishes committed registration and revocation revisions", async () => {
     const published: Array<{ authorization: string | null; revision: number }> = [];
     const publishConnectivityInvalidation = async (request: Request, revision: number) => {

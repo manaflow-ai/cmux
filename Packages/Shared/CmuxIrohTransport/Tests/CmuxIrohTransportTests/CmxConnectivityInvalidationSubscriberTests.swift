@@ -22,6 +22,7 @@ struct CmxConnectivityInvalidationSubscriberTests {
         arguments: [
             #"{"type":"connectivity.invalidate","protocolVersion":1,"revision":1,"at":2,"routes":[]}"#,
             #"{"type":"connectivity.invalidate","protocolVersion":2,"revision":1,"at":2}"#,
+            #"{"type":"connectivity.invalidate","protocolVersion":1,"revision":0,"at":2}"#,
             #"{"type":"connectivity.invalidate","protocolVersion":1,"revision":true,"at":2}"#,
             String(repeating: "x", count: CmxConnectivityInvalidation.maximumFrameBytes + 1),
         ]

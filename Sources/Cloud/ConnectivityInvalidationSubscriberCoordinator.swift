@@ -59,7 +59,6 @@ final class ConnectivityInvalidationSubscriberCoordinator {
         guard let auth,
               auth.isAuthenticated,
               let userID = auth.currentUser?.id,
-              PresenceSettings.isEnabled(),
               let baseURL = PresenceHeartbeatClient.resolvedServiceURL()
         else { return nil }
         return Scope(

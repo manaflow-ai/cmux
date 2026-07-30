@@ -32,7 +32,8 @@ public struct CmxConnectivityInvalidation: Equatable, Sendable {
               Set(object.keys) == Set(["type", "protocolVersion", "revision", "at"]),
               let wire = try? JSONDecoder().decode(Wire.self, from: data),
               wire.type == "connectivity.invalidate",
-              wire.protocolVersion == protocolVersion
+              wire.protocolVersion == protocolVersion,
+              wire.revision > 0
         else {
             throw CmxConnectivityInvalidationError.invalidFrame
         }
@@ -88,9 +89,11 @@ public actor CmxConnectivityInvalidationSubscriber {
         }
     }
 
-    public func stop() {
-        loopTask?.cancel()
+    public func stop() async {
+        let task = loopTask
         loopTask = nil
+        task?.cancel()
+        await task?.value
     }
 
     /// Converts a configured HTTP(S) service origin into its WebSocket route.
@@ -172,6 +175,7 @@ public actor CmxConnectivityInvalidationSubscriber {
                 guard let invalidation = try? CmxConnectivityInvalidation.parse(data) else {
                     return .failed
                 }
+                guard !Task.isCancelled else { return .served }
                 delivered = true
                 await handler(invalidation)
             }

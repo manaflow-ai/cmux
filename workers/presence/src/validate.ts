@@ -132,6 +132,25 @@ export interface ConnectivityInvalidationInput {
   revision: number;
 }
 
+/** Constant-work comparison for the server-only invalidation capability. */
+export function isConnectivityPublisherAuthorized(
+  request: Request,
+  configuredSecret: string | undefined,
+): boolean {
+  const expected = configuredSecret?.trim() ?? "";
+  const actual = request.headers.get(
+    "x-cmux-connectivity-publisher-secret",
+  )?.trim() ?? "";
+  if (expected.length < 32 || expected.length > 512) return false;
+  const width = Math.max(expected.length, actual.length);
+  let difference = expected.length ^ actual.length;
+  for (let index = 0; index < width; index += 1) {
+    difference |= (expected.charCodeAt(index) || 0)
+      ^ (actual.charCodeAt(index) || 0);
+  }
+  return difference === 0;
+}
+
 export type ConnectivityInvalidationParse =
   | { ok: true; invalidation: ConnectivityInvalidationInput }
   | { ok: false; error: string };
@@ -148,7 +167,7 @@ export function parseConnectivityInvalidation(
     return { ok: false, error: "invalid_request" };
   }
   const revision = body.revision;
-  if (!Number.isSafeInteger(revision) || (revision as number) < 0) {
+  if (!Number.isSafeInteger(revision) || (revision as number) <= 0) {
     return { ok: false, error: "invalid_revision" };
   }
   return {

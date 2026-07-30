@@ -1,9 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import { shouldDeliverConnectivityInvalidation } from "../src/core";
-import { parseConnectivityInvalidation } from "../src/validate";
+import {
+  isConnectivityPublisherAuthorized,
+  parseConnectivityInvalidation,
+} from "../src/validate";
 
 describe("parseConnectivityInvalidation", () => {
-  it("accepts a non-negative safe route revision", () => {
+  it("accepts a positive safe route revision", () => {
     expect(parseConnectivityInvalidation({ revision: 42 })).toEqual({
       ok: true,
       invalidation: { revision: 42 },
@@ -15,6 +18,10 @@ describe("parseConnectivityInvalidation", () => {
       ok: false,
       error: "invalid_revision",
     });
+    expect(parseConnectivityInvalidation({ revision: 0 })).toEqual({
+      ok: false,
+      error: "invalid_revision",
+    });
     expect(parseConnectivityInvalidation({ revision: Number.MAX_SAFE_INTEGER + 1 })).toEqual({
       ok: false,
       error: "invalid_revision",
@@ -23,6 +30,26 @@ describe("parseConnectivityInvalidation", () => {
       ok: false,
       error: "invalid_request",
     });
+  });
+});
+
+describe("isConnectivityPublisherAuthorized", () => {
+  const secret = "a".repeat(64);
+  const request = (value?: string) => new Request(
+    "https://presence.example/v1/connectivity/invalidate",
+    {
+      headers: value
+        ? { "x-cmux-connectivity-publisher-secret": value }
+        : {},
+    },
+  );
+
+  it("requires the exact server-only capability", () => {
+    expect(isConnectivityPublisherAuthorized(request(secret), secret)).toBe(true);
+    expect(isConnectivityPublisherAuthorized(request("b".repeat(64)), secret)).toBe(false);
+    expect(isConnectivityPublisherAuthorized(request(), secret)).toBe(false);
+    expect(isConnectivityPublisherAuthorized(request(secret), undefined)).toBe(false);
+    expect(isConnectivityPublisherAuthorized(request("short"), "short")).toBe(false);
   });
 });
 

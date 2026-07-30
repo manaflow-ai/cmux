@@ -27,6 +27,7 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import {
+  isConnectivityPublisherAuthorized,
   parseConnectivityInvalidation,
   parseHeartbeat,
   readBoundedJson,
@@ -37,6 +38,7 @@ export { TeamPresence };
 
 export interface Env extends AuthEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
+  CONNECTIVITY_INVALIDATION_SECRET?: string;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -94,6 +96,10 @@ export default {
 
     if (url.pathname === "/v1/connectivity/invalidate") {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      if (!isConnectivityPublisherAuthorized(
+        request,
+        env.CONNECTIVITY_INVALIDATION_SECRET,
+      )) return unauthorized();
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();
       const body = await readBoundedJson(request, 1_024);

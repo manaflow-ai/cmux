@@ -63,6 +63,18 @@
     Found: A newer invalidation could join an older fetch and return after only the older revision was installed.
     Decision: The iOS runtime retains the greatest pending revision and performs a follow-up authoritative fetch before any joined caller for that revision returns.
 
+14. Expected: The Mac connectivity subscriber could share the presence heartbeat enablement gate.
+    Found: A user can disable team-presence publication while authenticated Iroh remains active, which would silently disable route invalidation only on Mac.
+    Decision: Connectivity subscription follows authenticated account and service URL lifecycle independently. The heartbeat privacy setting continues to control only team-presence publication.
+
+15. Expected: A verified user token was sufficient authentication for invalidation publication.
+    Found: Native clients hold that token and could publish an impossible high revision, forcing every device on the account into terminal reconciliation.
+    Decision: Publication additionally requires an exact server-only capability shared by the web backend and worker. Subscriptions remain authenticated only by account access tokens.
+
+16. Expected: Cancelling a subscriber task prevented all later delivery.
+    Found: A frame already returned by `receive()` could cross an account stop/start boundary before cancellation was observed.
+    Decision: `stop()` now awaits stream termination, and the receive loop checks cancellation immediately before invoking the revision handler.
+
 ## Current state
 
 - Done: Current backend, Mac, iOS, shared transport, and recent Iroh-fork fixes mapped.
@@ -78,7 +90,9 @@
 - Done: Added an account-scoped revision invalidation channel, backend publication after committed register/revoke mutations, and the same bounded WebSocket subscriber on Mac and iPhone.
 - Done: Added read-only pushed-revision reconciliation on both Apple runtimes and coverage proving it does not re-register or refetch obsolete revisions.
 - Done: Deleted the superseded direct byte transport, session pool, pooled adapter, device-directed nudge protocol, and obsolete tests after porting their ownership and cancellation guarantees.
-- Verified: Worker typechecking and all 178 worker tests pass. Focused backend publication, Swift invalidation-wire, client reconciliation, host reconciliation, and peer ownership tests pass.
+- Verified: Worker typechecking and all 179 worker tests pass. All 19 backend publication boundary tests, Swift invalidation-wire, client reconciliation, host reconciliation, and peer ownership tests pass.
 - Verified: The full shared transport regression run passes all 486 tests across 61 suites, including newest-revision coalescing.
-- Open: Application build integration, database behavior execution, development backend deployment, and end-to-end verification.
+- Verified: All 36 PostgreSQL Iroh behavior tests pass against an isolated native database with the complete migration chain.
+- Done: The development backend runs on an isolated native PostgreSQL cluster, a same-worktree Next server, and an authenticated Worker quick tunnel without touching the wedged shared Docker daemon or shared Cloudflare worker.
+- Open: Final application build integration and end-to-end Mac, Simulator, and iPhone verification.
 - Next: Compile the Mac and iOS composition roots, fix integration findings, run the complete suites, then build and install the tagged dogfood environment.
