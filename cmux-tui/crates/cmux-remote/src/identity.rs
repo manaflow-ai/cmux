@@ -721,6 +721,7 @@ struct PersistenceTestHooks {
     writes_succeeded: std::sync::atomic::AtomicUsize,
     fail_next: std::sync::atomic::AtomicUsize,
     fail_next_parent_sync: std::sync::atomic::AtomicUsize,
+    panic_next: std::sync::atomic::AtomicUsize,
     started_revisions: StdMutex<Vec<u64>>,
     blocked: StdMutex<bool>,
     released: Condvar,
@@ -744,6 +745,13 @@ impl PersistenceTestHooks {
                 self.released.wait(blocked).unwrap_or_else(std::sync::PoisonError::into_inner);
         }
         drop(blocked);
+        if self
+            .panic_next
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| remaining.checked_sub(1))
+            .is_ok()
+        {
+            panic!("injected persistence worker panic for revision {revision}");
+        }
         if self
             .fail_next
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| remaining.checked_sub(1))
@@ -1230,6 +1238,11 @@ impl AuthDatabase {
             .hooks
             .fail_next_parent_sync
             .store(count, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_panic_next_persistence_writes(&self, count: usize) {
+        self.persistence.hooks.panic_next.store(count, std::sync::atomic::Ordering::SeqCst);
     }
 
     #[cfg(test)]
@@ -2349,6 +2362,23 @@ mod tests {
                 matches!(error, IdentityError::Persistence(message) if message.contains("injected"))
             );
         }
+    }
+
+    #[tokio::test]
+    async fn auth_shutdown_reports_a_persistence_worker_panic_without_hanging() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        database.test_fail_next_persistence_writes(1);
+        database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap_err();
+        database.test_panic_next_persistence_writes(1);
+
+        let error = tokio::time::timeout(Duration::from_secs(1), database.shutdown())
+            .await
+            .expect("authorization shutdown hung after its persistence worker panicked")
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("panicked"), "{error}");
     }
 
     #[test]

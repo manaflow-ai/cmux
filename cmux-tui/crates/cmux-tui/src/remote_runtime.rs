@@ -60,8 +60,16 @@ const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
 
 #[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DaemonCleanupPausePhase {
+    BeforeAuthRelease,
+    AfterAuthShutdown,
+}
+
+#[cfg(test)]
 struct DaemonCleanupPause {
     expected_state_dir: PathBuf,
+    expected_phase: DaemonCleanupPausePhase,
     reached: mpsc::SyncSender<()>,
     resume: std::sync::Mutex<mpsc::Receiver<()>>,
 }
@@ -78,7 +86,7 @@ struct DaemonCleanupPauseHandle {
 
 #[cfg(test)]
 impl DaemonCleanupPauseHandle {
-    fn install(expected_state_dir: PathBuf) -> Self {
+    fn install(expected_state_dir: PathBuf, expected_phase: DaemonCleanupPausePhase) -> Self {
         let (reached_tx, reached) = mpsc::sync_channel(1);
         let (resume, resume_rx) = mpsc::sync_channel(1);
         let mut installed =
@@ -86,6 +94,7 @@ impl DaemonCleanupPauseHandle {
         assert!(installed.is_none(), "a daemon cleanup pause is already installed");
         *installed = Some(Arc::new(DaemonCleanupPause {
             expected_state_dir,
+            expected_phase,
             reached: reached_tx,
             resume: std::sync::Mutex::new(resume_rx),
         }));
@@ -135,11 +144,11 @@ impl Drop for DaemonCleanupPauseHandle {
 }
 
 #[cfg(test)]
-fn pause_after_daemon_auth_shutdown(state_dir: &Path) {
+fn pause_daemon_cleanup(state_dir: &Path, phase: DaemonCleanupPausePhase) {
     let pause =
         DAEMON_CLEANUP_PAUSE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
     if let Some(pause) = pause {
-        if pause.expected_state_dir != state_dir {
+        if pause.expected_state_dir != state_dir || pause.expected_phase != phase {
             return;
         }
         let _ = pause.reached.send(());
@@ -1871,9 +1880,11 @@ async fn run_daemon(
         }
         unix.shutdown().await;
         let _ = fs::remove_file(state_dir.join("runtime.json"));
+        #[cfg(test)]
+        pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeAuthRelease);
         auth.shutdown().await?;
         #[cfg(test)]
-        pause_after_daemon_auth_shutdown(&state_dir);
+        pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::AfterAuthShutdown);
         Ok::<_, anyhow::Error>(())
     }
     .await;
@@ -2372,6 +2383,45 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn daemon_runtime_metadata_remains_until_auth_finalization() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "durable-cleanup".into(),
+                state_dir: Some(directory.path().join("state")),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        let info = runtime.info().clone();
+        let metadata = info.state_dir.join("runtime.json");
+        let mut pause = DaemonCleanupPauseHandle::install(
+            info.state_dir.clone(),
+            DaemonCleanupPausePhase::BeforeAuthRelease,
+        );
+        let shutdown = thread::spawn(move || runtime.shutdown());
+        pause.wait_until_reached();
+
+        assert!(
+            metadata.exists(),
+            "daemon published lifecycle completion before auth finalization"
+        );
+        pause.resume();
+        shutdown.join().unwrap().unwrap();
+        assert!(!metadata.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn exiting_daemon_never_removes_successor_runtime_metadata() {
         let directory = tempfile::tempdir_in("/tmp").unwrap();
         let runtime = start_daemon_runtime(
@@ -2392,7 +2442,10 @@ mod tests {
         )
         .unwrap();
         let info = runtime.info().clone();
-        let mut pause = DaemonCleanupPauseHandle::install(info.state_dir.clone());
+        let mut pause = DaemonCleanupPauseHandle::install(
+            info.state_dir.clone(),
+            DaemonCleanupPausePhase::AfterAuthShutdown,
+        );
 
         let unrelated_directory = tempfile::tempdir_in("/tmp").unwrap();
         let unrelated = start_daemon_runtime(
