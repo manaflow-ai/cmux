@@ -20,9 +20,13 @@ final class MobileWorkspaceListObserver {
     /// observer; the weak reference keeps the observer from extending the store's
     /// lifetime, mirroring how `tabManager` is held.
     private weak var notificationStore: TerminalNotificationStore?
+    /// Per-window config supplies the effective group icon rendered by the Mac
+    /// row when the group itself has no explicit icon.
+    private weak var configStore: CmuxConfigStore?
     private var tabsCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
     private var groupsCancellable: AnyCancellable?
+    private var groupConfigCancellable: AnyCancellable?
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
     private struct WorkspaceCancellableEntry {
@@ -54,7 +58,7 @@ final class MobileWorkspaceListObserver {
     #endif
 
     /// Whether any mobile client currently subscribes to `workspace.updated`.
-    /// The observer's entire publisher graph (five global streams plus ~a dozen
+    /// The observer's entire publisher graph (six global streams plus ~a dozen
     /// per-workspace streams, all throttled on the main run loop) and the
     /// full-list summary hash it computes per delivery exist only to feed that
     /// event, so with no subscriber the graph stays detached and agent-driven
@@ -66,9 +70,14 @@ final class MobileWorkspaceListObserver {
         return MobileHostService.hasEventSubscribers(topic: "workspace.updated")
     }
 
-    init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
+    init(
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore? = nil,
+        configStore: CmuxConfigStore? = nil
+    ) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
+        self.configStore = configStore
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
@@ -82,6 +91,19 @@ final class MobileWorkspaceListObserver {
             }
         }
         reconcilePipelines()
+    }
+
+    func updateConfigStore(_ next: CmuxConfigStore?) {
+        if let configStore, let next, configStore === next {
+            return
+        }
+        if configStore == nil, next == nil {
+            return
+        }
+        configStore = next
+        guard pipelinesAttached else { return }
+        attachGroupConfigPipeline()
+        emitIfNeeded(force: false)
     }
 
     deinit {
@@ -109,6 +131,7 @@ final class MobileWorkspaceListObserver {
         tabsCancellable = nil
         selectionCancellable = nil
         groupsCancellable = nil
+        groupConfigCancellable = nil
         notificationsCancellable = nil
         unreadIndicatorsCancellable = nil
         perWorkspaceCancellables.removeAll()
@@ -122,6 +145,7 @@ final class MobileWorkspaceListObserver {
         let initial = Self.summaryHash(
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
+            groupIconSymbols: currentGroupIconSymbols(for: tabManager),
             selectedTabID: tabManager.selectedTabId,
             descriptionSignatures: currentDescriptionSignatures(for: tabManager.tabs),
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
@@ -158,6 +182,7 @@ final class MobileWorkspaceListObserver {
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
             }
+        attachGroupConfigPipeline()
         // Last-activity preview lines come from the notification store, which is
         // not part of the TabManager graph. A new notification (or a cleared one)
         // changes a row's preview + relative time without touching the tab set,
@@ -196,6 +221,43 @@ final class MobileWorkspaceListObserver {
         }
 
         refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
+    }
+
+    private func attachGroupConfigPipeline() {
+        groupConfigCancellable = configStore?.$workspaceGroupConfigs
+            .dropFirst()
+            .throttle(
+                for: .milliseconds(throttleMilliseconds),
+                scheduler: RunLoop.main,
+                latest: true
+            )
+            .sink { [weak self] _ in
+                self?.emitIfNeeded(force: false)
+            }
+    }
+
+    private func currentGroupIconSymbols(for tabManager: TabManager) -> [UUID: String] {
+        let tabs = tabManager.tabs
+        let groups = tabManager.workspaceGroups
+        guard !groups.isEmpty else { return [:] }
+        let currentDirectoryByWorkspaceID = Dictionary(
+            uniqueKeysWithValues: tabs.map { ($0.id, $0.currentDirectory) }
+        )
+        var symbols: [UUID: String] = [:]
+        symbols.reserveCapacity(groups.count)
+        for group in groups {
+            let anchorCwd = currentDirectoryByWorkspaceID[
+                group.anchorWorkspaceId
+            ] ?? nil
+            let configured = configStore?
+                .resolveWorkspaceGroupConfig(forCwd: anchorCwd)?
+                .iconSymbol
+            symbols[group.id] = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
+                explicit: group.iconSymbol,
+                configured: configured
+            )
+        }
+        return symbols
     }
 
     private func currentPreviewSignatures(for tabs: [Workspace]) -> [UUID: Int] {
@@ -317,6 +379,7 @@ final class MobileWorkspaceListObserver {
         let hash = Self.summaryHash(
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
+            groupIconSymbols: currentGroupIconSymbols(for: tabManager),
             selectedTabID: tabManager.selectedTabId,
             descriptionSignatures: currentDescriptionSignatures(for: tabManager.tabs),
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
@@ -402,6 +465,7 @@ final class MobileWorkspaceListObserver {
     private static func summaryHash(
         for tabs: [Workspace],
         groups: [WorkspaceGroup],
+        groupIconSymbols: [UUID: String] = [:],
         selectedTabID: UUID?,
         descriptionSignatures: [UUID: Int],
         previewSignatures: [UUID: Int]
@@ -420,7 +484,7 @@ final class MobileWorkspaceListObserver {
             hasher.combine(group.name)
             hasher.combine(group.isCollapsed)
             hasher.combine(group.isPinned)
-            hasher.combine(group.iconSymbol)
+            hasher.combine(groupIconSymbols[group.id] ?? group.iconSymbol)
             hasher.combine(group.anchorWorkspaceId)
         }
         for workspace in tabs {
@@ -467,12 +531,14 @@ final class MobileWorkspaceListObserver {
     static func summaryHashForTesting(
         tabs: [Workspace],
         groups: [WorkspaceGroup] = [],
+        groupIconSymbols: [UUID: String] = [:],
         selectedTabID: UUID?,
         previewSignatures: [UUID: Int] = [:]
     ) -> Int {
         summaryHash(
             for: tabs,
             groups: groups,
+            groupIconSymbols: groupIconSymbols,
             selectedTabID: selectedTabID,
             descriptionSignatures: descriptionSignatures(for: tabs),
             previewSignatures: previewSignatures

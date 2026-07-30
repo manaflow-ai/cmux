@@ -93,7 +93,11 @@ extension TerminalController {
             // a single entry), not a sidebar render, so it omits group sections to
             // keep the response minimal. The phone always lists the full window.
             if requestedWorkspaceID == nil, requestedTerminalID == nil {
-                groups = mobileWorkspaceGroupPayloads(tabManager.workspaceGroups, tabs: tabManager.tabs)
+                groups = mobileWorkspaceGroupPayloads(
+                    tabManager.workspaceGroups,
+                    tabs: tabManager.tabs,
+                    tabManager: tabManager
+                )
             }
             let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
                 tabManager.tabs.filter { $0.id == workspaceID }
@@ -146,7 +150,8 @@ extension TerminalController {
                 aggregatedGroups.append(
                     contentsOf: mobileWorkspaceGroupPayloads(
                         windowTabManager.workspaceGroups,
-                        tabs: windowTabManager.tabs
+                        tabs: windowTabManager.tabs,
+                        tabManager: windowTabManager
                     )
                 )
                 for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
@@ -428,10 +433,20 @@ extension TerminalController {
     /// are taken in `tabs` spatial order so the phone's grouping matches the Mac.
     /// Membership is resolved with a single pass over `tabs` (not a scan per
     /// group), keeping this synchronous RPC path linear on large workspace sets.
-    func mobileWorkspaceGroupPayloads(_ groups: [WorkspaceGroup], tabs: [Workspace]) -> [[String: Any]] {
+    func mobileWorkspaceGroupPayloads(
+        _ groups: [WorkspaceGroup],
+        tabs: [Workspace],
+        tabManager: TabManager? = nil
+    ) -> [[String: Any]] {
         guard !groups.isEmpty else { return [] }
         var memberIDsByGroup: [UUID: [String]] = [:]
+        var currentDirectoryByWorkspaceID: [UUID: String] = [:]
+        currentDirectoryByWorkspaceID.reserveCapacity(tabs.count)
+        let configStore = tabManager.flatMap {
+            AppDelegate.shared?.mainWindowContext(for: $0)?.cmuxConfigStore
+        }
         for workspace in tabs {
+            currentDirectoryByWorkspaceID[workspace.id] = workspace.currentDirectory
             guard let groupId = workspace.groupId else { continue }
             memberIDsByGroup[groupId, default: []].append(workspace.id.uuidString)
         }
@@ -441,10 +456,30 @@ extension TerminalController {
                 "name": group.name,
                 "is_collapsed": group.isCollapsed,
                 "is_pinned": group.isPinned,
-                "icon_symbol": v2OrNull(group.iconSymbol),
+                "icon_symbol": mobileWorkspaceGroupEffectiveIconSymbol(
+                    group,
+                    anchorCwd: currentDirectoryByWorkspaceID[group.anchorWorkspaceId] ?? nil,
+                    configStore: configStore
+                ),
                 "anchor_workspace_id": group.anchorWorkspaceId.uuidString,
                 "member_workspace_ids": memberIDsByGroup[group.id] ?? []
             ]
         }
+    }
+
+    /// Resolves the icon the Mac row actually renders, including per-directory
+    /// `cmux.json` configuration and the shared validated folder fallback.
+    func mobileWorkspaceGroupEffectiveIconSymbol(
+        _ group: WorkspaceGroup,
+        anchorCwd: String?,
+        configStore: CmuxConfigStore?
+    ) -> String {
+        let configured = configStore?
+            .resolveWorkspaceGroupConfig(forCwd: anchorCwd)?
+            .iconSymbol
+        return RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
+            explicit: group.iconSymbol,
+            configured: configured
+        )
     }
 }
