@@ -345,6 +345,52 @@ import UIKit
         )
     }
 
+    @Test func groupHeaderDefersNativeActionReloadUntilSwipeEditingEnds() {
+        let group = MobileWorkspaceGroupPreview(
+            id: "group-1",
+            name: "Release",
+            anchorWorkspaceID: "workspace-1"
+        )
+        let read = configuration(
+            workspaceIDs: ["workspace-1"],
+            groups: [group],
+            items: [.groupHeader(group.id)],
+            workspaceHasUnread: false,
+            groupHasUnreadByID: [group.id: false]
+        )
+        let unread = configuration(
+            workspaceIDs: ["workspace-1"],
+            groups: [group],
+            items: [.groupHeader(group.id)],
+            workspaceHasUnread: true,
+            groupHasUnreadByID: [group.id: true]
+        )
+        let coordinator = WorkspaceListTableCoordinator(configuration: read)
+        let tableView = makeTableView()
+        let indexPath = IndexPath(row: 0, section: 0)
+        coordinator.attach(to: tableView)
+
+        (coordinator as UITableViewDelegate).tableView?(
+            tableView,
+            willBeginEditingRowAt: indexPath
+        )
+        coordinator.update(configuration: unread, in: tableView)
+
+        #expect(
+            coordinator.lastPayloadApplyRoute != .snapshotApply,
+            "Reloading the active group-header cell interrupts UIKit's swipe completion."
+        )
+
+        (coordinator as UITableViewDelegate).tableView?(
+            tableView,
+            didEndEditingRowAt: indexPath
+        )
+        #expect(
+            coordinator.lastPayloadApplyRoute == .snapshotApply,
+            "The deferred reload must refresh UIKit's cached native actions after the swipe closes."
+        )
+    }
+
     @Test func groupHeaderReloadsNativeActionsWhenAnchorCapabilitiesChange() {
         let group = MobileWorkspaceGroupPreview(
             id: "group-1",

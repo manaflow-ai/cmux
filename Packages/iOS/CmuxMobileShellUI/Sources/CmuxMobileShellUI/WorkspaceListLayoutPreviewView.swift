@@ -128,6 +128,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 workspace.actionCapabilities.supportsWorkspaceActions = true
                 workspace.actionCapabilities.supportsReadStateActions = true
                 workspace.actionCapabilities.supportsCloseActions = true
+                workspace.actionCapabilities.supportsGroupActions = true
                 return workspace
             }
             : initialWorkspaces
@@ -332,6 +333,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                     model.workspaces[index].name = newName
                 }
             } : nil,
+            renameWorkspaceGroup: reorderEnabled ? { _, _ in } : nil,
             setPinned: reorderEnabled ? { id, pinned in
                 if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
                     model.workspaces[index].isPinned = pinned
