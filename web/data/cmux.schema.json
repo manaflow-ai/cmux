@@ -590,12 +590,6 @@
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         },
-        "autoRetryAgentSessions": {
-          "type": "boolean",
-          "default": false,
-          "descriptionKey": "schemaDescriptions.terminal.autoRetryAgentSessions",
-          "description": "Automatically resume a managed agent session when its active command exits with a nonzero, non-signal error status. Retries are bounded and use exponential backoff; normal completion and explicit user termination are never retried."
-        },
         "showTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,
