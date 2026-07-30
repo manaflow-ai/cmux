@@ -1,10 +1,6 @@
 import CMUXMobileCore
 import Foundation
 
-private struct CmxIrohPostRegistrationRevocationFailure: Error {
-    let underlying: any Error
-}
-
 extension CmxIrohHostRuntime {
     func resolveInitialPolicy(
         supervisor: CmxIrohEndpointSupervisor,

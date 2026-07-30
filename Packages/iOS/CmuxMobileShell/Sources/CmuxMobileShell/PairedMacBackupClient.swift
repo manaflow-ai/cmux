@@ -175,7 +175,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     private func fetchSnapshot(
         teamID: String?,
         expectedUserID: String?,
-        scope: ClientScopeSelection
+        scope: PairedMacBackupClientScopeSelection
     ) async -> PairedMacBackupSnapshot? {
         guard let request = await makeRequest(
             method: "GET",
@@ -208,7 +208,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         body: Data?,
         teamID: String?,
         expectedUserID: String?,
-        scope: ClientScopeSelection = .current
+        scope: PairedMacBackupClientScopeSelection = .current
     ) async -> URLRequest? {
         guard let accessToken = await tokenSource.accessToken(expectedUserID: expectedUserID),
               let url = Self.endpointURL(serviceBaseURL: serviceBaseURL) else {
@@ -237,10 +237,5 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             request.httpBody = body
         }
         return request
-    }
-
-    private enum ClientScopeSelection: Sendable {
-        case current
-        case explicit(String?)
     }
 }

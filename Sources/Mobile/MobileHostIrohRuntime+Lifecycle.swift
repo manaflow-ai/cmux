@@ -108,6 +108,7 @@ extension MobileHostIrohRuntime {
                     refreshToken: { refreshToken }
                 ),
                 clientNamespace: "mac:\(pendingRevocation.tag)",
+                bindingAuthorization: preparation.bindingAuthorization,
                 backpressureMode: .callerOwned
             )
             let broker = CmxIrohBackpressuredHostBroker(
@@ -123,7 +124,8 @@ extension MobileHostIrohRuntime {
                 await wipePersistedAccountState(
                     after: CmxIrohHostSignOutPreparation(
                         pendingRevocation: preparation.pendingRevocation,
-                        wasPersisted: true
+                        wasPersisted: true,
+                        bindingAuthorization: preparation.bindingAuthorization
                     )
                 )
             }
@@ -478,7 +480,8 @@ extension MobileHostIrohRuntime {
         }
         return CmxIrohHostSignOutPreparation(
             pendingRevocation: pending,
-            wasPersisted: wasPersisted
+            wasPersisted: wasPersisted,
+            bindingAuthorization: preparedSignOut?.bindingAuthorization
         )
     }
 

@@ -144,16 +144,14 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private let requestTimeout: TimeInterval
     private let backpressureGate: CmxIrohBrokerBackpressureGate?
     private let clientNamespace: String
-    private var bindingAuthorization: (
-        bindingID: String,
-        signer: CmxIrohRegistrationSigner
-    )?
+    private var bindingAuthorization: CmxIrohBindingRequestAuthorization?
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
         clientNamespace: String = "legacy",
+        bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil,
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
     ) throws {
@@ -161,6 +159,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             baseURL: baseURL,
             tokenSource: tokenSource,
             clientNamespace: clientNamespace,
+            bindingAuthorization: bindingAuthorization,
             transport: CmxIrohURLSessionTransport(),
             requestTimeout: requestTimeout,
             backpressureMode: backpressureMode
@@ -172,6 +171,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
         clientNamespace: String = "legacy",
+        bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil,
         transport: any CmxIrohHTTPTransport,
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
@@ -186,6 +186,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         self.transport = transport
         self.requestTimeout = requestTimeout
         self.clientNamespace = clientNamespace
+        self.bindingAuthorization = bindingAuthorization
         switch backpressureMode {
         case .automatic:
             backpressureGate = CmxIrohBrokerBackpressureGate()
@@ -244,7 +245,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                 body: request
             )
         }
-        bindingAuthorization = (
+        bindingAuthorization = CmxIrohBindingRequestAuthorization(
             bindingID: response.binding.bindingID,
             signer: signer
         )

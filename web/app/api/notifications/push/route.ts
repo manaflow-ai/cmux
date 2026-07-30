@@ -11,6 +11,7 @@ import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
 import { recordPushSendOrThrow, PushRateLimitExceededError } from "../../../../services/apns/rateLimit";
 import { withApnsApiRoute } from "../../../../services/apns/routeHandler";
 import {
+  MAX_DEVICE_TOKENS_PER_ACCOUNT,
   MAX_DEVICE_TOKENS_PER_USER,
   MAX_PUSH_REQUEST_BYTES,
   normalizeApnsBundle,
@@ -46,6 +47,12 @@ function rateLimitResponse(error: PushRateLimitExceededError): Response {
 
 type NotificationDb = ReturnType<typeof cloudDb>;
 
+export function notificationPushTargetLimit(bundleId?: string): number {
+  return bundleId
+    ? MAX_DEVICE_TOKENS_PER_USER
+    : MAX_DEVICE_TOKENS_PER_ACCOUNT;
+}
+
 /** Selects one exact bundle, or all iOS bundles for a legacy Mac sender. */
 export async function selectNotificationPushTargets(
   db: NotificationDb,
@@ -69,7 +76,7 @@ export async function selectNotificationPushTargets(
         eq(deviceTokens.userId, userId),
         eq(deviceTokens.platform, "ios"),
       ))
-    .limit(MAX_DEVICE_TOKENS_PER_USER);
+    .limit(notificationPushTargetLimit(bundleId));
 }
 
 export async function POST(request: Request): Promise<Response> {

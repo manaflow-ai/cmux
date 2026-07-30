@@ -172,6 +172,9 @@ export function makeIrohTrustBroker(
     const bindings = yield* repository.findActiveBindings(userId, [proof.bindingId]);
     const binding = bindings.length === 1 ? bindings[0] : undefined;
     if (!binding) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+    if (binding.clientNamespace !== clientNamespace) {
+      return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+    }
     yield* parseEffect(() => verifyBindingRequestSignature({
       ...proof,
       endpointId: binding.endpointId,

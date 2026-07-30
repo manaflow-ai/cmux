@@ -100,7 +100,8 @@ public final class MobileIrohRuntimeComposition:
         case unavailableCustomPrivatePath
     }
     typealias BrokerFactory = @Sendable (
-        _ tokenSource: CmxIrohBrokerTokenSource
+        _ tokenSource: CmxIrohBrokerTokenSource,
+        _ bindingAuthorization: CmxIrohBindingRequestAuthorization?
     ) throws -> any CmxIrohClientBrokerServing
 
     private struct BrokerBundle {
@@ -359,7 +360,7 @@ public final class MobileIrohRuntimeComposition:
             },
             transportVerificationMode: transportVerificationMode,
             automaticRelayCredentialRefreshEnabled: automaticRelayCredentialRefreshEnabled,
-            brokerFactory: { tokenSource in
+            brokerFactory: { tokenSource, bindingAuthorization in
                 guard let baseURL else {
                     throw CmxIrohTrustBrokerClientError.invalidBaseURL
                 }
@@ -367,6 +368,7 @@ public final class MobileIrohRuntimeComposition:
                     baseURL: baseURL,
                     tokenSource: tokenSource,
                     clientNamespace: appNamespace.bundleIdentifier,
+                    bindingAuthorization: bindingAuthorization,
                     backpressureMode: .callerOwned
                 )
             },
@@ -464,9 +466,10 @@ public final class MobileIrohRuntimeComposition:
 
     private func makeBrokerBundle(
         accountID: String,
-        tokenSource: CmxIrohBrokerTokenSource
+        tokenSource: CmxIrohBrokerTokenSource,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil
     ) throws -> BrokerBundle {
-        let rawClient = try brokerFactory(tokenSource)
+        let rawClient = try brokerFactory(tokenSource, bindingAuthorization)
         let client = CmxIrohBackpressuredClientBroker(
             broker: rawClient,
             gate: brokerBackpressureGate,
@@ -940,7 +943,8 @@ public final class MobileIrohRuntimeComposition:
                 tokenSource: CmxIrohBrokerTokenSource(
                     accessToken: { accessToken },
                     refreshToken: { refreshToken }
-                )
+                ),
+                bindingAuthorization: preparation.bindingAuthorization
             ).client
             let released = await recoverSignOutQuarantine(
                 preparation,
@@ -1097,7 +1101,8 @@ public final class MobileIrohRuntimeComposition:
                             }
                             return tokens.refreshToken
                         }
-                    )
+                    ),
+                    bindingAuthorization: preparation.bindingAuthorization
                 ).client
                 return await recoverSignOutQuarantine(
                     preparation,
@@ -1239,7 +1244,8 @@ public final class MobileIrohRuntimeComposition:
                   tokenSource: CmxIrohBrokerTokenSource(
                       accessToken: { accessToken },
                       refreshToken: { refreshToken }
-                  )
+                  ),
+                  bindingAuthorization: preparation.bindingAuthorization
               ).client else { return }
         do {
             try await preparation.revoke(
@@ -2669,6 +2675,9 @@ extension MobileIrohRuntimeComposition {
             tokenSource: brokerTokenSource(
                 pinnedTo: expectedAccountID,
                 generation: session.generation
+            ),
+            bindingAuthorization: try await managementBindingAuthorization(
+                accountID: expectedAccountID
             )
         ).client
         let snapshot = try await broker.discover()
@@ -2694,6 +2703,36 @@ extension MobileIrohRuntimeComposition {
             )
             try await broker.revoke(bindingID: binding.bindingID)
         }
+    }
+
+    private func managementBindingAuthorization(
+        accountID: String
+    ) async throws -> CmxIrohBindingRequestAuthorization {
+        let appInstanceID = try await appInstances.appInstanceID(
+            accountID: accountID,
+            tag: tag
+        )
+        let identity = try await identities.identity(
+            accountID: accountID,
+            appInstanceID: appInstanceID
+        )
+        let endpointID = try Self.peerIdentity(for: identity)
+        guard let binding = try await brokerCredentials.loadBinding(
+            accountID: accountID,
+            appInstanceID: appInstanceID
+        ),
+        binding.appInstanceID == appInstanceID,
+        binding.tag == tag,
+        binding.platform == .ios,
+        binding.endpointID == endpointID,
+        binding.identityGeneration == identity.generation else {
+            throw CmxIrohClientRuntimeError.inactive
+        }
+        return try CmxIrohBindingRequestAuthorization(
+            bindingID: binding.bindingID,
+            identity: identity,
+            endpointID: endpointID
+        )
     }
 
     /// Throws if the authenticated session that initiated the forget was replaced,

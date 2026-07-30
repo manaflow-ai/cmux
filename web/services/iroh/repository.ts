@@ -662,14 +662,21 @@ function makeLiveRepository(): IrohRepositoryShape {
             ))
             .limit(1);
           if (!authorized) return false;
-          const sameOwnedSlot = authorized.deviceUuid === binding.deviceUuid
-            && authorized.appInstanceId === binding.appInstanceId
+          const sameDurableSlot = authorized.deviceUuid === binding.deviceUuid
             && authorized.tag === binding.tag
             && authorized.platform === binding.platform
             && (
               authorized.clientNamespace === binding.clientNamespace
               || binding.clientNamespace === "legacy"
             );
+          if (
+            binding.revokedAt
+            && (authorized.id === binding.id || sameDurableSlot)
+          ) {
+            return true;
+          }
+          const sameOwnedSlot = sameDurableSlot
+            && authorized.appInstanceId === binding.appInstanceId;
           if (authorized.id !== binding.id && !sameOwnedSlot) return false;
         } else {
           const requestedNamespace = input.clientNamespace ?? "legacy";
