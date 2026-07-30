@@ -21,4 +21,12 @@ pub fn build(b: *std.Build) void {
         .root_module = adapter,
     });
     b.installArtifact(executable);
+
+    const adapter_tests = b.addTest(.{
+        .name = "cmux-resource-conformance-zig-tests",
+        .root_module = adapter,
+    });
+    const run_adapter_tests = b.addRunArtifact(adapter_tests);
+    const test_step = b.step("test", "Run the Zig resource conformance adapter tests");
+    test_step.dependOn(&run_adapter_tests.step);
 }

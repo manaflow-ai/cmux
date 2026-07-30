@@ -27,8 +27,21 @@ fn stringField(value: Value, name: []const u8) ![]const u8 {
 fn integerField(value: Value, name: []const u8) !i64 {
     return switch (try field(value, name)) {
         .integer => |number| number,
+        .number_string => |number| std.fmt.parseInt(i64, number, 10) catch
+            return error.ExpectedInteger,
         else => error.ExpectedInteger,
     };
+}
+
+test "integer fields accept numbers preserved by the lossless parser" {
+    var object = Object.init(std.testing.allocator);
+    defer object.deinit();
+    try object.put("value", .{ .number_string = "17" });
+
+    try std.testing.expectEqual(
+        @as(i64, 17),
+        try integerField(.{ .object = object }, "value"),
+    );
 }
 
 fn decimalField(value: Value, name: []const u8) !u64 {
