@@ -2,5 +2,5 @@
 # Format: relpath<TAB>rule<TAB>short reason
 # A finding whose (path, rule) appears here is suppressed.
 # Remove a line once the underlying test is determinized.
-cmuxTests/WorkspaceForkConversationContextMenuTests.swift	assert-on-duration	grandfathered
-cmuxTests/WorkspaceForkConversationContextMenuTests.swift	sleep-then-assert	grandfathered
+Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTransportDrainTests.swift	sleep-then-assert	landed via https://github.com/manaflow-ai/cmux/pull/8931; determinize then remove
+Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/OnboardingMacDiscoveryKeepAliveTests.swift	sleep-then-assert	landed via https://github.com/manaflow-ai/cmux/pull/9163; determinize then remove
