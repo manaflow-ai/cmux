@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -58,6 +58,7 @@ const DAEMON_AUTH_LEASE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
 const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
+const DAEMON_SHUTDOWN_OUTCOME_VERSION: u32 = 1;
 
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -262,6 +263,8 @@ pub struct DaemonRuntimeInfo {
     pub routes: Vec<String>,
     pub direct_websocket: Option<SocketAddr>,
     pub iroh_node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_id: Option<String>,
     #[serde(default)]
     pub replaceable_sidecar: bool,
 }
@@ -280,9 +283,24 @@ impl fmt::Debug for DaemonRuntimeInfo {
             .field("routes", &routes)
             .field("direct_websocket", &self.direct_websocket)
             .field("iroh_node_id", &self.iroh_node_id)
+            .field("lifecycle_id", &self.lifecycle_id)
             .field("replaceable_sidecar", &self.replaceable_sidecar)
             .finish()
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct DaemonShutdownOutcome {
+    pub(crate) version: u32,
+    pub(crate) lifecycle_id: String,
+    pub(crate) status: DaemonShutdownStatus,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum DaemonShutdownStatus {
+    Succeeded,
+    Failed,
 }
 
 pub struct DaemonRuntimeHandle {
@@ -1492,7 +1510,7 @@ async fn acquire_client_socket_lock(
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
-    let file = fs::OpenOptions::new()
+    let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
@@ -1863,6 +1881,7 @@ async fn run_daemon(
         let admin =
             serve_admin_with_shutdown(daemon, &admin_socket, routes.clone(), Some(owner_shutdown))
                 .await?;
+        let lifecycle_id = uuid::Uuid::new_v4().to_string();
         let info = DaemonRuntimeInfo {
             session: options.session,
             state_dir: state_dir.clone(),
@@ -1872,6 +1891,7 @@ async fn run_daemon(
             routes,
             direct_websocket: websocket.as_ref().map(|server| server.local_addr()),
             iroh_node_id,
+            lifecycle_id: Some(lifecycle_id.clone()),
             replaceable_sidecar: options.replaceable_sidecar,
         };
         persist_runtime_info(&state_dir, &info)?;
@@ -1892,10 +1912,15 @@ async fn run_daemon(
         }
         unix.shutdown().await;
         let cleanup_state_dir = state_dir.clone();
-        auth.shutdown_with_cleanup(move || {
+        auth.shutdown_with_cleanup(move |finalization| {
             #[cfg(test)]
             pause_daemon_cleanup(&cleanup_state_dir, DaemonCleanupPausePhase::BeforeAuthRelease);
-            let _ = fs::remove_file(cleanup_state_dir.join("runtime.json"));
+            let status = if finalization.is_ok() {
+                DaemonShutdownStatus::Succeeded
+            } else {
+                DaemonShutdownStatus::Failed
+            };
+            finalize_daemon_lifecycle(&cleanup_state_dir, &lifecycle_id, status)
         })
         .await?;
         #[cfg(test)]
@@ -1975,6 +2000,85 @@ fn persist_runtime_info(state_dir: &Path, info: &DaemonRuntimeInfo) -> anyhow::R
     Ok(())
 }
 
+fn finalize_daemon_lifecycle(
+    state_dir: &Path,
+    lifecycle_id: &str,
+    status: DaemonShutdownStatus,
+) -> Result<(), IdentityError> {
+    persist_shutdown_outcome(
+        state_dir,
+        &DaemonShutdownOutcome {
+            version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+            lifecycle_id: lifecycle_id.to_owned(),
+            status,
+        },
+    )?;
+    remove_owned_runtime_info(state_dir, lifecycle_id)
+}
+
+fn persist_shutdown_outcome(
+    state_dir: &Path,
+    outcome: &DaemonShutdownOutcome,
+) -> Result<(), IdentityError> {
+    use std::io::Write as _;
+
+    let path = state_dir.join("shutdown.json");
+    let temporary =
+        state_dir.join(format!(".shutdown-{}-{}.json", std::process::id(), uuid::Uuid::new_v4()));
+    let result = (|| {
+        let encoded = serde_json::to_vec_pretty(outcome).map_err(IdentityError::Json)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary).map_err(IdentityError::Io)?;
+        file.write_all(&encoded).map_err(IdentityError::Io)?;
+        file.sync_all().map_err(IdentityError::Io)?;
+        fs::rename(&temporary, &path).map_err(IdentityError::Io)?;
+        sync_state_directory(state_dir)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn remove_owned_runtime_info(state_dir: &Path, lifecycle_id: &str) -> Result<(), IdentityError> {
+    let path = state_dir.join("runtime.json");
+    let current = match fs::read(&path) {
+        Ok(current) => current,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(IdentityError::Io(error)),
+    };
+    let current: DaemonRuntimeInfo =
+        serde_json::from_slice(&current).map_err(IdentityError::Json)?;
+    if current.lifecycle_id.as_deref() != Some(lifecycle_id) {
+        return Err(IdentityError::Invalid(
+            "remote runtime lifecycle ownership changed during shutdown".into(),
+        ));
+    }
+    match fs::remove_file(path) {
+        Ok(()) => sync_state_directory(state_dir),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(IdentityError::Io(error)),
+    }
+}
+
+fn sync_state_directory(path: &Path) -> Result<(), IdentityError> {
+    #[cfg(unix)]
+    {
+        fs::File::open(path).and_then(|directory| directory.sync_all()).map_err(IdentityError::Io)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 pub fn load_runtime_info(
     session: &str,
     state_override: Option<&Path>,
@@ -1985,6 +2089,25 @@ pub fn load_runtime_info(
         format!("remote daemon is not running for session {session:?} ({})", path.display())
     })?)
     .context("remote daemon runtime metadata is invalid")
+}
+
+pub(crate) fn load_shutdown_outcome(state_dir: &Path) -> anyhow::Result<DaemonShutdownOutcome> {
+    let path = state_dir.join("shutdown.json");
+    let outcome: DaemonShutdownOutcome =
+        serde_json::from_slice(&fs::read(&path).with_context(|| {
+            format!("remote daemon shutdown outcome is unavailable ({})", path.display())
+        })?)
+        .context("remote daemon shutdown outcome is invalid")?;
+    if outcome.version != DAEMON_SHUTDOWN_OUTCOME_VERSION {
+        return Err(anyhow!(
+            "remote daemon shutdown outcome version {} is unsupported",
+            outcome.version
+        ));
+    }
+    if outcome.lifecycle_id.is_empty() {
+        return Err(anyhow!("remote daemon shutdown outcome has an empty lifecycle id"));
+    }
+    Ok(outcome)
 }
 
 #[cfg(test)]
@@ -2384,6 +2507,8 @@ mod tests {
         )
         .unwrap();
         let info = runtime.info().clone();
+        let lifecycle_id =
+            info.lifecycle_id.clone().expect("new daemon omitted its lifecycle identity");
         let metadata = info.state_dir.join("runtime.json");
         assert!(info.link_socket.exists());
         assert!(info.admin_socket.exists());
@@ -2394,6 +2519,14 @@ mod tests {
         assert!(!info.link_socket.exists());
         assert!(!info.admin_socket.exists());
         assert!(!metadata.exists());
+        assert_eq!(
+            load_shutdown_outcome(&info.state_dir).unwrap(),
+            DaemonShutdownOutcome {
+                version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                lifecycle_id,
+                status: DaemonShutdownStatus::Succeeded,
+            }
+        );
     }
 
     #[cfg(unix)]
@@ -2418,9 +2551,12 @@ mod tests {
         )
         .unwrap();
         let state_dir = runtime.info().state_dir.clone();
+        let lifecycle_id =
+            runtime.info().lifecycle_id.clone().expect("new daemon omitted its lifecycle identity");
         let metadata = state_dir.join("runtime.json");
+        let outcome = state_dir.join("shutdown.json");
         let mut pause = DaemonCleanupPauseHandle::install(
-            state_dir,
+            state_dir.clone(),
             DaemonCleanupPausePhase::BeforeAuthRelease,
         );
         let shutdown = thread::spawn(move || runtime.shutdown());
@@ -2430,9 +2566,11 @@ mod tests {
             metadata.exists(),
             "daemon published lifecycle completion before auth finalization"
         );
+        assert!(!outcome.exists(), "daemon published its outcome before auth finalization");
         pause.resume();
         shutdown.join().unwrap().unwrap();
         assert!(!metadata.exists());
+        assert_eq!(load_shutdown_outcome(&state_dir).unwrap().lifecycle_id, lifecycle_id);
     }
 
     #[cfg(unix)]
@@ -2945,6 +3083,7 @@ mod tests {
             routes: vec!["%%% malformed-info-route-marker %%%".into()],
             direct_websocket: None,
             iroh_node_id: None,
+            lifecycle_id: None,
             replaceable_sidecar: false,
         };
         let client_options = reconnect_test_options(vec![candidate.clone()]);
@@ -4059,6 +4198,7 @@ mod tests {
             ],
             direct_websocket: None,
             iroh_node_id: None,
+            lifecycle_id: None,
             replaceable_sidecar: false,
         };
 
@@ -4101,6 +4241,7 @@ mod tests {
             routes: vec![iroh_route.to_string()],
             direct_websocket: None,
             iroh_node_id: Some(node_id.clone()),
+            lifecycle_id: None,
             replaceable_sidecar: false,
         };
 
@@ -4131,6 +4272,7 @@ mod tests {
             routes: vec!["%%% malformed-persisted-route-marker %%%".into()],
             direct_websocket: None,
             iroh_node_id: None,
+            lifecycle_id: None,
             replaceable_sidecar: false,
         };
 

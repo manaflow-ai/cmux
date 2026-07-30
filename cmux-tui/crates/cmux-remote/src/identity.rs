@@ -585,10 +585,13 @@ impl PersistenceCoordinator {
     }
 
     fn close_and_join(&self) -> Result<(), IdentityError> {
-        self.close_and_join_with_cleanup(|| {})
+        self.close_and_join_with_cleanup(|_| Ok(()))
     }
 
-    fn close_and_join_with_cleanup(&self, cleanup: impl FnOnce()) -> Result<(), IdentityError> {
+    fn close_and_join_with_cleanup(
+        &self,
+        cleanup: impl FnOnce(&Result<(), IdentityError>) -> Result<(), IdentityError>,
+    ) -> Result<(), IdentityError> {
         {
             let mut state = self.lock_state();
             state.closing = true;
@@ -610,11 +613,15 @@ impl PersistenceCoordinator {
         };
         drop(worker);
         let result = self.terminal_result();
-        if state_lease.is_some() {
-            cleanup();
-        }
+        let cleanup_result = if state_lease.is_some() { cleanup(&result) } else { Ok(()) };
         drop(state_lease);
-        result
+        match (result, cleanup_result) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+            (Err(finalization), Err(cleanup)) => Err(IdentityError::Persistence(format!(
+                "{finalization}; lifecycle cleanup also failed: {cleanup}"
+            ))),
+        }
     }
 
     fn terminal_result(&self) -> Result<(), IdentityError> {
@@ -932,14 +939,15 @@ impl AuthDatabase {
     /// Stop accepting authorization mutations, durably flush the final
     /// accepted revision, and join the persistence owner before process exit.
     pub async fn shutdown(&self) -> Result<(), IdentityError> {
-        self.shutdown_with_cleanup(|| {}).await
+        self.shutdown_with_cleanup(|_| Ok(())).await
     }
 
     /// Finalize authorization persistence while retaining its exclusive state
-    /// lease through lifecycle cleanup.
+    /// lease through lifecycle cleanup. The cleanup observes the authoritative
+    /// terminal persistence result before the lease is released.
     pub async fn shutdown_with_cleanup(
         &self,
-        cleanup: impl FnOnce() + Send,
+        cleanup: impl FnOnce(&Result<(), IdentityError>) -> Result<(), IdentityError> + Send,
     ) -> Result<(), IdentityError> {
         let final_write = {
             let mut state = self.state.lock().await;
@@ -2428,15 +2436,19 @@ mod tests {
 
         let cleanup_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let cleanup_retained_lease = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cleanup_saw_failure = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let shutdown = tokio::spawn({
             let database = database.clone();
             let cleanup_called = cleanup_called.clone();
             let cleanup_retained_lease = cleanup_retained_lease.clone();
+            let cleanup_saw_failure = cleanup_saw_failure.clone();
             let state_dir = temp.path().to_path_buf();
             async move {
                 database
-                    .shutdown_with_cleanup(move || {
+                    .shutdown_with_cleanup(move |finalization| {
                         cleanup_called.store(true, std::sync::atomic::Ordering::SeqCst);
+                        cleanup_saw_failure
+                            .store(finalization.is_err(), std::sync::atomic::Ordering::SeqCst);
                         let successor = AuthDatabase::load_or_create(state_dir, "successor", false);
                         cleanup_retained_lease.store(
                             matches!(
@@ -2446,6 +2458,7 @@ mod tests {
                             ),
                             std::sync::atomic::Ordering::SeqCst,
                         );
+                        Ok(())
                     })
                     .await
             }
@@ -2473,6 +2486,10 @@ mod tests {
         assert!(
             cleanup_retained_lease.load(std::sync::atomic::Ordering::SeqCst),
             "lifecycle cleanup ran after releasing the authorization state lease"
+        );
+        assert!(
+            cleanup_saw_failure.load(std::sync::atomic::Ordering::SeqCst),
+            "lifecycle cleanup could not inspect the terminal persistence failure"
         );
         drop(
             AuthDatabase::load_or_create(temp.path(), "successor", false)

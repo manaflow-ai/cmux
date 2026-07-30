@@ -40,9 +40,9 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use crate::remote_runtime::{
-    ClientRuntimeOptions, DaemonRuntimeOptions, RelayClientOptions, ResolvedRouteCandidate,
-    SshBootstrapOptions, client_provider_registry, daemon_paths, load_runtime_info,
-    start_client_runtime, start_daemon_runtime,
+    ClientRuntimeOptions, DaemonRuntimeOptions, DaemonShutdownStatus, RelayClientOptions,
+    ResolvedRouteCandidate, SshBootstrapOptions, client_provider_registry, daemon_paths,
+    load_runtime_info, load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
 
@@ -1811,6 +1811,8 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
         ));
     }
     let runtime_file = runtime.state_dir.join("runtime.json");
+    let state_dir = runtime.state_dir;
+    let lifecycle_id = runtime.lifecycle_id;
     let link = runtime.link_socket;
     let admin = runtime.admin_socket;
     let (response, mut peer_exit) =
@@ -1823,11 +1825,30 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
         let process_exited =
             peer_exit.has_exited().context("could not observe remote daemon process exit")?;
         if process_exited && UnixStream::connect(&link).is_err() && !runtime_file.exists() {
-            return Ok(());
+            return match lifecycle_id.as_deref() {
+                Some(lifecycle_id) => verify_shutdown_outcome(&state_dir, lifecycle_id),
+                None => Ok(()),
+            };
         }
         thread::sleep(Duration::from_millis(50));
     }
     Err(anyhow!("remote daemon did not stop within 20 seconds"))
+}
+
+fn verify_shutdown_outcome(state_dir: &Path, lifecycle_id: &str) -> anyhow::Result<()> {
+    let outcome = load_shutdown_outcome(state_dir)
+        .context("could not verify remote daemon authorization finalization")?;
+    if outcome.lifecycle_id != lifecycle_id {
+        return Err(anyhow!(
+            "could not verify remote daemon authorization finalization: shutdown outcome belongs to a different daemon lifecycle"
+        ));
+    }
+    match outcome.status {
+        DaemonShutdownStatus::Succeeded => Ok(()),
+        DaemonShutdownStatus::Failed => {
+            Err(anyhow!("remote daemon authorization finalization failed"))
+        }
+    }
 }
 
 fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
@@ -3035,12 +3056,9 @@ mod tests {
             routes: vec![format!("unix://{}", link_socket.display())],
             direct_websocket: None,
             iroh_node_id: None,
+            lifecycle_id: lifecycle_id.clone(),
             replaceable_sidecar: true,
         };
-        let mut runtime = serde_json::to_value(runtime).unwrap();
-        if let Some(lifecycle_id) = &lifecycle_id {
-            runtime["lifecycle_id"] = serde_json::json!(lifecycle_id);
-        }
         fs::write(state_dir.join("runtime.json"), serde_json::to_vec_pretty(&runtime).unwrap())
             .unwrap();
         fs::write(&ready, b"ready").unwrap();
@@ -3207,6 +3225,57 @@ mod tests {
         assert!(final_write.exists(), "fixture did not complete its final authorization write");
         let error = stop_result.expect_err("failed authorization finalization reported success");
         assert!(error.to_string().contains("authorization finalization"), "{error:#}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_outcome_requires_exact_lifecycle_and_success() {
+        let directory = tempfile::tempdir().unwrap();
+        let outcome = directory.path().join("shutdown.json");
+        let missing = verify_shutdown_outcome(directory.path(), "current").unwrap_err();
+        assert!(missing.to_string().contains("authorization finalization"), "{missing:#}");
+
+        fs::write(&outcome, b"{not-json").unwrap();
+        let malformed = verify_shutdown_outcome(directory.path(), "current").unwrap_err();
+        assert!(malformed.to_string().contains("authorization finalization"), "{malformed:#}");
+
+        fs::write(
+            &outcome,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "lifecycle_id": "stale",
+                "status": "succeeded",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let stale = verify_shutdown_outcome(directory.path(), "current").unwrap_err();
+        assert!(stale.to_string().contains("different daemon lifecycle"), "{stale:#}");
+
+        fs::write(
+            &outcome,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "lifecycle_id": "current",
+                "status": "failed",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let failed = verify_shutdown_outcome(directory.path(), "current").unwrap_err();
+        assert!(failed.to_string().contains("authorization finalization failed"), "{failed:#}");
+
+        fs::write(
+            &outcome,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "lifecycle_id": "current",
+                "status": "succeeded",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        verify_shutdown_outcome(directory.path(), "current").unwrap();
     }
 
     #[test]
