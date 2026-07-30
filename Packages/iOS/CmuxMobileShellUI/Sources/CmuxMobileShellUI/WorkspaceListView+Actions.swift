@@ -82,16 +82,14 @@ extension WorkspaceListView {
     var requestWorkspaceGroupUngroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
         guard ungroupWorkspaceGroup != nil else { return nil }
         return { groupID in
-            workspaceGroupPendingDestructiveID = groupID
-            workspaceGroupPendingDestructiveAction = .ungroup
+            workspaceGroupDestructiveRequest.enqueue(groupID: groupID, action: .ungroup)
         }
     }
 
     var requestWorkspaceGroupDelete: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
         guard deleteWorkspaceGroup != nil else { return nil }
         return { groupID in
-            workspaceGroupPendingDestructiveID = groupID
-            workspaceGroupPendingDestructiveAction = .delete
+            workspaceGroupDestructiveRequest.enqueue(groupID: groupID, action: .delete)
         }
     }
 

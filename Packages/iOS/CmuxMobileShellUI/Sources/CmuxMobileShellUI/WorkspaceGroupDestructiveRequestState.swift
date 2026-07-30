@@ -3,22 +3,29 @@ import Observation
 
 @Observable
 final class WorkspaceGroupDestructiveRequestState {
-    var groupID: MobileWorkspaceGroupPreview.ID?
-    var action: WorkspaceGroupHeaderPendingDestructiveAction?
+    struct Request {
+        let groupID: MobileWorkspaceGroupPreview.ID
+        let action: WorkspaceGroupHeaderPendingDestructiveAction
+    }
 
-    func consume() -> (
+    private var pending: Request?
+
+    var groupID: MobileWorkspaceGroupPreview.ID? { pending?.groupID }
+    var action: WorkspaceGroupHeaderPendingDestructiveAction? { pending?.action }
+
+    func enqueue(
         groupID: MobileWorkspaceGroupPreview.ID,
         action: WorkspaceGroupHeaderPendingDestructiveAction
-    )? {
-        guard let groupID, let action else {
-            return nil
-        }
-        clear()
-        return (groupID, action)
+    ) {
+        pending = Request(groupID: groupID, action: action)
+    }
+
+    func consume() -> Request? {
+        defer { pending = nil }
+        return pending
     }
 
     func clear() {
-        groupID = nil
-        action = nil
+        pending = nil
     }
 }

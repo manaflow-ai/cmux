@@ -149,12 +149,10 @@ struct WorkspaceListView: View {
     /// context-menu action.
     @State var workspaceGroupDestructiveRequest = WorkspaceGroupDestructiveRequestState()
     var workspaceGroupPendingDestructiveID: MobileWorkspaceGroupPreview.ID? {
-        get { workspaceGroupDestructiveRequest.groupID }
-        nonmutating set { workspaceGroupDestructiveRequest.groupID = newValue }
+        workspaceGroupDestructiveRequest.groupID
     }
     var workspaceGroupPendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction? {
-        get { workspaceGroupDestructiveRequest.action }
-        nonmutating set { workspaceGroupDestructiveRequest.action = newValue }
+        workspaceGroupDestructiveRequest.action
     }
     @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
     @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()

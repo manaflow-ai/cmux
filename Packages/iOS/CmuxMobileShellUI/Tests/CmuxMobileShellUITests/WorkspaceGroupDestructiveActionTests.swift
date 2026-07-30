@@ -12,8 +12,7 @@ import Testing
             ungroupWorkspaceGroup: { ungroupedGroupID = $0 },
             deleteWorkspaceGroup: { deletedGroupID = $0 }
         )
-        view.workspaceGroupPendingDestructiveID = groupID
-        view.workspaceGroupPendingDestructiveAction = .ungroup
+        view.workspaceGroupDestructiveRequest.enqueue(groupID: groupID, action: .ungroup)
 
         view.confirmWorkspaceGroupDestructiveAction()
 
@@ -31,8 +30,7 @@ import Testing
             ungroupWorkspaceGroup: { ungroupedGroupID = $0 },
             deleteWorkspaceGroup: { deletedGroupID = $0 }
         )
-        view.workspaceGroupPendingDestructiveID = groupID
-        view.workspaceGroupPendingDestructiveAction = .delete
+        view.workspaceGroupDestructiveRequest.enqueue(groupID: groupID, action: .delete)
 
         view.confirmWorkspaceGroupDestructiveAction()
 
@@ -44,8 +42,7 @@ import Testing
 
     @Test @MainActor func clearResetsPendingGroupAndAction() {
         let view = workspaceList()
-        view.workspaceGroupPendingDestructiveID = "group"
-        view.workspaceGroupPendingDestructiveAction = .delete
+        view.workspaceGroupDestructiveRequest.enqueue(groupID: "group", action: .delete)
 
         view.clearWorkspaceGroupDestructiveRequest()
 
