@@ -761,9 +761,239 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
         _ = ops
     }
 
+    /// A record recognized as a REVIVAL must also be RESTORED in the same
+    /// merge, not merely spared its delete: the intent's suppression filtered
+    /// it out before the classification ran, and the completed restore is
+    /// memoized — so the re-paired Mac stayed missing locally for the rest of
+    /// the launch even though its tombstone had just been retired.
+    @Test func revivedRecordIsRestoredInTheSameMerge() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 900)
+        )
+        let backup = FakeBackup(recordsByTeam: ["team-shown": []])
+        let store = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { "team-shown" },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: store,
+            personalIrohForget: BackupRoutingForget(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-shown" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await composite.loadPairedMacs()
+        await composite.hideMac(macDeviceID: "mac-a")
+        let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+        #expect(await composite.forgetHiddenComputer(hidden))
+
+        // Another phone re-pairs the Mac (server write well after the forget).
+        await backup.seedRecord(
+            PairedMacBackupRecord(
+                macDeviceID: "mac-a",
+                displayName: "Desk Mac",
+                routes: [try Self.route("100.82.214.112")],
+                createdAt: 2_000_000,
+                lastSeenAt: 2_000_000,
+                isActive: false,
+                serverUpdatedAtMs: 2_000_000
+            ),
+            teamID: "team-shown"
+        )
+        await store.refreshFromBackup(stackUserID: "user-1")
+
+        // The revival is back LOCALLY after the very restore that recognized
+        // it — not stranded until relaunch behind the completed-restore memo.
+        let rows = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(rows.contains { $0.macDeviceID == "mac-a" })
+    }
+
+    /// The revival signal must be SERVER-authored. `createdAt` is written by
+    /// the client and preserved across re-pairs: another phone that kept its
+    /// local row across this phone's forget re-uploads the record with the
+    /// ORIGINAL createdAt, so a client-time comparison misclassifies the
+    /// genuine revival as stale and deletes it on every restore.
+    @Test func remoteReviveWithPreservedCreatedAtRetiresTheTombstone() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 900)
+        )
+        let backup = FakeBackup(recordsByTeam: ["team-shown": []])
+        let pending = InMemoryPairedMacPendingDeleteStore()
+        let store = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { "team-shown" },
+            pendingDeleteStore: pending,
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: store,
+            personalIrohForget: BackupRoutingForget(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-shown" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await composite.loadPairedMacs()
+        await composite.hideMac(macDeviceID: "mac-a")
+        let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+        #expect(await composite.forgetHiddenComputer(hidden))
+
+        // The OTHER phone kept its local row across this forget: its explicit
+        // re-add re-uploads the ORIGINAL client createdAt (t=500s, before this
+        // forget), while the SERVER stamps the write at t=2000s.
+        await backup.seedRecord(
+            PairedMacBackupRecord(
+                macDeviceID: "mac-a",
+                displayName: "Desk Mac",
+                routes: [try Self.route("100.82.214.112")],
+                createdAt: 500_000,
+                lastSeenAt: 2_000_000,
+                isActive: false,
+                serverUpdatedAtMs: 2_000_000
+            ),
+            teamID: "team-shown"
+        )
+        let deletesBefore = await backup.uploadedOps().filter {
+            switch $0 {
+            case .delete, .deleteInstance: return true
+            default: return false
+            }
+        }.count
+        await store.refreshFromBackup(stackUserID: "user-1")
+
+        let deletesAfter = await backup.uploadedOps().filter {
+            switch $0 {
+            case .delete, .deleteInstance: return true
+            default: return false
+            }
+        }.count
+        #expect(deletesAfter == deletesBefore)
+        var survivingIntents: [String] = []
+        for scope in await pending.storedScopes() {
+            for raw in await pending.load(scope: scope) where raw.contains("mac-a") {
+                survivingIntents.append(raw)
+            }
+        }
+        #expect(survivingIntents.isEmpty)
+    }
+
+    /// A restore snapshot's mappings must persist in ONE batched pass. The
+    /// production mapping store rewrites its entire dictionary and ordering on
+    /// every save, so per-record saves turn a large restore into quadratic
+    /// UserDefaults work while the user-visible paired-Mac load awaits it.
+    @Test func restoreEchoPersistsMappingsInOneBatch() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let teams = CountingTeamStore()
+        let store = BackingUpPairedMacStore(
+            inner: base,
+            backup: FakeBackup(recordsByTeam: [
+                "team-a": [
+                    PairedMacBackupRecord(
+                        macDeviceID: "mac-a",
+                        displayName: "A",
+                        routes: [try Self.route("10.0.0.1")],
+                        createdAt: 1_000,
+                        lastSeenAt: 1_000,
+                        isActive: false
+                    ),
+                    PairedMacBackupRecord(
+                        macDeviceID: "mac-b",
+                        displayName: "B",
+                        routes: [try Self.route("10.0.0.2")],
+                        createdAt: 1_000,
+                        lastSeenAt: 1_000,
+                        isActive: false
+                    ),
+                    PairedMacBackupRecord(
+                        macDeviceID: "mac-c",
+                        displayName: "C",
+                        routes: [try Self.route("10.0.0.3")],
+                        createdAt: 1_000,
+                        lastSeenAt: 1_000,
+                        isActive: false
+                    ),
+                ],
+            ]),
+            teamIDProvider: { "team-a" },
+            backupTeamStore: teams
+        )
+
+        _ = try await store.loadAll(stackUserID: "user-1", teamID: nil)
+
+        // Three snapshot records, ONE persistence pass — not one full-state
+        // rewrite per record.
+        #expect(await teams.saveAllCalls == 1)
+        #expect(await teams.individualSaveCalls == 0)
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }
+}
+
+/// Counts save traffic so a test can assert batching.
+private actor CountingTeamStore: PairedMacBackupTeamStoring {
+    private let inner = InMemoryPairedMacBackupTeamStore()
+    private(set) var individualSaveCalls = 0
+    private(set) var saveAllCalls = 0
+
+    func load(key: String) async -> String? { await inner.load(key: key) }
+
+    func save(_ teamID: String, key: String) async {
+        individualSaveCalls += 1
+        await inner.save(teamID, key: key)
+    }
+
+    func saveAll(_ mappings: [PairedMacBackupTeamMapping]) async {
+        saveAllCalls += 1
+        for mapping in mappings {
+            await inner.save(mapping.teamID, key: mapping.key)
+        }
+    }
+
+    func remove(key: String) async { await inner.remove(key: key) }
+
+    func removeAll() async { await inner.removeAll() }
 }
 
 /// Wraps a paired-Mac store and fires a one-shot hook while an exact-scope

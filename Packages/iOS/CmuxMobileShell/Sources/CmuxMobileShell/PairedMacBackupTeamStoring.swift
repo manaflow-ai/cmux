@@ -13,11 +13,36 @@ public protocol PairedMacBackupTeamStoring: Sendable {
     /// Record the server-verified backup team for one pairing key.
     func save(_ teamID: String, key: String) async
 
+    /// Record a whole restore snapshot's mappings in ONE persistence pass.
+    /// Durable stores that rewrite their full state per `save` override this;
+    /// the default forwards entry by entry.
+    func saveAll(_ mappings: [PairedMacBackupTeamMapping]) async
+
     /// Drop one pairing's mapping (its tombstone reached the right backup).
     func remove(key: String) async
 
     /// Clear all mappings.
     func removeAll() async
+}
+
+/// One (mapping key → verified backup team) entry for a batched save.
+public struct PairedMacBackupTeamMapping: Sendable {
+    public let key: String
+    public let teamID: String
+
+    public init(key: String, teamID: String) {
+        self.key = key
+        self.teamID = teamID
+    }
+}
+
+extension PairedMacBackupTeamStoring {
+    /// Default batched save: one `save` per entry.
+    public func saveAll(_ mappings: [PairedMacBackupTeamMapping]) async {
+        for mapping in mappings {
+            await save(mapping.teamID, key: mapping.key)
+        }
+    }
 }
 
 /// In-memory mapping store for tests and simple compositions.
