@@ -234,7 +234,7 @@ import Testing
         #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-a", instanceTag: "feature-a")]?.client === foregroundClient)
         #expect(shell.liveMacConnections.map(\.macDeviceID) == ["mac-b", "mac-a"])
         #expect(shell.liveMacConnections.map(\.role) == [.focused, .control])
-        let promotedConnection = try #require(shell.connections["mac-b".pairingKey])
+        let promotedConnection = try #require(shell.connections["mac-b"])
         #expect(promotedConnection.storedInstanceTag == nil)
         #expect(promotedConnection.authenticatedInstanceTag == "feature-b")
         #expect(await shell.canRetainFocusedConnectionInControlPool(

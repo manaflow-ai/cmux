@@ -14,10 +14,14 @@ import Testing
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
                 "team-a": [
+                    // Sibling builds are distinct processes, so each listens
+                    // on its own port; rows sharing one endpoint would be the
+                    // same instance and deliberately coalesce.
                     try Self.pairedMac(
                         id: "mac-a",
                         displayName: "Desk Mac",
                         host: "100.82.214.112",
+                        port: 50_901,
                         lastSeenAt: Date(timeIntervalSince1970: 20),
                         isActive: true,
                         customColor: "red",
@@ -27,6 +31,7 @@ import Testing
                         id: "mac-a",
                         displayName: "Desk Mac",
                         host: "100.82.214.112",
+                        port: 50_902,
                         lastSeenAt: Date(timeIntervalSince1970: 10),
                         isActive: false,
                         customColor: "blue",

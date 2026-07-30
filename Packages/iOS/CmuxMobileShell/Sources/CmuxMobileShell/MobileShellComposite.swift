@@ -4523,8 +4523,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && !wanted.contains(ownerKey)
                 && subscription.client !== remoteClient
                 && !subscription.isTransitioningToFocus {
-            subscription.cancel()
-            secondaryMacSubscriptions[ownerKey] = nil
             retiredControlSlot = true
             let canonicalMacID = ownerKey.canonicalMacDeviceID
             let physicalAliasCanonicalIDs =
@@ -4534,19 +4532,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 with: wantedCanonicalIDs
             ) {
                 // The same physical Mac now has a different authoritative
-                // stored id. Its replacement publishes fresh snapshots under
-                // that id, so retaining this id would duplicate stale rows and
-                // route notification actions to a retired connection owner.
+                // stored pairing. Retire through the drain reservation so the
+                // replacement's dial waits for this transport to close, and
+                // drop this pairing's snapshots: its replacement publishes
+                // fresh ones, so retaining these would duplicate stale rows
+                // and route notification actions to a retired owner.
+                await retireSecondaryControlOwner(
+                    subscription,
+                    shouldRetry: allowsNewConnections
+                )
                 workspacesByMac[ownerKey] = nil
                 removeNotificationFeedSnapshot(macDeviceID: ownerKey.pairingID)
             } else if !visibleCanonicalMacIDs.contains(canonicalMacID) {
+                subscription.cancel()
+                secondaryMacSubscriptions[ownerKey] = nil
                 // Pairing removal and hiding are authoritative deletion events.
                 workspacesByMac[ownerKey] = nil
                 removeNotificationFeedSnapshot(macDeviceID: ownerKey.pairingID)
-            } else if canonicalForegroundMacID != canonicalMacID {
-                // Presence only bounds live network ownership. Preserve the last
-                // snapshot from an offline Mac and make it visibly unavailable.
-                markSecondaryMacUnavailable(ownerKey)
+            } else {
+                subscription.cancel()
+                secondaryMacSubscriptions[ownerKey] = nil
+                if canonicalForegroundMacID != canonicalMacID {
+                    // Presence only bounds live network ownership. Preserve the
+                    // last snapshot from an offline Mac and make it visibly
+                    // unavailable.
+                    markSecondaryMacUnavailable(ownerKey)
+                }
             }
         }
         // For each wanted secondary Mac: establish a fresh subscription, or — if
@@ -4831,12 +4842,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let activeTag = activeMacInstanceTag
         if let foregroundMacDeviceID {
             let canonicalForegroundID = cmxCanonicalDeviceID(foregroundMacDeviceID)
+            // With no authenticated tag the foreground could be any of the
+            // device's rows, so every row's endpoint is treated as the
+            // foreground's own; with a tag, only the exact pairing's endpoints
+            // are, keeping a sibling build dialable.
             for mac in visibleLoadedMacs
                 where cmxCanonicalDeviceID(mac.macDeviceID) == canonicalForegroundID
-                    && macInstanceTagAuthority.sameStoredAuthority(
-                        mac.instanceTag,
-                        activeTag
-                    ) {
+                    && (activeTag == nil
+                        || macInstanceTagAuthority.sameStoredAuthority(
+                            mac.instanceTag,
+                            activeTag
+                        )) {
                 if let endpointID = Self.irohEndpointID(
                     for: mac,
                     supportedKinds: supportedRouteKinds,
@@ -4852,11 +4868,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // Exclude the exact foreground pairing, and ALSO any legacy
                 // untagged row on the foreground device: it names the same app
                 // instance the foreground already owns, so a secondary dial
-                // would duplicate-connect the live foreground.
-                if macInstanceTagAuthority.sameStoredAuthority(
-                    mac.instanceTag,
-                    activeTag
-                ) || mac.instanceTag == nil {
+                // would duplicate-connect the live foreground. Before a tag is
+                // authenticated the foreground could be any of the device's
+                // rows, so the whole device is excluded.
+                if activeTag == nil
+                    || macInstanceTagAuthority.sameStoredAuthority(
+                        mac.instanceTag,
+                        activeTag
+                    )
+                    || mac.instanceTag == nil {
                     return false
                 }
             }
