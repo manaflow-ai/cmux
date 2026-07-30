@@ -53,6 +53,7 @@
 		8997C00E8997C00E8997C00E /* AgentHibernationController+CommittedTerminationCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D00E8997D00E8997D00E /* AgentHibernationController+CommittedTerminationCleanup.swift */; };
 		8997C00F8997C00F8997C00F /* AgentHibernationController+CommittedTerminationObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D00F8997D00F8997D00F /* AgentHibernationController+CommittedTerminationObservation.swift */; };
 		F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */; };
+		8740B0018740B0018740B001 /* AgentHibernationController+EvaluationScheduling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8740A0018740A0018740A001 /* AgentHibernationController+EvaluationScheduling.swift */; };
 		F65760110000000000000001 /* AgentHibernationController+InFlightTeardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760110000000000000002 /* AgentHibernationController+InFlightTeardown.swift */; };
 		8997C0018997C0018997C001 /* AgentHibernationController+MemoryPressure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D0018997D0018997D001 /* AgentHibernationController+MemoryPressure.swift */; };
 		8997C0068997C0068997C006 /* AgentHibernationController+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D0068997D0068997D006 /* AgentHibernationController+PanelLifecycle.swift */; };
@@ -70,6 +71,7 @@
 		8997E0018997E0018997E001 /* AgentHibernationController+TeardownValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0018997F0018997F001 /* AgentHibernationController+TeardownValidation.swift */; };
 		F65760150000000000000001 /* AgentHibernationController+UnableToProtectMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */; };
 		D36A00010000000000000001 /* AgentHibernationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00010000000000000002 /* AgentHibernationController.swift */; };
+		8740E0018740E0018740E001 /* AgentHibernationEvaluationSchedulingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8740D0018740D0018740D001 /* AgentHibernationEvaluationSchedulingTests.swift */; };
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		8997C0028997C0028997C002 /* AgentHibernationMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */; };
@@ -2646,6 +2648,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8997D00E8997D00E8997D00E /* AgentHibernationController+CommittedTerminationCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+CommittedTerminationCleanup.swift"; sourceTree = "<group>"; };
 		8997D00F8997D00F8997D00F /* AgentHibernationController+CommittedTerminationObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+CommittedTerminationObservation.swift"; sourceTree = "<group>"; };
 		F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Confirmation.swift"; sourceTree = "<group>"; };
+		8740A0018740A0018740A001 /* AgentHibernationController+EvaluationScheduling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+EvaluationScheduling.swift"; sourceTree = "<group>"; };
 		F65760110000000000000002 /* AgentHibernationController+InFlightTeardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+InFlightTeardown.swift"; sourceTree = "<group>"; };
 		8997D0018997D0018997D001 /* AgentHibernationController+MemoryPressure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+MemoryPressure.swift"; sourceTree = "<group>"; };
 		8997D0068997D0068997D006 /* AgentHibernationController+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+PanelLifecycle.swift"; sourceTree = "<group>"; };
@@ -2663,6 +2666,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8997F0018997F0018997F001 /* AgentHibernationController+TeardownValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+TeardownValidation.swift"; sourceTree = "<group>"; };
 		F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+UnableToProtectMarker.swift"; sourceTree = "<group>"; };
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
+		8740D0018740D0018740D001 /* AgentHibernationEvaluationSchedulingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationEvaluationSchedulingTests.swift; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
 		8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		9090F0039090F0039090F003 /* AgentHibernationPanelCloseCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationPanelCloseCleanupTests.swift; sourceTree = "<group>"; };
@@ -5525,6 +5529,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F65760030000000000000002 /* AgentHibernationController+Records.swift */,
 				F65760140000000000000002 /* AgentHibernationController+TailFingerprintSample.swift */,
 				F65760060000000000000002 /* AgentHibernationController+Teardown.swift */,
+				8740A0018740A0018740A001 /* AgentHibernationController+EvaluationScheduling.swift */,
 				F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */,
 				8997D0018997D0018997D001 /* AgentHibernationController+MemoryPressure.swift */,
 				8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */,
@@ -7099,6 +7104,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C51A760000000000000000D2 /* SimulatorPanelThemeTests.swift */,
 				A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */,
 				A9E040000000000000000001 /* CodexAppServerSessionTests.swift */,
+				8740D0018740D0018740D001 /* AgentHibernationEvaluationSchedulingTests.swift */,
 				F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */,
 				9090F0039090F0039090F003 /* AgentHibernationPanelCloseCleanupTests.swift */,
 				8997D0048997D0048997D004 /* AgentHibernationProcessTerminationTests.swift */,
@@ -8188,6 +8194,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8997C00E8997C00E8997C00E /* AgentHibernationController+CommittedTerminationCleanup.swift in Sources */,
 				8997C00F8997C00F8997C00F /* AgentHibernationController+CommittedTerminationObservation.swift in Sources */,
 				F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */,
+				8740B0018740B0018740B001 /* AgentHibernationController+EvaluationScheduling.swift in Sources */,
 				F65760110000000000000001 /* AgentHibernationController+InFlightTeardown.swift in Sources */,
 				8997C0018997C0018997C001 /* AgentHibernationController+MemoryPressure.swift in Sources */,
 				8997C0068997C0068997C006 /* AgentHibernationController+PanelLifecycle.swift in Sources */,
@@ -9964,6 +9971,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
 				9090E0039090E0039090E003 /* AgentHibernationPanelCloseCleanupTests.swift in Sources */,
+				8740E0018740E0018740E001 /* AgentHibernationEvaluationSchedulingTests.swift in Sources */,
 				F65760010000000000000001 /* AgentHibernationPlannerSwiftTests.swift in Sources */,
 				D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */,
 				8997C0138997C0138997C013 /* AgentHibernationProcessSignalBoundaryTests.swift in Sources */,
