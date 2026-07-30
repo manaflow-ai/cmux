@@ -2468,7 +2468,7 @@ private final class SidebarFooterIconBalanceDebugWindowController: ReleasingWind
     }
 
     func show() {
-        showManagedWindow()
+        showManagedWindow(activateApplication: true)
     }
 }
 
