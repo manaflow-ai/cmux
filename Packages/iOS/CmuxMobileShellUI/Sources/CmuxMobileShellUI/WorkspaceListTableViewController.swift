@@ -3,8 +3,11 @@ import UIKit
 
 /// Owns the workspace table's relationship with UIKit navigation and tab bars.
 ///
-/// UIKit remains the sole owner of adjusted insets and scroll position. This
-/// controller only registers which scroll view drives each native edge effect.
+/// The represented controller visually underlaps the bars so their native soft
+/// effects have table pixels to process. Its parent remains fitted to the bars'
+/// safe layout frame, which this controller forwards through
+/// `additionalSafeAreaInsets`. UIKit remains the sole owner of the table's
+/// adjusted insets and scroll position.
 @MainActor
 final class WorkspaceListTableViewController: UIViewController {
     let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
@@ -20,6 +23,7 @@ final class WorkspaceListTableViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateChromeSafeAreaInsets()
         updateScrollEdgeRegistration()
     }
 
@@ -34,6 +38,45 @@ final class WorkspaceListTableViewController: UIViewController {
         } else {
             scrollEdgeCoordinator.registerIfNeeded(for: tableView)
         }
+    }
+
+    private func updateChromeSafeAreaInsets() {
+        guard #available(iOS 26.0, *),
+              let parent,
+              let window = tableView.window else { return }
+
+        let tableFrame = tableView.convert(tableView.bounds, to: window)
+        let parentSafeFrame = parent.view.convert(
+            parent.view.safeAreaLayoutGuide.layoutFrame,
+            to: window
+        )
+        let desiredInsets = UIEdgeInsets(
+            top: max(0, parentSafeFrame.minY - tableFrame.minY),
+            left: 0,
+            bottom: max(0, tableFrame.maxY - parentSafeFrame.maxY),
+            right: 0
+        )
+
+        // Remove this controller's existing contribution to recover the
+        // inherited safe area, then add only the delta needed to match the
+        // enclosing bar owner's safe layout frame. This is stable across
+        // repeated layout passes and never mutates the table's content offset.
+        let inheritedTopInset = max(
+            0,
+            tableView.safeAreaInsets.top - additionalSafeAreaInsets.top
+        )
+        let inheritedBottomInset = max(
+            0,
+            tableView.safeAreaInsets.bottom - additionalSafeAreaInsets.bottom
+        )
+        let nextAdditionalInsets = UIEdgeInsets(
+            top: max(0, desiredInsets.top - inheritedTopInset),
+            left: 0,
+            bottom: max(0, desiredInsets.bottom - inheritedBottomInset),
+            right: 0
+        )
+        guard nextAdditionalInsets != additionalSafeAreaInsets else { return }
+        additionalSafeAreaInsets = nextAdditionalInsets
     }
 }
 #endif

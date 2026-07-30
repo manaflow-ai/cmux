@@ -265,6 +265,7 @@ struct WorkspaceListView: View {
         )
         #if os(iOS)
         let baseList = workspaceTable
+            .modifier(WorkspaceListBarUnderlap())
         #else
         let baseList = List {
             switch connectionChrome {

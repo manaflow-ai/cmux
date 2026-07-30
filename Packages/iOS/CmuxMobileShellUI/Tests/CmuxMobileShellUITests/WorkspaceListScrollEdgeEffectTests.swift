@@ -16,6 +16,18 @@ import UIKit
         #expect(fixture.navigation.contentScrollView(for: .bottom) === fixture.tableView)
     }
 
+    @Test func underlappedTableUsesParentChromeAsUIKitSafeArea() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let fixture = Fixture()
+
+        #expect(fixture.tableView.frame == fixture.content.view.bounds)
+        #expect(fixture.tableView.safeAreaInsets.top > 0)
+        #expect(fixture.tableView.safeAreaInsets.bottom > 0)
+        #expect(fixture.tableView.adjustedContentInset.top > 0)
+        #expect(fixture.tableView.adjustedContentInset.bottom > 0)
+        #expect(fixture.tableView.contentInset == .zero)
+    }
+
     @Test func tableLeavingTheWindowReleasesBarRegistrations() throws {
         guard #available(iOS 26.0, *) else { return }
         let fixture = Fixture()
