@@ -244,22 +244,11 @@ import Testing
         )
     }
 
-    @Test func appHostBuildMarkerPreventsSentryStartup() {
+    @Test func testRunnerMarkerPreventsSentryStartup() {
         #expect(
             MacSentryStartupPolicy(
-                environment: [:],
-                telemetryEnabled: true,
-                testProcessBuildMarker: "1"
-            ).shouldStart == false
-        )
-    }
-
-    @Test func embeddedTestBundleRemainsCompatibilityFallback() {
-        #expect(
-            MacSentryStartupPolicy(
-                environment: [:],
-                telemetryEnabled: true,
-                testProcessBuildMarker: nil
+                environment: ["CMUX_TEST_PROCESS": "1"],
+                telemetryEnabled: true
             ).shouldStart == false
         )
     }

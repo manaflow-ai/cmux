@@ -17,17 +17,11 @@ struct MacSentryStartupPolicy: Sendable {
 
     init(
         environment: [String: String],
-        telemetryEnabled: Bool,
-        testProcessBuildMarker: String? = Bundle.main.object(
-            forInfoDictionaryKey: "CMUXTestProcess"
-        ) as? String
+        telemetryEnabled: Bool
     ) {
         self.init(
             telemetryEnabled: telemetryEnabled,
-            isRunningUnderXCTest: Self.isRunningUnderXCTest(
-                environment: environment,
-                testProcessBuildMarker: testProcessBuildMarker
-            ),
+            isRunningUnderXCTest: Self.isRunningUnderXCTest(environment: environment),
             allowUnderXCTest: environment["CMUX_TEST_SENTRY_ENABLED"] == "1"
         )
     }
@@ -36,15 +30,10 @@ struct MacSentryStartupPolicy: Sendable {
         telemetryEnabled && (!isRunningUnderXCTest || allowUnderXCTest)
     }
 
-    static func isRunningUnderXCTest(
-        environment: [String: String],
-        testProcessBuildMarker: String? = Bundle.main.object(
-            forInfoDictionaryKey: "CMUXTestProcess"
-        ) as? String
-    ) -> Bool {
-        // The CI app-host wrapper stamps this into Info.plist at build time, so
-        // it exists before XCTest injects its bundle or launch environment.
-        if testProcessBuildMarker == "1" { return true }
+    static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
+        // xcodebuild strips TEST_RUNNER_ from variables forwarded to the test
+        // host, so the CI wrapper makes this available before XCTest connects.
+        if environment["CMUX_TEST_PROCESS"] == "1" { return true }
         if environment["XCTestConfigurationFilePath"] != nil { return true }
         if environment["XCTestBundlePath"] != nil { return true }
         if environment["XCTestSessionIdentifier"] != nil { return true }
@@ -52,17 +41,6 @@ struct MacSentryStartupPolicy: Sendable {
         if environment["XCInjectBundleInto"] != nil { return true }
         if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
         if environment.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
-        if hasEmbeddedXCTestBundle() { return true }
         return false
-    }
-
-    private static func hasEmbeddedXCTestBundle() -> Bool {
-        guard
-            let plugInsPath = Bundle.main.builtInPlugInsPath,
-            let plugInNames = try? FileManager.default.contentsOfDirectory(atPath: plugInsPath)
-        else {
-            return false
-        }
-        return plugInNames.contains { $0.hasSuffix(".xctest") }
     }
 }

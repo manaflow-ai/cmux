@@ -529,9 +529,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        // CI app-host builds carry an Info.plist marker because Xcode can omit
-        // test environment keys before XCTest connects. Keep those keys and the
-        // embedded bundle as compatibility signals for other launch paths.
+        // The CI wrapper uses xcodebuild's TEST_RUNNER_ forwarding so its marker
+        // exists before XCTest connects. Standard XCTest keys cover other paths.
         MacSentryStartupPolicy.isRunningUnderXCTest(environment: env)
     }
 
@@ -16509,7 +16508,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func handleMainTerminalWindowShouldClose() -> Bool {
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
+        if isRunningUnderXCTest(ProcessInfo.processInfo.environment) { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
         _ = handleQuitShortcutWarning()
         return false
