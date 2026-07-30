@@ -3731,6 +3731,155 @@ def verify_retired_clear_source_cannot_reclaim_stopped_successor(
             )
 
 
+def verify_new_prompt_replaces_dead_needs_input_owner(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    dead_session_id = f"dead-needs-input-{uuid.uuid4().hex}"
+    replacement_session_id = f"replacement-{uuid.uuid4().hex}"
+    with HookSocketServer(
+        workspace_id=workspace_id,
+        surface_id=surface_id,
+    ) as server:
+        state_path = Path(server.root.name) / "dead-needs-input-owner-state.json"
+
+        with live_process_pid() as dead_pid:
+            dead_env = hook_environment(
+                server,
+                workspace_id,
+                surface_id,
+                state_path,
+            )
+            dead_env["CMUX_CLAUDE_PID"] = str(dead_pid)
+            dead_env["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+            dead_env.pop("CMUX_SOCKET_CAPABILITY", None)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "prompt-submit",
+                {
+                    "session_id": dead_session_id,
+                    "turn_id": "abandoned-turn",
+                    "cwd": "/tmp",
+                },
+                dead_env,
+            )
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "notification",
+                {
+                    "session_id": dead_session_id,
+                    "turn_id": "abandoned-turn",
+                    "notification_type": "idle_prompt",
+                    "message": "Claude is waiting for your input",
+                    "cwd": "/tmp",
+                },
+                dead_env,
+            )
+
+            state = json.loads(state_path.read_text())
+            dead_record = state.get("sessions", {}).get(dead_session_id)
+            if (
+                dead_record is None
+                or dead_record.get("agentLifecycle") != "needsInput"
+            ):
+                raise RuntimeError(
+                    "The abandoned owner did not establish the stale needs-input "
+                    f"precondition:\nrecord={dead_record!r}\nstate={state!r}"
+                )
+
+        with live_process_pid() as replacement_pid:
+            replacement_env = hook_environment(
+                server,
+                workspace_id,
+                surface_id,
+                state_path,
+            )
+            replacement_env["CMUX_CLAUDE_PID"] = str(replacement_pid)
+            replacement_env["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+            replacement_env.pop("CMUX_SOCKET_CAPABILITY", None)
+            prompt_start = len(server.commands)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "prompt-submit",
+                {
+                    "session_id": replacement_session_id,
+                    "turn_id": "replacement-turn",
+                    "cwd": "/tmp",
+                },
+                replacement_env,
+            )
+            prompt_commands = server.commands[prompt_start:]
+            if not has_command_with(
+                prompt_commands,
+                "set_status claude_code Running "
+                "--icon=bolt.fill --color=#4C8DFF "
+                f"--tab={workspace_id}",
+                f"--panel={surface_id}",
+            ):
+                raise RuntimeError(
+                    "A new prompt could not replace the dead needs-input owner "
+                    f"with Running:\ncommands={prompt_commands!r}"
+                )
+            if not has_command_with(
+                prompt_commands,
+                f"clear_notifications --tab={workspace_id}",
+                f"--panel={surface_id}",
+            ):
+                raise RuntimeError(
+                    "A new prompt did not clear the dead owner's waiting "
+                    f"notification:\ncommands={prompt_commands!r}"
+                )
+
+            state = json.loads(state_path.read_text())
+            replacement_record = state.get("sessions", {}).get(
+                replacement_session_id
+            )
+            surface_owner = state.get("activeSessionsBySurface", {}).get(
+                surface_id
+            )
+            if (
+                replacement_record is None
+                or replacement_record.get("agentLifecycle") != "running"
+                or replacement_record.get("runtimeStatus") != "running"
+                or surface_owner is None
+                or surface_owner.get("sessionId") != replacement_session_id
+            ):
+                raise RuntimeError(
+                    "The new prompt did not establish replacement ownership:\n"
+                    f"record={replacement_record!r}\nstate={state!r}"
+                )
+
+            stop_start = len(server.commands)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "stop",
+                {
+                    "session_id": replacement_session_id,
+                    "turn_id": "replacement-turn",
+                    "cwd": "/tmp",
+                    "last_assistant_message": "replacement completed",
+                    "background_tasks": [],
+                    "session_crons": [],
+                },
+                replacement_env,
+            )
+            stop_commands = server.commands[stop_start:]
+            if not has_command_with(
+                stop_commands,
+                "set_status claude_code Idle "
+                "--icon=pause.circle.fill --color=#8E8E93 "
+                f"--tab={workspace_id}",
+                f"--panel={surface_id}",
+            ):
+                raise RuntimeError(
+                    "The replacement turn did not transition from Running to "
+                    f"Idle:\ncommands={stop_commands!r}"
+                )
+
+
 def verify_stop_failure_marks_terminal_error(cli_path: str) -> None:
     workspace_id = str(uuid.uuid4()).upper()
     surface_id = str(uuid.uuid4()).upper()
@@ -4088,6 +4237,7 @@ def main() -> int:
             cli_path
         )
         verify_retired_clear_source_cannot_reclaim_stopped_successor(cli_path)
+        verify_new_prompt_replaces_dead_needs_input_owner(cli_path)
         verify_stop_failure_marks_terminal_error(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
