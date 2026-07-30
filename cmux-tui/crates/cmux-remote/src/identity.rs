@@ -466,6 +466,7 @@ struct PersistenceCoordinatorState {
     pending: BTreeMap<u64, PersistedState>,
     waiters: BTreeMap<u64, Vec<oneshot::Sender<Result<(), PersistenceFailure>>>>,
     last_failure: Option<(u64, PersistenceFailure)>,
+    terminal_failure: Option<PersistenceFailure>,
     closing: bool,
 }
 
@@ -486,6 +487,7 @@ impl PersistenceCoordinator {
                 pending: BTreeMap::new(),
                 waiters: BTreeMap::new(),
                 last_failure: None,
+                terminal_failure: None,
                 closing: false,
             }),
             changed: Condvar::new(),
@@ -580,12 +582,34 @@ impl PersistenceCoordinator {
         }
         self.shared.changed.notify_all();
         let mut worker = self.worker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(worker) = worker.take() else {
+        if let Some(worker) = worker.take()
+            && worker.join().is_err()
+        {
+            self.lock_state().terminal_failure = Some(PersistenceFailure::Uncommitted(
+                "identity persistence worker panicked".into(),
+            ));
+        }
+        drop(worker);
+        self.terminal_result()
+    }
+
+    fn terminal_result(&self) -> Result<(), IdentityError> {
+        let state = self.lock_state();
+        if let Some(failure) = &state.terminal_failure {
+            return Err(failure.clone().into_identity_error());
+        }
+        if state.durable_revision >= state.highest_seen_revision {
             return Ok(());
-        };
-        worker
-            .join()
-            .map_err(|_| IdentityError::Persistence("identity persistence worker panicked".into()))
+        }
+        if let Some((failed_revision, failure)) = &state.last_failure
+            && *failed_revision >= state.highest_seen_revision
+        {
+            return Err(failure.clone().into_identity_error());
+        }
+        Err(IdentityError::Persistence(format!(
+            "identity revision {} did not become durable (latest durable revision {})",
+            state.highest_seen_revision, state.durable_revision
+        )))
     }
 
     fn lock_state(&self) -> std::sync::MutexGuard<'_, PersistenceCoordinatorState> {

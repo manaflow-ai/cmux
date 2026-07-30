@@ -1844,10 +1844,10 @@ async fn run_daemon(
             server.shutdown().await?;
         }
         unix.shutdown().await;
+        let _ = fs::remove_file(state_dir.join("runtime.json"));
         auth.shutdown().await?;
         #[cfg(test)]
         pause_after_daemon_auth_shutdown();
-        let _ = fs::remove_file(state_dir.join("runtime.json"));
         Ok::<_, anyhow::Error>(())
     }
     .await;
