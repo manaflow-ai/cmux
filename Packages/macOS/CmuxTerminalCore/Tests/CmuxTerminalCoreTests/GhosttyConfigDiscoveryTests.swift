@@ -71,10 +71,14 @@ private struct NoFontProbe: GhosttyFontProbing {
 @Suite struct GhosttyConfigDiscoverySymbolTests {
     private let discovery = GhosttyConfigDiscovery(fileReader: FakeFileReader(), fontProbe: NoFontProbe())
 
-    @Test func symbolFontMappingsCoverAllSymbolRanges() {
+    @Test func symbolFontMappingsCoverAllSymbolCodepoints() {
         let mappings = discovery.symbolFontMappings()
-        let ranges = Set(mappings.map(\.0))
-        #expect(ranges == Set(GhosttyConfigDiscovery.symbolRanges))
+        let codepoints = Set(mappings.map(\.0))
+        let expected = Set(
+            GhosttyConfigDiscovery.symbolCodepointsByRange.values.flatMap { $0 }
+                .map { String(format: "U+%04X", $0) }
+        )
+        #expect(codepoints == expected)
         #expect(mappings.allSatisfy { $0.1 == GhosttyConfigDiscovery.symbolFallbackFont })
     }
 
@@ -90,29 +94,34 @@ private struct NoFontProbe: GhosttyFontProbing {
     @Test func autoInjectedSymbolFontMappingsSkipsWhenExplicitFallbackChainPresent() {
         let path = "/cfg/config"
         let reader = FakeFileReader(contentsByPath: [
-            path: "font-family = JetBrains Mono\nfont-family = Apple Symbols",
+            path: "font-family = JetBrains Mono\nfont-family = Menlo",
         ])
         let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
         #expect(discovery.autoInjectedSymbolFontMappings(configPaths: [path]) == nil)
     }
 
-    @Test func autoInjectedSymbolFontMappingsFiltersRangesCoveredByConfiguredFont() throws {
+    @Test func autoInjectedSymbolFontMappingsFiltersCodepointsCoveredByConfiguredFont() throws {
+        // Regression test: JetBrainsMono Nerd Font has U+25A0/U+25CB/U+25CF in
+        // its own cmap but is missing U+25B0/U+25B1 (verified via CoreText on
+        // a real install). Only the missing codepoints should be injected —
+        // a whole-block override would clobber glyphs the font already has.
         let path = "/cfg/config"
         let reader = FakeFileReader(contentsByPath: [
             path: "font-family = JetBrainsMono Nerd Font",
         ])
         let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        let covered: Set<UInt32> = [0x25A0, 0x25CB, 0x25CF]
         let mappings = try #require(discovery.autoInjectedSymbolFontMappings(
             configPaths: [path],
-            rangeCoverageProbe: { fontFamily, range in
+            codepointCoverageProbe: { fontFamily, codepoint in
                 #expect(fontFamily == "JetBrainsMono Nerd Font")
-                return range == "U+25A0-U+25FF"
+                return covered.contains(codepoint)
             }
         ))
-        #expect(Set(mappings.map(\.0)) == ["U+2B00-U+2BFF"])
+        #expect(Set(mappings.map(\.0)) == ["U+25B0", "U+25B1", "U+2B21", "U+2B22"])
     }
 
-    @Test func autoInjectedSymbolFontMappingsNilWhenAllRangesCovered() {
+    @Test func autoInjectedSymbolFontMappingsNilWhenAllCodepointsCovered() {
         let path = "/cfg/config"
         let reader = FakeFileReader(contentsByPath: [
             path: "font-family = JetBrainsMono Nerd Font",
@@ -120,7 +129,7 @@ private struct NoFontProbe: GhosttyFontProbing {
         let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
         #expect(discovery.autoInjectedSymbolFontMappings(
             configPaths: [path],
-            rangeCoverageProbe: { _, _ in true }
+            codepointCoverageProbe: { _, _ in true }
         ) == nil)
     }
 
@@ -141,11 +150,11 @@ private struct NoFontProbe: GhosttyFontProbing {
         let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
         #expect(discovery.shouldInjectSymbolFontFallback(
             configPaths: [path],
-            rangeCoverageProbe: { _, _ in false }
+            codepointCoverageProbe: { _, _ in false }
         ))
         #expect(!discovery.shouldInjectSymbolFontFallback(
             configPaths: [path],
-            rangeCoverageProbe: { _, _ in true }
+            codepointCoverageProbe: { _, _ in true }
         ))
     }
 }
