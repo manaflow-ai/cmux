@@ -33,6 +33,19 @@ struct BrowserStreamKeyboardPolicy: Equatable, Sendable {
         }
     }
 
+    /// Records an explicit user hide without ever requesting focus.
+    ///
+    /// The chrome's keyboard button binds to the REAL keyboard visibility, which
+    /// other responders (address field, dialog text field) can raise while this
+    /// policy holds no focus reason. Hiding in that state must stay a no-op here
+    /// (the chrome resigns those responders directly), not flip into a request
+    /// the way `toggleManualRequest` would.
+    mutating func noteManualHide() {
+        guard shouldFocusInput else { return }
+        manuallyRequested = false
+        manuallyDismissed = true
+    }
+
     /// Clears every keyboard focus reason.
     mutating func dismiss() {
         editableFocused = false

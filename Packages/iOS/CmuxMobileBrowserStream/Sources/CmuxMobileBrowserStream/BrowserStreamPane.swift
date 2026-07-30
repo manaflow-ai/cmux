@@ -16,6 +16,10 @@ public struct BrowserStreamPane: View {
     @State private var addressText: String
     @State private var isEditingAddress = false
     @FocusState private var addressFocused: Bool
+    /// Real soft-keyboard visibility; the keyboard button binds to this rather
+    /// than the input proxy's focus intent because the address field or a
+    /// dialog's text field can raise the keyboard without the proxy knowing.
+    @State private var keyboardVisibility = MobileKeyboardVisibilityObserver()
 
     private let actions: BrowserStreamSurfaceActions
     private let reconnect: () -> Void
@@ -73,12 +77,21 @@ public struct BrowserStreamPane: View {
                 identifier: "BrowserStreamReloadButton"
             ) { state.request(.reload) }
             chromeButton(
-                systemImage: state.shouldFocusInput ? "keyboard.chevron.compact.down" : "keyboard",
-                label: state.shouldFocusInput
+                systemImage: keyboardVisibility.isVisible ? "keyboard.chevron.compact.down" : "keyboard",
+                label: keyboardVisibility.isVisible
                     ? L10n.string("mobile.browserStream.hideKeyboard", defaultValue: "Hide Keyboard")
                     : L10n.string("mobile.browserStream.keyboard", defaultValue: "Show Keyboard"),
                 identifier: "BrowserStreamKeyboardButton"
-            ) { state.toggleManualKeyboard() }
+            ) {
+                if keyboardVisibility.isVisible {
+                    // Hide means hide, whichever responder raised the keyboard.
+                    addressFocused = false
+                    state.hideKeyboardForChrome()
+                    UIApplication.shared.dismissMobileKeyboard()
+                } else {
+                    state.toggleManualKeyboard()
+                }
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)

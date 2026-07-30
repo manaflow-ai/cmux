@@ -171,6 +171,11 @@ public final class BrowserStreamSurfaceState: Identifiable {
         keyboardPolicy.toggleManualRequest()
     }
 
+    /// Releases this surface's keyboard focus reasons for an explicit chrome hide.
+    public func hideKeyboardForChrome() {
+        keyboardPolicy.noteManualHide()
+    }
+
     /// Installs the current native browser dialog for this panel.
     /// - Parameter dialog: Dialog pushed by the Mac.
     public func installDialog(_ dialog: MobileBrowserDialogEvent) {
