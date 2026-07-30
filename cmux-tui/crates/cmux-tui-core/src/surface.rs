@@ -934,7 +934,7 @@ fn dedicated_local_child_observer_spawns_for_test() -> usize {
 }
 
 #[cfg(not(unix))]
-struct LocalChildReaperLease;
+type LocalChildReaperLease = crate::spawned_pty_child::ReservedPortableChildReaperLease;
 
 #[cfg(unix)]
 type LocalProcessSnapshot<'a> = Option<&'a crate::process_session::SessionProcessSnapshot>;
@@ -949,7 +949,7 @@ fn reserve_local_child_reaper() -> std::io::Result<LocalChildReaperLease> {
 
 #[cfg(not(unix))]
 fn reserve_local_child_reaper() -> std::io::Result<LocalChildReaperLease> {
-    Ok(LocalChildReaperLease)
+    crate::spawned_pty_child::reserve_portable_child_reaper()
 }
 
 impl LocalPtyProcess {
@@ -1093,7 +1093,6 @@ impl LocalPtyProcess {
     fn spawn_reaper(
         self: &Arc<Self>,
         child: crate::spawned_pty_child::SpawnedPtyChild,
-        _reaper: LocalChildReaperLease,
     ) -> std::io::Result<()> {
         let process = self.clone();
         let (child_sender, child_receiver) =
@@ -1844,9 +1843,8 @@ impl Surface {
             cmd.cwd(cwd);
         }
 
-        let child = crate::spawned_pty_child::SpawnedPtyChild::new(pty.slave.spawn_command(cmd)?);
-        #[cfg(unix)]
-        let child = child.with_reaper(reaper);
+        let child = crate::spawned_pty_child::SpawnedPtyChild::new(pty.slave.spawn_command(cmd)?)
+            .with_reaper(reaper);
         drop(process_creation);
         let pid = child.process_id();
         drop(pty.slave);
@@ -2036,7 +2034,7 @@ impl Surface {
         #[cfg(unix)]
         process.spawn_reaper(child)?;
         #[cfg(not(unix))]
-        process.spawn_reaper(child, reaper)?;
+        process.spawn_reaper(child)?;
         Ok(surface)
     }
 
