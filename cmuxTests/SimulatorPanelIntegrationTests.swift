@@ -886,14 +886,16 @@ struct SimulatorPanelIntegrationTests {
         }
 
         #expect(await client.accessibilityReadCount >= 2)
-        let gesture = try #require(await client.gestureEvents().only)
+        let gestures = await client.gestureEvents()
+        #expect(gestures.count == 1)
+        let gesture = try #require(gestures.first)
         let expectedPoint = SimulatorOrientationGeometry(
             display: SimulatorRotatingAccessibilityPaneClient.landscapeDisplay
         ).rawPointerEvent(SimulatorPointerEvent(
             phase: .began,
             primary: SimulatorPoint(x: 0.8, y: 0.3)
         )).primary
-        #expect(gesture.map(\.primary) == [expectedPoint, expectedPoint])
+        #expect(gesture.map { $0.primary } == [expectedPoint, expectedPoint])
     }
 
     @Test("Ref actions revalidate after their pre-action delay")
@@ -924,14 +926,15 @@ struct SimulatorPanelIntegrationTests {
             await coordinator.close()
             return
         }
-        let elementRef = try #require(elements.compactMap { value -> String? in
+        let elementRefs = elements.compactMap { value -> String? in
             guard case let .object(fields) = value,
                   fields["identifier"] == .string("continue"),
                   case let .string(ref)? = fields["ref"] else {
                 return nil
             }
             return ref
-        }.first)
+        }
+        let elementRef = try #require(elementRefs.first)
 
         do {
             _ = try await executor.perform(
@@ -1368,6 +1371,7 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
                     id: "application",
                     role: "Application",
                     label: "Example",
+                    value: nil,
                     frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
                     isEnabled: true,
                     children: [
@@ -1376,6 +1380,7 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
                             identifier: "continue",
                             role: "Button",
                             label: "Continue",
+                            value: nil,
                             frame: SimulatorRect(x: 20, y: 100, width: 120, height: 44),
                             isEnabled: true,
                             children: []
@@ -1385,6 +1390,7 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
                             identifier: "search",
                             role: "TextField",
                             label: "Search",
+                            value: nil,
                             frame: SimulatorRect(x: 20, y: 180, width: 300, height: 44),
                             isEnabled: true,
                             isFocused: searchFocused,
@@ -1428,14 +1434,15 @@ private func simulatorElementRef(
         Issue.record("Expected a semantic snapshot")
         throw CancellationError()
     }
-    return try #require(elements.compactMap { value -> String? in
+    let elementRefs = elements.compactMap { value -> String? in
         guard case let .object(fields) = value,
               fields["identifier"] == .string(identifier),
               case let .string(ref)? = fields["ref"] else {
             return nil
         }
         return ref
-    }.first)
+    }
+    return try #require(elementRefs.first)
 }
 
 private func simulatorScreenHash(in snapshot: JSONValue) throws -> String {
@@ -1580,6 +1587,7 @@ private actor SimulatorRotatingAccessibilityPaneClient: SimulatorPaneClient {
                     id: "application",
                     role: "Application",
                     label: "Example",
+                    value: nil,
                     frame: SimulatorRect(x: 0, y: 0, width: 400, height: 800),
                     isEnabled: true,
                     children: [
@@ -1588,6 +1596,7 @@ private actor SimulatorRotatingAccessibilityPaneClient: SimulatorPaneClient {
                             identifier: "continue",
                             role: "Button",
                             label: "Continue",
+                            value: nil,
                             frame: buttonFrame,
                             isEnabled: true,
                             children: []
@@ -1668,6 +1677,7 @@ private actor SimulatorDelayedAccessibilityPaneClient: SimulatorPaneClient {
                     id: "application",
                     role: "Application",
                     label: "Example",
+                    value: nil,
                     frame: SimulatorRect(x: 0, y: 0, width: 400, height: 800),
                     isEnabled: true,
                     children: [
@@ -1676,6 +1686,7 @@ private actor SimulatorDelayedAccessibilityPaneClient: SimulatorPaneClient {
                             identifier: "continue",
                             role: "Button",
                             label: changed ? "Changed" : "Continue",
+                            value: nil,
                             frame: changed
                                 ? SimulatorRect(x: 240, y: 500, width: 80, height: 80)
                                 : SimulatorRect(x: 40, y: 100, width: 80, height: 80),
