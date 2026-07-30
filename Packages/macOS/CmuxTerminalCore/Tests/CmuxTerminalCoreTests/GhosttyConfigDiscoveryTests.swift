@@ -96,21 +96,20 @@ private struct NoFontProbe: GhosttyFontProbing {
         #expect(discovery.autoInjectedSymbolFontMappings(configPaths: [path]) == nil)
     }
 
-    @Test func autoInjectedSymbolFontMappingsFiltersRangesCoveredByConfiguredFont() {
+    @Test func autoInjectedSymbolFontMappingsFiltersRangesCoveredByConfiguredFont() throws {
         let path = "/cfg/config"
         let reader = FakeFileReader(contentsByPath: [
             path: "font-family = JetBrainsMono Nerd Font",
         ])
         let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
-        let mappings = discovery.autoInjectedSymbolFontMappings(
+        let mappings = try #require(discovery.autoInjectedSymbolFontMappings(
             configPaths: [path],
             rangeCoverageProbe: { fontFamily, range in
                 #expect(fontFamily == "JetBrainsMono Nerd Font")
                 return range == "U+25A0-U+25FF"
             }
-        )
-        #expect(mappings != nil)
-        #expect(Set(mappings!.map(\.0)) == ["U+2B00-U+2BFF"])
+        ))
+        #expect(Set(mappings.map(\.0)) == ["U+2B00-U+2BFF"])
     }
 
     @Test func autoInjectedSymbolFontMappingsNilWhenAllRangesCovered() {
