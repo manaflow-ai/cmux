@@ -14,10 +14,12 @@ public actor CmxConnectivityEngine {
     }
 
     private let supervisor: CmxIrohEndpointSupervisor
-    private let contextProvider: any CmxIrohClientContextProvider
+    private let contextProvider: (any CmxIrohClientContextProvider)?
     private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let authority: (any CmxConnectivityAuthorityServing)?
     private let installRouteSnapshot: RouteSnapshotInstaller?
+    private let diagnosticLog: DiagnosticLog?
+    private let clock: any CmxIrohRelayClock
     private var desiredActive = false
     private var lifecycleRevision: UInt64 = 0
     private var endpointGeneration: UInt64?
@@ -28,6 +30,7 @@ public actor CmxConnectivityEngine {
     private var peers: [CmxConnectivityPeerID: CmxConnectivityPeerSession] = [:]
     private var peerSnapshots: [CmxConnectivityPeerID: CmxConnectivityPeerSnapshot] = [:]
     private var observers: [UUID: AsyncStream<CmxConnectivityEngineSnapshot>.Continuation] = [:]
+    private var networkObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
     private var phase = CmxConnectivityEngineSnapshot.Phase.stopped
 
     /// Creates a stopped engine with one stable endpoint identity.
@@ -45,7 +48,9 @@ public actor CmxConnectivityEngine {
         contextProvider: any CmxIrohClientContextProvider,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
         authority: (any CmxConnectivityAuthorityServing)? = nil,
-        installRouteSnapshot: RouteSnapshotInstaller? = nil
+        installRouteSnapshot: RouteSnapshotInstaller? = nil,
+        diagnosticLog: DiagnosticLog? = nil,
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     ) {
         precondition((authority == nil) == (installRouteSnapshot == nil))
         supervisor = CmxIrohEndpointSupervisor(
@@ -56,6 +61,26 @@ public actor CmxConnectivityEngine {
         self.protocolConfiguration = protocolConfiguration
         self.authority = authority
         self.installRouteSnapshot = installRouteSnapshot
+        self.diagnosticLog = diagnosticLog
+        self.clock = clock
+    }
+
+    /// Creates a stopped endpoint-only engine for a host acceptor.
+    public init(
+        factory: any CmxIrohEndpointFactory,
+        endpointConfiguration: CmxIrohEndpointConfiguration,
+        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1
+    ) {
+        supervisor = CmxIrohEndpointSupervisor(
+            factory: factory,
+            configuration: endpointConfiguration
+        )
+        contextProvider = nil
+        self.protocolConfiguration = protocolConfiguration
+        authority = nil
+        installRouteSnapshot = nil
+        diagnosticLog = nil
+        clock = CmxIrohSystemRelayClock()
     }
 
     init(
@@ -63,7 +88,9 @@ public actor CmxConnectivityEngine {
         contextProvider: any CmxIrohClientContextProvider,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
         authority: (any CmxConnectivityAuthorityServing)? = nil,
-        installRouteSnapshot: RouteSnapshotInstaller? = nil
+        installRouteSnapshot: RouteSnapshotInstaller? = nil,
+        diagnosticLog: DiagnosticLog? = nil,
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     ) {
         precondition((authority == nil) == (installRouteSnapshot == nil))
         self.supervisor = supervisor
@@ -71,6 +98,8 @@ public actor CmxConnectivityEngine {
         self.protocolConfiguration = protocolConfiguration
         self.authority = authority
         self.installRouteSnapshot = installRouteSnapshot
+        self.diagnosticLog = diagnosticLog
+        self.clock = clock
     }
 
     /// Returns the current immutable UI-safe state.
@@ -89,6 +118,47 @@ public actor CmxConnectivityEngine {
                 Task { await self?.removeObserver(observerID) }
             }
         }
+    }
+
+    /// Observes endpoint network and recovery signals that require registration refresh.
+    public func networkChanges() -> AsyncStream<Void> {
+        let observerID = UUID()
+        return AsyncStream { continuation in
+            networkObservers[observerID] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeNetworkObserver(observerID) }
+            }
+        }
+    }
+
+    /// Creates an accept loop whose endpoint recovery is serialized by this engine.
+    func makeEndpointServer(
+        maximumPendingAdmissions: Int = 10,
+        maximumPendingAdmissionsPerIdentity: Int = 1,
+        maximumConnections: Int = 10,
+        maximumConnectionsPerIdentity: Int = 2,
+        admissionTimeout: TimeInterval = 15,
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        handler: @escaping CmxIrohEndpointServer.ConnectionHandler
+    ) -> CmxIrohEndpointServer {
+        CmxIrohEndpointServer(
+            supervisor: supervisor,
+            maximumPendingAdmissions: maximumPendingAdmissions,
+            maximumPendingAdmissionsPerIdentity: maximumPendingAdmissionsPerIdentity,
+            maximumConnections: maximumConnections,
+            maximumConnectionsPerIdentity: maximumConnectionsPerIdentity,
+            admissionTimeout: admissionTimeout,
+            clock: clock,
+            recoverEndpoint: { [weak self] generation in
+                guard let self else {
+                    throw CmxConnectivityEngineError.inactive
+                }
+                return try await self.recoverEndpointForServer(
+                    expectedGeneration: generation
+                )
+            },
+            handler: handler
+        )
     }
 
     /// Binds the process endpoint without creating a peer connection.
@@ -168,6 +238,114 @@ public actor CmxConnectivityEngine {
         guard routeRevision != revision else { return }
         routeRevision = revision
         publishSnapshot()
+    }
+
+    /// Returns the exact active local endpoint identity.
+    public func localEndpointIdentity() async throws -> CmxIrohPeerIdentity {
+        guard desiredActive, endpointGeneration != nil else {
+            throw CmxConnectivityEngineError.inactive
+        }
+        let endpoint = try await supervisor.activeEndpoint()
+        return await endpoint.identity()
+    }
+
+    /// Returns the active endpoint's public reachability snapshot.
+    public func endpointAddress() async throws -> CmxIrohEndpointAddress {
+        guard desiredActive, endpointGeneration != nil else {
+            throw CmxConnectivityEngineError.inactive
+        }
+        let endpoint = try await supervisor.activeEndpoint()
+        return await endpoint.address()
+    }
+
+    /// Returns raw local direct addresses for authenticated registration only.
+    public func localDirectAddresses() async throws -> [String] {
+        guard desiredActive, endpointGeneration != nil else {
+            throw CmxConnectivityEngineError.inactive
+        }
+        let endpoint = try await supervisor.activeEndpoint()
+        return await endpoint.localDirectAddresses()
+    }
+
+    /// Returns whether the active endpoint has a configured relay.
+    public func hasConfiguredRelay() async -> Bool {
+        await supervisor.hasConfiguredRelay()
+    }
+
+    /// Waits for the active endpoint generation to report relay readiness.
+    public func waitForUsableHomeRelay(
+        timeout: Duration = .seconds(15)
+    ) async throws {
+        try await supervisor.waitForUsableHomeRelay(timeout: timeout)
+    }
+
+    /// Replaces the endpoint relay profile before or after activation.
+    public func replaceRelayProfile(
+        _ profile: CmxIrohEndpointRelayProfile
+    ) async throws {
+        try await supervisor.replaceRelayProfile(profile)
+    }
+
+    /// Replaces the active endpoint relay profile without changing identity.
+    public func replaceRelayProfile(
+        _ profile: CmxIrohEndpointRelayProfile,
+        expectedIdentity: CmxIrohPeerIdentity
+    ) async throws {
+        try await supervisor.replaceRelayProfile(
+            profile,
+            expectedIdentity: expectedIdentity
+        )
+    }
+
+    /// Replaces active managed relay credentials without changing identity.
+    public func replaceRelays(
+        _ relays: [CmxIrohRelayConfiguration],
+        expectedIdentity: CmxIrohPeerIdentity
+    ) async throws {
+        try await supervisor.replaceRelays(
+            relays,
+            expectedIdentity: expectedIdentity
+        )
+    }
+
+    /// Returns the selected live path after removing raw coordinates.
+    public func selectedTransportPath(
+        relayPolicy: CmxIrohEffectiveRelayPolicy?
+    ) async -> CmxIrohSelectedTransportPath {
+        let orderedPeers = peers.keys.sorted {
+            if $0.deviceID == $1.deviceID {
+                return $0.identity.endpointID < $1.identity.endpointID
+            }
+            return $0.deviceID < $1.deviceID
+        }
+        var observed = CmxIrohObservedConnectionPath.unavailable
+        for peerID in orderedPeers {
+            guard let peer = peers[peerID] else { continue }
+            let candidate = await peer.observedSelectedPath()
+            if candidate != .unavailable {
+                observed = candidate
+                if peerSnapshots[peerID]?.controlLaneOwned == true {
+                    break
+                }
+            }
+        }
+        return CmxIrohSelectedTransportPathClassifier(policy: relayPolicy)
+            .classify(observed)
+    }
+
+    /// Emits when peer lifecycle or Iroh path selection can change path classification.
+    public func selectedTransportPathChanges() -> AsyncStream<Void> {
+        let snapshots = snapshots()
+        return AsyncStream { continuation in
+            let task = Task {
+                for await _ in snapshots {
+                    guard !Task.isCancelled else { return }
+                    continuation.yield()
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     /// Reconciles the last installed revision with the authoritative backend.
@@ -259,13 +437,31 @@ public actor CmxConnectivityEngine {
 
     func releaseControl(
         for request: CmxByteTransportRequest,
-        ownerID: UUID
+        ownerID: UUID,
+        reason: DiagnosticSessionLifecycleKind = .controlOwnerReleased,
+        failure: DiagnosticFailureKind = .none
     ) async {
         guard let peerID = try? CmxConnectivityPeerID(request: request),
               let peer = peers[peerID] else {
             return
         }
-        await peer.releaseControl(ownerID: ownerID)
+        await peer.releaseControl(
+            ownerID: ownerID,
+            reason: reason,
+            failure: failure
+        )
+    }
+
+    func updateControlPurpose(
+        for request: CmxByteTransportRequest,
+        ownerID: UUID,
+        purpose: CmxTransportSessionPurpose
+    ) async {
+        guard let peerID = try? CmxConnectivityPeerID(request: request),
+              let peer = peers[peerID] else {
+            return
+        }
+        await peer.updateControlPurpose(ownerID: ownerID, purpose: purpose)
     }
 
     func connectionContinuityID(
@@ -291,7 +487,10 @@ public actor CmxConnectivityEngine {
     private func activePeer(
         for request: CmxByteTransportRequest
     ) throws -> CmxConnectivityPeerSession {
-        guard desiredActive, phase == .active, endpointGeneration != nil else {
+        guard desiredActive,
+              phase == .active,
+              endpointGeneration != nil,
+              let contextProvider else {
             throw CmxConnectivityEngineError.inactive
         }
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -299,8 +498,9 @@ public actor CmxConnectivityEngine {
             return peer
         }
         let supervisor = supervisor
-        let contextProvider = contextProvider
         let protocolConfiguration = protocolConfiguration
+        let diagnosticLog = diagnosticLog
+        let clock = clock
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
             buildSession: { request in
@@ -331,7 +531,9 @@ public actor CmxConnectivityEngine {
             },
             handleSnapshot: { [weak self] snapshot in
                 await self?.peerDidChange(snapshot)
-            }
+            },
+            diagnosticLog: diagnosticLog,
+            clock: clock
         )
         peers[peerID] = peer
         let initial = CmxConnectivityPeerSnapshot(
@@ -345,6 +547,30 @@ public actor CmxConnectivityEngine {
         peerSnapshots[peerID] = initial
         publishSnapshot()
         return peer
+    }
+
+    private func recoverEndpointForServer(
+        expectedGeneration: UInt64
+    ) async throws -> CmxIrohEndpointSnapshot {
+        guard desiredActive, phase == .active else {
+            throw CmxConnectivityEngineError.inactive
+        }
+        let revision = lifecycleRevision
+        let endpoint = try await supervisor.ensureHealthy()
+        guard desiredActive, lifecycleRevision == revision else {
+            throw CmxConnectivityEngineError.superseded
+        }
+        try await installEndpoint(endpoint)
+        try await reconcileRoutes()
+        guard desiredActive, lifecycleRevision == revision else {
+            throw CmxConnectivityEngineError.superseded
+        }
+        phase = .active
+        publishSnapshot()
+        if endpoint.runtimeGeneration != expectedGeneration {
+            return endpoint
+        }
+        return endpoint
     }
 
     private func observeEndpoint() {
@@ -362,7 +588,21 @@ public actor CmxConnectivityEngine {
     private func handleEndpointEvent(
         _ event: CmxIrohEndpointSupervisorEvent
     ) async {
-        guard desiredActive, case let .snapshot(endpoint) = event else { return }
+        guard desiredActive else { return }
+        switch event {
+        case .networkChanged, .recovered:
+            for continuation in networkObservers.values {
+                continuation.yield()
+            }
+            return
+        case let .snapshot(endpoint):
+            await handleEndpointSnapshot(endpoint)
+        }
+    }
+
+    private func handleEndpointSnapshot(
+        _ endpoint: CmxIrohEndpointSnapshot
+    ) async {
         switch endpoint.state {
         case .inactive:
             endpointGeneration = nil
@@ -487,4 +727,10 @@ public actor CmxConnectivityEngine {
     private func removeObserver(_ id: UUID) {
         observers[id] = nil
     }
+
+    private func removeNetworkObserver(_ id: UUID) {
+        networkObservers[id] = nil
+    }
 }
+
+extension CmxConnectivityEngine: CmxIrohRelayEndpointControlling {}

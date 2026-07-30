@@ -12,6 +12,7 @@ actor CmxConnectivityByteTransport:
     private let engine: CmxConnectivityEngine
     private let ownerID = UUID()
     private var session: (any CmxConnectivitySession)?
+    private var ownsControlSession = false
     private var closed = false
 
     init(request: CmxByteTransportRequest, engine: CmxConnectivityEngine) {
@@ -30,6 +31,7 @@ actor CmxConnectivityByteTransport:
             await engine.releaseControl(for: request, ownerID: ownerID)
             throw CmxIrohByteTransportError.alreadyClosed
         }
+        ownsControlSession = true
         session = connected
     }
 
@@ -40,8 +42,8 @@ actor CmxConnectivityByteTransport:
             return try await session.receiveControl(maximumByteCount: 64 * 1_024)
         } catch {
             self.session = nil
-            await engine.invalidatePeer(
-                for: request,
+            await releaseOwnedControlSession(
+                reason: .controlReadFailed,
                 failure: DiagnosticFailureKind.classify(error)
             )
             throw error
@@ -55,8 +57,8 @@ actor CmxConnectivityByteTransport:
             try await session.sendControl(data)
         } catch {
             self.session = nil
-            await engine.invalidatePeer(
-                for: request,
+            await releaseOwnedControlSession(
+                reason: .controlWriteFailed,
                 failure: DiagnosticFailureKind.classify(error)
             )
             throw error
@@ -67,7 +69,10 @@ actor CmxConnectivityByteTransport:
         guard !closed else { return }
         closed = true
         session = nil
-        await engine.releaseControl(for: request, ownerID: ownerID)
+        await releaseOwnedControlSession(
+            reason: .controlOwnerReleased,
+            failure: .none
+        )
     }
 
     func transportContinuityID() async -> UInt64? {
@@ -83,7 +88,28 @@ actor CmxConnectivityByteTransport:
         }
     }
 
-    func updateSessionPurpose(_ purpose: CmxTransportSessionPurpose) {
+    func updateSessionPurpose(_ purpose: CmxTransportSessionPurpose) async {
+        guard request.sessionPurpose != purpose else { return }
         request = request.withSessionPurpose(purpose)
+        guard ownsControlSession else { return }
+        await engine.updateControlPurpose(
+            for: request,
+            ownerID: ownerID,
+            purpose: purpose
+        )
+    }
+
+    private func releaseOwnedControlSession(
+        reason: DiagnosticSessionLifecycleKind,
+        failure: DiagnosticFailureKind
+    ) async {
+        guard ownsControlSession else { return }
+        ownsControlSession = false
+        await engine.releaseControl(
+            for: request,
+            ownerID: ownerID,
+            reason: reason,
+            failure: failure
+        )
     }
 }

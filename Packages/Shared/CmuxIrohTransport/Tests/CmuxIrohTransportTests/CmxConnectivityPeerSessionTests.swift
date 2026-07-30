@@ -31,7 +31,7 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
-    func oneControlOwnerIsEnforcedAndReleaseClosesThePeerConnection() async throws {
+    func nextControlOwnerWaitsAndReleaseClosesThePeerConnection() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
         let firstSession = TestConnectivitySession(continuityID: 11)
@@ -49,16 +49,20 @@ struct CmxConnectivityPeerSessionTests {
         let secondOwner = UUID()
 
         _ = try await peer.acquireControl(for: request, ownerID: firstOwner)
-        await #expect(throws: CmxIrohByteTransportError.controlLaneAlreadyOwned) {
-            _ = try await peer.acquireControl(for: request, ownerID: secondOwner)
+        let secondAcquire = Task {
+            try await peer.acquireControl(for: request, ownerID: secondOwner)
+        }
+        for _ in 0 ..< 100 {
+            await Task.yield()
+            #expect(await builder.callCount() == 1)
         }
         await peer.releaseControl(ownerID: firstOwner)
 
         #expect(await firstSession.closeCount() == 1)
-        #expect(await peer.snapshot().phase == .disconnected)
-        _ = try await peer.acquireControl(for: request, ownerID: secondOwner)
+        _ = try await secondAcquire.value
         #expect(await builder.callCount() == 2)
         #expect(await peer.connectionContinuityID() == 12)
+        await peer.releaseControl(ownerID: secondOwner)
     }
 
     @Test
@@ -90,6 +94,101 @@ struct CmxConnectivityPeerSessionTests {
         _ = try await peer.acquireControl(for: request, ownerID: UUID())
         #expect(await builder.callCount() == 2)
         #expect(await peer.connectionContinuityID() == 22)
+    }
+
+    @Test
+    func deadOnArrivalSessionIsClosedAndRedialedOnce() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let dead = TestConnectivitySession(continuityID: 31)
+        await dead.finishRemotely(failure: .connectionClosed)
+        let live = TestConnectivitySession(continuityID: 32)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [dead, live]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+
+        _ = try await peer.connectedSession(for: request)
+
+        #expect(await builder.callCount() == 2)
+        #expect(await dead.closeCount() == 1)
+        #expect(await peer.connectionContinuityID() == 32)
+        await peer.invalidate()
+    }
+
+    @Test
+    func cancelledDialDrainsBeforeTheReplacementStarts() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let retired = TestConnectivitySession(continuityID: 41)
+        let live = TestConnectivitySession(continuityID: 42)
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [retired, live]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+
+        let first = Task { try await peer.connectedSession(for: request) }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        await peer.invalidate()
+        let second = Task { try await peer.connectedSession(for: request) }
+        for _ in 0 ..< 100 {
+            await Task.yield()
+            #expect(await builder.callCount() == 1)
+        }
+        await builder.release(call: 0)
+        try await Self.waitUntil { await builder.callCount() == 2 }
+        await builder.release(call: 1)
+
+        _ = try await second.value
+        if case .success = await first.result {
+            Issue.record("The retired dial unexpectedly succeeded")
+        }
+        #expect(await retired.closeCount() == 1)
+        #expect(await peer.connectionContinuityID() == 42)
+        await peer.invalidate()
+    }
+
+    @Test
+    func wedgedRetiredDialCannotBlockPastTheSettleBound() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let retired = TestConnectivitySession(continuityID: 51)
+        let live = TestConnectivitySession(continuityID: 52)
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [retired, live]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            },
+            clock: ImmediateHostActivationClock()
+        )
+
+        let first = Task { try await peer.connectedSession(for: request) }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        await peer.invalidate()
+        let second = Task { try await peer.connectedSession(for: request) }
+        try await Self.waitUntil { await builder.callCount() == 2 }
+        await builder.release(call: 1)
+        _ = try await second.value
+        await builder.release(call: 0)
+        if case .success = await first.result {
+            Issue.record("The retired dial unexpectedly succeeded")
+        }
+        try await Self.waitUntil { await retired.closeCount() == 1 }
+        #expect(await peer.connectionContinuityID() == 52)
+        await peer.invalidate()
     }
 
     @Test
@@ -191,6 +290,34 @@ private actor SequencedConnectivitySessionBuilder {
     func callCount() -> Int { calls }
 }
 
+private actor OrderedGatedConnectivitySessionBuilder {
+    private let sessions: [any CmxConnectivitySession]
+    private var calls = 0
+    private var gates: [Int: CheckedContinuation<Void, Never>] = [:]
+
+    init(sessions: [any CmxConnectivitySession]) {
+        self.sessions = sessions
+    }
+
+    func build(
+        _ request: CmxByteTransportRequest
+    ) async throws -> any CmxConnectivitySession {
+        _ = request
+        let call = calls
+        calls += 1
+        await withCheckedContinuation { continuation in
+            gates[call] = continuation
+        }
+        return sessions[call]
+    }
+
+    func release(call: Int) {
+        gates.removeValue(forKey: call)?.resume()
+    }
+
+    func callCount() -> Int { calls }
+}
+
 private actor TestConnectivitySession: CmxConnectivitySession {
     private let continuityID: UInt64
     private var closed = false
@@ -244,6 +371,23 @@ private actor TestConnectivitySession: CmxConnectivitySession {
 
     func connectionContinuityID() -> UInt64? {
         closed ? nil : continuityID
+    }
+
+    func observedSelectedPath() -> CmxIrohObservedConnectionPath {
+        closed ? .unavailable : .direct
+    }
+
+    func observedSelectedPathChanges() -> AsyncStream<CmxIrohObservedConnectionPath> {
+        AsyncStream { continuation in
+            continuation.yield(closed ? .unavailable : .direct)
+            continuation.finish()
+        }
+    }
+
+    func observedPathEvents() -> AsyncStream<CmxIrohConnectionPathEvent> {
+        AsyncStream { continuation in
+            continuation.finish()
+        }
     }
 
     func close() {

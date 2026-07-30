@@ -61,11 +61,11 @@ public actor CmxIrohClientRuntime {
     }
 
     /// The route-aware factory registered by the iOS app before fallback transports.
-    public nonisolated let transportFactory: CmxIrohByteTransportFactory
+    public nonisolated let transportFactory: CmxConnectivityByteTransportFactory
 
     let supervisor: CmxIrohEndpointSupervisor
+    let connectivityEngine: CmxConnectivityEngine
     let contextRouter: CmxIrohRuntimeContextRouter
-    let sessionPool: CmxIrohClientSessionPool
     let broker: any CmxIrohClientBrokerServing
     let configuration: CmxIrohClientRuntimeConfiguration
     var endpointRelayProfile: CmxIrohEndpointRelayProfile
@@ -94,6 +94,7 @@ public actor CmxIrohClientRuntime {
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
     var liveDiscoveryGeneration: UInt64 = 0
+    var authoritativeDiscovery: CmxIrohDiscoveryResponse?
     var localBinding: CmxIrohBrokerBinding?
     var registryContextProvider: CmxIrohRegistryContextProvider?
     var currentSnapshot = CmxIrohClientRuntimeSnapshot(
@@ -157,15 +158,15 @@ public actor CmxIrohClientRuntime {
             configuration: endpointConfiguration
         )
         let contextRouter = CmxIrohRuntimeContextRouter()
-        let sessionPool = CmxIrohClientSessionPool(
+        let connectivityEngine = CmxConnectivityEngine(
             supervisor: supervisor,
             contextProvider: contextRouter,
             protocolConfiguration: protocolConfiguration,
             diagnosticLog: diagnosticLog
         )
         self.supervisor = supervisor
+        self.connectivityEngine = connectivityEngine
         self.contextRouter = contextRouter
-        self.sessionPool = sessionPool
         self.broker = broker
         self.configuration = configuration
         self.endpointRelayProfile = endpointRelayProfile
@@ -183,7 +184,9 @@ public actor CmxIrohClientRuntime {
         self.handleRelayCredential = handleRelayCredential
         self.handleLocalDeactivation = handleLocalDeactivation
         self.handlePolicyInvalidation = handlePolicyInvalidation
-        transportFactory = CmxIrohByteTransportFactory(sessionPool: sessionPool)
+        transportFactory = CmxConnectivityByteTransportFactory(
+            engine: connectivityEngine
+        )
     }
 
     /// Returns the current non-secret lifecycle snapshot.
@@ -279,9 +282,9 @@ public actor CmxIrohClientRuntime {
     public func selectedTransportPath(
         relayPolicy: CmxIrohEffectiveRelayPolicy?
     ) async -> CmxIrohSelectedTransportPath {
-        let observed = await sessionPool.selectedObservedPath()
-        return CmxIrohSelectedTransportPathClassifier(policy: relayPolicy)
-            .classify(observed)
+        return await connectivityEngine.selectedTransportPath(
+            relayPolicy: relayPolicy
+        )
     }
 
     /// Emits when connection lifecycle changes may alter the selected path.
@@ -289,7 +292,7 @@ public actor CmxIrohClientRuntime {
     /// Consumers re-read ``selectedTransportPath(relayPolicy:)`` for the
     /// credential-free value. The stream never carries raw path data.
     public func selectedTransportPathChanges() async -> AsyncStream<Void> {
-        await sessionPool.selectedPathChanges()
+        await connectivityEngine.selectedTransportPathChanges()
     }
 
     /// Binds the endpoint, registers it, and installs exact discovery and relay policy.
@@ -314,13 +317,17 @@ public actor CmxIrohClientRuntime {
             let startingRelayProfile = try endpointRelayProfile
                 .droppingExpiredManagedCredentials(at: now())
             if startingRelayProfile != endpointRelayProfile {
-                try await supervisor.replaceRelayProfile(startingRelayProfile)
+                try await connectivityEngine.replaceRelayProfile(
+                    startingRelayProfile
+                )
                 endpointRelayProfile = startingRelayProfile
             }
             await startSupervisorObservation(revision: revision)
-            let endpointSnapshot = try await supervisor.activate()
+            try await connectivityEngine.start()
+            let endpointSnapshot = await connectivityEngine.snapshot()
             try requireCurrent(revision)
-            guard let endpointID = endpointSnapshot.identity else {
+            guard let endpointID = endpointSnapshot.localIdentity,
+                  endpointSnapshot.endpointGeneration != nil else {
                 throw CmxIrohClientRuntimeError.invalidLocalBinding
             }
             let policy = try await resolvePolicy(
@@ -328,15 +335,12 @@ public actor CmxIrohClientRuntime {
                 revision: revision
             )
             try requireCurrent(revision)
-            await sessionPool.activate(
-                runtimeGeneration: endpointSnapshot.runtimeGeneration
-            )
             try await install(policy: policy, revision: revision, startRelays: true)
             if !protocolConfiguration.allowsNATTraversalAfterAdmission {
-                guard await supervisor.hasConfiguredRelay() else {
+                guard await connectivityEngine.hasConfiguredRelay() else {
                     throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
                 }
-                try await supervisor.waitForUsableHomeRelay()
+                try await connectivityEngine.waitForUsableHomeRelay()
                 try requireCurrent(revision)
             }
             lifecyclePhase = .active
@@ -349,7 +353,14 @@ public actor CmxIrohClientRuntime {
                let discovery = policy.discovery {
                 let published = await handleBinding(registration, discovery)
                 try requireCurrent(revision)
-                if published { liveDiscoveryGeneration &+= 1 }
+                if published {
+                    if let routeRevision = discovery.revision {
+                        await connectivityEngine.didInstallRouteRevision(
+                            routeRevision
+                        )
+                    }
+                    liveDiscoveryGeneration &+= 1
+                }
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }
@@ -407,9 +418,12 @@ public actor CmxIrohClientRuntime {
                 _ = try await refresh.value
                 try requireCurrent(revision)
             }
-            let checked = try await supervisor.ensureHealthy()
+            try await connectivityEngine.resume()
+            let checked = await connectivityEngine.snapshot()
             try requireCurrent(revision)
-            await sessionPool.activate(runtimeGeneration: checked.runtimeGeneration)
+            guard checked.endpointGeneration != nil else {
+                throw CmxIrohClientRuntimeError.invalidLocalBinding
+            }
             try requireCurrent(revision)
             registrationRefreshPending = false
             registrationRefreshEnabled = true
@@ -444,7 +458,7 @@ public actor CmxIrohClientRuntime {
         guard lifecyclePhase == .active else {
             throw CmxIrohClientRuntimeError.inactive
         }
-        return try await sessionPool.openBidirectionalLane(
+        return try await connectivityEngine.openBidirectionalLane(
             for: request,
             lane: lane,
             priority: priority
@@ -458,7 +472,7 @@ public actor CmxIrohClientRuntime {
         guard lifecyclePhase == .active else {
             throw CmxIrohClientRuntimeError.inactive
         }
-        return try await sessionPool.serverEventByteStream(for: request)
+        return try await connectivityEngine.serverEventByteStream(for: request)
     }
 
     /// Invalidates one peer session after a lane reports a terminal connection error.
@@ -467,7 +481,7 @@ public actor CmxIrohClientRuntime {
     ///
     /// - Parameter request: The exact peer intent whose pooled connection failed.
     public func invalidateSession(for request: CmxByteTransportRequest) async {
-        await sessionPool.invalidate(for: request)
+        await connectivityEngine.invalidatePeer(for: request)
     }
 
     /// Stops network ownership while preserving account-scoped persistence.

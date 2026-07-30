@@ -39,6 +39,18 @@
    Found: Publishing an active endpoint before policy installation creates a window where callers can dial with stale authority.
    Decision: Connectivity v2 remains in `starting` through backend reconciliation and atomic snapshot installation. Endpoint replacement uses the same barrier before the replacement generation becomes active.
 
+8. Expected: The Mac accept loop could continue recovering the shared endpoint directly.
+   Found: Its error path called `ensureHealthy()` independently, so an incoming connection failure could replace the endpoint outside the process lifecycle owner.
+   Decision: The endpoint server receives an engine-owned recovery closure. Both outgoing dials and incoming accepts now serialize endpoint recovery through `CmxConnectivityEngine`.
+
+9. Expected: Replacing the session pool with a smaller peer actor made its old cancellation machinery unnecessary.
+   Found: Native or test endpoints may return after cancellation, and a replacement dial can otherwise race the retired admission on the host.
+   Decision: Each peer actor drains cancelled dials before redialing, uses a bounded deadman for non-cooperative implementations, retries one dead-on-arrival connection, queues control handoff, and closes the old control framing before granting the next owner.
+
+10. Expected: Connectivity v2 could omit the pool's diagnostic integration during migration.
+    Found: That would remove path events, close attribution, session-purpose changes, and stable connection correlation from release diagnostics.
+    Decision: The peer actor records the same lifecycle and path evidence under one diagnostic session identifier, and the engine-backed control transport forwards precise read, write, and owner-release reasons.
+
 ## Current state
 
 - Done: Current backend, Mac, iOS, shared transport, and recent Iroh-fork fixes mapped.
@@ -48,6 +60,9 @@
 - Verified: Connectivity authority and existing Iroh broker tests pass, web typechecking passes, the generated database schema matches the checked-in migration, and the diff has no whitespace errors.
 - Done: Added the matching Swift authority client and strict revision envelope validation.
 - Done: Added the shared endpoint engine, peer-session actor, immutable snapshots, and engine-backed RPC transport adapter.
-- Verified: Swift authority tests, peer ownership tests, and endpoint/reconciliation lifecycle tests pass.
-- Open: Application composition integration, legacy deletion, database behavior execution, and end-to-end verification.
-- Next: Replace iOS and Mac runtime composition ownership with the connectivity engine.
+- Done: Routed the iOS client runtime and Mac host runtime through the shared engine for endpoint lifecycle, relay mutation, network changes, registration address reads, and route-revision installation.
+- Done: Routed Mac accept-loop recovery through the engine and retained bounded admission ownership in the server.
+- Done: Ported cancelled-dial draining, dead-on-arrival redial, queued control handoff, application-lane retry, and diagnostic correlation into the peer actor.
+- Verified: All 506 shared transport tests pass, including 41 Mac host runtime tests and the new connectivity-v2 cancellation and ownership tests.
+- Open: Legacy owner deletion, application build integration, database behavior execution, and end-to-end verification.
+- Next: Port the remaining legacy pool behavior checks to the engine, delete the superseded pool/direct transport path, then compile the Mac and iOS composition roots.

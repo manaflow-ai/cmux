@@ -14,6 +14,9 @@ protocol CmxConnectivitySession: Sendable {
     func closeAttribution() async -> CmxIrohConnectionCloseAttribution
     func isClosed() async -> Bool
     func connectionContinuityID() async -> UInt64?
+    func observedSelectedPath() async -> CmxIrohObservedConnectionPath
+    func observedSelectedPathChanges() async -> AsyncStream<CmxIrohObservedConnectionPath>
+    func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent>
     func close() async
 }
 

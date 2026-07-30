@@ -55,4 +55,15 @@ public struct CmxConnectivitySyncResponse: Decodable, Equatable, Sendable {
         self.reset = reset
         self.snapshot = snapshot
     }
+
+    init(
+        legacySnapshot: CmxIrohDiscoveryResponse,
+        knownRevision: UInt64?
+    ) {
+        protocolVersion = Self.protocolVersion
+        revision = legacySnapshot.revision ?? (knownRevision ?? 0) &+ 1
+        changed = true
+        reset = false
+        snapshot = legacySnapshot
+    }
 }

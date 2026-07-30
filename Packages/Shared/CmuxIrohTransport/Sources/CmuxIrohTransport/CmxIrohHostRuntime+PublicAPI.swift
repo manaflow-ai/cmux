@@ -91,8 +91,8 @@ extension CmxIrohHostRuntime {
     /// Reads raw local direct addresses only for the interface-filtering publisher.
     public func localDirectAddresses() async -> [String] {
         guard lifecyclePhase == .active,
-              let endpoint = try? await supervisor?.activeEndpoint() else { return [] }
-        return await endpoint.localDirectAddresses()
+              let connectivityEngine else { return [] }
+        return (try? await connectivityEngine.localDirectAddresses()) ?? []
     }
 
     /// Closes networking, durably queues revocation, then deactivates local state.
