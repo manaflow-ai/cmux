@@ -176,8 +176,15 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 pairingID: intent.pairingID,
                 stampMs: intent.stampMs
             )
+            // Retirement is EXACT: only the intent's own pairing reviving
+            // retires it. A device-wide intent covers every tag of its device
+            // for suppression and deletion, but one tagged instance coming
+            // back does not prove the OTHER tags' stale records (possibly in
+            // other teams' backups) were re-added — per-record revival
+            // classification already lets the revived tag through everywhere,
+            // so keeping the intent costs the revival nothing.
             let revived = echoes.contains { echo in
-                covers(intent, echo)
+                echo.pairingID == intent.pairingID
                     && boundary.treatsAsRevived(serverUpdatedAtMs: echo.serverUpdatedAtMs)
             }
             if revived { retiredRaws.insert(intent.raw) }
@@ -197,6 +204,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         }
         var ops: [PairedMacBackupOp] = []
         var sentPairingIDs: [String] = []
+        let survivingIntents = decodeIntents(parked)
         for echo in echoes.sorted(by: { $0.pairingID < $1.pairingID }) {
             let pairingID = echo.pairingID
             let identity = MobilePairedMac.pairingIdentity(from: pairingID)
@@ -204,6 +212,17 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             guard parkedExact.contains(pairingID) || parkedDevices.contains(device) else {
                 continue
             }
+            // A record every covering intent classifies as REVIVED is spared:
+            // the covering device-wide intent survives for OTHER tags, but
+            // this record was re-added after the forget.
+            let coveringIntents = survivingIntents.filter { covers($0, echo) }
+            let revivedForAll = !coveringIntents.isEmpty && coveringIntents.allSatisfy { intent in
+                PairedMacRestoreSuppression(
+                    pairingID: intent.pairingID,
+                    stampMs: intent.stampMs
+                ).treatsAsRevived(serverUpdatedAtMs: echo.serverUpdatedAtMs)
+            }
+            if revivedForAll { continue }
             guard !sentPairingIDs.contains(pairingID) else { continue }
             if let instanceTag = identity.instanceTag {
                 ops.append(.deleteInstance(
@@ -718,7 +737,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // inserted afterwards would survive the revive and suppress the freshly
         // re-registered pairing in every restore.
         var resolvedAccounts: [String?] = []
-        var accountWideIntents: [(account: String, pairingID: String)] = []
+        var accountWideIntents: [(account: String, pairingID: String, localTeamID: String?)] = []
         for scope in scopes {
             let macDeviceID = cmxCanonicalDeviceID(scope.macDeviceID)
             let account: String?
@@ -738,7 +757,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                     pairingID: MobilePairedMac.pairingID(
                         macDeviceID: macDeviceID,
                         instanceTag: scope.instanceTag
-                    )
+                    ),
+                    localTeamID: scope.teamID
                 ))
             }
         }
@@ -751,11 +771,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // holds the pairing gets a delete. Parked intents persist until the
         // pairing is revived (re-paired), because any number of teams' backups
         // may still hold it.
-        var parkedByAccount: [String: Set<String>] = [:]
+        var parkedByAccount: [String: Set<ParkedIntentSeed>] = [:]
         for intent in accountWideIntents {
-            parkedByAccount[intent.account, default: []].insert(intent.pairingID)
+            parkedByAccount[intent.account, default: []].insert(
+                ParkedIntentSeed(pairingID: intent.pairingID, localTeamID: intent.localTeamID)
+            )
         }
-        for (account, pairingIDs) in parkedByAccount {
+        for (account, seeds) in parkedByAccount {
             let parkedScope = await nonoptionalScopeKey(account: account, teamID: nil)
             var records = await pendingRecords(scope: parkedScope)
             // Dedupe by identity, not encoding: re-forgetting a pairing must
@@ -766,11 +788,17 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             })
             let stampMs = now().timeIntervalSince1970 * 1_000
             var changed = false
-            for pairingID in pairingIDs where !existing.contains("\(pairingID)\u{0}") {
+            for seed in seeds
+            where !existing.contains("\(seed.pairingID)\u{0}\(seed.localTeamID ?? "")") {
+                // The record keeps the ROW's local team so offline crash
+                // recovery replays the exact delete: a nil local team replays
+                // only nil-team rows, stranding concrete-team rows whose local
+                // delete never landed. Account-wide COVERAGE is unaffected —
+                // suppression and echo matching key on the pairing id alone.
                 records.insert(
                     PendingDeleteRecord(
-                        pairingID: pairingID,
-                        localTeamID: nil,
+                        pairingID: seed.pairingID,
+                        localTeamID: seed.localTeamID,
                         stampMs: stampMs
                     ).encoded()
                 )
@@ -1256,6 +1284,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
 
     }
 
+    /// One account-wide tombstone to park: the forgotten pairing plus the
+    /// captured row's LOCAL team (for exact offline replay).
+    private struct ParkedIntentSeed: Hashable {
+        let pairingID: String
+        let localTeamID: String?
+    }
+
     /// Where one row's tombstone must go, and the outbox record that carries it.
     private struct PlannedTombstone {
         let record: PendingDeleteRecord
@@ -1415,14 +1450,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         let mapped = await backupTeamStore.load(
             key: backupTeamKey(account: account, rowTeamID: teamID, pairingID: pairingID)
         )
-        // A re-pair also cancels the ACCOUNT-WIDE parked intents covering this
-        // pairing: the exact-pairing intent, and the device-wide (tag-less)
-        // wildcard intent — the device is provably back, so it must not keep
-        // being suppressed and deleted from team backups it re-uploads to.
-        let devicePairingID = MobilePairedMac.pairingID(
-            macDeviceID: macDeviceID,
-            instanceTag: nil
-        )
+        // A re-pair also cancels the ACCOUNT-WIDE parked intents for this
+        // EXACT pairing (any recorded local team): the pairing is provably
+        // back, so it must not keep being suppressed and deleted from team
+        // backups it re-uploads to. The device-wide (tag-less) intent is
+        // cleared only by a revive of the untagged pairing itself — one tagged
+        // instance returning does not prove the wildcard forget's OTHER tags
+        // were re-added, and per-record revival classification already lets
+        // the revived pairing through everywhere.
         var candidateTeams: [String?] = [teamID, nil]
         if let mapped { candidateTeams.append(mapped) }
         var cleared = false
@@ -1435,9 +1470,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 if record.pairingID == pairingID && record.localTeamID == teamID {
                     return false
                 }
-                // Account-wide intents live in the nil scope with no local team.
-                if team == nil, record.localTeamID == nil,
-                   record.pairingID == pairingID || record.pairingID == devicePairingID {
+                // Account-wide intents live in the nil scope; their recorded
+                // local team is the captured ROW's team (for offline replay)
+                // and does not narrow which revive cancels them.
+                if team == nil, record.pairingID == pairingID {
                     return false
                 }
                 return true
