@@ -2819,10 +2819,9 @@ final class Workspace: Identifiable, ObservableObject {
             shouldRun = false
         }
 
-        if alert.suppressionButton?.state == .on,
-           let approvalRecordId = binding.approvalRecordId {
-            SurfaceResumeApprovalStore.update(
-                recordId: approvalRecordId,
+        if alert.suppressionButton?.state == .on {
+            SurfaceResumeApprovalStore.approve(
+                binding: binding,
                 policy: shouldRun ? .auto : .manual
             )
         }

@@ -3433,6 +3433,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
         if let primaryWindowSnapshot {
+            if !isApplyingSessionRestore {
+                SurfaceResumeRunPromptBatch.shared.beginRestorePass()
+            }
             isApplyingSessionRestore = true
 #if DEBUG
             cmuxDebugLog(
@@ -3501,7 +3504,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
+        let wasApplyingSessionRestore = isApplyingSessionRestore
         isApplyingSessionRestore = false
+        if wasApplyingSessionRestore {
+            SurfaceResumeRunPromptBatch.shared.endRestorePass()
+        }
         if isScreenChangeCaptureSuppressed {
             // A display change arrived mid-restore and its reconcile pass was
             // skipped. Queue it now that restore is done
@@ -3538,6 +3545,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         guard !snapshotWindows.isEmpty else { return false }
 
+        if !isApplyingSessionRestore {
+            SurfaceResumeRunPromptBatch.shared.beginRestorePass()
+        }
         isApplyingSessionRestore = true
         startupSessionSnapshot = nil
         didAttemptStartupSessionRestore = true

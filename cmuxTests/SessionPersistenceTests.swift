@@ -4934,65 +4934,55 @@ extension SessionPersistenceTests {
         XCTAssertNil(binding.environment?["SERVICE_TOKEN"])
     }
 
-    func testSurfaceResumeCommandHasApprovableSuffix() {
+    func testSurfaceResumeCommandIsShellExpansionSafe() {
         XCTAssertTrue(
-            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
-                command: "claude --resume abc123",
-                prefixTokenCount: 2
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume abc123"
             )
         )
         XCTAssertFalse(
-            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
-                command: "claude --resume x ; evil",
-                prefixTokenCount: 2
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume x ; evil"
             )
         )
         XCTAssertFalse(
-            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
-                command: "claude --resume x; evil",
-                prefixTokenCount: 2
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume x; evil"
             )
         )
         XCTAssertFalse(
-            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
-                command: "claude --resume x && evil",
-                prefixTokenCount: 2
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume x && evil"
             )
         )
         XCTAssertFalse(
-            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
-                command: "claude --resume \"$(evil)\"",
-                prefixTokenCount: 2
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume \"$(evil)\""
             )
         )
         XCTAssertFalse(
-            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
-                command: "claude --resume `evil`",
-                prefixTokenCount: 2
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume `evil`"
             )
         )
         XCTAssertFalse(
-            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
-                command: "claude --resume \"`evil`\"",
-                prefixTokenCount: 2
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume \"`evil`\""
             )
         )
         XCTAssertFalse(
-            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
-                command: "claude --resume x\nevil",
-                prefixTokenCount: 2
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume x\nevil"
             )
         )
         XCTAssertTrue(
-            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
-                command: "claude --resume 'a;b'",
-                prefixTokenCount: 2
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume 'a;b'"
             )
         )
         XCTAssertFalse(
-            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
-                command: "claude --resume abc123",
-                prefixTokenCount: 4
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume 'unterminated"
             )
         )
     }
@@ -5021,6 +5011,12 @@ extension SessionPersistenceTests {
             ),
             ["FOO=1", "claude", "--resume"]
         )
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "env FOO=1 claude --resume abc"
+            ),
+            ["env", "FOO=1", "claude", "--resume"]
+        )
         XCTAssertNil(
             SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
                 forCommand: "claude"
@@ -5031,6 +5027,17 @@ extension SessionPersistenceTests {
                 forCommand: "'claude' '--resume' 'session id'"
             ),
             ["claude", "--resume"]
+        )
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "tool '--flag=$(payload)' session-a"
+            ),
+            ["tool", "--flag=$(payload)"]
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "tool --flag=$(payload) session-b"
+            )
         )
         XCTAssertNil(
             SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(

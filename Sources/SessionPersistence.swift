@@ -530,10 +530,7 @@ struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
         } else {
             guard bindingEnvironment.isEmpty else { return false }
         }
-        return SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
-            command: binding.command,
-            prefixTokenCount: commandPrefix.count
-        )
+        return SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command)
     }
 
     func signingPayloadData() -> Data {
@@ -684,40 +681,19 @@ enum SurfaceResumeCommandCanonicalizer {
         return tokens.isEmpty ? nil : tokens
     }
 
-    static func hasApprovableSuffix(
-        command: String,
-        prefixTokenCount: Int
-    ) -> Bool {
-        guard prefixTokenCount >= 0,
-              let tokens = tokensWithRawSlices(from: command),
-              prefixTokenCount <= tokens.count else {
-            return false
-        }
-        guard prefixTokenCount < tokens.count else {
-            return true
-        }
-
-        let suffixStart = prefixTokenCount == 0
-            ? command.startIndex
-            : tokens[prefixTokenCount - 1].raw.endIndex
-        return !containsUnsafeShellControl(command[suffixStart...])
+    static func isShellExpansionSafeCommand(_ command: String) -> Bool {
+        tokensWithRawSlices(from: command) != nil &&
+            !containsUnsafeShellControl(command[...])
     }
 
     static func generalizedApprovalPrefix(forCommand command: String) -> [String]? {
-        guard let tokens = tokens(from: command) else {
+        guard isShellExpansionSafeCommand(command),
+              let tokens = tokens(from: command) else {
             return nil
         }
 
         var prefix: [String] = []
         var index = tokens.startIndex
-
-        if tokens[index] == "{" || tokens[index] == "cd" {
-            guard let guardEndIndex = tokens[index...].firstIndex(of: "&&") else {
-                return nil
-            }
-            prefix.append(contentsOf: tokens[index...guardEndIndex])
-            index = tokens.index(after: guardEndIndex)
-        }
 
         while index < tokens.endIndex, isEnvironmentAssignment(tokens[index]) {
             prefix.append(tokens[index])
@@ -748,11 +724,7 @@ enum SurfaceResumeCommandCanonicalizer {
             index = tokens.index(after: index)
         }
 
-        guard prefix.count < tokens.count,
-              hasApprovableSuffix(
-                  command: command,
-                  prefixTokenCount: prefix.count
-              ) else {
+        guard prefix.count < tokens.count else {
             return nil
         }
         return prefix
@@ -1041,8 +1013,11 @@ enum SurfaceResumeApprovalStore {
             fileManager: fileManager,
             signingSecret: signingSecret
         )
+        let existingWithSamePrefix = existing.flatMap {
+            $0.commandPrefix == prefix ? $0 : nil
+        }
         let record = SurfaceResumeApprovalRecord(
-            id: existing?.id ?? UUID().uuidString.lowercased(),
+            id: existingWithSamePrefix?.id ?? UUID().uuidString.lowercased(),
             name: binding.name,
             commandPrefix: prefix,
             cwd: binding.cwd,
@@ -1050,9 +1025,9 @@ enum SurfaceResumeApprovalStore {
             environmentKeys: Array((binding.environment ?? [:]).keys),
             source: binding.source,
             policy: policy,
-            createdAt: existing?.createdAt ?? now,
+            createdAt: existingWithSamePrefix?.createdAt ?? now,
             updatedAt: now,
-            lastUsedAt: existing?.lastUsedAt,
+            lastUsedAt: existingWithSamePrefix?.lastUsedAt,
             signature: nil
         ).signed(secret: signingSecret)
         writeReplacing(record: record, fileURL: fileURL, fileManager: fileManager)
