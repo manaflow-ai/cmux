@@ -28,6 +28,85 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
+/// Adapts app-owned terminal panels to the ExtensionKit run-command dispatcher.
+@MainActor
+struct CMUXSidebarRunCommandTerminalAdapter {
+    private let dispatcher = CMUXSidebarRunCommandDispatcher()
+
+    /// Creates an adapter that uses the production package dispatcher.
+    init() {}
+
+    /// Classifies a terminal panel without waking or mutating it.
+    func targetKind(for panel: TerminalPanel) -> CMUXSidebarRunCommandTargetKind {
+        guard !panel.isAgentHibernated else {
+            return .terminal(.hibernated)
+        }
+        guard panel.surface.hasLiveSurface, let surface = panel.surface.surface else {
+            return .terminal(.cold)
+        }
+        guard !ghostty_surface_process_exited(surface) else {
+            return .terminal(.dead)
+        }
+        return .terminal(.live)
+    }
+
+    /// Dispatches a command to an existing terminal panel and localizes its result.
+    func dispatch(command: String, to panel: Panel?) -> CmuxSidebarActionResult {
+        let terminalPanel = panel as? TerminalPanel
+        let resolvedTargetKind: CMUXSidebarRunCommandTargetKind
+        if let terminalPanel {
+            resolvedTargetKind = targetKind(for: terminalPanel)
+        } else if panel == nil {
+            resolvedTargetKind = .missing
+        } else {
+            resolvedTargetKind = .nonterminal
+        }
+
+        let dispatchResult = dispatcher.dispatch(
+            command: command,
+            targetKind: resolvedTargetKind,
+            sendText: { terminalPanel?.sendText($0) ?? false },
+            sendEnter: { terminalPanel?.sendNamedKey("enter") ?? false }
+        )
+        return result(for: dispatchResult)
+    }
+
+    /// Maps structured package rejections to app-localized action results.
+    func result(
+        for dispatchResult: CMUXSidebarRunCommandDispatchResult
+    ) -> CmuxSidebarActionResult {
+        switch dispatchResult {
+        case .accepted:
+            return .accepted
+        case .rejected(.commandRejected):
+            return .rejected(String(
+                localized: "sidebar.extensions.action.commandRejected",
+                defaultValue: "Command must be nonempty, no more than 8192 UTF-8 bytes, single-line, and contain no control or separator characters"
+            ))
+        case .rejected(.terminalNotFound):
+            return .rejected(String(
+                localized: "sidebar.extensions.action.terminalNotFound",
+                defaultValue: "Terminal surface not found"
+            ))
+        case .rejected(.targetNotTerminal):
+            return .rejected(String(
+                localized: "sidebar.extensions.action.targetNotTerminal",
+                defaultValue: "Target surface is not a terminal"
+            ))
+        case .rejected(.terminalUnavailable):
+            return .rejected(String(
+                localized: "sidebar.extensions.action.terminalUnavailable",
+                defaultValue: "Terminal surface is not live"
+            ))
+        case .rejected(.terminalInputRejected):
+            return .rejected(String(
+                localized: "sidebar.extensions.action.terminalInputRejected",
+                defaultValue: "Terminal surface did not accept input"
+            ))
+        }
+    }
+}
+
 var fileDropOverlayKey: UInt8 = 0
 private var commandPaletteWindowOverlayKey: UInt8 = 0
 let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
@@ -10477,6 +10556,7 @@ struct VerticalTabsSidebar: View, Equatable {
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
     let observedWindowReference: WeakWindowReference
+    private let runCommandTerminalAdapter = CMUXSidebarRunCommandTerminalAdapter()
     var observedWindow: NSWindow? { observedWindowReference.window }
     @EnvironmentObject var tabManager: TabManager
     // Observe the coalesced unread projection instead of the notification store
@@ -12373,6 +12453,13 @@ struct VerticalTabsSidebar: View, Equatable {
                 return .rejected(String(localized: "sidebar.extensions.action.surfaceNotFound", defaultValue: "Surface not found"))
             }
             return .accepted
+
+
+        case .runCommand(let workspaceId, let surfaceId, let command):
+            let panel = tabManager.tabs
+                .first(where: { $0.id == workspaceId })?
+                .panels[surfaceId]
+            return runCommandTerminalAdapter.dispatch(command: command, to: panel)
 
         case .openURL(let urlString):
             guard let url = cmuxSidebarExtensionRequiredHTTPURL(from: urlString),
