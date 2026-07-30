@@ -4957,6 +4957,16 @@ extension SessionPersistenceTests {
         )
         XCTAssertFalse(
             SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "{sh,-c,/tmp/evil} --resume b"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume {a,b}"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
                 "~/bin/claude --resume x"
             )
         )
@@ -4973,6 +4983,16 @@ extension SessionPersistenceTests {
         XCTAssertTrue(
             SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
                 "claude \"--flag=*\""
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume '{a,b}'"
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude \"--resume={x}\""
             )
         )
         XCTAssertTrue(
@@ -5237,6 +5257,26 @@ extension SessionPersistenceTests {
         XCTAssertFalse(record.matches(unquotedGlobBinding))
     }
 
+    func testSurfaceResumeGeneralizedApprovalRejectsUnquotedBraceExpansionFromQuotedPrefix() {
+        let record = SurfaceResumeApprovalRecord(
+            id: "quoted-brace-prefix",
+            commandPrefix: ["{sh,-c,/tmp/evil}", "--resume"],
+            cwd: "/tmp/project",
+            policy: .prompt
+        )
+        let quotedOriginalBinding = SurfaceResumeBindingSnapshot(
+            command: "'{sh,-c,/tmp/evil}' --resume a",
+            cwd: "/tmp/project"
+        )
+        let unquotedBraceBinding = SurfaceResumeBindingSnapshot(
+            command: "{sh,-c,/tmp/evil} --resume b",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertTrue(record.matches(quotedOriginalBinding))
+        XCTAssertFalse(record.matches(unquotedBraceBinding))
+    }
+
     func testSurfaceResumeGeneralizedApprovalMatchesOnlyShellExpansionSafeCommands() {
         let record = SurfaceResumeApprovalRecord(
             id: "safe-command-prefix",
@@ -5321,6 +5361,28 @@ extension SessionPersistenceTests {
         XCTAssertTrue(SurfaceResumeApprovalStore.loadRecords(fileURL: storeURL).isEmpty)
     }
 
+    func testSurfaceResumeApprovalRejectsNonLocalBindingWithoutWritingRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume abc123",
+            cwd: "/tmp/project",
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                persistentPTYSessionID: "remote-session"
+            ))
+        )
+
+        XCTAssertNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: Data("approval-secret".utf8)
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: storeURL.path))
+        XCTAssertTrue(SurfaceResumeApprovalStore.loadRecords(fileURL: storeURL).isEmpty)
+    }
+
     func testSurfaceResumeApprovalReturnsNilWhenStoreCannotBeWritten() throws {
         let storeURL = try makeSurfaceResumeApprovalStoreURL()
         let nonDirectoryURL = storeURL.deletingLastPathComponent()
@@ -5347,6 +5409,25 @@ extension SessionPersistenceTests {
         let binding = SurfaceResumeBindingSnapshot(
             command: "tool --resume x && echo done",
             cwd: "/tmp/project"
+        )
+
+        XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
+            binding: binding,
+            existingRecord: nil,
+            isMainThread: true,
+            isRunningTests: false
+        ))
+    }
+
+    func testSurfaceResumeApprovalDoesNotPromptForNonLocalBinding() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume abc123",
+            cwd: "/tmp/project",
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                persistentPTYSessionID: "remote-session"
+            ))
         )
 
         XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
