@@ -3788,6 +3788,13 @@ def verify_new_prompt_replaces_dead_needs_input_owner(cli_path: str) -> None:
                     f"precondition:\nrecord={dead_record!r}\nstate={state!r}"
                 )
 
+            # Stores written before process-generation capture have only the
+            # numeric PID. The dead owner must not become permanent merely
+            # because its legacy record cannot prove relative start ordering.
+            dead_record.pop("pidStartSeconds", None)
+            dead_record.pop("pidStartMicroseconds", None)
+            state_path.write_text(json.dumps(state))
+
         with live_process_pid() as replacement_pid:
             replacement_env = hook_environment(
                 server,
