@@ -61,8 +61,11 @@ done
 # Every workflow command that reads Ghostty's Zig manifest must initialize the
 # submodule earlier in the same job. Scan all workflows so a new consumer is
 # covered automatically instead of maintaining a list of job names.
+python3 "$ROOT_DIR/tests/test_check_ghostty_zig_workflows.py"
+
 python3 \
   "$ROOT_DIR/tests/check_ghostty_zig_workflows.py" \
+  --require-setup-zig \
   "$ROOT_DIR/.github/workflows"
 
 if ! grep -Fq 'source "$SCRIPT_DIR/ghostty-zig-version.sh"' "$ROOT_DIR/scripts/setup.sh" ||
@@ -80,111 +83,6 @@ if ! awk '
   END { exit !found }
 ' "$ROOT_DIR/.github/workflows/ci.yml"; then
   echo "workflow-guard-tests does not initialize Ghostty before reading its Zig manifest" >&2
-  exit 1
-fi
-
-tui_workflows=(
-  "$ROOT_DIR/.github/workflows/cmux-tui-build-package.yml"
-  "$ROOT_DIR/.github/workflows/cmux-tui.yml"
-)
-
-validate_setup_zig_jobs() {
-  local workflow="$1"
-  awk '
-    function reset_job() {
-      init_count = 0
-      init_line = 0
-      resolver_count = 0
-      resolver_line = 0
-      helper_count = 0
-      helper_line = 0
-      setup_count = 0
-      setup_line = 0
-      setup_step_open = 0
-      version_count = 0
-      version_line = 0
-    }
-    function fail(message) {
-      printf "%s: job %s: %s\n", FILENAME, job, message > "/dev/stderr"
-      failed = 1
-    }
-    function validate_job() {
-      if (job == "" || setup_count == 0) return
-      validated_jobs++
-      if (init_count != 1) fail("expected exactly one Ghostty submodule initialization")
-      if (resolver_count != 1) fail("expected exactly one Ghostty Zig resolver step")
-      if (helper_count != 1) fail("resolver must call scripts/ghostty-zig-version.sh exactly once")
-      if (setup_count != 1) fail("expected exactly one setup-zig action")
-      if (version_count != 1) fail("setup-zig must use the resolver output in its own step")
-      if (!(init_line < resolver_line &&
-            resolver_line < helper_line &&
-            helper_line < setup_line &&
-            setup_line < version_line)) {
-        fail("expected ordered Ghostty init -> resolver -> setup-zig wiring")
-      }
-    }
-    BEGIN {
-      in_jobs = 0
-      job = ""
-      reset_job()
-    }
-    /^jobs:[[:space:]]*$/ {
-      in_jobs = 1
-      next
-    }
-    in_jobs && /^  [[:alnum:]_-]+:[[:space:]]*$/ {
-      validate_job()
-      job = $1
-      sub(/:$/, "", job)
-      reset_job()
-      next
-    }
-    in_jobs && job != "" {
-      if ($0 ~ /^      - /) setup_step_open = 0
-      if (index($0, "git submodule update --init --depth 1 ghostty")) {
-        init_count++
-        if (init_line == 0) init_line = NR
-      }
-      if (index($0, "id: ghostty-zig-version")) {
-        resolver_count++
-        if (resolver_line == 0) resolver_line = NR
-      }
-      if (index($0, "bash ./scripts/ghostty-zig-version.sh")) {
-        helper_count++
-        if (helper_line == 0) helper_line = NR
-      }
-      if (index($0, "uses: mlugg/setup-zig@")) {
-        setup_count++
-        if (setup_line == 0) setup_line = NR
-        setup_step_open = 1
-      }
-      if (setup_step_open &&
-          index($0, "version: ${{ steps.ghostty-zig-version.outputs.version }}")) {
-        version_count++
-        if (version_line == 0) version_line = NR
-      }
-    }
-    END {
-      validate_job()
-      if (!failed) print validated_jobs + 0
-      exit failed
-    }
-  ' "$workflow"
-}
-
-validated_setup_jobs=0
-for workflow in "${tui_workflows[@]}"; do
-  job_count="$(validate_setup_zig_jobs "$workflow")"
-  validated_setup_jobs=$((validated_setup_jobs + job_count))
-done
-if [[ "$validated_setup_jobs" -eq 0 ]]; then
-  echo "No TUI setup-zig jobs were validated" >&2
-  exit 1
-fi
-
-if grep -Fq 'run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)"' \
-  "${tui_workflows[@]}"; then
-  echo "TUI workflow hides Ghostty Zig resolver failures inside echo" >&2
   exit 1
 fi
 
