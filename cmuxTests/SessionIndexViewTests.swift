@@ -57,6 +57,65 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testRenameableTitlePolicyHonorsCustomTitleOverFirstMessage() {
+        // Head has a real first user message; tail has a `/name` rename record.
+        // Default policy (`renameable`) must surface the rename, not the first message.
+        let head = """
+        {"type":"user","message":{"role":"user","content":"first user message"}}
+        """
+        let tail = """
+        {"type":"custom-title","customTitle":"renamed by user"}
+        """
+
+        let parsed = SessionIndexStore.extractClaudeMetadata(
+            head: head,
+            tail: tail,
+            projectDir: "-Users-test",
+            titlePolicy: .renameable
+        )
+
+        XCTAssertEqual(parsed.title, "renamed by user")
+    }
+
+    func testFirstMessageOnlyTitlePolicyIgnoresCustomTitle() {
+        // Same fixture as the renameable test, but the opt-in policy must
+        // skip the override block and stick with the first user message.
+        let head = """
+        {"type":"user","message":{"role":"user","content":"first user message"}}
+        """
+        let tail = """
+        {"type":"custom-title","customTitle":"renamed by user"}
+        """
+
+        let parsed = SessionIndexStore.extractClaudeMetadata(
+            head: head,
+            tail: tail,
+            projectDir: "-Users-test",
+            titlePolicy: .firstMessageOnly
+        )
+
+        XCTAssertEqual(parsed.title, "first user message")
+    }
+
+    func testRenameableTitlePolicyFallsBackToAiTitleWhenNoCustomTitle() {
+        // No `custom-title`, but an `ai-title` exists — renameable must use it.
+        let head = """
+        {"type":"user","message":{"role":"user","content":"first user message"}}
+        """
+        let tail = """
+        {"type":"ai-title","aiTitle":"auto-generated summary"}
+        """
+
+        let parsed = SessionIndexStore.extractClaudeMetadata(
+            head: head,
+            tail: tail,
+            projectDir: "-Users-test",
+            titlePolicy: .renameable
+        )
+
+        XCTAssertEqual(parsed.title, "auto-generated summary")
+    }
+
     func testClaudeResumeCommandPinsSnapshotConfigDirectory() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
