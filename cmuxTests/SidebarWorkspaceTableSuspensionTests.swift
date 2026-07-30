@@ -150,71 +150,16 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
-    func cellDetachmentDefersInlineEditCommitThroughControllerScheduler() async throws {
+    func atomicReorderReloadAndDetachmentDeferInlineEditCommits() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let model = SidebarWorkspaceRowSuspensionTests.makeModel()
-        var committedTitle: String?
-        let row = SidebarWorkspaceTableRowConfiguration(
-            workspaceRowModel: model,
-            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
-                model: model,
-                onCommitRename: { committedTitle = $0 }
-            ),
-            groupId: nil,
-            isPinned: false,
-            environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
-                globalFontMagnificationPercent: 100,
-                lazyContractProbe: SidebarLazyContractProbe()
-            )
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = container
-        defer { window.close() }
-        controller.apply(
-            rows: [row],
-            actions: makeTableActions(),
-            workspaceIds: [model.workspaceId],
-            selectedWorkspaceId: nil,
-            selectedScrollTargetWorkspaceId: nil
-        )
-        await flushStagedTableMutations()
-        container.layoutSubtreeIfNeeded()
-        container.tableView.layoutSubtreeIfNeeded()
-        let cell = try #require(
-            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
-                as? SidebarWorkspaceRowTableCellView
-        )
-        cell.beginInlineRename()
-        let field = try #require(
-            Self.descendants(of: cell).compactMap { $0 as? SidebarRowInlineRenameField }.first
-        )
-        field.stringValue = "Detached rename"
-
-        controller.dismantleContainerView(container)
-
-        #expect(committedTitle == nil)
-        await flushStagedTableMutations()
-        #expect(committedTitle == "Detached rename")
-    }
-
-    @Test
-    func heightChangingReorderDefersActiveRenameCommitThroughControllerScheduler() async throws {
-        let controller = SidebarWorkspaceTableController()
-        let container = controller.makeContainerView()
-        let model = SidebarWorkspaceRowSuspensionTests.makeModel()
-        var committedTitle: String?
+        var committedTitles: [String] = []
         let editableRow = SidebarWorkspaceTableRowConfiguration(
             workspaceRowModel: model,
             actions: SidebarWorkspaceRowSuspensionTests.makeActions(
                 model: model,
-                onCommitRename: { committedTitle = $0 }
+                onCommitRename: { committedTitles.append($0) }
             ),
             groupId: nil,
             isPinned: false,
@@ -250,11 +195,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             container.tableView.view(atColumn: 0, row: 1, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView
         )
-        cell.beginInlineRename()
-        let field = try #require(
-            Self.descendants(of: cell).compactMap { $0 as? SidebarRowInlineRenameField }.first
-        )
-        field.stringValue = "Atomic reload rename"
+        cell.beginInlineRenameForTesting(draft: "Atomic reload rename")
 
         let resizedFirstRow = makeRowConfiguration(
             workspaceId: firstId,
@@ -269,10 +210,24 @@ struct SidebarWorkspaceTableSuspensionTests {
             selectedScrollTargetWorkspaceId: nil
         )
 
+        #expect(committedTitles.isEmpty)
         await flushStagedTableMutations()
-        #expect(committedTitle == nil)
         await flushStagedTableMutations()
-        #expect(committedTitle == "Atomic reload rename")
+        #expect(committedTitles == ["Atomic reload rename"])
+
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let reloadedCell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        reloadedCell.beginInlineRenameForTesting(draft: "Detached rename")
+
+        controller.dismantleContainerView(container)
+
+        #expect(committedTitles == ["Atomic reload rename"])
+        await flushStagedTableMutations()
+        #expect(committedTitles == ["Atomic reload rename", "Detached rename"])
     }
 
     @Test

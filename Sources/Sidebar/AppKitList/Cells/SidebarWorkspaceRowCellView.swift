@@ -1012,6 +1012,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         needsLayout = true
     }
 
+#if DEBUG
+    func beginInlineRenameForTesting(draft: String) {
+        guard model != nil else { return }
+        isEditing = true
+        renameField.stringValue = draft
+    }
+#endif
+
     private func endInlineRename(commit: Bool) {
         guard isEditing else { return }
         isEditing = false

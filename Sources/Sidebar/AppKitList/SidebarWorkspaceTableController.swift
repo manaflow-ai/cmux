@@ -403,7 +403,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 && mismatches <= Self.maxAnimatedReorderMoves
                 && Self.multisetEqual(previousIds, nextIds)
         }
-        let viewportAnchor = hasStructuralChanges && !heightChanges.isEmpty && isSmallPureReorder
+        let requiresAtomicReorderReload =
+            hasStructuralChanges && !heightChanges.isEmpty && isSmallPureReorder
+        let viewportAnchor = requiresAtomicReorderReload
             ? ViewportAnchor.capture(
                 table: containerView.tableView,
                 previousRows: previousRows,
@@ -449,11 +451,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 }
             } else {
                 let table = containerView.tableView
+                // The atomic height-changing reorder path replaces visible
+                // cells. Capture active rename/checklist drafts before AppKit
+                // calls prepareForReuse, then commit them through the existing
+                // post-update scheduler once the reload has settled.
+                let postUpdateActions = requiresAtomicReorderReload
+                    ? detachLoadedCells()
+                    : []
                 table.reloadData()
                 // A height-changing reorder needs the atomic reload above to
                 // avoid stale moved-row frames. Preserve a stable visible row's
                 // pixel offset so that correctness does not jump the viewport.
                 viewportAnchor?.restore(table: table, rows: nextRows)
+                mutationScheduler.stagePostUpdateActions(postUpdateActions)
             }
         } else {
             reconfigureVisibleRows(contentChanges)
