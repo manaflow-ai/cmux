@@ -61,8 +61,8 @@ export const BROWSER_NIGHTLY_DOWNLOADS = {
   },
   linux: {
     primary: {
-      artifact: "deb",
-      url: `${BROWSER_DISTRIBUTION_URL}/releases/download/nightly/cmux-linux-x64.deb`,
+      artifact: "user-installer",
+      url: `${BROWSER_DISTRIBUTION_URL}/releases/download/nightly/cmux-linux-x64-installer.run`,
     },
     portable: {
       artifact: "portable-zip",

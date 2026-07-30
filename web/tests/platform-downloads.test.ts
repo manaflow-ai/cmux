@@ -61,7 +61,7 @@ describe("Windows and Linux downloads", () => {
       "/releases/download/nightly/cmux-windows-x64-installer.exe",
     );
     expect(BROWSER_NIGHTLY_DOWNLOADS.linux.primary.url).toEndWith(
-      "/releases/download/nightly/cmux-linux-x64.deb",
+      "/releases/download/nightly/cmux-linux-x64-installer.run",
     );
   });
 

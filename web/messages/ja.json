@@ -105,8 +105,8 @@
     },
     "linux": {
       "name": "Linux",
-      "requirements": "Debian または Ubuntu · x64",
-      "primaryCta": ".deb をダウンロード"
+      "requirements": "Debian または Ubuntu · x64 · sh で実行",
+      "primaryCta": "ユーザー用インストーラーをダウンロード"
     }
   },
   "meta": {

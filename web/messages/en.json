@@ -105,8 +105,8 @@
     },
     "linux": {
       "name": "Linux",
-      "requirements": "Debian or Ubuntu · x64",
-      "primaryCta": "Download .deb"
+      "requirements": "Debian or Ubuntu · x64 · run with sh",
+      "primaryCta": "Download user installer"
     }
   },
   "meta": {
