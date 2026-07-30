@@ -1,14 +1,15 @@
-import UIKit
+#if canImport(UIKit)
+public import UIKit
 
 extension UIApplication {
     /// Resigns the keyboard across every window in every connected scene.
     ///
-    /// Both the sign-in flow and the terminal chrome need to dismiss the soft
-    /// keyboard before presenting a sheet/popover; this is the one shared
-    /// implementation (previously copy-pasted as a private `dismissKeyboard()`
-    /// in `SignInView` and `WorkspaceDetailView`).
+    /// The sign-in flow, the terminal chrome, and the browser-stream chrome all
+    /// need to dismiss the soft keyboard regardless of which responder raised
+    /// it (address field, dialog text field, hidden input proxy); this is the
+    /// one shared implementation.
     @MainActor
-    func dismissMobileKeyboard() {
+    public func dismissMobileKeyboard() {
         for scene in connectedScenes {
             guard let windowScene = scene as? UIWindowScene else { continue }
             for window in windowScene.windows {
@@ -18,3 +19,4 @@ extension UIApplication {
         sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
+#endif
