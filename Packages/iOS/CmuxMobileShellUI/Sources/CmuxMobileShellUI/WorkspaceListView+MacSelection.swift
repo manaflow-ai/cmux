@@ -20,7 +20,7 @@ extension WorkspaceListView {
         }
         #if canImport(UIKit) && DEBUG
         if UITestConfig.workspaceListLayoutPreviewEnabled {
-            return WorkspaceListLayoutPreviewFixture.displayPairedMacs
+            return WorkspaceListLayoutPreviewView.previewPairedMacs
         }
         #endif
         return []
