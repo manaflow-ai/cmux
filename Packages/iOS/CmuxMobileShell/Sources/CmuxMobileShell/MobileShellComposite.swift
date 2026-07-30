@@ -5658,8 +5658,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         await client.disconnect()
                         return nil
                     }
+                    let previousForegroundDeviceID = foregroundMacDeviceID
+                    let previousForegroundTag = activeMacInstanceTag
                     replaceRemoteClient(with: client)
                     activeMacInstanceTag = resolvedInstanceTag
+                    resetForegroundNotificationFeedIfInstanceChanged(
+                        previousDeviceID: previousForegroundDeviceID,
+                        previousTag: previousForegroundTag,
+                        newDeviceID: status.macDeviceID ?? previousForegroundDeviceID,
+                        newTag: resolvedInstanceTag
+                    )
                     prepareTerminalThemeRevisionAuthority(
                         macInstanceTag: resolvedInstanceTag, producerEpoch: status.terminalThemeRevisionEpoch,
                         connectionID: generation.uuidString

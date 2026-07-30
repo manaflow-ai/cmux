@@ -366,6 +366,24 @@ extension MobileShellComposite {
 
     /// Removes one hidden Mac's content and cancels work that could restore it.
     /// - Parameter macDeviceID: The hidden Mac's stable device id.
+    /// Clears the bare-device-key feed bookkeeping when the foreground pairing
+    /// changes to a SIBLING build: the old build's snapshot/revision under the
+    /// shared device key would reject the new build's (lower) revisions as
+    /// stale and keep the old build's rows on screen.
+    func resetForegroundNotificationFeedIfInstanceChanged(
+        previousDeviceID: String?,
+        previousTag: String?,
+        newDeviceID: String?,
+        newTag: String?
+    ) {
+        guard let newDeviceID, !newDeviceID.isEmpty,
+              previousDeviceID == newDeviceID,
+              !MobileMacInstanceTagAuthority.sameStoredAuthority(previousTag, newTag) else {
+            return
+        }
+        removeNotificationFeedSnapshot(macDeviceID: newDeviceID)
+    }
+
     func removeNotificationFeedSnapshot(macDeviceID: String) {
         notificationFeedRefreshTasksByMac[macDeviceID]?.cancel()
         notificationFeedRefreshTasksByMac[macDeviceID] = nil

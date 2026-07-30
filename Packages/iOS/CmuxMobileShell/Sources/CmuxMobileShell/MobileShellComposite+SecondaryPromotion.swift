@@ -103,9 +103,17 @@ extension MobileShellComposite {
         // The foreground refetches this feed under the bare device key; the
         // pairing-keyed source would otherwise linger as stale offline rows.
         removeNotificationFeedSnapshot(macDeviceID: ownerKey)
+        let previousForegroundDeviceID = foregroundMacDeviceID
+        let previousForegroundTag = activeMacInstanceTag
         activeTicket = sub.ticket
         activeRoute = sub.route
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
+        resetForegroundNotificationFeedIfInstanceChanged(
+            previousDeviceID: previousForegroundDeviceID,
+            previousTag: previousForegroundTag,
+            newDeviceID: macID,
+            newTag: activeMacInstanceTag
+        )
         connectedHostName = placeholderHostName(for: sub.ticket, firstRoute: sub.route)
         replaceRemoteClient(with: sub.client)
         foregroundMacDeviceID = macID
