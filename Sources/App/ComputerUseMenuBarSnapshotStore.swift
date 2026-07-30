@@ -279,6 +279,13 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     /// Hides a completed driver's current row synchronously, then reconciles
     /// from disk. The lifecycle cutoff prevents that disk scan from restoring
     /// the stale row while the long-lived MCP proxy remains connected.
+    func proxySessionID(for driverSessionID: String) -> String? {
+        snapshot.rows.first {
+            ComputerUseSessionScope.driverSessionID(surfaceID: $0.surfaceID)
+                == driverSessionID
+        }?.proxySessionID
+    }
+
     func driverSessionDidComplete(_ driverSessionID: String) {
         let remainingRows = snapshot.rows.filter {
             ComputerUseSessionScope.driverSessionID(surfaceID: $0.surfaceID)

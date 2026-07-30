@@ -525,17 +525,25 @@ final class ComputerUseRuntimeService {
         }
     }
 
-    /// Shows or hides the stable cursor owned by one cmux surface. The helper
-    /// keeps this cursor identity across short-lived MCP proxy generations, so
-    /// a menu choice applies to both the current call and later calls.
+    /// Shows or hides both the stable cursor owned by one cmux surface and the
+    /// exact authenticated proxy generation that wrote the current state. The
+    /// stable identity carries the choice into later calls; the exact identity
+    /// owns the cursor feed that may already be visible.
     func setDriverCursorVisible(
         _ visible: Bool,
         driverSessionID: String,
+        proxySessionID: String? = nil,
         while effectIsCurrent:
             @escaping @MainActor @Sendable () -> Bool = { true }
     ) async -> Bool {
         guard
             ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID),
+            (proxySessionID.map {
+                ComputerUseSessionScope.isManagedProxySessionID(
+                    $0,
+                    for: driverSessionID
+                )
+            } ?? true),
             effectIsCurrent()
         else {
             return false
@@ -551,31 +559,48 @@ final class ComputerUseRuntimeService {
             }
             var updated = false
             for profile in ComputerUseDaemonProfile.allCases {
-                guard
-                    effectIsCurrent(),
-                    let request = Self.setDriverCursorVisibleRequest(
-                        visible,
-                        driverSessionID: driverSessionID,
-                        profile: profile
-                    ),
-                    let expectedPeerIdentity = self.processIdentity(for: profile),
-                    AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
-                        == expectedPeerIdentity
-                else {
-                    continue
+                let cursorSessionIDs: [String]
+                switch profile {
+                case .native:
+                    cursorSessionIDs = [driverSessionID]
+                case .codexCompatibility:
+                    if let proxySessionID,
+                       proxySessionID != driverSessionID {
+                        cursorSessionIDs = [
+                            proxySessionID,
+                            driverSessionID,
+                        ]
+                    } else {
+                        cursorSessionIDs = [driverSessionID]
+                    }
                 }
-                let response = await Self.sendDaemonRequest(
-                    request,
-                    paths: self.paths,
-                    transport: self.transport,
-                    timeout: 3,
-                    expectedPeerIdentity: expectedPeerIdentity,
-                    socketURL: self.socketURL(for: profile)
-                )
-                guard effectIsCurrent() else { return false }
-                updated =
-                    response?["ok"] as? Bool == true
-                        || updated
+                for cursorSessionID in cursorSessionIDs {
+                    guard
+                        effectIsCurrent(),
+                        let request = Self.setDriverCursorVisibleRequest(
+                            visible,
+                            driverSessionID: cursorSessionID,
+                            profile: profile
+                        ),
+                        let expectedPeerIdentity = self.processIdentity(for: profile),
+                        AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
+                            == expectedPeerIdentity
+                    else {
+                        continue
+                    }
+                    let response = await Self.sendDaemonRequest(
+                        request,
+                        paths: self.paths,
+                        transport: self.transport,
+                        timeout: 3,
+                        expectedPeerIdentity: expectedPeerIdentity,
+                        socketURL: self.socketURL(for: profile)
+                    )
+                    guard effectIsCurrent() else { return false }
+                    updated =
+                        response?["ok"] as? Bool == true
+                            || updated
+                }
             }
             return updated
         }
@@ -586,12 +611,15 @@ final class ComputerUseRuntimeService {
         driverSessionID: String,
         profile: ComputerUseDaemonProfile
     ) -> [String: Any]? {
-        guard ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID)
-        else {
-            return nil
-        }
         switch profile {
         case .native:
+            guard
+                ComputerUseSessionScope.isManagedDriverSessionID(
+                    driverSessionID
+                )
+            else {
+                return nil
+            }
             return [
                 "method": "call",
                 "name": "set_agent_cursor_enabled",
@@ -601,6 +629,13 @@ final class ComputerUseRuntimeService {
                 ],
             ]
         case .codexCompatibility:
+            guard
+                ComputerUseSessionScope.driverSessionID(
+                    containing: driverSessionID
+                ) != nil
+            else {
+                return nil
+            }
             return [
                 "method": "set_cursor_enabled",
                 "args": [

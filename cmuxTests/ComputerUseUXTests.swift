@@ -2673,6 +2673,8 @@ struct ComputerUseUXTests {
             ComputerUseSessionScope.driverSessionID(
                 surfaceID: backgroundSurfaceID
             )
+        let backgroundProxySessionID =
+            "\(backgroundDriverSessionID)-mcp-73-2000"
         let foregroundDriverSessionID =
             ComputerUseSessionScope.driverSessionID(
                 surfaceID: foregroundSurfaceID
@@ -2709,7 +2711,13 @@ struct ComputerUseUXTests {
         defer { scannedSessions.continuation.finish() }
         var activatedProcessIdentifiers: [pid_t] = []
         var focusedTerminalSessions: [(workspaceID: UUID, surfaceID: UUID)] = []
-        var cursorVisibilityChanges: [(driverSessionID: String, visible: Bool)] = []
+        var cursorVisibilityChanges: [
+            (
+                driverSessionID: String,
+                proxySessionID: String?,
+                visible: Bool
+            )
+        ] = []
         let cursorEvents = AsyncStream.makeStream(
             of: Void.self,
             bufferingPolicy: .unbounded
@@ -2734,8 +2742,16 @@ struct ComputerUseUXTests {
             onFocusTerminal: { workspaceID, surfaceID, _ in
                 focusedTerminalSessions.append((workspaceID, surfaceID))
             },
-            onCursorVisibilityChange: { driverSessionID, visible, _ in
-                cursorVisibilityChanges.append((driverSessionID, visible))
+            onCursorVisibilityChange: {
+                driverSessionID,
+                proxySessionID,
+                visible,
+                _ in
+                cursorVisibilityChanges.append((
+                    driverSessionID,
+                    proxySessionID,
+                    visible
+                ))
                 cursorEvents.continuation.yield()
             },
             frontmostApplicationProcessIdentifier: { nil },
@@ -2751,11 +2767,16 @@ struct ComputerUseUXTests {
         #expect(controller.continueInBackground(
             driverSessionID: backgroundDriverSessionID,
             logicalSessionID: backgroundLogicalSessionID,
-            stateWriterIdentity: writerIdentity
+            stateWriterIdentity: writerIdentity,
+            proxySessionID: backgroundProxySessionID
         ))
         _ = await cursorIterator.next()
         #expect(cursorVisibilityChanges.count == 1)
         #expect(cursorVisibilityChanges.first?.driverSessionID == backgroundDriverSessionID)
+        #expect(
+            cursorVisibilityChanges.first?.proxySessionID
+                == backgroundProxySessionID
+        )
         #expect(cursorVisibilityChanges.first?.visible == false)
         #expect(focusedTerminalSessions.count == 1)
         #expect(
@@ -2828,12 +2849,17 @@ struct ComputerUseUXTests {
             identity,
             driverSessionID: backgroundDriverSessionID,
             logicalSessionID: backgroundLogicalSessionID,
-            stateWriterIdentity: writerIdentity
+            stateWriterIdentity: writerIdentity,
+            proxySessionID: backgroundProxySessionID
         ))
         _ = await cursorIterator.next()
         #expect(activatedProcessIdentifiers == [target.processIdentifier])
         #expect(cursorVisibilityChanges.count == 2)
         #expect(cursorVisibilityChanges.last?.driverSessionID == backgroundDriverSessionID)
+        #expect(
+            cursorVisibilityChanges.last?.proxySessionID
+                == backgroundProxySessionID
+        )
         #expect(cursorVisibilityChanges.last?.visible == true)
         #expect(!controller.isRunningInBackground(
             driverSessionID: backgroundDriverSessionID,
@@ -2854,6 +2880,7 @@ struct ComputerUseUXTests {
         let driverSessionID = ComputerUseSessionScope.driverSessionID(
             surfaceID: surfaceID
         )
+        let proxySessionID = "\(driverSessionID)-mcp-81-3000"
         let logicalSessionID = "presentation-generation-session"
         let liveSession = ComputerUseLiveDriverSession(
             workspaceID: workspaceID,
@@ -2863,6 +2890,7 @@ struct ComputerUseUXTests {
         )
         let cursorEffects = AsyncStream.makeStream(
             of: (
+                proxySessionID: String?,
                 visible: Bool,
                 isCurrent: @MainActor @Sendable () -> Bool
             ).self,
@@ -2882,8 +2910,16 @@ struct ComputerUseUXTests {
             onFocusTerminal: { _, _, isCurrent in
                 delayedTerminalFocusIsCurrent = isCurrent
             },
-            onCursorVisibilityChange: { _, visible, isCurrent in
-                cursorEffects.continuation.yield((visible, isCurrent))
+            onCursorVisibilityChange: {
+                _,
+                proxySessionID,
+                visible,
+                isCurrent in
+                cursorEffects.continuation.yield((
+                    proxySessionID,
+                    visible,
+                    isCurrent
+                ))
             },
             activate: { _ in }
         )
@@ -2893,11 +2929,13 @@ struct ComputerUseUXTests {
         #expect(controller.continueInBackground(
             driverSessionID: driverSessionID,
             logicalSessionID: logicalSessionID,
-            stateWriterIdentity: writerIdentity
+            stateWriterIdentity: writerIdentity,
+            proxySessionID: proxySessionID
         ))
         var cursorIterator = cursorEffects.stream.makeAsyncIterator()
         let delayedHide = try #require(await cursorIterator.next())
         #expect(!delayedHide.visible)
+        #expect(delayedHide.proxySessionID == proxySessionID)
         #expect(delayedHide.isCurrent())
         #expect(delayedTerminalFocusIsCurrent?() == true)
 
@@ -2910,10 +2948,12 @@ struct ComputerUseUXTests {
             target,
             driverSessionID: driverSessionID,
             logicalSessionID: logicalSessionID,
-            stateWriterIdentity: writerIdentity
+            stateWriterIdentity: writerIdentity,
+            proxySessionID: proxySessionID
         ))
         let currentShow = try #require(await cursorIterator.next())
         #expect(currentShow.visible)
+        #expect(currentShow.proxySessionID == proxySessionID)
         #expect(currentShow.isCurrent())
         #expect(!delayedHide.isCurrent())
         #expect(delayedTerminalFocusIsCurrent?() == false)
@@ -2921,8 +2961,16 @@ struct ComputerUseUXTests {
         controller.driverSessionDidComplete(driverSessionID)
         let completionHide = try #require(await cursorIterator.next())
         #expect(!completionHide.visible)
+        #expect(completionHide.proxySessionID == proxySessionID)
         #expect(completionHide.isCurrent())
         #expect(!currentShow.isCurrent())
+
+        controller.driverSessionDidStart(driverSessionID)
+        let nextTurnShow = try #require(await cursorIterator.next())
+        #expect(nextTurnShow.visible)
+        #expect(nextTurnShow.proxySessionID == proxySessionID)
+        #expect(nextTurnShow.isCurrent())
+        #expect(!completionHide.isCurrent())
     }
 
     @Test @MainActor func computerUsePresentationModeResetsAfterLiveSessionsEnd() throws {

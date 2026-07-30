@@ -11,11 +11,17 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
     private let snapshotStore: ComputerUseMenuBarSnapshotStore
     private let isRunningInBackground: (String, String) -> Bool
     private let onContinueInBackground:
-        (UUID, UUID, String, String, AgentPIDProcessIdentity) -> Bool
+        (UUID, UUID, String, String, AgentPIDProcessIdentity, String?) -> Bool
     private let canViewComputerUse:
         (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool
     private let onViewComputerUse:
-        (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool
+        (
+            ComputerUseTargetIdentity,
+            String,
+            String,
+            AgentPIDProcessIdentity,
+            String?
+        ) -> Bool
     private let onStopComputerUse:
         (String, String, AgentPIDProcessIdentity, String) -> Void
     private let computerUseIcon: () -> NSImage?
@@ -31,11 +37,24 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         snapshotStore: ComputerUseMenuBarSnapshotStore,
         isRunningInBackground: @escaping (String, String) -> Bool,
         onContinueInBackground:
-            @escaping (UUID, UUID, String, String, AgentPIDProcessIdentity) -> Bool,
+            @escaping (
+                UUID,
+                UUID,
+                String,
+                String,
+                AgentPIDProcessIdentity,
+                String?
+            ) -> Bool,
         canViewComputerUse:
             @escaping (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool,
         onViewComputerUse:
-            @escaping (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool,
+            @escaping (
+                ComputerUseTargetIdentity,
+                String,
+                String,
+                AgentPIDProcessIdentity,
+                String?
+            ) -> Bool,
         onStopComputerUse:
             @escaping (String, String, AgentPIDProcessIdentity, String) -> Void,
         computerUseIcon: @escaping () -> NSImage?
@@ -150,7 +169,8 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
                     identity,
                     driverSessionID,
                     row.id,
-                    stateWriterIdentity
+                    stateWriterIdentity,
+                    row.proxySessionID
                 )
             }
             viewItem.state = runningInBackground ? .off : .on
@@ -183,7 +203,8 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
                     row.surfaceID,
                     driverSessionID,
                     row.id,
-                    stateWriterIdentity
+                    stateWriterIdentity,
+                    row.proxySessionID
                 )
             }
         } else {

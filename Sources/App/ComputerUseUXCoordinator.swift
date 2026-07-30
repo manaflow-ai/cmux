@@ -134,10 +134,15 @@ final class ComputerUseUXCoordinator {
             ),
             onFocusTerminal: onFocusTerminal,
             onCursorVisibilityChange: {
-                [runtimeService] driverSessionID, visible, isCurrent in
+                [runtimeService]
+                driverSessionID,
+                proxySessionID,
+                visible,
+                isCurrent in
                 _ = await runtimeService.setDriverCursorVisible(
                     visible,
                     driverSessionID: driverSessionID,
+                    proxySessionID: proxySessionID,
                     while: isCurrent
                 )
             }
@@ -167,11 +172,13 @@ final class ComputerUseUXCoordinator {
                 _,
                 driverSessionID,
                 logicalSessionID,
-                stateWriterIdentity in
+                stateWriterIdentity,
+                proxySessionID in
                 watchTarget.continueInBackground(
                     driverSessionID: driverSessionID,
                     logicalSessionID: logicalSessionID,
-                    stateWriterIdentity: stateWriterIdentity
+                    stateWriterIdentity: stateWriterIdentity,
+                    proxySessionID: proxySessionID
                 )
             },
             canViewComputerUse: {
@@ -190,12 +197,14 @@ final class ComputerUseUXCoordinator {
                 identity,
                 driverSessionID,
                 logicalSessionID,
-                stateWriterIdentity in
+                stateWriterIdentity,
+                proxySessionID in
                 watchTarget.viewTarget(
                     identity,
                     driverSessionID: driverSessionID,
                     logicalSessionID: logicalSessionID,
-                    stateWriterIdentity: stateWriterIdentity
+                    stateWriterIdentity: stateWriterIdentity,
+                    proxySessionID: proxySessionID
                 )
             },
             onStopComputerUse: {
@@ -299,7 +308,13 @@ final class ComputerUseUXCoordinator {
                 driverSessionID: driverSessionID,
                 receivedAt: event.receivedAt
             )
-            watchTargetController?.driverSessionDidComplete(driverSessionID)
+            let proxySessionID = menuBarSnapshotStore?.proxySessionID(
+                for: driverSessionID
+            )
+            watchTargetController?.driverSessionDidComplete(
+                driverSessionID,
+                proxySessionID: proxySessionID
+            )
             menuBarSnapshotStore?.driverSessionDidComplete(driverSessionID)
         default:
             break

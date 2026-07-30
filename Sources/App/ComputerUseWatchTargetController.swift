@@ -251,6 +251,7 @@ final class ComputerUseWatchTargetController {
     /// activity from other agents.
     private var lastActivatedTargetPIDByDriverSessionID: [String: Int] = [:]
     private var lastObservedActionAtByDriverSessionID: [String: Date] = [:]
+    private var proxySessionIDByDriverSessionID: [String: String] = [:]
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     private let directoryWatchQueue = DispatchQueue(label: "com.cmuxterm.app.computerUseWatchTarget")
@@ -283,7 +284,7 @@ final class ComputerUseWatchTargetController {
                 .TerminalFocusEffect = { _, _, _ in },
         onCursorVisibilityChange:
             @escaping ComputerUseSessionPresentationController
-                .CursorVisibilityEffect = { _, _, _ in },
+                .CursorVisibilityEffect = { _, _, _, _ in },
         frontmostApplicationProcessIdentifier:
             @escaping @MainActor () -> pid_t? = {
                 NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -356,11 +357,16 @@ final class ComputerUseWatchTargetController {
         observedDriverSessions.removeAll()
         lastActivatedTargetPIDByDriverSessionID.removeAll()
         lastObservedActionAtByDriverSessionID.removeAll()
+        proxySessionIDByDriverSessionID.removeAll()
         presentationController.stop()
     }
 
     func driverSessionDidStart(_ driverSessionID: String) {
-        presentationController.driverSessionDidStart(driverSessionID)
+        presentationController.driverSessionDidStart(
+            driverSessionID,
+            proxySessionID:
+                proxySessionIDByDriverSessionID[driverSessionID]
+        )
     }
 
     /// Preserves the originating terminal as the user's foreground context.
@@ -368,7 +374,8 @@ final class ComputerUseWatchTargetController {
     func continueInBackground(
         driverSessionID: String,
         logicalSessionID: String,
-        stateWriterIdentity: AgentPIDProcessIdentity
+        stateWriterIdentity: AgentPIDProcessIdentity,
+        proxySessionID: String? = nil
     ) -> Bool {
         guard canControlSession(
             driverSessionID: driverSessionID,
@@ -383,10 +390,15 @@ final class ComputerUseWatchTargetController {
         ) else {
             return false
         }
+        let cursorProxySessionID = rememberManagedProxySessionID(
+            proxySessionID,
+            for: driverSessionID
+        )
         presentationController.focusCallingTerminal(
             driverSessionID: driverSessionID,
             workspaceID: liveSession.workspaceID,
-            surfaceID: liveSession.surfaceID
+            surfaceID: liveSession.surfaceID,
+            proxySessionID: cursorProxySessionID
         )
         return true
     }
@@ -433,7 +445,8 @@ final class ComputerUseWatchTargetController {
         _ identity: ComputerUseTargetIdentity,
         driverSessionID: String,
         logicalSessionID: String,
-        stateWriterIdentity: AgentPIDProcessIdentity
+        stateWriterIdentity: AgentPIDProcessIdentity,
+        proxySessionID: String? = nil
     ) -> Bool {
         guard
             canViewTarget(
@@ -448,8 +461,13 @@ final class ComputerUseWatchTargetController {
             return false
         }
 
+        let cursorProxySessionID = rememberManagedProxySessionID(
+            proxySessionID,
+            for: driverSessionID
+        )
         presentationController.focusComputerUse(
-            driverSessionID: driverSessionID
+            driverSessionID: driverSessionID,
+            proxySessionID: cursorProxySessionID
         ) { [activate] in
             activate(application)
         }
@@ -458,8 +476,18 @@ final class ComputerUseWatchTargetController {
         return true
     }
 
-    func driverSessionDidComplete(_ driverSessionID: String) {
-        presentationController.driverSessionDidComplete(driverSessionID)
+    func driverSessionDidComplete(
+        _ driverSessionID: String,
+        proxySessionID: String? = nil
+    ) {
+        let cursorProxySessionID = rememberManagedProxySessionID(
+            proxySessionID,
+            for: driverSessionID
+        )
+        presentationController.driverSessionDidComplete(
+            driverSessionID,
+            proxySessionID: cursorProxySessionID
+        )
     }
 
     /// Reports whether a captured target still identifies the same running app.
@@ -575,6 +603,30 @@ final class ComputerUseWatchTargetController {
             return activity.lastActionAt > previous
         }
         guard let newest = newlyUpdated.last else { return }
+
+        for activity in newlyUpdated {
+            let driverSessionID = activity.driverSessionID
+            guard
+                let scannedSession =
+                    observedDriverSessions[driverSessionID],
+                let currentSession =
+                    currentLiveDriverSession(scannedSession),
+                scannedSession.authorizes(
+                    state: activity.state,
+                    currentSession: currentSession
+                ),
+                let proxySessionID = rememberManagedProxySessionID(
+                    activity.state.session,
+                    for: driverSessionID
+                )
+            else {
+                continue
+            }
+            presentationController.proxySessionDidBecomeKnown(
+                driverSessionID: driverSessionID,
+                proxySessionID: proxySessionID
+            )
+        }
 
         // An explicit menu selection is a focus lock, so it wins over passive
         // automatic-follow activity. If several locked sessions updated in one
@@ -708,7 +760,11 @@ final class ComputerUseWatchTargetController {
                 .subtracting(liveDriverSessionIDs)
                 .union(replacedDriverSessionIDs)
         for driverSessionID in endedDriverSessionIDs {
-            presentationController.driverSessionDidComplete(driverSessionID)
+            presentationController.driverSessionDidComplete(
+                driverSessionID,
+                proxySessionID:
+                    proxySessionIDByDriverSessionID[driverSessionID]
+            )
         }
         lastActivatedTargetPIDByDriverSessionID =
             lastActivatedTargetPIDByDriverSessionID.filter {
@@ -716,6 +772,10 @@ final class ComputerUseWatchTargetController {
             }
         lastObservedActionAtByDriverSessionID =
             lastObservedActionAtByDriverSessionID.filter {
+                liveDriverSessionIDs.contains($0.key)
+            }
+        proxySessionIDByDriverSessionID =
+            proxySessionIDByDriverSessionID.filter {
                 liveDriverSessionIDs.contains($0.key)
             }
         for driverSessionID in replacedDriverSessionIDs {
@@ -728,6 +788,9 @@ final class ComputerUseWatchTargetController {
             // without discarding a valid first action written before the live
             // index published the transition.
             lastObservedActionAtByDriverSessionID.removeValue(
+                forKey: driverSessionID
+            )
+            proxySessionIDByDriverSessionID.removeValue(
                 forKey: driverSessionID
             )
         }
@@ -745,6 +808,21 @@ final class ComputerUseWatchTargetController {
             scanGeneration &+= 1
         }
         refresh()
+    }
+
+    private func rememberManagedProxySessionID(
+        _ candidate: String?,
+        for driverSessionID: String
+    ) -> String? {
+        if let candidate,
+           candidate != driverSessionID,
+           ComputerUseSessionScope.isManagedProxySessionID(
+               candidate,
+               for: driverSessionID
+           ) {
+            proxySessionIDByDriverSessionID[driverSessionID] = candidate
+        }
+        return proxySessionIDByDriverSessionID[driverSessionID]
     }
 
     private func suspendObservation() {
