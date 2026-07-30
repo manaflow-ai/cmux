@@ -1,0 +1,28 @@
+[package]
+name = "cmux-remote-mobile"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# A static archive for Apple platforms. `cdylib` is deliberately absent: iOS
+# app extensions and App Store review are simpler with a single archive linked
+# into the app binary.
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# Client half only. Without `daemon-services` this drags in no workspace
+# service and therefore no libghostty-vt, so the crate builds for iOS with
+# nothing but a Rust toolchain and the iOS SDK.
+cmux-remote = { path = "../cmux-remote", default-features = false, features = ["iroh-transport"] }
+cmux-remote-protocol = { path = "../cmux-remote-protocol" }
+
+bytes.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
+url.workspace = true
+zeroize.workspace = true
