@@ -8,13 +8,16 @@ import CmuxSidebar
 extension Workspace {
     struct DetachedAgentRuntimeState {
         let panelId: UUID
-        let statusEntries: [String: SidebarStatusEntry]
-        let agentPIDs: [String: pid_t]
+        var statusEntries: [String: SidebarStatusEntry]
+        var agentPIDs: [String: pid_t]
         /// Start-time identities recorded for `agentPIDs`, so a consumer can
         /// distinguish "recorded process still runs" from "pid was reused by
         /// an unrelated process" (same contract as `isRecordedAgentPIDLive`).
-        let agentPIDProcessIdentities: [String: AgentPIDProcessIdentity]
-        let agentPIDKeys: Set<String>
+        var agentPIDProcessIdentities: [String: AgentPIDProcessIdentity]
+        var agentPIDKeys: Set<String>
+        /// Active lifecycle values follow a live panel into and out of a Dock,
+        /// alongside its structured PID ownership.
+        var agentLifecycleStates: [String: AgentHibernationLifecycleState] = [:]
     }
 
     struct DetachedSurfaceTransfer {
@@ -45,7 +48,10 @@ extension Workspace {
         let shellActivityState: PanelShellActivityState?
         let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
-        let agentRuntime: DetachedAgentRuntimeState?
+        /// Authoritative hook identity when `resumeBinding` is an effective
+        /// process-detected binding.
+        let managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
+        var agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
         let remotePTYSessionID: String?
@@ -53,6 +59,14 @@ extension Workspace {
 
         var sessionRestoreWorkspaceId: UUID {
             sessionRestoreSourceWorkspaceId ?? sourceWorkspaceId
+        }
+
+        var resolvedManagedAgentResumeBinding: SurfaceResumeBindingSnapshot? {
+            managedAgentResumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            } ?? resumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            }
         }
 
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
@@ -82,6 +96,7 @@ extension Workspace {
                 shellActivityState: shellActivityState,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
+                managedAgentResumeBinding: managedAgentResumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,

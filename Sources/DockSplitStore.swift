@@ -48,9 +48,18 @@ final class DockSplitStore: BonsplitDelegate {
         TerminalFontSizeChangeInheritanceContext?
     var panelCancellables: [UUID: AnyCancellable] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
+    /// Live agent runtime owned by Dock panels. The matching transfer snapshot
+    /// is kept in sync so the state survives Dock-to-workspace moves.
+    @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]
     @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
     @ObservationIgnored let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Authoritative agent-hook identity for a Dock panel. The effective
+    /// surface binding may temporarily become a process-detected tmux binding,
+    /// but hook teardown must still address the managed agent generation.
+    @ObservationIgnored var managedAgentResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    @ObservationIgnored var invalidatedCachedTransferAgentSessionPanelIds: Set<UUID> = []
+    @ObservationIgnored var replacedCachedTransferAgentSessionPanelIds: Set<UUID> = []
     @ObservationIgnored var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
     var hasLoadedConfiguration = false
     var configurationLoadTask: Task<Void, Never>?
