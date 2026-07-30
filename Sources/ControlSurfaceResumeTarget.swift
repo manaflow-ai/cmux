@@ -316,7 +316,11 @@ extension TerminalController {
         let generalizedPrefix = SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
             forCommand: binding.command
         )
-        if let generalizedPrefix {
+        let folderScopedGeneralizedPrefix =
+            SurfaceResumeCommandCanonicalizer.normalizedCWD(binding.cwd) == nil
+            ? nil
+            : generalizedPrefix
+        if let generalizedPrefix = folderScopedGeneralizedPrefix {
             let renderedPrefix = generalizedPrefix
                 .map(SurfaceResumeCommandCanonicalizer.shellQuoted)
                 .joined(separator: " ")
@@ -336,7 +340,9 @@ extension TerminalController {
         content.apply(to: alert, presentingWindow: nil)
 
         let response = alert.runModal()
-        let commandPrefix = alert.suppressionButton?.state == .on ? generalizedPrefix : nil
+        let commandPrefix = alert.suppressionButton?.state == .on
+            ? folderScopedGeneralizedPrefix
+            : nil
         return switch response {
         case .alertFirstButtonReturn: (.auto, commandPrefix)
         case .alertSecondButtonReturn: (.prompt, commandPrefix)

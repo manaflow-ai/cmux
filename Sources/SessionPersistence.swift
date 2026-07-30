@@ -525,10 +525,15 @@ struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
             }
         }
         let bindingEnvironment = binding.environment ?? [:]
-        guard let environment, !environment.isEmpty else {
-            return bindingEnvironment.isEmpty
+        if let environment, !environment.isEmpty {
+            guard bindingEnvironment == environment else { return false }
+        } else {
+            guard bindingEnvironment.isEmpty else { return false }
         }
-        return bindingEnvironment == environment
+        return SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
+            command: binding.command,
+            prefixTokenCount: commandPrefix.count
+        )
     }
 
     func signingPayloadData() -> Data {
@@ -611,45 +616,91 @@ struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
 
 enum SurfaceResumeCommandCanonicalizer {
     static func tokens(from command: String) -> [String]? {
-        let scalars = Array(command.unicodeScalars)
-        var tokens: [String] = []
+        tokensWithRawSlices(from: command)?.map(\.token)
+    }
+
+    static func tokensWithRawSlices(
+        from command: String
+    ) -> [(token: String, raw: Substring)]? {
+        let scalars = command.unicodeScalars
+        var tokens: [(token: String, raw: Substring)] = []
         var token = String.UnicodeScalarView()
-        var index = 0
+        var rawStart: String.Index?
+        var index = scalars.startIndex
         var quote: UnicodeScalar?
 
-        func flushToken() {
-            guard !token.isEmpty else { return }
-            tokens.append(String(token))
-            token.removeAll(keepingCapacity: true)
+        func flushToken(endingAt endIndex: String.Index) {
+            defer {
+                token.removeAll(keepingCapacity: true)
+                rawStart = nil
+            }
+            guard !token.isEmpty, let rawStart else { return }
+            tokens.append((
+                token: String(token),
+                raw: command[rawStart..<endIndex]
+            ))
         }
 
-        while index < scalars.count {
+        while index < scalars.endIndex {
             let scalar = scalars[index]
             if let activeQuote = quote {
                 if scalar == activeQuote {
                     quote = nil
-                } else if activeQuote == "\"", scalar == "\\", index + 1 < scalars.count {
-                    index += 1
+                } else if activeQuote == "\"", scalar == "\\" {
+                    let nextIndex = scalars.index(after: index)
+                    guard nextIndex < scalars.endIndex else {
+                        index = nextIndex
+                        continue
+                    }
+                    index = nextIndex
                     token.append(scalars[index])
                 } else {
                     token.append(scalar)
                 }
             } else if scalar == "'" || scalar == "\"" {
+                rawStart = rawStart ?? index
                 quote = scalar
             } else if CharacterSet.whitespacesAndNewlines.contains(scalar) {
-                flushToken()
-            } else if scalar == "\\", index + 1 < scalars.count {
-                index += 1
+                flushToken(endingAt: index)
+            } else if scalar == "\\" {
+                rawStart = rawStart ?? index
+                let nextIndex = scalars.index(after: index)
+                guard nextIndex < scalars.endIndex else {
+                    token.append(scalar)
+                    index = nextIndex
+                    continue
+                }
+                index = nextIndex
                 token.append(scalars[index])
             } else {
+                rawStart = rawStart ?? index
                 token.append(scalar)
             }
-            index += 1
+            index = scalars.index(after: index)
         }
 
         guard quote == nil else { return nil }
-        flushToken()
+        flushToken(endingAt: scalars.endIndex)
         return tokens.isEmpty ? nil : tokens
+    }
+
+    static func hasApprovableSuffix(
+        command: String,
+        prefixTokenCount: Int
+    ) -> Bool {
+        guard prefixTokenCount >= 0,
+              let tokens = tokensWithRawSlices(from: command),
+              prefixTokenCount <= tokens.count else {
+            return false
+        }
+        guard prefixTokenCount < tokens.count else {
+            return true
+        }
+
+        let suffixStart = prefixTokenCount == 0
+            ? command.startIndex
+            : tokens[prefixTokenCount - 1].raw.endIndex
+        return !containsUnsafeShellControl(command[suffixStart...])
     }
 
     static func generalizedApprovalPrefix(forCommand command: String) -> [String]? {
@@ -697,7 +748,14 @@ enum SurfaceResumeCommandCanonicalizer {
             index = tokens.index(after: index)
         }
 
-        return prefix.count == tokens.count ? nil : prefix
+        guard prefix.count < tokens.count,
+              hasApprovableSuffix(
+                  command: command,
+                  prefixTokenCount: prefix.count
+              ) else {
+            return nil
+        }
+        return prefix
     }
 
     static func normalizedCWD(_ rawValue: String?) -> String? {
@@ -727,6 +785,58 @@ enum SurfaceResumeCommandCanonicalizer {
             return false
         }
         return nameScalars.dropFirst().allSatisfy(isEnvironmentNameContinuation)
+    }
+
+    private static func containsUnsafeShellControl(_ raw: Substring) -> Bool {
+        let scalars = raw.unicodeScalars
+        var index = scalars.startIndex
+        var quote: UnicodeScalar?
+
+        while index < scalars.endIndex {
+            let scalar = scalars[index]
+            if quote == "'" {
+                if scalar == "'" {
+                    quote = nil
+                }
+                index = scalars.index(after: index)
+                continue
+            }
+            if quote == "\"" {
+                if scalar == "\\" {
+                    let nextIndex = scalars.index(after: index)
+                    index = nextIndex < scalars.endIndex
+                        ? scalars.index(after: nextIndex)
+                        : nextIndex
+                    continue
+                }
+                if scalar == "\"" {
+                    quote = nil
+                } else if scalar == "$" || scalar == "`" || scalar == "\n" || scalar == "\r" {
+                    return true
+                }
+                index = scalars.index(after: index)
+                continue
+            }
+            if scalar == "\\" {
+                let nextIndex = scalars.index(after: index)
+                index = nextIndex < scalars.endIndex
+                    ? scalars.index(after: nextIndex)
+                    : nextIndex
+                continue
+            }
+            if scalar == "'" {
+                quote = scalar
+            } else if scalar == "\"" {
+                quote = scalar
+            } else if scalar == "$" || scalar == "`" || scalar == "\n" || scalar == "\r" {
+                return true
+            } else if scalar == ";" || scalar == "|" || scalar == "&" ||
+                      scalar == "<" || scalar == ">" || scalar == "(" || scalar == ")" {
+                return true
+            }
+            index = scalars.index(after: index)
+        }
+        return false
     }
 
     private static func isEnvironmentNameStart(_ scalar: UnicodeScalar) -> Bool {

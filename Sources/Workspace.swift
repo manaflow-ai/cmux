@@ -2767,7 +2767,7 @@ final class Workspace: Identifiable, ObservableObject {
     @MainActor
     private static func shouldRunPromptedSurfaceResumeOnMain(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
         let promptBatch = SurfaceResumeRunPromptBatch.shared
-        switch promptBatch.stickyDecision {
+        switch promptBatch.effectiveDecision {
         case .runAll:
             return true
         case .skipAll:
@@ -2808,21 +2808,23 @@ final class Workspace: Identifiable, ObservableObject {
         if response == .alertFirstButtonReturn {
             shouldRun = true
         } else if response == .alertSecondButtonReturn {
-            promptBatch.stickyDecision = .runAll
+            promptBatch.recordDecision(.runAll)
             shouldRun = true
         } else if response == .alertThirdButtonReturn {
             shouldRun = false
         } else if response.rawValue == NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + 3 {
-            promptBatch.stickyDecision = .skipAll
+            promptBatch.recordDecision(.skipAll)
             shouldRun = false
         } else {
             shouldRun = false
         }
 
-        if shouldRun,
-           alert.suppressionButton?.state == .on,
+        if alert.suppressionButton?.state == .on,
            let approvalRecordId = binding.approvalRecordId {
-            SurfaceResumeApprovalStore.update(recordId: approvalRecordId, policy: .auto)
+            SurfaceResumeApprovalStore.update(
+                recordId: approvalRecordId,
+                policy: shouldRun ? .auto : .manual
+            )
         }
         return shouldRun
     }
