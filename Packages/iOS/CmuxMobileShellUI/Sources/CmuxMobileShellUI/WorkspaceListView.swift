@@ -133,8 +133,10 @@ struct WorkspaceListView: View {
     /// state while `List` is recycling swipe-action rows.
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
     /// The workspace whose UIKit context-menu rename action is presenting the
-    /// list-scoped SwiftUI rename sheet.
+    /// list-scoped rename alert.
     @State var workspacePendingRenameID: MobileWorkspacePreview.ID?
+    /// Stable text storage for the list-scoped workspace rename alert.
+    @State var workspaceRenameDraft = ""
     /// The workspace whose UIKit context-menu action is presenting the shared
     /// customization sheet.
     @State var workspacePendingCustomizationID: MobileWorkspacePreview.ID?
@@ -425,12 +427,13 @@ struct WorkspaceListView: View {
                 )
             }
         }
-        .sheet(isPresented: workspaceRenameIsPresented) {
-            if let workspaceID = workspacePendingRenameID,
-               let workspace = workspaces.first(where: { $0.id == workspaceID }) {
-                WorkspaceRenameSheet(currentName: workspace.name) { newName in
-                    renameWorkspace?(workspaceID, newName)
-                }
+        .workspaceRenameDialog(
+            isPresented: workspaceRenameIsPresented,
+            text: $workspaceRenameDraft
+        ) {
+            let trimmed = workspaceRenameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let workspaceID = workspacePendingRenameID, !trimmed.isEmpty {
+                renameWorkspace?(workspaceID, trimmed)
             }
         }
         .sheet(isPresented: workspaceCustomizationIsPresented) {

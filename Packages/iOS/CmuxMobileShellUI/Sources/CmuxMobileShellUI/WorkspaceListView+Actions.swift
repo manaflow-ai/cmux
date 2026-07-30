@@ -58,7 +58,11 @@ extension WorkspaceListView {
     #if os(iOS)
     var requestWorkspaceRename: ((CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Void)? {
         guard renameWorkspace != nil else { return nil }
-        return { workspacePendingRenameID = $0 }
+        return { workspaceID in
+            guard let workspace = workspaces.first(where: { $0.id == workspaceID }) else { return }
+            workspaceRenameDraft = workspace.name
+            workspacePendingRenameID = workspaceID
+        }
     }
 
     var requestWorkspaceCustomization: ((CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Void)? {

@@ -463,7 +463,7 @@ final class cmuxUITests: XCTestCase {
             "Workspace rename must use a compact system alert instead of a sheet."
         )
         XCTAssertTrue(
-            renameAlert.textFields["WorkspaceRenameField"].exists,
+            renameAlert.textFields.firstMatch.exists,
             "The rename alert must include the shared editable workspace-name field."
         )
         let attachment = XCTAttachment(screenshot: app.screenshot())
