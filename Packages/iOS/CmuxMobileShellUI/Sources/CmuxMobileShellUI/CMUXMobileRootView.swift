@@ -259,6 +259,12 @@ struct CMUXMobileRootView: View {
             #endif
         }
         #if os(iOS)
+        .onChange(of: authManager.currentUser?.id) { _, _ in
+            // Account identity can in principle change without an
+            // isAuthenticated or team edge; re-key the keep-alive so a stale
+            // account's discovery loop is cancelled and restarted.
+            updateOnboardingMacDiscoveryKeepAlive()
+        }
         .onChange(of: onboardingStore.progress) { _, _ in
             updateOnboardingMacDiscoveryKeepAlive()
         }
