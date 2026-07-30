@@ -685,7 +685,9 @@ fn fail_surface_route(state: &mut SurfaceRouteState, reason: &str) {
 pub struct BrowserSurface {
     pub(crate) meta: SurfaceMeta,
     session: Mutex<Option<BrowserSession>>,
-    state: Mutex<BrowserState>,
+    // Navigation and pointer lifecycle state grows independently of the
+    // Surface enum. Keep that payload out of line.
+    state: Mutex<Box<BrowserState>>,
     frame_epoch: Arc<FrameEpoch>,
     dirty: AtomicBool,
     dead: AtomicBool,
@@ -928,7 +930,7 @@ pub(crate) fn new_surface(
     let surface = Arc::new(Surface::Browser(BrowserSurface {
         meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
         session: Mutex::new(None),
-        state: Mutex::new(BrowserState {
+        state: Mutex::new(Box::new(BrowserState {
             latest_frame: None,
             accepted_frame_epoch: frame_epoch.current(),
             accepted_navigation_epoch: frame_epoch.latest_navigation(),
@@ -970,7 +972,7 @@ pub(crate) fn new_surface(
             last_frame_at: None,
             stall_nudged: false,
             not_responding_reported: false,
-        }),
+        })),
         frame_epoch,
         dirty: AtomicBool::new(true),
         dead: AtomicBool::new(false),

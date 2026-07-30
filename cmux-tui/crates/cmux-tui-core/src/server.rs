@@ -4952,31 +4952,55 @@ impl RenderClientState {
     }
 }
 
-fn browser_state_json(
+#[derive(Serialize)]
+struct BrowserStateMessage<'a> {
+    event: &'static str,
     surface: SurfaceId,
-    state: &crate::BrowserAttachState,
+    cols: u16,
+    rows: u16,
+    url: &'a str,
+    title: &'a str,
+    status: &'static str,
+    error: Option<&'a str>,
+    pointer_frame_floor_seq: Option<u64>,
+    pointer_frame_seq: Option<u64>,
+    frames_stalled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frame: Option<Option<BrowserFramePayload<'a>>>,
+}
+
+#[derive(Serialize)]
+struct BrowserFramePayload<'a> {
+    seq: u64,
+    width: u32,
+    height: u32,
+    image_width: u32,
+    image_height: u32,
+    data: &'a str,
+}
+
+fn browser_state_message<'a>(
+    surface: SurfaceId,
+    state: &'a crate::BrowserAttachState,
     include_frame: bool,
-) -> Value {
-    let mut value = json!({
-        "event": "browser-state",
-        "surface": surface,
-        "cols": state.cols,
-        "rows": state.rows,
-        "url": state.url,
-        "title": state.title,
-        "status": state.status.as_str(),
-        "error": state.status.error(),
-        "pointer_frame_floor_seq": state.pointer_frame_floor_seq,
-        "pointer_frame_seq": state.pointer_frame_seq,
-        "frames_stalled": state.frames_stalled,
-    });
-    if include_frame {
-        value["frame"] = match state.frame.as_ref() {
-            Some(frame) => browser_frame_payload(frame),
-            None => Value::Null,
-        };
+) -> BrowserStateMessage<'a> {
+    BrowserStateMessage {
+        event: "browser-state",
+        surface,
+        cols: state.cols,
+        rows: state.rows,
+        url: &state.url,
+        title: &state.title,
+        status: state.status.as_str(),
+        error: match &state.status {
+            crate::BrowserStatus::Failed(error) => Some(error),
+            crate::BrowserStatus::Starting | crate::BrowserStatus::Live => None,
+        },
+        pointer_frame_floor_seq: state.pointer_frame_floor_seq,
+        pointer_frame_seq: state.pointer_frame_seq,
+        frames_stalled: state.frames_stalled,
+        frame: include_frame.then(|| state.frame.as_ref().map(browser_frame_payload)),
     }
-    value
 }
 
 fn browser_frame_json(surface: SurfaceId, update: &BrowserFrameUpdate) -> Value {
@@ -5006,20 +5030,20 @@ fn send_browser_attach_update(
         writer.send_stream(&browser_frame_json(surface, &frame), outbound_stream)?;
     }
     if let Some(state) = update.state {
-        writer.send_stream(&browser_state_json(surface, &state, false), outbound_stream)?;
+        writer.send_stream(&browser_state_message(surface, &state, false), outbound_stream)?;
     }
     Ok(())
 }
 
-fn browser_frame_payload(frame: &crate::BrowserFrame) -> Value {
-    json!({
-        "seq": frame.seq,
-        "width": frame.css_width,
-        "height": frame.css_height,
-        "image_width": frame.image_width,
-        "image_height": frame.image_height,
-        "data": frame.data_b64,
-    })
+fn browser_frame_payload(frame: &crate::BrowserFrame) -> BrowserFramePayload<'_> {
+    BrowserFramePayload {
+        seq: frame.seq,
+        width: frame.css_width,
+        height: frame.css_height,
+        image_width: frame.image_width,
+        image_height: frame.image_height,
+        data: &frame.data_b64,
+    }
 }
 
 fn spawn_attach_notification_stream(
@@ -6770,9 +6794,10 @@ fn handle_command_with_cancellation(
                         return Err(error);
                     }
                 };
-                if let Err(error) = writer
-                    .send_initial(&browser_state_json(surface_id, &state, true), &outbound_stream)
-                {
+                if let Err(error) = writer.send_initial(
+                    &browser_state_message(surface_id, &state, true),
+                    &outbound_stream,
+                ) {
                     handle_attach_send_error(&lifecycle, &error);
                     rollback_failed_attach(
                         mux,
@@ -7720,7 +7745,7 @@ mod tests {
             frames_stalled: false,
         };
 
-        let value = browser_state_json(1, &state, true);
+        let value = serde_json::to_value(browser_state_message(1, &state, true)).unwrap();
         assert_eq!(
             value.get("pointer_frame_seq"),
             Some(&Value::Null),
@@ -7822,7 +7847,7 @@ mod tests {
             frames_stalled: false,
         };
 
-        let value = browser_state_json(3, &state, true);
+        let value = serde_json::to_value(browser_state_message(3, &state, true)).unwrap();
         assert_eq!(value["frame"]["width"], 800);
         assert_eq!(value["frame"]["height"], 600);
         assert_eq!(value["frame"]["image_width"], 400);
@@ -8030,7 +8055,7 @@ mod tests {
         };
 
         let serialized =
-            RenderService::new().serialize(&browser_state_json(7, &state, true)).unwrap();
+            RenderService::new().serialize(&browser_state_message(7, &state, true)).unwrap();
 
         assert!(
             serialized.starts_with(r#"{"event":"browser-state","surface":7,"#),
