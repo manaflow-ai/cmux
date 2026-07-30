@@ -111,10 +111,17 @@ jobs:
 
       - name: Build cmux-tui server
         working-directory: cmux-tui
-        run: cargo build -p cmux-tui
+        run: cargo build -p cmux-tui --bin cmux-tui --locked
 
       - name: Go SDK conformance
-        run: python3 cmux-tui/bindings/conformance/runner.py --language go --require go
+        run: |
+          report="$RUNNER_TEMP/cmux-sdk-conformance-go.txt"
+          python3 cmux-tui/bindings/conformance/runner.py \
+            --language go \
+            --require go \
+            --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui" |
+            tee "$report"
+          grep -Eq '^PASS +go +live-creation-exit-restart-unix$' "$report"
 
   validate-go-module:
     needs: bindings-e2e-go
