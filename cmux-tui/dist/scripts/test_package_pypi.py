@@ -71,7 +71,7 @@ class LauncherCommandTests(unittest.TestCase):
 
 
 class DarwinCompatibilityTests(unittest.TestCase):
-    def test_wheels_preserve_the_supported_macos_floor(self) -> None:
+    def test_wheels_require_the_first_representable_safe_macos_floor(self) -> None:
         tags = {
             target.rust_target: target.platform_tags
             for target in TARGETS
@@ -81,14 +81,14 @@ class DarwinCompatibilityTests(unittest.TestCase):
         self.assertEqual(
             tags,
             {
-                "aarch64-apple-darwin": ("macosx_14_0_arm64",),
-                "x86_64-apple-darwin": ("macosx_14_0_x86_64",),
+                "aarch64-apple-darwin": ("macosx_15_0_arm64",),
+                "x86_64-apple-darwin": ("macosx_15_0_x86_64",),
             },
         )
 
     def test_release_build_and_wheels_share_one_macos_minimum(self) -> None:
         compatibility_file = Path(__file__).resolve().parents[1] / "macos-deployment-target.txt"
-        self.assertEqual(compatibility_file.read_text().strip(), "14.0")
+        self.assertEqual(compatibility_file.read_text().strip(), "15.0")
 
         workflow = (
             Path(__file__).resolve().parents[3]
@@ -97,6 +97,8 @@ class DarwinCompatibilityTests(unittest.TestCase):
             / "cmux-tui-build-package.yml"
         ).read_text()
         self.assertGreaterEqual(workflow.count("dist/macos-deployment-target.txt"), 2)
+        readme = Path(__file__).resolve().parents[2] / "README.md"
+        self.assertIn("macOS 15 or newer", readme.read_text())
 
     def test_intel_release_uses_the_apple_linker_deployment_target(self) -> None:
         workflow = (
