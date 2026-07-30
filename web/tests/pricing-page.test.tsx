@@ -108,13 +108,30 @@ describe("localized pricing page", () => {
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
   });
+
+  test("renders the annual price and sends annual checkout intent", async () => {
+    const element = await PricingPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ interval: "year" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("$24");
+    expect(html).toContain("Billed $288 annually · save 20%");
+    expect(html).toContain("$24/month · $288/year");
+    expect(html).toContain(
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
+    );
+  });
 });
 
 function translator(namespace?: string) {
   const root = namespace ? valueAtPath(enMessages, namespace) : enMessages;
-  const t = (key: string) => String(valueAtPath(root, key));
+  const t = (key: string, values?: Record<string, unknown>) =>
+    interpolate(String(valueAtPath(root, key)), values);
   t.raw = (key: string) => valueAtPath(root, key);
-  t.rich = (key: string) => String(valueAtPath(root, key));
+  t.rich = (key: string, values?: Record<string, unknown>) =>
+    interpolate(String(valueAtPath(root, key)), values);
   return t;
 }
 
@@ -125,4 +142,12 @@ function valueAtPath(root: unknown, path: string): unknown {
     }
     return path;
   }, root);
+}
+
+function interpolate(message: string, values?: Record<string, unknown>) {
+  if (!values) return message;
+  return Object.entries(values).reduce(
+    (result, [key, value]) => result.replaceAll(`{${key}}`, String(value)),
+    message,
+  );
 }

@@ -1,8 +1,10 @@
 export const CHECKOUT_EXTERNAL_BROWSER_PARAM = "cmux_external_browser";
 export const CHECKOUT_NATIVE_SCHEME_PARAM = "cmux_scheme";
 export const CHECKOUT_PLAN_PARAM = "plan";
+export const CHECKOUT_INTERVAL_PARAM = "interval";
 export const CHECKOUT_PATH = "/api/billing/checkout";
 export type CheckoutPlan = "pro" | "team";
+export type CheckoutInterval = "month" | "year";
 export const PRO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "pro");
 export const TEAM_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "team");
 export const PRO_CHECKOUT_URL = withCheckoutExternalBrowserIntent(PRO_CHECKOUT_PATH);
@@ -20,15 +22,24 @@ export function withCheckoutPlan(href: string, plan: CheckoutPlan): string {
   return withSearchParam(href, CHECKOUT_PLAN_PARAM, plan);
 }
 
+export function withCheckoutInterval(
+  href: string,
+  interval: CheckoutInterval,
+): string {
+  return withSearchParam(href, CHECKOUT_INTERVAL_PARAM, interval);
+}
+
 export function appPricingCheckoutURL(
   plan: CheckoutPlan,
   requestOrigin: string | null,
   cmuxScheme?: string | null,
+  interval?: CheckoutInterval,
 ): string {
   let href = withCheckoutExternalBrowserIntent(
     withCheckoutPlan(configuredAppPricingCheckoutURL(requestOrigin), plan),
   );
   if (cmuxScheme) href = withSearchParam(href, CHECKOUT_NATIVE_SCHEME_PARAM, cmuxScheme);
+  if (plan === "pro" && interval) href = withCheckoutInterval(href, interval);
   return href;
 }
 

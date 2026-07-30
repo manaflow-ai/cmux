@@ -19,8 +19,8 @@ import {
   resolveProPrice,
   resolveTeamPrice,
   stripe,
-  type ProBillingInterval,
 } from "../../../../services/billing/stripe";
+import { proBillingInterval } from "../../../../services/billing/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -100,15 +100,17 @@ async function stripeProCheckout(
     request.nextUrl.searchParams.get("cmux_scheme"),
     request,
   );
-  const interval = checkoutInterval(request.nextUrl.searchParams.get("interval"));
+  const interval = proBillingInterval(request.nextUrl.searchParams.get("interval"));
   const successUrl =
     `${request.nextUrl.origin}/api/billing/complete` +
     `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
   const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+  cancelUrl.searchParams.set("interval", interval);
   const metadata = {
     stackUserId: user.id,
     plan: "pro",
     app: "cmux",
+    billingInterval: interval,
   };
 
   try {
@@ -301,10 +303,6 @@ function checkoutPlan(raw: string | null): "pro" | "team" | null {
   const plan = raw.trim().toLowerCase();
   if (plan === "pro" || plan === "team") return plan;
   return null;
-}
-
-function checkoutInterval(raw: string | null): ProBillingInterval {
-  return raw === "year" ? "year" : "month";
 }
 
 async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> {

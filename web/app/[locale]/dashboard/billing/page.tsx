@@ -2,7 +2,11 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
-import { PRO_CHECKOUT_URL, TEAM_CHECKOUT_URL } from "@/app/lib/billing";
+import {
+  PRO_CHECKOUT_URL,
+  TEAM_CHECKOUT_URL,
+  withCheckoutInterval,
+} from "@/app/lib/billing";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import {
@@ -11,6 +15,8 @@ import {
   PrimaryLink,
   visibleProFeatures,
 } from "@/app/components/pricing-shared";
+import { CheckoutButton } from "@/app/components/checkout-navigation";
+import { PricingIntervalSelector } from "@/app/components/pricing-interval-selector";
 import { cloudDb } from "@/db/client";
 import { stripeCustomers, stripeSubscriptions } from "@/db/schema";
 import { Link } from "@/i18n/navigation";
@@ -21,12 +27,18 @@ import {
   resolveProPlanStatus,
 } from "@/services/billing/pro";
 import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
+import {
+  LEGACY_PRO_YEARLY_LOOKUP_KEY,
+  PRO_PRICING_USD,
+  proBillingInterval,
+} from "@/services/billing/plans";
 import { AccountPlanBadge } from "../components/account-plan-badge";
 
 export const dynamic = "force-dynamic";
 
 type SearchParams = {
   billing?: string | string[];
+  interval?: string | string[];
 };
 
 type StripeSubscriptionRow = {
@@ -80,6 +92,9 @@ export default async function DashboardBillingPage({
     billingTeam ? hasTeamCustomerRow(billingTeam.id) : Promise.resolve(false),
   ]);
   const banner = billingBanner(Array.isArray(query?.billing) ? query?.billing[0] : query?.billing);
+  const interval = proBillingInterval(
+    Array.isArray(query?.interval) ? query.interval[0] : query?.interval,
+  );
   const isFreePlan = !status.isPro && !teamSubscription;
 
   return (
@@ -100,7 +115,7 @@ export default async function DashboardBillingPage({
       ) : null}
 
       {isFreePlan ? (
-        <FreePlanUpsell t={t} pricingT={pricingT} />
+        <FreePlanUpsell t={t} pricingT={pricingT} interval={interval} />
       ) : !status.isPro ? (
         <FreePlan t={t} />
       ) : subscription ? (
@@ -213,9 +228,11 @@ function FreePlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
 function FreePlanUpsell({
   t,
   pricingT,
+  interval,
 }: {
   t: Awaited<ReturnType<typeof getTranslations>>;
   pricingT: Awaited<ReturnType<typeof getTranslations>>;
+  interval: "month" | "year";
 }) {
   const proFeatures = visibleProFeatures({
     base: pricingT.raw("pro.features") as string[],
@@ -223,6 +240,17 @@ function FreePlanUpsell({
     hostedNetworking: pricingT.raw("pro.hostedNetworkingFeatures") as string[],
   });
   const teamFeatures = pricingT.raw("team.features") as string[];
+  const proPricing = PRO_PRICING_USD[interval];
+  const proCheckoutURL = withCheckoutInterval(PRO_CHECKOUT_URL, interval);
+  const proPrice = interval === "year"
+    ? `$${proPricing.monthlyEquivalent}`
+    : pricingT("pro.price");
+  const annualPriceDetail = interval === "year"
+    ? pricingT("annualPriceDetail", {
+        amount: PRO_PRICING_USD.year.billedAmount,
+        discount: PRO_PRICING_USD.year.discountPercent,
+      })
+    : undefined;
 
   return (
     <div className="space-y-3">
@@ -235,14 +263,43 @@ function FreePlanUpsell({
         <div className="mb-2">
           <h2 className="text-sm font-medium">{t("free.upsellTitle")}</h2>
           <p className="mt-1 max-w-2xl text-muted">{t("free.upsellBody")}</p>
+          <PricingIntervalSelector
+            interval={interval}
+            monthlyHref="?interval=month"
+            annualHref="?interval=year"
+            billingPeriodLabel={pricingT("billingPeriod")}
+            monthlyLabel={pricingT("monthly")}
+            annualLabel={pricingT("annual")}
+            savingsLabel={pricingT("saveAnnual", {
+              discount: PRO_PRICING_USD.year.discountPercent,
+            })}
+            surface="dashboard_billing"
+          />
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <PlanCard
             name={pricingT("pro.name")}
-            price={pricingT("pro.price")}
+            price={proPrice}
             period={pricingT("perMonth")}
+            priceDetail={annualPriceDetail}
           >
-            <PrimaryLink href={PRO_CHECKOUT_URL}>{pricingT("pro.cta")}</PrimaryLink>
+            <CheckoutButton
+              href={proCheckoutURL}
+              analytics={{
+                event: "cmuxterm_pro_cta_clicked",
+                properties: {
+                  location: "dashboard_billing",
+                  checkout: true,
+                  interval,
+                  currency: "usd",
+                  billed_amount_usd: proPricing.billedAmount,
+                  monthly_equivalent_usd: proPricing.monthlyEquivalent,
+                  discount_percent: proPricing.discountPercent,
+                },
+              }}
+            >
+              {pricingT("pro.cta")}
+            </CheckoutButton>
             <p className="mt-5 text-sm font-medium">{pricingT("pro.featuresLead")}</p>
             <FeatureList items={proFeatures} />
           </PlanCard>
@@ -344,6 +401,9 @@ function StripePlan({
         )}
 
         {canManageBilling ? (
+          // This API route creates a Stripe portal session and must perform a
+          // full document navigation rather than a Next.js client transition.
+          // eslint-disable-next-line @next/next/no-html-link-for-pages
           <a
             href="/api/billing/portal"
             className="border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
@@ -434,6 +494,9 @@ function TeamPlan({
         )}
 
         {canManageBilling ? (
+          // This API route creates a Stripe portal session and must perform a
+          // full document navigation rather than a Next.js client transition.
+          // eslint-disable-next-line @next/next/no-html-link-for-pages
           <a
             href="/api/billing/portal?scope=team"
             className="border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
@@ -463,8 +526,9 @@ function billingBanner(value: string | undefined) {
 
 function priceCopy(subscription: StripeSubscriptionRow): string | null {
   const lookupKey = priceLookupKey(subscription) ?? subscription.priceId;
-  if (lookupKey === "cmux-pro-monthly") return "$30/month";
-  if (lookupKey === "cmux-pro-yearly") return "$240/year";
+  if (lookupKey === PRO_PRICING_USD.month.lookupKey) return "$30/month";
+  if (lookupKey === LEGACY_PRO_YEARLY_LOOKUP_KEY) return "$240/year";
+  if (lookupKey === PRO_PRICING_USD.year.lookupKey) return "$288/year";
   return null;
 }
 

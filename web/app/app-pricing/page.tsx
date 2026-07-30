@@ -29,6 +29,11 @@ import {
   type SizeRow,
 } from "../components/pricing-shared";
 import { CheckoutButton } from "../components/checkout-navigation";
+import { PricingIntervalSelector } from "../components/pricing-interval-selector";
+import {
+  PRO_PRICING_USD,
+  proBillingInterval,
+} from "../../services/billing/plans";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const pricing = enMessages.pricing;
@@ -52,7 +57,14 @@ export default async function AppPricingPage({
     appPricingRequest(headersList),
   );
   const appStorePaymentGated = isAppStoreDistributionMode(params);
-  const proCheckoutURL = appPricingCheckoutURL("pro", requestOrigin, cmuxScheme);
+  const interval = proBillingInterval(firstParam(params.interval));
+  const proPricing = PRO_PRICING_USD[interval];
+  const proCheckoutURL = appPricingCheckoutURL(
+    "pro",
+    requestOrigin,
+    cmuxScheme,
+    interval,
+  );
   const teamCheckoutURL = appPricingCheckoutURL("team", requestOrigin, cmuxScheme);
   const banner = appPricingBanner(params);
   const appearance = appPricingAppearance(params);
@@ -65,6 +77,33 @@ export default async function AppPricingPage({
   const compareRows = visibleCompareRows(pricing.compare.rows as CompareRow[]);
   const sizeRows = pricing.sizes.rows as SizeRow[];
   const faqItems = visibleFaqItems(pricing.faq.items as FaqItem[]);
+  const annualPriceDetail = interval === "year"
+    ? pricingMessage(pricing.annualPriceDetail, {
+        amount: PRO_PRICING_USD.year.billedAmount,
+        discount: PRO_PRICING_USD.year.discountPercent,
+      })
+    : undefined;
+  const proPrice = interval === "year"
+    ? `$${proPricing.monthlyEquivalent}`
+    : pricing.pro.price;
+  const compareProPrice = interval === "year"
+    ? pricingMessage(pricing.annualComparePrice, {
+        monthly: PRO_PRICING_USD.year.monthlyEquivalent,
+        annual: PRO_PRICING_USD.year.billedAmount,
+      })
+    : `${pricing.pro.price}${pricing.perMonth}`;
+  const checkoutAnalytics = {
+    event: "cmuxterm_pro_cta_clicked",
+    properties: {
+      location: "app_pricing",
+      checkout: true,
+      interval,
+      currency: "usd",
+      billed_amount_usd: proPricing.billedAmount,
+      monthly_equivalent_usd: proPricing.monthlyEquivalent,
+      discount_percent: proPricing.discountPercent,
+    },
+  };
 
   return (
     <>
@@ -82,6 +121,18 @@ export default async function AppPricingPage({
           {banner ? <BillingBanner banner={banner} /> : null}
 
           <h1 className="text-2xl font-medium tracking-tight">{pricing.title}</h1>
+          <PricingIntervalSelector
+            interval={interval}
+            monthlyHref={appPricingIntervalHref(params, "month")}
+            annualHref={appPricingIntervalHref(params, "year")}
+            billingPeriodLabel={pricing.billingPeriod}
+            monthlyLabel={pricing.monthly}
+            annualLabel={pricing.annual}
+            savingsLabel={pricingMessage(pricing.saveAnnual, {
+              discount: PRO_PRICING_USD.year.discountPercent,
+            })}
+            surface="app_pricing"
+          />
 
           <div className="mt-10 grid items-stretch gap-5 md:grid-cols-2 lg:grid-cols-4">
             <PlanCard
@@ -109,8 +160,9 @@ export default async function AppPricingPage({
 
             <PlanCard
               name={pricing.pro.name}
-              price={pricing.pro.price}
+              price={proPrice}
               period={pricing.perMonth}
+              priceDetail={annualPriceDetail}
               badge={
                 snapshot.isPro ? (
                   <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
@@ -129,7 +181,12 @@ export default async function AppPricingPage({
               ) : appStorePaymentGated ? (
                 <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
               ) : (
-                <CheckoutButton href={proCheckoutURL}>{pricing.pro.cta}</CheckoutButton>
+                <CheckoutButton
+                  href={proCheckoutURL}
+                  analytics={checkoutAnalytics}
+                >
+                  {pricing.pro.cta}
+                </CheckoutButton>
               )}
               <p className="mt-5 text-sm font-medium">
                 {pricing.pro.featuresLead}
@@ -183,7 +240,7 @@ export default async function AppPricingPage({
               }}
               prices={{
                 free: pricing.free.price,
-                pro: `${pricing.pro.price}${pricing.perMonth}`,
+                pro: compareProPrice,
                 team: `${pricing.team.price}${pricing.perUserMonth}`,
                 enterprise: pricing.enterprise.price,
               }}
@@ -201,7 +258,17 @@ export default async function AppPricingPage({
                 ) : appStorePaymentGated ? (
                   <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
                 ) : (
-                  <CheckoutButton href={proCheckoutURL} size="compact">
+                  <CheckoutButton
+                    href={proCheckoutURL}
+                    size="compact"
+                    analytics={{
+                      ...checkoutAnalytics,
+                      properties: {
+                        ...checkoutAnalytics.properties,
+                        location: "app_pricing_compare_header",
+                      },
+                    }}
+                  >
                     {pricing.pro.cta}
                   </CheckoutButton>
                 ),
@@ -329,6 +396,33 @@ function appPricingBanner(
 function firstParam(value: string | string[] | undefined): string | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
+}
+
+function appPricingIntervalHref(
+  params: Record<string, string | string[] | undefined>,
+  interval: "month" | "year",
+): string {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) {
+      for (const item of value) next.append(key, item);
+    } else if (value !== undefined) {
+      next.set(key, value);
+    }
+  }
+  next.set("cmux_app", "1");
+  next.set("interval", interval);
+  return `?${next.toString()}`;
+}
+
+function pricingMessage(
+  message: string,
+  values: Record<string, string | number>,
+): string {
+  return message.replace(/\{(\w+)\}/g, (match, key: string) => {
+    const value = values[key];
+    return value === undefined ? match : String(value);
+  });
 }
 
 function BillingBanner({ banner }: { banner: BillingBannerModel }) {

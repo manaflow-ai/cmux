@@ -86,7 +86,8 @@ ensure_price() {
   local unit_amount="$2"
   local interval="$3"
   local nickname="$4"
-  local response price_id
+  local response price_id existing_amount existing_currency existing_interval
+  local existing_product existing_active
 
   response="$(
     stripe_get "/prices" \
@@ -96,6 +97,21 @@ ensure_price() {
   price_id="$(jq -r '.data[0].id // empty' <<<"$response")"
 
   if [[ -n "$price_id" ]]; then
+    existing_amount="$(jq -r '.data[0].unit_amount // empty' <<<"$response")"
+    existing_currency="$(jq -r '.data[0].currency // empty' <<<"$response")"
+    existing_interval="$(jq -r '.data[0].recurring.interval // empty' <<<"$response")"
+    existing_product="$(jq -r '.data[0].product // empty' <<<"$response")"
+    existing_active="$(jq -r '.data[0].active // false' <<<"$response")"
+    if [[
+      "$existing_amount" != "$unit_amount" ||
+      "$existing_currency" != "usd" ||
+      "$existing_interval" != "$interval" ||
+      "$existing_product" != "$product_id" ||
+      "$existing_active" != "true"
+    ]]; then
+      echo "Price ${lookup_key} exists with unexpected configuration: ${price_id}" >&2
+      exit 1
+    fi
     echo "Found price ${lookup_key}: ${price_id}"
     return 0
   fi
@@ -114,7 +130,10 @@ ensure_price() {
 }
 
 ensure_price "cmux-pro-monthly" "3000" "month" "cmux Pro Monthly"
-ensure_price "cmux-pro-yearly" "24000" "year" "cmux Pro Yearly"
+# Keep the original $240 annual Price active for existing subscribers. Stripe
+# Price amounts are immutable, so new annual checkouts use a new lookup key.
+ensure_price "cmux-pro-yearly" "24000" "year" "cmux Pro Yearly (Legacy)"
+ensure_price "cmux-pro-yearly-288" "28800" "year" "cmux Pro Yearly"
 
 webhooks_response="$(stripe_get "/webhook_endpoints" --data-urlencode "limit=100")"
 webhook_id="$(

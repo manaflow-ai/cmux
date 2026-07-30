@@ -96,13 +96,25 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Free");
     expect(html).toContain("You are currently on the Free plan.");
     expect(html).toContain("Upgrade when you need cloud agents or team billing.");
-    expect(html).toContain('href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1"');
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month"',
+    );
     expect(html).toContain('href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1"');
     expect(html).toContain("Get Pro");
     expect(html).toContain("Get Teams");
     expect(html).toContain('href="/dashboard/testflight"');
     expect(html).toContain("Join the iOS beta");
     expect(html).not.toContain("/api/billing/subscription");
+  });
+
+  test("renders annual Pro pricing from the billing upsell", async () => {
+    const html = await renderBillingPage({ interval: "year" });
+
+    expect(html).toContain("$24");
+    expect(html).toContain("Billed $288 annually · save 20%");
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year"',
+    );
   });
 
   test("renders active Stripe Pro with cancel and portal actions", async () => {
@@ -117,6 +129,25 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Cancel plan");
     expect(html).toContain('action="/api/billing/subscription"');
     expect(html).toContain('href="/api/billing/portal"');
+  });
+
+  test("labels new and grandfathered annual Stripe prices", async () => {
+    subscriptionRows = [
+      stripeSubscriptionRow({
+        cancelAtPeriodEnd: false,
+        lookupKey: "cmux-pro-yearly-288",
+      }),
+    ];
+    customerRows = [{ id: "cus_123" }];
+    expect(await renderBillingPage()).toContain("$288/year");
+
+    subscriptionRows = [
+      stripeSubscriptionRow({
+        cancelAtPeriodEnd: false,
+        lookupKey: "cmux-pro-yearly",
+      }),
+    ];
+    expect(await renderBillingPage()).toContain("$240/year");
   });
 
   test("renders pending cancellation with resume and end-date copy", async () => {
@@ -242,11 +273,13 @@ function stripeSubscriptionRow({
   plan = "pro",
   scope = "user",
   seats = null,
+  lookupKey = "cmux-pro-monthly",
 }: {
   cancelAtPeriodEnd: boolean;
   plan?: string;
   scope?: string;
   seats?: number | null;
+  lookupKey?: string;
 }) {
   return {
     id: "sub_123",
@@ -262,7 +295,7 @@ function stripeSubscriptionRow({
         data: [
           {
             price: {
-              lookup_key: "cmux-pro-monthly",
+              lookup_key: lookupKey,
             },
           },
         ],

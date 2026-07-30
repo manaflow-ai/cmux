@@ -1,13 +1,12 @@
 import Stripe from "stripe";
 
 import { env } from "../../app/env";
+import {
+  PRO_PRICING_USD,
+  type ProBillingInterval,
+} from "./plans";
 
-export type ProBillingInterval = "month" | "year";
-
-const PRO_PRICE_LOOKUP_KEYS: Record<ProBillingInterval, string> = {
-  month: "cmux-pro-monthly",
-  year: "cmux-pro-yearly",
-};
+export type { ProBillingInterval } from "./plans";
 const TEAM_PRICE_LOOKUP_KEY = "cmux-team-monthly";
 
 let stripeClient: Stripe | null = null;
@@ -37,7 +36,7 @@ export async function resolveProPrice(interval: ProBillingInterval): Promise<str
   const cached = resolvedPriceIds.get(interval);
   if (cached) return cached;
 
-  const lookupKey = PRO_PRICE_LOOKUP_KEYS[interval];
+  const lookupKey = PRO_PRICING_USD[interval].lookupKey;
   const prices = await stripe().prices.list({
     active: true,
     lookup_keys: [lookupKey],

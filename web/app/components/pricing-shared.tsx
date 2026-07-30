@@ -66,12 +66,14 @@ export function PlanCard({
   name,
   price,
   period,
+  priceDetail,
   badge,
   children,
 }: {
   name: string;
   price: string;
   period?: string;
+  priceDetail?: string;
   badge?: ReactNode;
   children: ReactNode;
 }) {
@@ -83,6 +85,9 @@ export function PlanCard({
         <span className="text-3xl font-medium tracking-tight">{price}</span>
         {period ? <span className="text-sm text-muted">{period}</span> : null}
       </div>
+      {priceDetail ? (
+        <p className="mt-1 text-xs text-muted">{priceDetail}</p>
+      ) : null}
       <div className="mt-6">{children}</div>
     </div>
   );

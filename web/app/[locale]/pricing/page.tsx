@@ -3,7 +3,11 @@ import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
 import { ProCtaLink } from "../components/pro-cta-link";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
-import { PRO_CHECKOUT_URL, TEAM_CHECKOUT_URL } from "../../lib/billing";
+import {
+  PRO_CHECKOUT_URL,
+  TEAM_CHECKOUT_URL,
+  withCheckoutInterval,
+} from "../../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { resolveProPlanStatus } from "../../../services/billing/pro";
@@ -35,6 +39,11 @@ import {
   type SizeRow,
 } from "../../components/pricing-shared";
 import { CheckoutButton } from "../../components/checkout-navigation";
+import { PricingIntervalSelector } from "../../components/pricing-interval-selector";
+import {
+  PRO_PRICING_USD,
+  proBillingInterval,
+} from "../../../services/billing/plans";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -77,12 +86,33 @@ export async function generateMetadata({
 
 export default async function PricingPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { locale } = await params;
+  const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
   const snapshot = await currentPlanSnapshot();
+  const interval = proBillingInterval(firstParam(query.interval));
+  const proPricing = PRO_PRICING_USD[interval];
+  const proCheckoutURL = withCheckoutInterval(PRO_CHECKOUT_URL, interval);
+  const annualPriceDetail = interval === "year"
+    ? t("annualPriceDetail", {
+        amount: PRO_PRICING_USD.year.billedAmount,
+        discount: PRO_PRICING_USD.year.discountPercent,
+      })
+    : undefined;
+  const proPrice = interval === "year"
+    ? `$${proPricing.monthlyEquivalent}`
+    : t("pro.price");
+  const compareProPrice = interval === "year"
+    ? t("annualComparePrice", {
+        monthly: PRO_PRICING_USD.year.monthlyEquivalent,
+        annual: PRO_PRICING_USD.year.billedAmount,
+      })
+    : `${t("pro.price")}${t("perMonth")}`;
 
   const freeFeatures = t.raw("free.features") as string[];
   const proBaseFeatures = t.raw("pro.features") as string[];
@@ -114,6 +144,18 @@ export default async function PricingPage({
 
         {/* Title */}
         <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
+        <PricingIntervalSelector
+          interval={interval}
+          monthlyHref="?interval=month"
+          annualHref="?interval=year"
+          billingPeriodLabel={t("billingPeriod")}
+          monthlyLabel={t("monthly")}
+          annualLabel={t("annual")}
+          savingsLabel={t("saveAnnual", {
+            discount: PRO_PRICING_USD.year.discountPercent,
+          })}
+          surface="public_pricing"
+        />
 
         {/* Tier cards */}
         <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
@@ -133,8 +175,9 @@ export default async function PricingPage({
           {/* Pro */}
           <PlanCard
             name={t("pro.name")}
-            price={t("pro.price")}
+            price={proPrice}
             period={t("perMonth")}
+            priceDetail={annualPriceDetail}
             badge={
               snapshot.isPro ? (
                 <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
@@ -149,7 +192,7 @@ export default async function PricingPage({
                 </SecondaryLink>
               </div>
             ) : (
-              <ProCtaLink checkoutHref={PRO_CHECKOUT_URL}>
+              <ProCtaLink checkoutHref={proCheckoutURL} interval={interval}>
                 {t("pro.cta")}
               </ProCtaLink>
             )}
@@ -197,7 +240,7 @@ export default async function PricingPage({
             }}
             prices={{
               free: t("free.price"),
-              pro: `${t("pro.price")}${t("perMonth")}`,
+              pro: compareProPrice,
               team: `${t("team.price")}${t("perUserMonth")}`,
               enterprise: t("enterprise.price"),
             }}
@@ -212,9 +255,10 @@ export default async function PricingPage({
                   <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
                 ) : (
                   <ProCtaLink
-                    checkoutHref={PRO_CHECKOUT_URL}
+                    checkoutHref={proCheckoutURL}
                     size="compact"
                     location="pricing_compare_header"
+                    interval={interval}
                   >
                     {t("pro.cta")}
                   </ProCtaLink>
@@ -310,4 +354,9 @@ async function currentPlanSnapshot(): Promise<{
 
   const status = await resolveProPlanStatus(user);
   return { isPro: status.isPro, billingManagement: status.billingManagement };
+}
+
+function firstParam(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
 }

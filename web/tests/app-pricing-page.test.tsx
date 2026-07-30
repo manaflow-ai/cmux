@@ -97,6 +97,27 @@ describe("app pricing page", () => {
     expect(html).not.toContain("/api/billing/portal");
   });
 
+  test("renders annual pricing and preserves native checkout context", async () => {
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_scheme: "cmux-dev-test",
+        appearance: "dark",
+        interval: "year",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("$24");
+    expect(html).toContain("Billed $288 annually · save 20%");
+    expect(html).toContain(
+      "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year",
+    );
+    expect(html).toContain(
+      "?cmux_app=1&amp;cmux_scheme=cmux-dev-test&amp;appearance=dark&amp;interval=month",
+    );
+  });
+
   test("removes external purchase links in App Store distribution mode", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({

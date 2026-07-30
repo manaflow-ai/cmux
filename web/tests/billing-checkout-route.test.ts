@@ -203,15 +203,25 @@ describe("billing checkout route", () => {
       mode: "subscription",
       line_items: [{ price: "price_month", quantity: 1 }],
       client_reference_id: "user-anonymous",
-      metadata: { stackUserId: "user-anonymous", plan: "pro", app: "cmux" },
+      metadata: {
+        stackUserId: "user-anonymous",
+        plan: "pro",
+        app: "cmux",
+        billingInterval: "month",
+      },
       subscription_data: {
-        metadata: { stackUserId: "user-anonymous", plan: "pro", app: "cmux" },
+        metadata: {
+          stackUserId: "user-anonymous",
+          plan: "pro",
+          app: "cmux",
+          billingInterval: "month",
+        },
       },
       allow_promotion_codes: true,
       customer_email: undefined,
       success_url:
         "https://cmux.test/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
-      cancel_url: "https://cmux.test/pricing?billing=cancelled",
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=month",
     });
   });
 
@@ -256,6 +266,9 @@ describe("billing checkout route", () => {
     expect(createdStripeSessions[0]).toMatchObject({
       customer_email: "signed@example.com",
       line_items: [{ price: "price_year", quantity: 1 }],
+      metadata: { billingInterval: "year" },
+      subscription_data: { metadata: { billingInterval: "year" } },
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
     });
   });
 
