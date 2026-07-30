@@ -844,6 +844,7 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: "",
             body: body,
             retargetsToLiveSurfaceOwner: true,
+            correlationKey: nil,
             resolvedHooks: []
         )
         return inFlightPolicyRequests.register(
@@ -911,6 +912,7 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: subtitle,
             body: body,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            correlationKey: cooldownKey,
             resolvedHooks: resolvedHooks
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
@@ -1074,6 +1076,7 @@ final class TerminalNotificationStore: ObservableObject {
         subtitle: String,
         body: String,
         retargetsToLiveSurfaceOwner: Bool,
+        correlationKey: String?,
         resolvedHooks: [CmuxResolvedNotificationHook]?
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
@@ -1089,11 +1092,8 @@ final class TerminalNotificationStore: ObservableObject {
         let cwd = workspace?.surfaceTabBarDirectory
             ?? workspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let panelId: UUID? = surfaceId.flatMap { surfaceId in
-            if workspace?.panels[surfaceId] != nil {
-                return surfaceId
-            }
-            return workspace?.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+        let panelId = surfaceId.flatMap {
+            workspace?.surfaceOwnershipTarget(for: $0)?.containerPanelID
         }
         let scrollPosition: TerminalNotificationScrollPosition?
         if surfaceId != nil {
@@ -1112,6 +1112,7 @@ final class TerminalNotificationStore: ObservableObject {
                 surfaceId: surfaceId,
                 panelId: panelId,
                 retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+                correlationKey: correlationKey,
                 title: title,
                 subtitle: subtitle,
                 body: body,
@@ -1141,6 +1142,7 @@ final class TerminalNotificationStore: ObservableObject {
                 surfaceId: request.surfaceId,
                 panelId: request.panelId,
                 retargetsToLiveSurfaceOwner: request.retargetsToLiveSurfaceOwner,
+                correlationKey: request.correlationKey,
                 title: payload.title,
                 subtitle: payload.subtitle,
                 body: payload.body,
@@ -1176,6 +1178,7 @@ final class TerminalNotificationStore: ObservableObject {
             surfaceId: request.surfaceId,
             panelId: request.panelId,
             retargetsToLiveSurfaceOwner: request.retargetsToLiveSurfaceOwner,
+            correlationKey: request.correlationKey,
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
@@ -1662,6 +1665,15 @@ final class TerminalNotificationStore: ObservableObject {
         emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: supersededDrained)
     }
 
+    func clearNotifications(forTabId tabId: UUID, correlationKey: String) {
+        inFlightPolicyRequests.discard(forTabId: tabId, correlationKey: correlationKey)
+        let ids = notifications.compactMap {
+            $0.tabId == tabId && $0.correlationKey == correlationKey ? $0.id : nil
+        }
+        ids.forEach(remove)
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: ids.map(\.uuidString))
+    }
+
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
         TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId)
 
@@ -1711,6 +1723,7 @@ final class TerminalNotificationStore: ObservableObject {
             surfaceId: notification.surfaceId,
             panelId: notification.panelId,
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
+            correlationKey: notification.correlationKey,
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
@@ -1815,6 +1828,7 @@ final class TerminalNotificationStore: ObservableObject {
                 tabId: destinationTabId,
                 surfaceId: notification.surfaceId,
                 panelId: notification.panelId,
+                correlationKey: notification.correlationKey,
                 title: notification.title,
                 subtitle: notification.subtitle,
                 body: notification.body,

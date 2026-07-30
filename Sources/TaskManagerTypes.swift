@@ -429,69 +429,6 @@ struct CmuxTaskManagerMemoryDiagnostic: Sendable {
     }
 }
 
-struct CmuxTaskManagerMemoryGroup: Sendable {
-    let id: String
-    let name: String
-    let rssBytes: Int64
-    let processCount: Int
-    let processIds: [Int]
-    let topAttribution: CmuxTaskManagerMemoryAttribution?
-
-    init?(_ payload: [String: Any]) {
-        guard let name = CmuxTaskManagerMemoryDiagnostic.string(payload["name"]) else {
-            return nil
-        }
-        let processCount = CmuxTaskManagerMemoryDiagnostic.int(payload["process_count"]) ?? 0
-        guard processCount > 0 else { return nil }
-        self.id = CmuxTaskManagerMemoryDiagnostic.string(payload["id"]) ?? name.lowercased()
-        self.name = name
-        self.rssBytes = CmuxTaskManagerMemoryDiagnostic.int64(payload["rss_bytes"])
-        self.processCount = processCount
-        self.processIds = CmuxTaskManagerMemoryDiagnostic.intArray(payload["pids"])
-        self.topAttribution = CmuxTaskManagerMemoryAttribution(payload["top_attribution"] as? [String: Any])
-    }
-}
-
-struct CmuxTaskManagerMemoryAttribution: Sendable {
-    let workspaceId: UUID?
-    let workspaceRef: String?
-    let paneId: UUID?
-    let paneRef: String?
-    let surfaceId: UUID?
-    let surfaceRef: String?
-    let surfaceType: String?
-
-    init?(_ payload: [String: Any]?) {
-        guard let payload else { return nil }
-        self.workspaceId = Self.uuid(payload["workspace_id"])
-        self.workspaceRef = CmuxTaskManagerMemoryDiagnostic.string(payload["workspace_ref"])
-        self.paneId = Self.uuid(payload["pane_id"])
-        self.paneRef = CmuxTaskManagerMemoryDiagnostic.string(payload["pane_ref"])
-        self.surfaceId = Self.uuid(payload["surface_id"])
-        self.surfaceRef = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_ref"])
-        self.surfaceType = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_type"])
-        if workspaceId == nil,
-           workspaceRef == nil,
-           paneId == nil,
-           paneRef == nil,
-           surfaceId == nil,
-           surfaceRef == nil,
-           surfaceType == nil {
-            return nil
-        }
-    }
-
-    private static func uuid(_ raw: Any?) -> UUID? {
-        if let value = raw as? UUID {
-            return value
-        }
-        guard let value = CmuxTaskManagerMemoryDiagnostic.string(raw) else {
-            return nil
-        }
-        return UUID(uuidString: value)
-    }
-}
-
 enum CmuxTaskManagerFormat {
     private static let isoFormatter = ISO8601DateFormatter()
     private static let timeFormatter: DateFormatter = {

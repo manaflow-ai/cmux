@@ -169,9 +169,12 @@ cleanup() {
   pkill -f "cmux DEV ${SLUG}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
   if [[ "$PRODUCTION" -eq 1 ]]; then
     # Production uses a disposable account and must remove its local tokens.
+    # The endpoint key and verified-policy cache live outside the ordinary
+    # tagged app support directory, so clear that exact tagged identity too.
     # Staging keeps its tagged state so a failed gate remains inspectable and a
     # later --skip-build run can reuse the same authenticated build.
     rm -rf "$HOME/Library/Application Support/cmux/$MAC_BUNDLE_ID"
+    rm -rf "$HOME/Library/Application Support/cmux/iroh-debug/$MAC_BUNDLE_ID"
     security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-access-token >/dev/null 2>&1 || true
     security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-refresh-token >/dev/null 2>&1 || true
   fi
@@ -304,6 +307,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       ./ios/scripts/reload.sh \
         --tag "$TAG" \
         --simulator "$SIMULATOR_NAME" \
+        --simulator-id "$SIMULATOR_ID" \
         --prod-auth \
         --no-launch
   else
@@ -315,6 +319,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       ./ios/scripts/reload.sh \
         --tag "$TAG" \
         --simulator "$SIMULATOR_NAME" \
+        --simulator-id "$SIMULATOR_ID" \
         --no-launch
   fi
 else
@@ -323,6 +328,64 @@ else
 fi
 
 [[ -d "$MAC_APP" ]] || { echo "error: tagged Mac app is missing: $MAC_APP" >&2; exit 1; }
+
+if [[ "$PRODUCTION" -eq 1 ]]; then
+  PRODUCTION_RELAY_POLICY_XCCONFIG="$REPO_ROOT/config/IrohRelayPolicyProduction.xcconfig"
+  MAC_INFO_PLIST="$MAC_APP/Contents/Info.plist"
+  IOS_INFO_PLIST="$IOS_APP/Info.plist"
+  PRODUCTION_RELAY_POLICY_XCCONFIG="$PRODUCTION_RELAY_POLICY_XCCONFIG" \
+  MAC_INFO_PLIST="$MAC_INFO_PLIST" \
+  IOS_INFO_PLIST="$IOS_INFO_PLIST" \
+  /usr/bin/python3 <<'PY'
+import os
+import plistlib
+
+setting_names = (
+    "CMUX_IROH_RELAY_POLICY_KEY_ID",
+    "CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64",
+    "CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID",
+    "CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64",
+)
+settings = {}
+with open(os.environ["PRODUCTION_RELAY_POLICY_XCCONFIG"], encoding="utf-8") as handle:
+    for raw_line in handle:
+        line = raw_line.strip()
+        if not line or line.startswith("//") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        settings[key.strip()] = value.strip()
+
+missing = [name for name in setting_names if not settings.get(name)]
+if missing:
+    raise SystemExit("production relay-policy build profile is incomplete")
+
+expected_trust = [
+    {
+        "keyID": settings["CMUX_IROH_RELAY_POLICY_KEY_ID"],
+        "publicKeyBase64": settings["CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64"],
+    },
+    {
+        "keyID": settings["CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID"],
+        "publicKeyBase64": settings["CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64"],
+    },
+]
+
+for label, environment_name in (
+    ("Mac", "MAC_INFO_PLIST"),
+    ("iOS", "IOS_INFO_PLIST"),
+):
+    with open(os.environ[environment_name], "rb") as handle:
+        info = plistlib.load(handle)
+    if info.get("CMUXIrohRelayPolicyKeyID") != expected_trust[0]["keyID"]:
+        raise SystemExit(f"{label} production gate app has the wrong relay-policy key ID")
+    if info.get("CMUXIrohRelayPolicyPublicKeyBase64") != expected_trust[0]["publicKeyBase64"]:
+        raise SystemExit(f"{label} production gate app has the wrong relay-policy public key")
+    if info.get("CMUXIrohRelayPolicyTrustKeys") != expected_trust:
+        raise SystemExit(f"{label} production gate app has the wrong relay-policy trust set")
+
+print("==> production relay-policy pins verified in Mac and iOS build artifacts")
+PY
+fi
 
 # Both endpoints read the mode before constructing their Iroh endpoint. Write
 # after installation so a fresh simulator app container cannot replace it.

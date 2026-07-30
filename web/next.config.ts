@@ -167,6 +167,7 @@ const nextConfig: NextConfig = {
       "./app/**/assets/landing-image.png",
       "./public/logo.png",
     ],
+    "**/browser-opengraph-image": ["./public/logo.png"],
   },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +
