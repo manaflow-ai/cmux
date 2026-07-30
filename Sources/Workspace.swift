@@ -1722,6 +1722,9 @@ extension Workspace {
                     // Deliberate exits are excluded above: SessionEnd marks the
                     // hook record non-restorable, so they have no restorable
                     // entry and keep today's plain-shell restore.
+                    cmuxAgentRestoreLogger.info(
+                        "restore.park panel=\(String(terminalPanel.id.uuidString.prefix(5)), privacy: .public) kind=\(restorableAgent.kind.rawValue, privacy: .public) session=\(String(restorableAgent.sessionId.prefix(8)), privacy: .public)"
+                    )
                     terminalPanel.enterAgentHibernation(
                         agent: restorableAgent,
                         lastActivityAt: Date()
@@ -4889,12 +4892,18 @@ final class Workspace: Identifiable, ObservableObject {
                 kind: hibernatedAgent.kind,
                 sessionId: hibernatedAgent.sessionId
             ) {
+                cmuxAgentRestoreLogger.info(
+                    "wake.blocked.liveProcess panel=\(String(panelId.uuidString.prefix(5)), privacy: .public) session=\(String(hibernatedAgent.sessionId.prefix(8)), privacy: .public)"
+                )
                 return false
             }
             guard AgentResumeLaunchGuard.shared.claimResumeLaunch(
                 kind: hibernatedAgent.kind.rawValue,
                 sessionId: hibernatedAgent.sessionId
             ) else {
+                cmuxAgentRestoreLogger.info(
+                    "wake.blocked.claimHeld panel=\(String(panelId.uuidString.prefix(5)), privacy: .public) session=\(String(hibernatedAgent.sessionId.prefix(8)), privacy: .public)"
+                )
                 return false
             }
         }
@@ -4906,7 +4915,15 @@ final class Workspace: Identifiable, ObservableObject {
                     sessionId: hibernatedAgent.sessionId
                 )
             }
+            cmuxAgentRestoreLogger.error(
+                "wake.prepareFailed panel=\(String(panelId.uuidString.prefix(5)), privacy: .public)"
+            )
             return false
+        }
+        if let hibernatedAgent {
+            cmuxAgentRestoreLogger.info(
+                "wake.fired panel=\(String(panelId.uuidString.prefix(5)), privacy: .public) session=\(String(hibernatedAgent.sessionId.prefix(8)), privacy: .public) queuedInput=\(preparation.queuedStartupInput, privacy: .public)"
+            )
         }
         if restoredAgentSnapshotsByPanelId[panelId] != nil {
             restoredAgentResumeStatesByPanelId[panelId] = preparation.queuedStartupInput
