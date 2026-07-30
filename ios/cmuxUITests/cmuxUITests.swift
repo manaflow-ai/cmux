@@ -399,6 +399,10 @@ final class cmuxUITests: XCTestCase {
             workspacesTab.frame.minY + 1,
             "The last workspace row \(lastRow.frame) must clear the bottom toolbar \(workspacesTab.frame)."
         )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-list-bottom-edge-clear-of-tab-bar"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor

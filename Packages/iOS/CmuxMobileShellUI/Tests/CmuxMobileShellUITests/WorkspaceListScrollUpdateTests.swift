@@ -6,15 +6,15 @@ import UIKit
 
 @MainActor
 @Suite struct WorkspaceListScrollUpdateTests {
-    @Test func workspaceTableUsesNativeBarSizedScrollEdgeEffectsAndExplicitInsets() {
+    @Test func workspaceTableUsesCompactBottomScrollEdgeEffectAndExplicitInsets() {
         guard #available(iOS 26.0, *) else { return }
 
         let tableView = makeTableView()
 
         #expect(tableView.topEdgeEffect.style == .soft)
         #expect(
-            tableView.bottomEdgeEffect.style == .automatic,
-            "UIKit must size the automatic bottom effect to the tab bar instead of applying a full soft fade."
+            tableView.bottomEdgeEffect.style == .hard,
+            "The bottom effect must use the compact native cutoff at the tab bar instead of fading through accessory buttons."
         )
         #expect(tableView.contentInsetAdjustmentBehavior == .never)
     }
