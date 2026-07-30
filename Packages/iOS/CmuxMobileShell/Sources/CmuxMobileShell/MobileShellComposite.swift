@@ -3189,7 +3189,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mac.macDeviceID == macDeviceID
                 && (instanceTag == nil || mac.instanceTag == instanceTag)
         }
-        guard let refreshedTarget = storeMacs.first(where: matchesTarget) else {
+        let targetMatches = storeMacs.filter(matchesTarget)
+        // A device-only request against MULTIPLE stored sibling builds is
+        // ambiguous: the store orders by recency, not build authority, so
+        // dialing `first` could disconnect the current focus in favor of an
+        // arbitrary sibling. Fail the switch; pairing-aware callers pass the
+        // tag, and legacy device-only entry points must not guess.
+        if instanceTag == nil,
+           Set(targetMatches.map(MacPairingKey.init)).count > 1 {
+            mobileShellLog.error(
+                "switchToMac: device-only request is ambiguous across stored sibling builds mac=\(macDeviceID, privacy: .public)"
+            )
+            return false
+        }
+        guard let refreshedTarget = targetMatches.first else {
             if !hasActiveMacConnection,
                await restorePreviousMacIfNeeded(macSwitchRestoreBaseline, switchAttemptID: switchAttemptID) {
                 macSwitchRestoreBaseline = nil
@@ -5204,7 +5217,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         scheduleSecondaryNotificationFeedRefresh(
-            macDeviceID: subscription.macDeviceID,
+            macDeviceID: subscription.ownerKey.pairingID,
             client: subscription.client,
             displayName: displayName
         )
@@ -7357,7 +7370,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
             return
         }
-        guard let workspaceID = workspaceID(containingSurfaceID: surfaceID) else { return }
+        guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
         let enqueueResult = rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
@@ -7407,7 +7420,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let text = String(data: data, encoding: .utf8) else {
             return
         }
-        guard let workspaceID = workspaceID(containingSurfaceID: surfaceID) else { return }
+        guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
         await enqueueTerminalRawInputAwaitingDrain(
             text,
             workspaceID: workspaceID,

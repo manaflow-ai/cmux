@@ -386,12 +386,17 @@ extension MobileShellComposite {
                 instanceTag: connectedMacInstanceTag
             )
         }
-        // With a live foreground identity, only hiding that EXACT pairing may
-        // disconnect it: stored `isActive` persists asynchronously after
-        // promotion, so a stale active row for the previous sibling must not
-        // tear down the build that is actually foreground now.
-        let isActiveMac = foregroundPairingID.map(targetPairingIDs.contains)
-            ?? targets.contains(where: \.isActive)
+        // With a live foreground identity whose TAG is known, only hiding that
+        // EXACT pairing may disconnect it: stored `isActive` persists
+        // asynchronously after promotion, so a stale active row for the
+        // previous sibling must not tear down the build that is actually
+        // foreground now. Without a proven live tag the bare device pairing
+        // cannot name a build, so stored `isActive` remains the authority.
+        let isActiveMac = foregroundPairingID.map { pairingID in
+            targetPairingIDs.contains(pairingID)
+                || (macInstanceTagAuthority.normalize(connectedMacInstanceTag) == nil
+                    && targets.contains(where: \.isActive))
+        } ?? targets.contains(where: \.isActive)
         if isActiveMac {
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }

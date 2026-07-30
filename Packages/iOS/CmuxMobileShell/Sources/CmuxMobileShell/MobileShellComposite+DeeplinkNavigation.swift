@@ -106,19 +106,31 @@ extension CMUXMobileShellStore {
 
     /// The workspace whose terminal list contains `terminalID`, if any.
     /// Terminal lanes exist only on the foreground connection, so this
-    /// internal convenience scopes by the authoritative foreground pairing
-    /// first: a sibling build's colliding surface id must neither shadow the
-    /// live terminal's row nor nil it out through the ambiguity check below.
+    /// internal convenience scopes by the authoritative foreground pairing:
+    /// a sibling build's colliding surface id must neither shadow the live
+    /// terminal's row nor nil it out through the ambiguity check below. When
+    /// foreground identity is known, a miss is authoritative — falling back to
+    /// a global search could resolve a sibling's retained snapshot and route
+    /// terminal commands to the wrong build's workspace id.
     func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
-        if let foregroundMacDeviceID,
-           let scoped = workspaceID(
-               forTerminalID: terminalID,
-               macDeviceID: foregroundMacDeviceID,
-               instanceTag: activeMacInstanceTag
-           ) {
+        guard let foregroundMacDeviceID else {
+            return workspaceID(forTerminalID: terminalID, macDeviceID: nil)
+        }
+        if let scoped = workspaceID(
+            forTerminalID: terminalID,
+            macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag
+        ) {
             return scoped
         }
-        return workspaceID(forTerminalID: terminalID, macDeviceID: nil)
+        // Unowned rows (anonymous seeding, pre-stamp identity transitions) are
+        // foreground-owned by construction — sibling snapshots are always
+        // stamped with their device and tag — so they stay reachable without
+        // reopening the global fallback that could resolve a sibling's row.
+        return workspaces.first { workspace in
+            workspace.macDeviceID == nil
+                && workspace.terminals.contains(where: { $0.id.rawValue == terminalID })
+        }?.id
     }
 
     /// The workspace owned by `macDeviceID` whose terminal list contains
@@ -153,19 +165,29 @@ extension CMUXMobileShellStore {
         }
         // Sibling builds can reuse Mac-local surface ids; a tag-less lookup
         // that matches two builds of one device fails closed rather than
-        // deep-linking into the wrong instance.
+        // deep-linking into the wrong instance. The single-match fast path
+        // (the overwhelmingly common case) tracks only the first owner and
+        // allocates no sets.
         var firstMatchID: MobileWorkspacePreview.ID?
+        var firstOwner: MacPairingKey?
         var owners: Set<MacPairingKey> = []
         var ownerDevices: Set<String> = []
         for workspace in workspaces where matches(workspace) {
-            if firstMatchID == nil { firstMatchID = workspace.id }
-            guard let owner = workspace.macDeviceID else { continue }
-            let key = MacPairingKey(
-                macDeviceID: owner,
-                instanceTag: workspace.macInstanceTag
-            )
-            if owners.insert(key).inserted,
-               !ownerDevices.insert(key.canonicalMacDeviceID).inserted {
+            let owner = workspace.macDeviceID.map {
+                MacPairingKey(macDeviceID: $0, instanceTag: workspace.macInstanceTag)
+            }
+            if firstMatchID == nil {
+                firstMatchID = workspace.id
+                firstOwner = owner
+                continue
+            }
+            if owners.isEmpty, let firstOwner {
+                owners.insert(firstOwner)
+                ownerDevices.insert(firstOwner.canonicalMacDeviceID)
+            }
+            guard let owner else { continue }
+            if owners.insert(owner).inserted,
+               !ownerDevices.insert(owner.canonicalMacDeviceID).inserted {
                 return nil
             }
         }
