@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavior tests for the stored DispatchWorkItem ownership scanner."""
+"""Behavior tests for the deferred-action handle ownership scanner."""
 
 from __future__ import annotations
 
