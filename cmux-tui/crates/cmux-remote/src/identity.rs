@@ -2011,6 +2011,60 @@ mod tests {
         .expect("the state lease remained held after persistence completed");
     }
 
+    #[test]
+    fn auth_state_lease_outlives_runtime_shutdown_during_a_blocking_write() {
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let hooks = runtime.block_on(async {
+            let database = AuthDatabase::load_or_create(temp.path(), "first", false).unwrap();
+            let hooks = database.persistence.hooks.clone();
+            hooks.block();
+            tokio::spawn({
+                let database = database.clone();
+                async move {
+                    let _ = database.create_invitation(Duration::from_secs(60), Vec::new()).await;
+                }
+            });
+            tokio::time::timeout(Duration::from_secs(1), hooks.wait_for_started(1))
+                .await
+                .expect("persistence writer did not start");
+            drop(database);
+            hooks
+        });
+        let blocked = PersistenceReleaseGuard(hooks);
+
+        runtime.shutdown_timeout(Duration::from_millis(10));
+        let successor = AuthDatabase::load_or_create(temp.path(), "successor", false);
+        assert!(
+            matches!(
+                successor,
+                Err(IdentityError::Io(error))
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+            ),
+            "runtime shutdown released the state lease while its blocking write was still running"
+        );
+
+        drop(blocked);
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            match AuthDatabase::load_or_create(temp.path(), "successor", false) {
+                Ok(_) => break,
+                Err(IdentityError::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "the state lease remained held after the blocking write completed"
+                    );
+                    std::thread::yield_now();
+                }
+                Err(error) => panic!("successor failed after persistence completed: {error}"),
+            };
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn identity_creation_waits_for_the_path_lock() {
