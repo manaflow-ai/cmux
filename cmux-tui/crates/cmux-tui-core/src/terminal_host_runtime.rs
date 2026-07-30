@@ -328,6 +328,8 @@ mod unix {
     const HOST_PROCESS_REAPER_POLL: Duration = Duration::from_millis(25);
     const HOST_PROCESS_REAPER_RETRY_MAX: Duration = Duration::from_secs(1);
     const MAX_TERMINAL_HOST_RECORD_BYTES: usize = MAX_LAUNCH_PAYLOAD;
+    const MAX_TERMINAL_HOST_RECORDS: usize = 4_096;
+    const TERMINAL_HOST_RECORD_SCAN_TIMEOUT: Duration = Duration::from_secs(2);
     static HOST_PROCESS_REAPER: OnceLock<Mutex<Option<HostProcessReaper>>> = OnceLock::new();
     #[cfg(test)]
     static HOST_REAP_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -1808,35 +1810,12 @@ mod unix {
     pub fn load_terminal_host_records(
         root: &Path,
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
-        let mut records = Vec::new();
-        let mut identities = HashSet::new();
-        let entries = match fs::read_dir(root) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
-            Err(error) => return Err(error.into()),
-        };
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            let bytes = match fs::read(&path) {
-                Ok(bytes) => bytes,
-                Err(_) => continue,
-            };
-            let Ok(record) = serde_json::from_slice::<TerminalHostRecord>(&bytes) else {
-                continue;
-            };
-            if validate_terminal_host_record(&path, &record).is_err()
-                || !identities.insert((record.terminal_id.clone(), record.incarnation.clone()))
-            {
-                continue;
-            }
-            records.push((path, record));
-        }
-        records.sort_by(|left, right| left.0.cmp(&right.0));
-        Ok(records)
+        load_terminal_host_records_until(
+            root,
+            MAX_TERMINAL_HOST_RECORDS,
+            Instant::now() + TERMINAL_HOST_RECORD_SCAN_TIMEOUT,
+            TerminalHostRecordLoadMode::Tolerant,
+        )
     }
 
     /// Load every discovery record without omission. Adoption tolerates
@@ -1847,9 +1826,30 @@ mod unix {
         max_records: usize,
         deadline: Instant,
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        load_terminal_host_records_until(
+            root,
+            max_records,
+            deadline,
+            TerminalHostRecordLoadMode::Strict,
+        )
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum TerminalHostRecordLoadMode {
+        Tolerant,
+        Strict,
+    }
+
+    fn load_terminal_host_records_until(
+        root: &Path,
+        max_records: usize,
+        deadline: Instant,
+        mode: TerminalHostRecordLoadMode,
+    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
         ensure_terminal_host_scan_before(deadline)?;
         let mut records = Vec::new();
         let mut identities = HashSet::new();
+        let mut candidates = 0usize;
         let entries = match fs::read_dir(root) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
@@ -1862,18 +1862,27 @@ mod unix {
             if path.extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            if records.len() >= max_records {
-                anyhow::bail!(
-                    "terminal-host record count exceeds shutdown owner capacity {max_records}"
-                );
+            candidates = candidates.saturating_add(1);
+            if candidates > max_records {
+                anyhow::bail!("terminal-host record count exceeds capacity {max_records}");
             }
-            let record = read_terminal_host_record_until(&path, deadline)?;
+            let record = match read_terminal_host_record_until(&path, deadline) {
+                Ok(record) => record,
+                Err(_) if mode == TerminalHostRecordLoadMode::Tolerant => {
+                    ensure_terminal_host_scan_before(deadline)?;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             if !identities.insert((record.terminal_id.clone(), record.incarnation.clone())) {
-                anyhow::bail!(
-                    "duplicate terminal-host identity {}:{}",
-                    record.terminal_id,
-                    record.incarnation
-                );
+                if mode == TerminalHostRecordLoadMode::Strict {
+                    anyhow::bail!(
+                        "duplicate terminal-host identity {}:{}",
+                        record.terminal_id,
+                        record.incarnation
+                    );
+                }
+                continue;
             }
             records.push((path, record));
         }
