@@ -101,6 +101,41 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func freshManagementClientUsesRetainedBindingProof() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: Self.discoveryResponse),
+        ])
+        let authorization = try CmxIrohBindingRequestAuthorization(
+            bindingID: Self.bindingID,
+            identity: identityMaterial(),
+            endpointID: CmxIrohPeerIdentity(endpointID: Self.endpointID)
+        )
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: Self.tokenSource,
+            clientNamespace: "dev.cmux.app.internal",
+            bindingAuthorization: authorization,
+            transport: transport
+        )
+
+        _ = try await client.discover()
+
+        let request = try #require(await transport.requests().first)
+        #expect(
+            request.value(forHTTPHeaderField: "X-Cmux-App-Namespace")
+                == "dev.cmux.app.internal"
+        )
+        #expect(
+            request.value(forHTTPHeaderField: "X-Cmux-Iroh-Binding-ID")
+                == Self.bindingID
+        )
+        #expect(
+            request.value(forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature")?
+                .count == 86
+        )
+    }
+
+    @Test
     func issuedRegistrationBuildsTheExactManagedRelayFleet() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 201, body: Self.registrationResponse),
@@ -464,12 +499,18 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     private func registrationSigner() throws -> CmxIrohRegistrationSigner {
+        try CmxIrohRegistrationSigner(
+            identity: identityMaterial(),
+            endpointID: Self.endpointID
+        )
+    }
+
+    private func identityMaterial() throws -> CmxIrohIdentityMaterial {
         let secret = try CmxIrohSecretKey(bytes: Data((0 ..< 32).map(UInt8.init)))
-        let material = try CmxIrohIdentityMaterial(
+        return try CmxIrohIdentityMaterial(
             secretKey: secret,
             generation: 1
         )
-        return try CmxIrohRegistrationSigner(identity: material, endpointID: Self.endpointID)
     }
 
     private func registrationPayload() throws -> CmxIrohRegistrationPayload {

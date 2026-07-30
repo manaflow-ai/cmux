@@ -101,6 +101,11 @@ beforeEach(async () => {
 });
 
 describe("notifications push route", () => {
+  test("uses bundle and account limits for exact and legacy senders", () => {
+    expect(pushRoute.notificationPushTargetLimit("dev.cmux.app.internal")).toBe(10);
+    expect(pushRoute.notificationPushTargetLimit()).toBe(100);
+  });
+
   test("applies the Vercel user limiter before body parsing or DB access", async () => {
     const response = await pushRoute.POST(
       new Request("https://cmux.test/api/notifications/push", {

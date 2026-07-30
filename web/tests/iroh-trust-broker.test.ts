@@ -415,6 +415,77 @@ describe("Iroh discovery and grants", () => {
     expect(legacy.revokedAt).toEqual(NOW);
   });
 
+  test("a reincarnated slot can finish an already-completed revocation", async () => {
+    const fixture = makeFixture({
+      registrationClientNamespace: "dev.cmux.app.internal",
+    });
+    const current = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      appInstanceId: fixture.appInstanceId,
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "stable",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const retiredAt = new Date(NOW.getTime() - 60_000);
+    const retired = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      appInstanceId: randomUUID(),
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "stable",
+      platform: "ios",
+      revokedAt: retiredAt,
+    });
+    fixture.repository.bindings.push(current, retired);
+    const body = { bindingId: retired.id };
+
+    const result = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      body,
+      NOW,
+      "dev.cmux.app.internal",
+      fixture.bindingProof(
+        current.id,
+        "DELETE",
+        "api/devices/iroh",
+        body,
+      ),
+    ));
+
+    expect(result).toEqual({
+      revoked: true,
+      lan_rendezvous_rotated: true,
+    });
+    expect(retired.revokedAt).toEqual(retiredAt);
+  });
+
+  test("a binding proof cannot claim another app namespace", async () => {
+    const fixture = makeFixture();
+    const current = binding({
+      userId: USER_A,
+      clientNamespace: "dev.cmux.app.internal",
+      endpointId: fixture.endpointId,
+    });
+    fixture.repository.bindings.push(current);
+
+    await expectEffectFailure(
+      fixture.broker.discover(
+        USER_A,
+        NOW,
+        "dev.cmux.app.demo",
+        fixture.bindingProof(
+          current.id,
+          "GET",
+          "api/devices/iroh",
+          undefined,
+        ),
+      ),
+      "IrohNotFoundError",
+    );
+  });
+
   test("never exposes another user through shared team context", async () => {
     const fixture = makeFixture();
     await Effect.runPromise(fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW));
@@ -1120,15 +1191,23 @@ class MemoryRepository implements IrohRepositoryShape {
         candidate.id === input.authorizedBindingId
         && candidate.userId === input.userId
         && !candidate.revokedAt);
-      const sameOwnedSlot = authorized
+      const sameDurableSlot = authorized
         && authorized.deviceUuid === row.deviceUuid
-        && authorized.appInstanceId === row.appInstanceId
         && authorized.tag === row.tag
         && authorized.platform === row.platform
         && (
           authorized.clientNamespace === row.clientNamespace
           || row.clientNamespace === "legacy"
         );
+      if (
+        row.revokedAt
+        && authorized
+        && (authorized.id === row.id || sameDurableSlot)
+      ) {
+        return Effect.succeed(true);
+      }
+      const sameOwnedSlot = sameDurableSlot
+        && authorized?.appInstanceId === row.appInstanceId;
       if (!authorized || (authorized.id !== row.id && !sameOwnedSlot)) {
         return Effect.succeed(false);
       }

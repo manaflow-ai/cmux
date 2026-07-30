@@ -549,7 +549,7 @@ struct MobileIrohRuntimeCompositionTests {
                 )
             ),
             endpointFactory: MobileIrohNeverEndpointFactory(),
-            brokerFactory: { _ in throw TestCompositionError.unavailable },
+            brokerFactory: { _, _ in throw TestCompositionError.unavailable },
             deviceID: { "123e4567-e89b-42d3-a456-426614174040" },
             tag: "test",
             now: { Date(timeIntervalSince1970: 1_000) },
@@ -1238,7 +1238,7 @@ private struct MobileIrohSignOutFixture {
                 endpointFactoryModes.record(mode)
                 return endpointFactory
             },
-            brokerFactory: { _ in broker },
+            brokerFactory: { _, _ in broker },
             deviceID: { resolvableDeviceID ? stableDeviceID : nil },
             tag: tag,
             now: { Date(timeIntervalSince1970: 1_000) },
