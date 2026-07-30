@@ -763,6 +763,7 @@ enum SurfaceResumeCommandCanonicalizer {
         let scalars = raw.unicodeScalars
         var index = scalars.startIndex
         var quote: UnicodeScalar?
+        var isAtTokenStart = true
 
         while index < scalars.endIndex {
             let scalar = scalars[index]
@@ -790,6 +791,7 @@ enum SurfaceResumeCommandCanonicalizer {
                 continue
             }
             if scalar == "\\" {
+                isAtTokenStart = false
                 let nextIndex = scalars.index(after: index)
                 index = nextIndex < scalars.endIndex
                     ? scalars.index(after: nextIndex)
@@ -797,14 +799,24 @@ enum SurfaceResumeCommandCanonicalizer {
                 continue
             }
             if scalar == "'" {
+                isAtTokenStart = false
                 quote = scalar
             } else if scalar == "\"" {
+                isAtTokenStart = false
                 quote = scalar
             } else if scalar == "$" || scalar == "`" || scalar == "\n" || scalar == "\r" {
+                return true
+            } else if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                isAtTokenStart = true
+            } else if scalar == "*" || scalar == "?" || scalar == "[" {
+                return true
+            } else if isAtTokenStart && (scalar == "~" || scalar == "=") {
                 return true
             } else if scalar == ";" || scalar == "|" || scalar == "&" ||
                       scalar == "<" || scalar == ">" || scalar == "(" || scalar == ")" {
                 return true
+            } else {
+                isAtTokenStart = false
             }
             index = scalars.index(after: index)
         }
@@ -1045,7 +1057,9 @@ enum SurfaceResumeApprovalStore {
         } else {
             records.append(record)
         }
-        _ = write(records: records, fileURL: fileURL, fileManager: fileManager)
+        guard write(records: records, fileURL: fileURL, fileManager: fileManager) else {
+            return nil
+        }
         return record
     }
 
