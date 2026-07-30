@@ -721,7 +721,7 @@ final class ClaudeHookSessionStore {
                     surfaceId: surfaceId,
                     turnId: turnId,
                     incomingPID: incomingPID,
-                    allowsStoppedOwnerReplacement: false
+                    establishesTurn: false
                 ) else {
                     return nil
                 }
@@ -733,7 +733,7 @@ final class ClaudeHookSessionStore {
                     surfaceId: surfaceId,
                     turnId: turnId,
                     incomingPID: incomingPID,
-                    allowsStoppedOwnerReplacement: true
+                    establishesTurn: true
                 ) else {
                     return nil
                 }
@@ -1560,7 +1560,7 @@ final class ClaudeHookSessionStore {
         surfaceId: String,
         turnId: String?,
         incomingPID: Int?,
-        allowsStoppedOwnerReplacement: Bool
+        establishesTurn: Bool
     ) -> Bool {
         guard let normalizedWorkspaceId = normalizeOptional(workspaceId),
               let normalizedSurfaceId = normalizeOptional(surfaceId),
@@ -1589,14 +1589,20 @@ final class ClaudeHookSessionStore {
                 if let activeTurnId = normalizeOptional(activeOwner.turnId),
                    let incomingTurnId = normalizeOptional(turnId),
                    activeTurnId != incomingTurnId {
-                    guard allowsStoppedOwnerReplacement,
-                          activeOwner.allowsNewSessionReplacement == true else {
+                    let replacesDeadOwner = state.sessions[activeOwner.sessionId].map {
+                        incomingProcessCanReplaceDeadOwner(
+                            $0,
+                            incomingPID: incomingPID
+                        )
+                    } ?? false
+                    guard establishesTurn,
+                          activeOwner.allowsNewSessionReplacement == true
+                            || replacesDeadOwner else {
                         return false
                     }
                 }
             } else {
-                guard allowsStoppedOwnerReplacement,
-                      activeOwner.allowsNewSessionReplacement == true,
+                guard establishesTurn,
                       let displacedRecord = state.sessions[activeOwner.sessionId] else {
                     return false
                 }
@@ -1606,7 +1612,17 @@ final class ClaudeHookSessionStore {
                     recordedStartMicroseconds: displacedRecord.pidStartMicroseconds,
                     incomingPID: incomingPID
                 )
-                guard displacedGeneration == .same || displacedGeneration == .newer else {
+                let replacesStoppedOwner =
+                    activeOwner.allowsNewSessionReplacement == true
+                    && (
+                        displacedGeneration == .same
+                            || displacedGeneration == .newer
+                    )
+                let replacesDeadOwner = incomingProcessCanReplaceDeadOwner(
+                    displacedRecord,
+                    incomingPID: incomingPID
+                )
+                guard replacesStoppedOwner || replacesDeadOwner else {
                     return false
                 }
             }
@@ -1624,12 +1640,52 @@ final class ClaudeHookSessionStore {
            existingRecord.pidStartMicroseconds == nil {
             return activeOwner == nil || activeOwner?.sessionId == sessionId
         }
-        return compareProcessGeneration(
+        let existingGeneration = compareProcessGeneration(
             recordedPID: existingRecord.pid,
             recordedStartSeconds: existingRecord.pidStartSeconds,
             recordedStartMicroseconds: existingRecord.pidStartMicroseconds,
             incomingPID: incomingPID
-        ) == .same
+        )
+        if existingGeneration == .same {
+            return true
+        }
+        return establishesTurn
+            && incomingProcessCanReplaceDeadOwner(
+                existingRecord,
+                incomingPID: incomingPID
+            )
+    }
+
+    /// Stop is an advisory turn boundary, not the only proof that pane
+    /// ownership ended. A newer live turn can also replace a recorded process
+    /// generation that no longer exists, covering crashes and missing hooks
+    /// without letting concurrent or late older processes steal the pane.
+    private func incomingProcessCanReplaceDeadOwner(
+        _ record: ClaudeHookSessionRecord,
+        incomingPID: Int
+    ) -> Bool {
+        return compareProcessGeneration(
+            recordedPID: record.pid,
+            recordedStartSeconds: record.pidStartSeconds,
+            recordedStartMicroseconds: record.pidStartMicroseconds,
+            incomingPID: incomingPID
+        ) == .newer
+            && recordedProcessGenerationIsProvablyDead(record)
+    }
+
+    private func recordedProcessGenerationIsProvablyDead(
+        _ record: ClaudeHookSessionRecord
+    ) -> Bool {
+        guard let recordedPID = record.pid,
+              let recordedStartSeconds = record.pidStartSeconds,
+              let recordedStartMicroseconds = record.pidStartMicroseconds else {
+            return false
+        }
+        if let currentIdentity = processStartIdentity(pid: recordedPID) {
+            return currentIdentity.seconds != recordedStartSeconds
+                || currentIdentity.microseconds != recordedStartMicroseconds
+        }
+        return kill(pid_t(recordedPID), 0) != 0 && errno == ESRCH
     }
 
     private func authorizeClearSessionStart(
