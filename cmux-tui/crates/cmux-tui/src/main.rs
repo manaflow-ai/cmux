@@ -65,8 +65,6 @@ const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORIT
 // Once core cleanup owns no external processes, give the interactive driver
 // one final second to unwind before releasing the socket and exiting.
 const SERVER_SHUTDOWN_EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
-const SERVER_SHUTDOWN_RETRY_INITIAL: std::time::Duration = std::time::Duration::from_millis(100);
-const SERVER_SHUTDOWN_RETRY_MAX: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[cfg(target_os = "linux")]
 unsafe extern "C" {
@@ -956,34 +954,29 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
     Ok(value)
 }
 
-struct ServerShutdownCleanupState {
-    running: bool,
-    complete: bool,
-    blocked: bool,
-    next_attempt: std::time::Instant,
-    retry_delay: std::time::Duration,
+enum ServerShutdownCleanupState {
+    Pending,
+    Running,
+    Complete,
+    Failed(String),
 }
+
+#[cfg(test)]
+type ServerShutdownAttempt = Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync + 'static>;
 
 struct ServerShutdownCleanup {
     mux: Arc<Mux>,
     state: std::sync::Mutex<ServerShutdownCleanupState>,
     changed: std::sync::Condvar,
     #[cfg(test)]
-    shutdown_attempt:
-        std::sync::Mutex<Option<Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync + 'static>>>,
+    shutdown_attempt: std::sync::Mutex<Option<ServerShutdownAttempt>>,
 }
 
 impl ServerShutdownCleanup {
     fn new(mux: Arc<Mux>) -> Self {
         Self {
             mux,
-            state: std::sync::Mutex::new(ServerShutdownCleanupState {
-                running: false,
-                complete: false,
-                blocked: false,
-                next_attempt: std::time::Instant::now(),
-                retry_delay: SERVER_SHUTDOWN_RETRY_INITIAL,
-            }),
+            state: std::sync::Mutex::new(ServerShutdownCleanupState::Pending),
             changed: std::sync::Condvar::new(),
             #[cfg(test)]
             shutdown_attempt: std::sync::Mutex::new(None),
@@ -1009,56 +1002,66 @@ impl ServerShutdownCleanup {
             Some(Arc::new(attempt));
     }
 
-    fn run_until_complete(&self) {
+    fn run_until_complete(&self) -> anyhow::Result<()> {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
-            if state.complete {
-                return;
-            }
-            if state.blocked || state.running {
-                state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
-                continue;
-            }
-            let now = std::time::Instant::now();
-            if state.next_attempt > now {
-                let wait = state.next_attempt.saturating_duration_since(now);
-                let waited = self
-                    .changed
-                    .wait_timeout(state, wait)
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                state = waited.0;
-                continue;
-            }
-            state.running = true;
-            drop(state);
-
-            let result =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.attempt_shutdown()));
-            state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            state.running = false;
-            match result {
-                Ok(Ok(())) => {
-                    state.complete = true;
-                    self.changed.notify_all();
-                    return;
+            match &*state {
+                ServerShutdownCleanupState::Complete => return Ok(()),
+                ServerShutdownCleanupState::Failed(message) => {
+                    return Err(anyhow::anyhow!(message.clone()));
                 }
-                Ok(Err(_)) => {
-                    state.next_attempt = std::time::Instant::now() + state.retry_delay;
-                    state.retry_delay = (state.retry_delay * 2).min(SERVER_SHUTDOWN_RETRY_MAX);
+                ServerShutdownCleanupState::Running => {
+                    state =
+                        self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
                 }
-                Err(_) => {
-                    // A panic means cleanup invariants are unknown. Keep the
-                    // socket and process ownership reserved without invoking
-                    // the damaged path again.
-                    state.blocked = true;
+                ServerShutdownCleanupState::Pending => {
+                    *state = ServerShutdownCleanupState::Running;
+                    break;
                 }
             }
-            self.changed.notify_all();
         }
+        drop(state);
+
+        // Mux::shutdown owns the bounded retry policy. Share its one terminal
+        // result across the frontend and watchdog instead of retrying it
+        // indefinitely at this layer.
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.attempt_shutdown()));
+        let outcome = match result {
+            Ok(Ok(())) => ServerShutdownCleanupState::Complete,
+            Ok(Err(error)) => ServerShutdownCleanupState::Failed(format!(
+                "{}: {error:#}",
+                localization::catalog().server.shutdown_cleanup_incomplete
+            )),
+            Err(_) => ServerShutdownCleanupState::Failed(
+                localization::catalog().server.shutdown_cleanup_incomplete.to_string(),
+            ),
+        };
+        let return_value = match &outcome {
+            ServerShutdownCleanupState::Complete => Ok(()),
+            ServerShutdownCleanupState::Failed(message) => Err(anyhow::anyhow!(message.clone())),
+            ServerShutdownCleanupState::Pending | ServerShutdownCleanupState::Running => {
+                unreachable!("shutdown attempt produced no terminal result")
+            }
+        };
+        state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *state = outcome;
+        self.changed.notify_all();
+        return_value
     }
 
     fn is_complete(&self) -> bool {
-        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).complete
+        matches!(
+            *self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            ServerShutdownCleanupState::Complete
+        )
+    }
+
+    fn is_terminal(&self) -> bool {
+        matches!(
+            *self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            ServerShutdownCleanupState::Complete | ServerShutdownCleanupState::Failed(_)
+        )
     }
 }
 
@@ -1092,10 +1095,13 @@ impl ServerProcessShutdownGuard {
                 }
 
                 // A blocked frontend cannot own process cleanup. Complete the
-                // same bounded cleanup path that run_server joins below, and
-                // retain the socket indefinitely if cleanup cannot prove that
-                // every external owner was released.
-                worker_cleanup.run_until_complete();
+                // same bounded cleanup path that run_server joins below. A
+                // terminal cleanup failure retains the socket and leaves the
+                // process alive instead of claiming a clean exit.
+                if let Err(error) = worker_cleanup.run_until_complete() {
+                    eprintln!("cmux-tui: {error:#}");
+                    return;
+                }
                 if matches!(
                     completed.recv_timeout(server_shutdown_exit_grace()),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout)
@@ -1131,8 +1137,8 @@ impl ServerProcessShutdownGuard {
         Ok(())
     }
 
-    fn shutdown(&self) {
-        self.cleanup.run_until_complete();
+    fn shutdown(&self) -> anyhow::Result<()> {
+        self.cleanup.run_until_complete()
     }
 
     fn complete(mut self) {
@@ -1140,11 +1146,13 @@ impl ServerProcessShutdownGuard {
     }
 
     fn finish(&mut self) {
-        if !self.cleanup.is_complete() {
+        if !self.cleanup.is_terminal() {
             return;
         }
         let Some(completion) = self.completion.take() else { return };
-        cleanup_published_socket(&self.published_socket);
+        if self.cleanup.is_complete() {
+            cleanup_published_socket(&self.published_socket);
+        }
         let _ = completion.send(());
         self.shutdown_watch.cancel();
         if let Some(worker) = self.worker.take() {
@@ -1166,6 +1174,19 @@ fn cleanup_published_socket(
         published_socket.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     if let Some(published) = published {
         published.cleanup();
+    }
+}
+
+fn finish_server_process(
+    server_process: ServerProcessShutdownGuard,
+    result: anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let shutdown_result = server_process.shutdown();
+    server_process.complete();
+    match (result, shutdown_result) {
+        (result, Ok(())) => result,
+        (Ok(()), Err(shutdown_error)) => Err(shutdown_error),
+        (Err(error), Err(shutdown_error)) => Err(error.context(shutdown_error.to_string())),
     }
 }
 
@@ -1288,9 +1309,7 @@ fn run_server(
     {
         Ok(server) => server,
         Err(error) => {
-            server_process.shutdown();
-            server_process.complete();
-            return Err(error.into());
+            return finish_server_process(server_process, Err(error.into()));
         }
     };
     let websocket_server = match ws_addr {
@@ -1300,9 +1319,10 @@ fn run_server(
                 Err(error) => {
                     #[cfg(target_os = "linux")]
                     drop(_provider_management);
-                    server_process.shutdown();
-                    server_process.complete();
-                    return Err(anyhow::anyhow!("invalid WebSocket address {addr:?}: {error}"));
+                    return finish_server_process(
+                        server_process,
+                        Err(anyhow::anyhow!("invalid WebSocket address {addr:?}: {error}")),
+                    );
                 }
             };
             match cmux_tui_core::server::serve_websocket(
@@ -1315,9 +1335,7 @@ fn run_server(
                 Err(error) => {
                     #[cfg(target_os = "linux")]
                     drop(_provider_management);
-                    server_process.shutdown();
-                    server_process.complete();
-                    return Err(error);
+                    return finish_server_process(server_process, Err(error));
                 }
             }
         }
@@ -1333,18 +1351,14 @@ fn run_server(
                 drop(websocket_server);
                 #[cfg(target_os = "linux")]
                 drop(_provider_management);
-                server_process.shutdown();
-                server_process.complete();
-                return Err(error);
+                return finish_server_process(server_process, Err(error));
             }
         };
     if let Err(error) = server_process.publish_socket(published_socket) {
         drop(websocket_server);
         #[cfg(target_os = "linux")]
         drop(_provider_management);
-        server_process.shutdown();
-        server_process.complete();
-        return Err(error.into());
+        return finish_server_process(server_process, Err(error.into()));
     }
 
     #[cfg(debug_assertions)]
@@ -1366,9 +1380,7 @@ fn run_server(
     drop(websocket_server);
     #[cfg(target_os = "linux")]
     drop(_provider_management);
-    server_process.shutdown();
-    server_process.complete();
-    result
+    finish_server_process(server_process, result)
 }
 
 fn connect_existing_local_session(
@@ -1640,10 +1652,9 @@ mod tests {
         let mux = Mux::new("shutdown-cleanup-test", SurfaceOptions::default());
         let cleanup = Arc::new(ServerShutdownCleanup::new(mux));
         cleanup.set_shutdown_attempt_for_test(attempt);
-        let worker_cleanup = cleanup.clone();
         let (returned, observed) = std::sync::mpsc::channel();
         let worker = std::thread::spawn(move || {
-            worker_cleanup.run_until_complete();
+            let _ = cleanup.run_until_complete();
             let _ = returned.send(());
         });
 
@@ -1684,7 +1695,7 @@ mod tests {
         let guard = ServerProcessShutdownGuard::start(&mux).unwrap();
 
         assert!(cmux_tui_core::server::serve(mux, Some(socket_path.clone())).is_err());
-        guard.shutdown();
+        guard.shutdown().unwrap();
         guard.complete();
 
         let client = UnixStream::connect(&socket_path)
@@ -1709,7 +1720,7 @@ mod tests {
         let mux = Mux::new("server-guard-test", SurfaceOptions::default());
         let shutdown_watch = mux.watch_shutdown_request();
         let cleanup = Arc::new(ServerShutdownCleanup::new(mux));
-        cleanup.state.lock().unwrap().complete = true;
+        *cleanup.state.lock().unwrap() = ServerShutdownCleanupState::Complete;
         let (completion, completed) = std::sync::mpsc::channel();
         let worker = std::thread::spawn(move || completed.recv().unwrap());
         let guard = ServerProcessShutdownGuard {
