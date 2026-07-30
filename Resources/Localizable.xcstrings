@@ -3076,6 +3076,23 @@
         }
       }
     },
+    "agent.deliveryTarget.error.invalidPidResolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution must be corroborated or controlling_tty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution は corroborated または controlling_tty でなければなりません。"
+          }
+        }
+      }
+    },
     "agent.deliveryTarget.error.notFound": {
       "extractionState": "manual",
       "localizations": {
@@ -227226,6 +227243,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "リモート tmux ペインを対象にできるのはターミナルサーフェスだけです。ターミナルは対象ペインのウインドウの後に新しい tmux ウインドウとして作成されます。"
+          }
+        }
+      }
+    },
+    "socket.surface.resume.agentSessionEndedMustBeBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended must be a boolean"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended はブール値である必要があります"
           }
         }
       }

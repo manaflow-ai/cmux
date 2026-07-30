@@ -469,6 +469,10 @@ extension ControlSurfaceContext {
         ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
     }
 
+    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        ControlSurfaceResumeStrings(agentSessionEndedMustBeBoolean: "")
+    }
+
     func controlSurfaceSendText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
@@ -501,7 +505,8 @@ extension ControlSurfaceContext {
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }

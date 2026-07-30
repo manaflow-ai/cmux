@@ -86,12 +86,18 @@ extension DockSplitStore {
             observation: restoredAgentObservation,
             currentProcessIdentity: Workspace.agentPIDProcessIdentity(pid:)
         )
-        let preservedRestorableAgent = coordinatedRestorableAgent ?? preservedTransfer?.restorableAgent
         let preservedResumeState = restoredAgentLifecycle.resumeStatesByPanelId[panelId]
             ?? preservedTransfer?.restorableAgentResumeState
         let preservedCompletedGeneration = restoredAgentLifecycle.completedGeneration(panelId: panelId)
             ?? preservedTransfer?.restoredAgentCompletedGeneration
-        let preservedResumeBinding = surfaceResumeBindingsByPanelId[panelId] ?? preservedTransfer?.resumeBinding
+        let preservesCompletedAgentExit = preservedResumeState == .completedAgentExit
+        let preservedCompletedTombstone = preservesCompletedAgentExit
+            ? preservedCompletedGeneration
+            : nil
+        let preservedRestorableAgent = coordinatedRestorableAgent
+            ?? (preservesCompletedAgentExit ? nil : preservedTransfer?.restorableAgent)
+        let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
+        let preservedResumeBinding = surfaceResumeBindingsByPanelId[panelId]
         let preservedResumeSessionDirectory = restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
             ?? preservedTransfer?.restoredResumeSessionWorkingDirectory
         let kind = (panel.panelType == .browser) ? "browser" : "terminal"
@@ -123,8 +129,7 @@ extension DockSplitStore {
         }
         let detachedDirectoryWasReadFromLiveForegroundProcess =
             liveTerminalDirectory != nil && detachedDirectory == liveTerminalDirectory
-        // Agent resume metadata can likewise go stale while docked (the Dock
-        // receives no shell-activity or agent lifecycle updates), so re-emit
+        // Agent resume metadata can likewise go stale while docked, so re-emit
         // it only while the agent is not proven dead: recorded agent pids
         // exist and none is still running. Where the transfer recorded a
         // process start-time identity, compare it so a reused pid does not
@@ -135,7 +140,7 @@ extension DockSplitStore {
         // preserved — a restored-but-unscanned agent has no pids yet, and
         // dropping it would reintroduce the Dock round-trip metadata loss
         // #7155 fixes.
-        let cachedRuntime = preservedTransfer?.agentRuntime
+        let cachedRuntime = agentRuntimeByPanelId[panelId] ?? preservedTransfer?.agentRuntime
         let cachedAgentPIDs = (cachedRuntime?.agentPIDs ?? [:]).filter { $0.value > 0 }
         let agentProvenExited = !cachedAgentPIDs.isEmpty && cachedAgentPIDs.allSatisfy { key, pid in
             if let recordedIdentity = cachedRuntime?.agentPIDProcessIdentities[key] {
@@ -143,19 +148,74 @@ extension DockSplitStore {
             }
             return Self.dockAgentPIDHasExited(pid)
         }
+        let cachedManagedBinding = preservedTransfer?.resolvedManagedAgentResumeBinding
+        let bindingSessionWasInvalidated =
+            invalidatedCachedTransferAgentSessionPanelIds.contains(panelId)
+        let bindingSessionWasReplacedByAnother: Bool = {
+            if replacedCachedTransferAgentSessionPanelIds.contains(panelId) {
+                return true
+            }
+            if let cachedManagedBinding {
+                guard let managedResumeBinding else {
+                    return false
+                }
+                return !cachedManagedBinding.isSameManagedSession(as: managedResumeBinding)
+            }
+            guard let managedResumeBinding else {
+                return false
+            }
+            if let originalAgent = preservedRestorableAgent {
+                return Workspace.restorableAgentForSessionRestore(
+                    originalAgent,
+                    resumeBinding: managedResumeBinding
+                ) == nil
+            }
+            return preservedTransfer?.restorableAgentResumeState != nil
+                || preservedTransfer?.restoredResumeSessionWorkingDirectory != nil
+        }()
+        let bindingSessionWasReplaced =
+            bindingSessionWasInvalidated || bindingSessionWasReplacedByAnother
+        let bindingScopedSessionDirectory = bindingSessionWasReplaced
+            ? nil
+            : preservedResumeSessionDirectory
         let restoredResumeSessionWorkingDirectory = Self.dockRestoredResumeSessionWorkingDirectory(
-            preservedSessionDirectory: preservedResumeSessionDirectory,
+            preservedSessionDirectory: bindingScopedSessionDirectory,
             detachedDirectory: detachedDirectory,
             detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
             agentProvenExited: agentProvenExited
         )
         let resumeBinding = Self.dockResumeBinding(
             preservedBinding: preservedResumeBinding,
-            preservedSessionDirectory: preservedResumeSessionDirectory,
+            preservedSessionDirectory: bindingScopedSessionDirectory,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
             agentProvenExited: agentProvenExited
         )
+        let agentCompatibilityBinding = managedResumeBinding ?? resumeBinding
+        let transferredRestorableAgent = agentProvenExited || bindingSessionWasReplaced
+            ? nil
+            : Workspace.restorableAgentForSessionRestore(
+                preservedRestorableAgent,
+                resumeBinding: agentCompatibilityBinding
+            )
+        let rejectedPreservedRestorableAgent =
+            preservedRestorableAgent != nil && transferredRestorableAgent == nil
+        let preservesRestorableAgentState =
+            !agentProvenExited
+                && !bindingSessionWasReplaced
+                && !rejectedPreservedRestorableAgent
+        let transferredResumeState: Workspace.RestoredAgentResumeState?
+        let transferredCompletedGeneration: RestoredAgentCompletedGeneration?
+        if let preservedCompletedTombstone, !bindingSessionWasReplacedByAnother {
+            transferredResumeState = .completedAgentExit
+            transferredCompletedGeneration = preservedCompletedTombstone
+        } else if preservesRestorableAgentState {
+            transferredResumeState = preservedResumeState
+            transferredCompletedGeneration = nil
+        } else {
+            transferredResumeState = nil
+            transferredCompletedGeneration = nil
+        }
         let trimmedCustomTitle = preservedTransfer?.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         let transferTitle = trimmedCustomTitle?.isEmpty == false
             ? preservedTransfer?.customTitle
@@ -220,15 +280,14 @@ extension DockSplitStore {
             customTitleSource: preservedTransfer?.customTitleSource,
             manuallyUnread: preservedTransfer?.manuallyUnread ?? false,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
-            restorableAgent: agentProvenExited ? nil : preservedRestorableAgent,
-            restorableAgentResumeState: agentProvenExited ? nil : preservedResumeState,
-            restoredAgentCompletedGeneration: agentProvenExited
-                ? nil
-                : preservedCompletedGeneration,
+            restorableAgent: transferredRestorableAgent,
+            restorableAgentResumeState: transferredResumeState,
+            restoredAgentCompletedGeneration: transferredCompletedGeneration,
             shellActivityState: transferredShellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
-            agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
+            managedAgentResumeBinding: managedResumeBinding,
+            agentRuntime: agentProvenExited ? nil : cachedRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteTerminalSessionPhase: preservedTransfer?.remoteTerminalSessionPhase,
             remoteTerminalAuthority: preservedTransfer?.remoteTerminalAuthority,
