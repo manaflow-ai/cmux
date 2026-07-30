@@ -735,13 +735,13 @@ struct ComputerUseOnboardingView: View {
 }
 
 enum ComputerUsePermissionCompanionLayout {
-    static let size = CGSize(width: 440, height: 128)
-    static let horizontalInset: CGFloat = 14
-    static let verticalInset: CGFloat = 14
-    static let leadingColumnWidth: CGFloat = 36
-    static let headerHeight: CGFloat = 44
-    static let dragRowHeight: CGFloat = 48
-    static let columnSpacing: CGFloat = 10
+    static let size = CGSize(width: 472, height: 112)
+    static let horizontalInset: CGFloat = 12
+    static let verticalInset: CGFloat = 8
+    static let leadingColumnWidth: CGFloat = 40
+    static let headerHeight: CGFloat = 48
+    static let dragRowHeight: CGFloat = 40
+    static let columnSpacing: CGFloat = 8
     static let rowSpacing: CGFloat = 8
 }
 
@@ -771,8 +771,13 @@ struct ComputerUsePermissionCompanionView: View {
         VStack(spacing: ComputerUsePermissionCompanionLayout.rowSpacing) {
             HStack(spacing: ComputerUsePermissionCompanionLayout.columnSpacing) {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Color.accentColor)
+                    .frame(width: 30, height: 30)
+                    .background(
+                        Color.accentColor.opacity(0.12),
+                        in: Circle()
+                    )
                     .frame(
                         width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
                         height: ComputerUsePermissionCompanionLayout.headerHeight
@@ -808,19 +813,21 @@ struct ComputerUsePermissionCompanionView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary.opacity(0.72))
                 .frame(
                     width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
                     height: ComputerUsePermissionCompanionLayout.dragRowHeight
                 )
-                .background(.thinMaterial, in: Circle())
+                .background(
+                    Color.primary.opacity(0.055),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
                 .overlay {
-                    Circle()
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(
-                            Color(nsColor: .separatorColor).opacity(0.4),
+                            Color(nsColor: .separatorColor).opacity(0.32),
                             lineWidth: 0.5
                         )
-                        .padding(2)
                 }
                 .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
                 .accessibilityLabel(
@@ -836,12 +843,12 @@ struct ComputerUsePermissionCompanionView: View {
             width: ComputerUsePermissionCompanionLayout.size.width,
             height: ComputerUsePermissionCompanionLayout.size.height
         )
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
-                    Color(nsColor: .separatorColor).opacity(0.42),
-                    lineWidth: 0.75
+                    Color(nsColor: .separatorColor).opacity(0.5),
+                    lineWidth: 0.5
                 )
         }
         .onAppear(perform: onLayoutReady)
@@ -849,7 +856,7 @@ struct ComputerUsePermissionCompanionView: View {
 
     /// A file-URL drag source accepted by the macOS permission lists.
     private var helperDragTile: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 10) {
             Group {
                 if let helperIcon {
                     Image(nsImage: helperIcon)
@@ -861,44 +868,30 @@ struct ComputerUsePermissionCompanionView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 30, height: 30)
+            .frame(width: 26, height: 26)
             .background(
                 Color.white,
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .strokeBorder(
-                        Color(nsColor: .separatorColor).opacity(0.3),
+                        Color(nsColor: .separatorColor).opacity(0.35),
                         lineWidth: 0.5
                     )
             }
-            .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+            .shadow(color: .black.opacity(0.16), radius: 2, y: 1)
             .accessibilityHidden(true)
 
             Text(applicationName)
-                .font(.callout.weight(.semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
 
             Spacer(minLength: 10)
-
-            HStack(spacing: 5) {
-                Image(systemName: "hand.draw")
-                    .font(.system(size: 11, weight: .semibold))
-                Text(String(
-                    localized: "computerUse.onboarding.dragAction",
-                    defaultValue: "Drag"
-                ))
-                .font(.caption.weight(.semibold))
-            }
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 9)
-            .frame(height: 26)
-            .background(Color.accentColor.opacity(0.11), in: Capsule())
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 11)
         .frame(
             maxWidth: .infinity,
             minHeight: ComputerUsePermissionCompanionLayout.dragRowHeight,
@@ -906,21 +899,21 @@ struct ComputerUsePermissionCompanionView: View {
             alignment: .leading
         )
         .background {
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.055))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.04))
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.035))
                 }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
-                    Color.accentColor.opacity(0.24),
-                    lineWidth: 0.75
+                    Color.accentColor.opacity(0.18),
+                    lineWidth: 0.5
                 )
         }
-        .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             ComputerUseAppDragSource(
                 helperAppURL: helperAppURL,

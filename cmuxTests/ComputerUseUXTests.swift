@@ -1094,18 +1094,18 @@ struct ComputerUseUXTests {
         #expect(!presentationState.onboardingComplete)
     }
 
-    /// Keep the permission companion compact while giving the draggable app
-    /// tile enough height and separation to read as the primary interaction.
-    @Test func permissionCompanionUsesBalancedCompactProportions() {
+    /// Keep the permission companion at the wider, compact proportions that
+    /// make the app row read as one full-width drag target.
+    @Test func permissionCompanionUsesTheApprovedCompactProportions() {
         let size = ComputerUsePermissionCompanionLayout.size
 
-        #expect(size == CGSize(width: 440, height: 128))
-        #expect(ComputerUsePermissionCompanionLayout.horizontalInset == 14)
-        #expect(ComputerUsePermissionCompanionLayout.verticalInset == 14)
-        #expect(ComputerUsePermissionCompanionLayout.leadingColumnWidth == 36)
-        #expect(ComputerUsePermissionCompanionLayout.headerHeight == 44)
-        #expect(ComputerUsePermissionCompanionLayout.dragRowHeight == 48)
-        #expect(ComputerUsePermissionCompanionLayout.columnSpacing == 10)
+        #expect(size == CGSize(width: 472, height: 112))
+        #expect(ComputerUsePermissionCompanionLayout.horizontalInset == 12)
+        #expect(ComputerUsePermissionCompanionLayout.verticalInset == 8)
+        #expect(ComputerUsePermissionCompanionLayout.leadingColumnWidth == 40)
+        #expect(ComputerUsePermissionCompanionLayout.headerHeight == 48)
+        #expect(ComputerUsePermissionCompanionLayout.dragRowHeight == 40)
+        #expect(ComputerUsePermissionCompanionLayout.columnSpacing == 8)
         #expect(ComputerUsePermissionCompanionLayout.rowSpacing == 8)
     }
 
