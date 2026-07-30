@@ -659,7 +659,7 @@ struct WorkspaceShellView: View {
 
     private var workspaceShellRenderPresentation: WorkspaceShellRenderPresentation {
         let scope = macSelectionScope
-        let selectedMachineIDs = scope.selectedMachineIDs
+        let selectedMachineIDs = scope.selectedScopeEntries
         let visibleNotificationFeedItems = store.notificationFeedItems(scopedTo: selectedMachineIDs)
         let notificationUnreadCount = visibleNotificationFeedItems.lazy.filter { !$0.isRead }.count
         var names: [String: String] = [:]
@@ -978,6 +978,7 @@ struct WorkspaceShellView: View {
             displayPairedMacs: store.displayPairedMacs,
             notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
+            foregroundInstanceTag: store.connectedMacInstanceTag,
             aliasesFor: { store.pairedMacAliasIDs(for: $0) }
         )
     }

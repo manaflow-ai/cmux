@@ -266,6 +266,7 @@ extension MobileShellComposite {
         if shouldResync, pairedMacStore == nil {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
+        restartActiveMobileBrowserStreams()
         recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
         recoverDisconnectedOnForegroundIfNeeded()
         // The foreground Mac's workspace list updates live over the sync stream,
@@ -284,6 +285,7 @@ extension MobileShellComposite {
         }
         guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()
+        stopActiveMobileBrowserStreamsForBackground()
     }
 
     /// A foreground return while disconnected redials the stored Mac
