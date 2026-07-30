@@ -10,6 +10,7 @@ import Testing
 struct SidebarAppKitRowCellTests {
     private static func makeSnapshot(
         title: String = "Workspace",
+        customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
@@ -18,7 +19,7 @@ struct SidebarAppKitRowCellTests {
                 showsAgentActivity: false
             ),
             title: title,
-            customDescription: nil,
+            customDescription: customDescription,
             isPinned: false,
             customColorHex: nil,
             remoteWorkspaceSidebarText: nil,
@@ -56,15 +57,20 @@ struct SidebarAppKitRowCellTests {
         isActive: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
+        customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
-        shortcutHintText: String? = nil
+        shortcutHintText: String? = nil,
+        colorSchemeIsDark: Bool = true
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
         return SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
             index: 0,
-            snapshot: makeSnapshot(metadataEntries: metadataEntries),
+            snapshot: makeSnapshot(
+                customDescription: customDescription,
+                metadataEntries: metadataEntries
+            ),
             settings: resolvedSettings,
             isActive: isActive,
             isMultiSelected: false,
@@ -81,7 +87,7 @@ struct SidebarAppKitRowCellTests {
             isFirstRow: true,
             shortcutHintText: shortcutHintText,
             showsShortcutHints: shortcutHintText != nil,
-            colorSchemeIsDark: true,
+            colorSchemeIsDark: colorSchemeIsDark,
             globalFontMagnificationPercent: 100,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
@@ -287,6 +293,54 @@ struct SidebarAppKitRowCellTests {
             y: textView.textContainerOrigin.y + glyphBounds.midY
         )
         return textView.convert(localPoint, to: textView.superview)
+    }
+
+    @Test
+    func reusedDarkWorkspaceDescriptionKeepsAnExplicitLightForeground() throws {
+        let description = "1. First detail\n2. Second detail"
+        let workspaceId = UUID()
+        let active = Self.makeModel(
+            workspaceId: workspaceId,
+            isActive: true,
+            customDescription: description,
+            colorSchemeIsDark: true
+        )
+        let inactive = Self.makeModel(
+            workspaceId: workspaceId,
+            isActive: false,
+            customDescription: description,
+            colorSchemeIsDark: true
+        )
+        let cell = Self.configuredCell(model: active)
+        let lightAppearance = try #require(NSAppearance(named: .aqua))
+
+        lightAppearance.performAsCurrentDrawingAppearance {
+            cell.configure(
+                model: inactive,
+                actions: Self.makeActions(model: inactive),
+                isPointerHovering: false,
+                contextMenuDidOpen: {},
+                contextMenuDidClose: {}
+            )
+        }
+
+        let descriptionView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowTextView }
+                .first { $0.attributedStringValue.string == description }
+        )
+        let foreground = try #require(
+            descriptionView.attributedStringValue.attribute(
+                .foregroundColor,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+        let resolvedForeground = try #require(foreground.usingColorSpace(.sRGB))
+
+        #expect(resolvedForeground.redComponent > 0.8)
+        #expect(resolvedForeground.greenComponent > 0.8)
+        #expect(resolvedForeground.blueComponent > 0.8)
     }
 
     @Test(arguments: zip(["codex", "claude_code"], ["Running", "Needs input"]))
