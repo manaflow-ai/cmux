@@ -27,5 +27,39 @@ public enum MobileIrohReleaseGateProbeFailure: String, Error, Equatable, Sendabl
     case chatSessionsFailed
     /// The terminal artifact count-only scan failed validation.
     case artifactScanCountFailed
+    /// Required local endpoint or QUIC continuity evidence was unavailable.
+    case continuityEvidenceUnavailable
+    /// The endpoint, native connection, or credential expiry violated rollover.
+    case relayRolloverFailed
+    /// The RPC control stream or held terminal stream did not survive rollover.
+    case controlStreamContinuityFailed
+    /// The installed independent event registration did not survive rollover.
+    case independentEventsContinuityFailed
+    /// The terminal never confirmed that the rollover artifact was closed.
+    case artifactCommandNotCompleted
+    /// The artifact scan never authorized the exact generated path.
+    case artifactScanPathMissing
+    /// The artifact did not reach two stable observations at the expected size.
+    case artifactStatSizeMismatch
+    /// Artifact scan or stat RPC transport failed before readiness was established.
+    case artifactReadinessRPCFailed
+    /// The Mac returned no valid artifact-lane descriptor for the completed file.
+    case artifactDescriptorInvalid
+    /// The artifact descriptor RPC failed before returning a response.
+    case artifactDescriptorRPCFailed
+    /// The independent Iroh artifact stream could not be opened.
+    case artifactLaneOpenFailed
+    /// The independent Iroh artifact stream returned a transport read error.
+    case artifactLaneReadFailed
+    /// The independent artifact stream did not begin with the expected byte.
+    case artifactLaneInitialByteMismatch
+    /// The independent artifact stream returned more bytes than the descriptor promised.
+    case artifactLaneOverrun
+    /// The independent artifact stream ended before the descriptor's promised size.
+    case artifactLaneTruncated
+    /// The independent artifact stream ended with unexpected content.
+    case artifactLaneTailMismatch
+    /// A held relay credential remained admitted beyond its hard expiry.
+    case unrefreshedCredentialDidNotDisconnect
 }
 #endif

@@ -279,7 +279,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
@@ -3977,6 +3977,7 @@ final class OmnibarNativeTextField: NSTextField {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        cell = BrowserOmnibarPasteTextFieldCell(textCell: "")
         isBordered = false
         isBezeled = false
         drawsBackground = false
@@ -3988,7 +3989,6 @@ final class OmnibarNativeTextField: NSTextField {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
     override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .iBeam)
@@ -5409,8 +5409,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var hostedInspectorSideDockDockSide: HostedInspectorDockSide?
         private var isHostedInspectorDividerDragActive = false
         private var isApplyingHostedInspectorLayout = false
-        private var hostedInspectorReapplyWorkItem: DispatchWorkItem?
-        private var hostedInspectorDockConfigurationSyncWorkItem: DispatchWorkItem?
+        private let hostedInspectorReapplyScheduler = MainActorDeferredActionScheduler()
+        private let hostedInspectorDockConfigurationSyncScheduler = MainActorDeferredActionScheduler()
         private var hostedInspectorSideDockPromotionTask: Task<Void, Never>?
         private var hostedInspectorSideDockPromotionTaskID: UUID?
         private var adaptiveBottomDockRequestCooldownDeadline: Date?
@@ -5424,8 +5424,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
 
         deinit {
-            hostedInspectorReapplyWorkItem?.cancel()
-            hostedInspectorDockConfigurationSyncWorkItem?.cancel()
             hostedInspectorSideDockPromotionTask?.cancel()
             if let trackingArea {
                 removeTrackingArea(trackingArea)
@@ -5837,8 +5835,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func prepareForWindowPortalHosting() {
-            hostedInspectorDockConfigurationSyncWorkItem?.cancel()
-            hostedInspectorDockConfigurationSyncWorkItem = nil
+            hostedInspectorDockConfigurationSyncScheduler.cancel()
             notifyHostedWebKitHidden(reason: "prepareForWindowPortalHosting")
             deactivateHostedInspectorSideDockIfNeeded(reparentTo: localInlineSlotView)
             hostedInspectorFrontendWebView = nil
@@ -5847,8 +5844,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func clearStaleHostedInspectorOwnershipState() {
-            hostedInspectorDockConfigurationSyncWorkItem?.cancel()
-            hostedInspectorDockConfigurationSyncWorkItem = nil
+            hostedInspectorDockConfigurationSyncScheduler.cancel()
             hostedInspectorFrontendWebView = nil
             lastHostedInspectorManualSideDockAllowed = nil
             lastHostedInspectorDetachedFromHostWindow = nil
@@ -6097,17 +6093,14 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         fileprivate func scheduleHostedInspectorDockConfigurationSync(reason: String) {
-            hostedInspectorDockConfigurationSyncWorkItem?.cancel()
+            hostedInspectorDockConfigurationSyncScheduler.cancel()
             guard hostedInspectorFrontendWebView != nil else { return }
-            let workItem = DispatchWorkItem { [weak self] in
+            hostedInspectorDockConfigurationSyncScheduler.schedule { [weak self] in
                 self?.syncHostedInspectorDockConfiguration(reason: reason)
             }
-            hostedInspectorDockConfigurationSyncWorkItem = workItem
-            DispatchQueue.main.async(execute: workItem)
         }
 
         private func syncHostedInspectorDockConfiguration(reason: String) {
-            hostedInspectorDockConfigurationSyncWorkItem = nil
             guard let hostedInspectorFrontendWebView else { return }
             hostedInspectorFrontendWebView.evaluateJavaScript(
                 "typeof WI === 'undefined' ? null : WI.dockConfiguration"
@@ -6351,7 +6344,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return
             }
 
-            hostedInspectorReapplyWorkItem?.cancel()
+            hostedInspectorReapplyScheduler.cancel()
             isHostedInspectorDividerDragActive = true
             hostedInspectorDividerDrag = HostedInspectorDividerDragState(
                 containerView: hostedInspectorHit.containerView,
@@ -6743,10 +6736,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         fileprivate func scheduleHostedInspectorDividerReapply(reason: String) {
-            hostedInspectorReapplyWorkItem?.cancel()
-            let workItem = DispatchWorkItem { [weak self] in
+            hostedInspectorReapplyScheduler.schedule { [weak self] in
                 guard let self else { return }
-                self.hostedInspectorReapplyWorkItem = nil
                 _ = self.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
                 if self.hasStoredHostedInspectorWidthPreference {
                     self.reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: reason)
@@ -6754,8 +6745,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                     self.captureHostedInspectorPreferredWidthFromCurrentLayout(reason: reason)
                 }
             }
-            hostedInspectorReapplyWorkItem = workItem
-            DispatchQueue.main.async(execute: workItem)
         }
 
         private func captureHostedInspectorPreferredWidthFromCurrentLayout(reason: String) {

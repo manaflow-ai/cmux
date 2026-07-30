@@ -312,6 +312,53 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
+    @Test func notificationFeedUsesAuthenticatedConnectionInsteadOfWorkspaceTicketScope() throws {
+        let scopedTicket = try scopedAttachTicket(workspaceID: "workspace")
+        let macWideTicket = try scopedAttachTicket(workspaceID: "")
+        let requests = [
+            MobileHostRPCRequest(
+                id: "feed-list",
+                method: "notification.feed.list",
+                params: [:],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-mark-read",
+                method: "notification.feed.mark_read",
+                params: ["notification_ids": [UUID().uuidString]],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-mark-unread",
+                method: "notification.feed.mark_unread",
+                params: ["notification_ids": [UUID().uuidString]],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-mark-all",
+                method: "notification.feed.mark_all_read",
+                params: [:],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-events",
+                method: "mobile.events.subscribe",
+                params: ["topics": ["notification.feed.changed"]],
+                auth: nil
+            ),
+        ]
+
+        for request in requests {
+            #expect(MobileHostService.ticketAuthorizationError(ticket: scopedTicket, request: request) == nil)
+            #expect(
+                MobileHostService.ticketAuthorizationError(
+                    ticket: macWideTicket,
+                    request: request
+                ) == nil
+            )
+        }
+    }
+
     private func scopedAttachTicket(workspaceID: String) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug",

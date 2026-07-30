@@ -20,6 +20,8 @@ public struct ControlPaneSummary: Sendable, Equatable {
     public let pixelFrame: ControlPanePixelFrame?
     /// The selected surface's terminal grid size, if it is live and reporting.
     public let gridSize: ControlPaneGridSize?
+    /// The Dock container scope for Dock-hosted panes, else `nil`.
+    public let dockScopeRawValue: String?
 
     /// Creates a pane summary.
     ///
@@ -30,13 +32,15 @@ public struct ControlPaneSummary: Sendable, Equatable {
     ///   - selectedSurfaceID: The selected surface, if any.
     ///   - pixelFrame: The pane's pixel frame, if known.
     ///   - gridSize: The selected surface's grid size, if available.
+    ///   - dockScopeRawValue: The Dock scope for a Dock-hosted pane.
     public init(
         paneID: UUID,
         isFocused: Bool,
         surfaceIDs: [UUID],
         selectedSurfaceID: UUID?,
         pixelFrame: ControlPanePixelFrame?,
-        gridSize: ControlPaneGridSize?
+        gridSize: ControlPaneGridSize?,
+        dockScopeRawValue: String? = nil
     ) {
         self.paneID = paneID
         self.isFocused = isFocused
@@ -44,5 +48,6 @@ public struct ControlPaneSummary: Sendable, Equatable {
         self.selectedSurfaceID = selectedSurfaceID
         self.pixelFrame = pixelFrame
         self.gridSize = gridSize
+        self.dockScopeRawValue = dockScopeRawValue
     }
 }

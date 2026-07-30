@@ -3,12 +3,12 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|direct-only|private-path> --tag <tag>
+Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expiry|direct-only|private-path> --tag <tag>
        [--staging-base-url <url>] [--skip-build] [--keep-simulator]
        [--report-output <path>] [--print-plan]
        [--production [--stack-env-file <secure-path>]]
 
-Automatic and relay-only build a tagged Mac app plus an isolated iOS Simulator
+Automatic, relay-only, and relay-expiry build a tagged Mac app plus an isolated iOS Simulator
 app, sign both into the same staging account, pair only over Iroh, and verify
 the app RPC surface. Direct-only runs a deterministic two-Iroh-endpoint proof
 inside an isolated iOS Simulator with relays disabled. Private-path runs a
@@ -68,10 +68,11 @@ if [[ "$PRODUCTION" -eq 1 ]]; then
 fi
 
 case "$MODE" in
-  automatic) RAW_MODE="automatic"; GATE_PLAN="app-rpc" ;;
-  relay-only) RAW_MODE="relayOnly"; GATE_PLAN="app-rpc" ;;
-  direct-only) RAW_MODE="directOnly"; GATE_PLAN="simulator-direct-transport" ;;
-  private-path) RAW_MODE=""; GATE_PLAN="host-private-path-transport" ;;
+  automatic) RAW_MODE="automatic"; GATE_SCENARIO="standard"; GATE_PLAN="app-rpc" ;;
+  relay-only) RAW_MODE="relayOnly"; GATE_SCENARIO="relay_rollover"; GATE_PLAN="app-rpc" ;;
+  relay-expiry) RAW_MODE="relayOnly"; GATE_SCENARIO="relay_expiry"; GATE_PLAN="app-rpc" ;;
+  direct-only) RAW_MODE="directOnly"; GATE_SCENARIO="standard"; GATE_PLAN="simulator-direct-transport" ;;
+  private-path) RAW_MODE=""; GATE_SCENARIO="standard"; GATE_PLAN="host-private-path-transport" ;;
   *) echo "error: invalid mode '$MODE'" >&2; exit 2 ;;
 esac
 
@@ -168,9 +169,12 @@ cleanup() {
   pkill -f "cmux DEV ${SLUG}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
   if [[ "$PRODUCTION" -eq 1 ]]; then
     # Production uses a disposable account and must remove its local tokens.
+    # The endpoint key and verified-policy cache live outside the ordinary
+    # tagged app support directory, so clear that exact tagged identity too.
     # Staging keeps its tagged state so a failed gate remains inspectable and a
     # later --skip-build run can reuse the same authenticated build.
     rm -rf "$HOME/Library/Application Support/cmux/$MAC_BUNDLE_ID"
+    rm -rf "$HOME/Library/Application Support/cmux/iroh-debug/$MAC_BUNDLE_ID"
     security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-access-token >/dev/null 2>&1 || true
     security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-refresh-token >/dev/null 2>&1 || true
   fi
@@ -303,6 +307,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       ./ios/scripts/reload.sh \
         --tag "$TAG" \
         --simulator "$SIMULATOR_NAME" \
+        --simulator-id "$SIMULATOR_ID" \
         --prod-auth \
         --no-launch
   else
@@ -314,6 +319,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       ./ios/scripts/reload.sh \
         --tag "$TAG" \
         --simulator "$SIMULATOR_NAME" \
+        --simulator-id "$SIMULATOR_ID" \
         --no-launch
   fi
 else
@@ -322,6 +328,64 @@ else
 fi
 
 [[ -d "$MAC_APP" ]] || { echo "error: tagged Mac app is missing: $MAC_APP" >&2; exit 1; }
+
+if [[ "$PRODUCTION" -eq 1 ]]; then
+  PRODUCTION_RELAY_POLICY_XCCONFIG="$REPO_ROOT/config/IrohRelayPolicyProduction.xcconfig"
+  MAC_INFO_PLIST="$MAC_APP/Contents/Info.plist"
+  IOS_INFO_PLIST="$IOS_APP/Info.plist"
+  PRODUCTION_RELAY_POLICY_XCCONFIG="$PRODUCTION_RELAY_POLICY_XCCONFIG" \
+  MAC_INFO_PLIST="$MAC_INFO_PLIST" \
+  IOS_INFO_PLIST="$IOS_INFO_PLIST" \
+  /usr/bin/python3 <<'PY'
+import os
+import plistlib
+
+setting_names = (
+    "CMUX_IROH_RELAY_POLICY_KEY_ID",
+    "CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64",
+    "CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID",
+    "CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64",
+)
+settings = {}
+with open(os.environ["PRODUCTION_RELAY_POLICY_XCCONFIG"], encoding="utf-8") as handle:
+    for raw_line in handle:
+        line = raw_line.strip()
+        if not line or line.startswith("//") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        settings[key.strip()] = value.strip()
+
+missing = [name for name in setting_names if not settings.get(name)]
+if missing:
+    raise SystemExit("production relay-policy build profile is incomplete")
+
+expected_trust = [
+    {
+        "keyID": settings["CMUX_IROH_RELAY_POLICY_KEY_ID"],
+        "publicKeyBase64": settings["CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64"],
+    },
+    {
+        "keyID": settings["CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID"],
+        "publicKeyBase64": settings["CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64"],
+    },
+]
+
+for label, environment_name in (
+    ("Mac", "MAC_INFO_PLIST"),
+    ("iOS", "IOS_INFO_PLIST"),
+):
+    with open(os.environ[environment_name], "rb") as handle:
+        info = plistlib.load(handle)
+    if info.get("CMUXIrohRelayPolicyKeyID") != expected_trust[0]["keyID"]:
+        raise SystemExit(f"{label} production gate app has the wrong relay-policy key ID")
+    if info.get("CMUXIrohRelayPolicyPublicKeyBase64") != expected_trust[0]["publicKeyBase64"]:
+        raise SystemExit(f"{label} production gate app has the wrong relay-policy public key")
+    if info.get("CMUXIrohRelayPolicyTrustKeys") != expected_trust:
+        raise SystemExit(f"{label} production gate app has the wrong relay-policy trust set")
+
+print("==> production relay-policy pins verified in Mac and iOS build artifacts")
+PY
+fi
 
 # Both endpoints read the mode before constructing their Iroh endpoint. Write
 # after installation so a fresh simulator app container cannot replace it.
@@ -386,7 +450,7 @@ fi
 # so remove only this validated tag's socket before relaunching.
 cmux_attach_remove_stale_socket "$TAG"
 CMUX_ATTACH_ALLOW_RELAUNCH=1 \
-CMUX_ATTACH_MINT_MAX_ATTEMPTS=120 \
+CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" physical_device
 
 # Wait for the app's atomic report-write signal. Python owns the simulator
@@ -405,7 +469,7 @@ try:
         ],
         check=True,
         stdout=subprocess.DEVNULL,
-        timeout=180,
+        timeout=480,
     )
 except subprocess.TimeoutExpired:
     raise SystemExit("Iroh release gate report signal timed out")
@@ -422,7 +486,9 @@ MOBILE_LAUNCH_ARGS=(
 if [[ "$PRODUCTION" -eq 1 ]]; then
   MOBILE_LAUNCH_ARGS+=(--credentials-file "$PROD_CREDENTIALS_FILE")
 fi
-CMUX_ATTACH_MINT_MAX_ATTEMPTS=120 \
+CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
+CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
+CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="$([[ "$GATE_SCENARIO" == "relay_expiry" ]] && printf 1 || printf 0)" \
 ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" \
   2>&1 | sed -E \
     -e 's/^(==> dev sign-in account:).*/\1 [redacted]/' \
@@ -445,7 +511,7 @@ if [[ -n "$REPORT_OUTPUT" ]]; then
   cp "$REPORT_PATH" "$REPORT_OUTPUT"
 fi
 
-REPORT_PATH="$REPORT_PATH" EXPECTED_MODE="$RAW_MODE" /usr/bin/python3 <<'PY'
+REPORT_PATH="$REPORT_PATH" EXPECTED_MODE="$RAW_MODE" EXPECTED_SCENARIO="$GATE_SCENARIO" /usr/bin/python3 <<'PY'
 import json
 import os
 
@@ -453,9 +519,11 @@ with open(os.environ["REPORT_PATH"], encoding="utf-8") as handle:
     report = json.load(handle)
 
 expected_mode = os.environ["EXPECTED_MODE"]
+expected_scenario = os.environ["EXPECTED_SCENARIO"]
 allowed_keys = {
     "schemaVersion",
     "mode",
+    "scenario",
     "passed",
     "hostStatusVerified",
     "terminalRoundTripVerified",
@@ -464,6 +532,14 @@ allowed_keys = {
     "notificationReconcileVerified",
     "chatSessionsVerified",
     "artifactScanCountVerified",
+    "relayCredentialRolloverVerified",
+    "endpointContinuityVerified",
+    "connectionContinuityVerified",
+    "controlStreamContinuityVerified",
+    "independentEventsContinuityVerified",
+    "artifactLaneVerified",
+    "unrefreshedExpiryDisconnectVerified",
+    "soakDurationSeconds",
     "routeKind",
     "selectedPath",
     "failure",
@@ -487,10 +563,12 @@ problems = []
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")
-if report.get("schemaVersion") != 2:
+if report.get("schemaVersion") != 3:
     problems.append("unexpected schemaVersion")
 if report.get("mode") != expected_mode:
     problems.append("mode mismatch")
+if report.get("scenario") != expected_scenario:
+    problems.append("scenario mismatch")
 if report.get("routeKind") != "iroh":
     problems.append("route was not Iroh")
 if report.get("selectedPath") not in allowed_paths[expected_mode]:
@@ -498,6 +576,22 @@ if report.get("selectedPath") not in allowed_paths[expected_mode]:
 for key in required_true:
     if report.get(key) is not True:
         problems.append(f"{key} was not true")
+if expected_scenario == "relay_rollover":
+    for key in (
+        "relayCredentialRolloverVerified",
+        "endpointContinuityVerified",
+        "connectionContinuityVerified",
+        "controlStreamContinuityVerified",
+        "independentEventsContinuityVerified",
+        "artifactLaneVerified",
+    ):
+        if report.get(key) is not True:
+            problems.append(f"{key} was not true")
+    if report.get("soakDurationSeconds", 0) < 330:
+        problems.append("rollover soak was shorter than 330 seconds")
+elif expected_scenario == "relay_expiry":
+    if report.get("unrefreshedExpiryDisconnectVerified") is not True:
+        problems.append("unrefreshedExpiryDisconnectVerified was not true")
 
 redacted_report = {key: report.get(key) for key in sorted(allowed_keys) if key in report}
 print(json.dumps(redacted_report, sort_keys=True))

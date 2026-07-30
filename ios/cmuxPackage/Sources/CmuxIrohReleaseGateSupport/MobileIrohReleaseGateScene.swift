@@ -9,14 +9,14 @@ public import cmuxFeature
 @MainActor
 public struct MobileIrohReleaseGateScene: View {
     private let root: CMUXMobileRootScene
-    private let settingsController: any CmxIrohSettingsControlling
+    private let iroh: MobileIrohRuntimeComposition
 
     public init(
         root: CMUXMobileRootScene,
-        settingsController: any CmxIrohSettingsControlling
+        iroh: MobileIrohRuntimeComposition
     ) {
         self.root = root
-        self.settingsController = settingsController
+        self.iroh = iroh
     }
 
     @ViewBuilder
@@ -28,7 +28,11 @@ public struct MobileIrohReleaseGateScene: View {
                     configuration: configuration,
                     onboardingStore: root.onboardingStore,
                     signOutHook: root.signOutHook,
-                    settingsController: settingsController
+                    settingsController: iroh,
+                    endpointIdentity: { await iroh.releaseGateEndpointIdentity() },
+                    relayCredentialExpiry: {
+                        await iroh.releaseGateRelayCredentialExpiry()
+                    }
                 )
             )
         } else {

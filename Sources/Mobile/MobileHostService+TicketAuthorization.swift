@@ -38,8 +38,25 @@ extension MobileHostService {
         }
 
         switch request.method {
-        case "mobile.workspace.list", "workspace.list":
+        case "mobile.workspace.list", "workspace.list", "mobile.workspace.changes.summary",
+             "mobile.directory.list", "mobile.directory.search":
+            // List-shaped reads may span the Mac's workspaces; same-account
+            // Stack authorization remains the authoritative data-plane gate.
             return nil
+        case "mobile.sync.fetch":
+            // Cursor-based read of the same Mac-scoped list state as
+            // `mobile.workspace.list`; carries no workspace/terminal selection.
+            return nil
+        case "mobile.workspace.changes.files",
+             "mobile.workspace.changes.file_diff",
+             "mobile.workspace.changes.file_stat",
+             "mobile.workspace.changes.file_fetch":
+            // Single-workspace reads honor a workspace-scoped attach ticket in
+            // the same way as workspace.action / workspace.close below.
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
         case "workspace.create":
             guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
@@ -78,7 +95,22 @@ extension MobileHostService {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
-        case "mobile.events.subscribe", "mobile.events.unsubscribe":
+        case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
+             "notification.feed.mark_all_read":
+            // The Stack same-account check (or admitted Iroh peer identity) is
+            // the authority for the account-wide feed, just as it is for the
+            // account-wide workspace list. An attach ticket only narrows
+            // workspace/terminal mutations; letting a legacy scoped ticket
+            // narrow this read model would make it less capable than a tokenless
+            // persisted pairing from the same authenticated account.
+            return nil
+        case "mobile.events.subscribe":
+            // Subscription payloads are revision-only invalidations. The
+            // request already passed connection/account authorization, and the
+            // complete topic set is installed atomically, so ticket-scoping one
+            // topic here would also disable unrelated terminal live events.
+            return nil
+        case "mobile.events.unsubscribe":
             return nil
         case "mobile.host.status":
             return nil

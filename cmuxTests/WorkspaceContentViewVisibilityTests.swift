@@ -25,6 +25,160 @@ final class WorkspaceContentViewVisibilityTests {
         }
     }
 
+    private static func restoreFocusTarget(
+        workspaceId: UUID = UUID(),
+        panelId: UUID = UUID(),
+        intent: PanelFocusIntent = .panel
+    ) -> CommandPaletteRestoreFocusTarget {
+        CommandPaletteRestoreFocusTarget(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            intent: intent
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async {
+        let clock = SidebarTestManualClock()
+        let scheduler = SidebarResizerCursorReleaseScheduler(clock: clock)
+        let releaseEvents = AsyncStream<Bool>.makeStream()
+        defer { releaseEvents.continuation.finish() }
+        var releaseIterator = releaseEvents.stream.makeAsyncIterator()
+        var releases: [Bool] = []
+
+        scheduler.schedule(force: false, delay: .zero) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        #expect(releases.isEmpty)
+        let immediateRelease = await releaseIterator.next()
+        #expect(immediateRelease == false)
+        #expect(releases == [false])
+        releases.removeAll()
+
+        scheduler.schedule(force: false, delay: .milliseconds(50)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(50))
+        clock.advance(by: .milliseconds(49))
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        #expect(releases.isEmpty)
+
+        clock.advance(by: .milliseconds(1))
+        let hoverExitRelease = await releaseIterator.next()
+        #expect(hoverExitRelease == false)
+        #expect(releases == [false])
+        releases.removeAll()
+
+        scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(200))
+        scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(10))
+
+        clock.advance(by: .milliseconds(10))
+        let replacementRelease = await releaseIterator.next()
+        #expect(replacementRelease == true)
+        #expect(releases == [true])
+
+        await clock.waitUntilIdle()
+        clock.advance(by: .milliseconds(190))
+        scheduler.schedule(force: true, delay: .zero) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        let sentinelRelease = await releaseIterator.next()
+        #expect(sentinelRelease == true)
+        #expect(releases == [true, true])
+    }
+
+    @Test
+    @MainActor
+    func commandPaletteFocusRestoreCoordinatorClearsOnlyStaleTargets() {
+        let coordinator = CommandPaletteFocusRestoreCoordinator()
+        let firstTarget = Self.restoreFocusTarget()
+        let secondTarget = Self.restoreFocusTarget()
+
+        coordinator.request(target: firstTarget)
+        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+
+        #expect(
+            !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: nil,
+                focusedPanelId: nil,
+                targetPanelExists: true
+            )
+        )
+        #expect(
+            !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: firstTarget.workspaceId,
+                focusedPanelId: firstTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+
+        coordinator.request(target: firstTarget)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: secondTarget.workspaceId,
+                focusedPanelId: firstTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
+
+        coordinator.request(target: firstTarget)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: firstTarget.workspaceId,
+                focusedPanelId: secondTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
+
+        coordinator.request(target: firstTarget)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: firstTarget.workspaceId,
+                focusedPanelId: firstTarget.panelId,
+                targetPanelExists: false
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
+
+        coordinator.request(target: secondTarget)
+        #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+
+        #expect(coordinator.claimRestoreAttempt())
+        #expect(!coordinator.claimRestoreAttempt())
+        coordinator.finishRestoreAttempt()
+
+        for _ in 0..<4 {
+            #expect(coordinator.claimRestoreAttempt())
+            #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+            coordinator.finishRestoreAttempt()
+        }
+        #expect(!coordinator.claimRestoreAttempt())
+        #expect(coordinator.pendingTarget?.workspaceId == nil)
+
+        coordinator.request(target: secondTarget)
+        #expect(coordinator.claimRestoreAttempt())
+
+        coordinator.clear()
+        #expect(coordinator.pendingTarget?.workspaceId == nil)
+    }
+
     @Test
     @MainActor
     func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {

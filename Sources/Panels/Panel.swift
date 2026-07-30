@@ -10,6 +10,7 @@ public enum PanelType: String, Codable, Sendable {
     case filePreview = "filepreview"
     case rightSidebarTool
     case customSidebar
+    case simulator
     case agentSession
     case project
     case extensionBrowser
@@ -96,6 +97,7 @@ public enum PanelFocusIntent: Equatable {
 
 public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case navigation
+    case userInitiated
     case notificationArrival
     case notificationDismiss
     case unreadIndicatorDismiss
@@ -158,7 +160,7 @@ enum WorkspaceAttentionCoordinator {
 
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> WorkspaceAttentionFlashPresentation {
         switch reason {
-        case .navigation, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+        case .navigation, .userInitiated, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             return flashRingStyle
         }
     }
@@ -172,7 +174,7 @@ enum WorkspaceAttentionCoordinator {
         switch reason {
         case .navigation:
             isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
-        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+        case .userInitiated, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             isAllowed = true
         }
 

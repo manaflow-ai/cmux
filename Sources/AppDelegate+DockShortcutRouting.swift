@@ -85,6 +85,9 @@ extension AppDelegate {
         guard let store = focusedDockStoreForShortcut(preferredWindow: event.window) else {
             return false
         }
+        if command.isFocusHistoryNavigation, !store.focusHistoryIncludesPanesAndTabs {
+            return false
+        }
         if !store.performShortcutCommand(command) { NSSound.beep() }
         return true
     }

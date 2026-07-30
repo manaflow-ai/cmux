@@ -12,6 +12,12 @@ extension MobileShellComposite {
     /// healthy even though the old foreground session was intentionally torn
     /// down.
     public var workspaceListConnectionStatus: MobileMacConnectionStatus {
+        if pairedMacs.isEmpty, hasHiddenComputers {
+            // Hidden Macs have no reconnectable row or workspace target. Present
+            // the normal shell as an ordinary empty list instead of advertising a
+            // reconnect action that cannot reach anything visible.
+            return .connected
+        }
         let foregroundKey: String?
         if let id = foregroundMacDeviceID, workspacesByMac[id] != nil {
             foregroundKey = id
@@ -36,6 +42,63 @@ extension MobileShellComposite {
         return macConnectionStatus
     }
 
+    /// UI reconnect entry for a specific workspace's Mac (status pill, toast
+    /// Reconnect action). Unlike ``reconnectOrRefresh()``, which gates on the
+    /// AGGREGATE ``workspaceListConnectionStatus`` (a healthy secondary Mac
+    /// makes it refresh or switch elsewhere), this redials the supplied Mac
+    /// directly when it is the unavailable foreground target.
+    public func reconnectToMac(macDeviceID: String?) async {
+        // A nil/empty target means the caller is showing the foreground
+        // connection's status (anonymous foreground, or no selected
+        // workspace), so the action must redial the foreground too — not the
+        // aggregate recovery, which a healthy secondary Mac would divert.
+        let targetMacDeviceID = (macDeviceID?.isEmpty == false) ? macDeviceID : nil
+        // Include the retained recovery target: automatic recovery nils
+        // foregroundMacDeviceID, and retrying that same Mac must take the
+        // foreground-redial branch below (whose teardown preserves secondary
+        // state), not the cross-Mac switch whose failure cleanup does not.
+        let foregroundTargetMacDeviceID = foregroundMacDeviceID ?? recoveryTargetMacDeviceID
+        if let targetMacDeviceID, targetMacDeviceID != foregroundTargetMacDeviceID {
+            if await switchToMac(macDeviceID: targetMacDeviceID) {
+                return
+            }
+            await reconnectOrRefresh()
+            return
+        }
+        if connectionState == .connected, macConnectionStatus == .connected {
+            // Defensive: the target is healthy, don't tear down a live
+            // connection for a stray reconnect gesture.
+            await refreshWorkspaces()
+            return
+        }
+        // Explicit user gesture: bypass the automatic-retry cooldown, mirror
+        // of the disconnected branch in reconnectOrRefresh().
+        if let accountID = identityProvider?.currentUserID {
+            clearTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
+        if connectionState == .connected {
+            // The live event stream can fail before the RPC client's
+            // transport closes. Tear down the stale client so switchToMac
+            // cannot take its already-connected fast path and skip the dial,
+            // but keep secondary-Mac subscriptions and workspaces: this
+            // branch is reached exactly when a secondary may be healthy, and
+            // a failed foreground redial must not strand them.
+            disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
+        }
+        if let targetMacDeviceID, await switchToMac(macDeviceID: targetMacDeviceID) {
+            return
+        }
+        if await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID) {
+            return
+        }
+        // Failed dials run their own cleanup with the default non-preserving
+        // teardown, dropping the secondary subscriptions preserved above (the
+        // foreground id is already nil, so that filter keeps only the
+        // anonymous key). Rebuild them so a failed foreground redial cannot
+        // strand healthy secondary Macs.
+        await refreshSecondaryMacWorkspaces()
+    }
+
     /// UI-facing recover action for the workspace list when it is showing an
     /// offline/disconnected state. Pull-to-refresh and the offline status row's
     /// Reconnect button both call this.
@@ -55,6 +118,14 @@ extension MobileShellComposite {
             return
         }
         let reconnectTargetMacDeviceID = workspaceListReconnectTargetMacDeviceID()
+        // This is the user's explicit Reconnect/pull gesture: like
+        // `recoverMobileConnection(trigger: .manual)`, it must bypass the
+        // automatic-retry cooldown. Without this, a transient backoff recorded
+        // by a failed (or deadline-abandoned) automatic attempt silently
+        // swallows the user's tap and the dial never happens.
+        if let accountID = identityProvider?.currentUserID {
+            clearTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
         if connectionState == .connected {
             // The live event stream can fail before the RPC client's transport
             // closes. In that state the workspace list correctly renders the

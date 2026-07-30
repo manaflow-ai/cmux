@@ -97,7 +97,8 @@ extension DockSplitStore {
         url: URL?,
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        transparentBackground: Bool = false
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
         let panel = BrowserPanel(
@@ -106,6 +107,7 @@ extension DockSplitStore {
             initialURL: url,
             initialRequest: initialRequest,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            transparentBackground: transparentBackground,
             proxyEndpoint: settings.proxyEndpoint,
             bypassRemoteProxy: settings.bypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,

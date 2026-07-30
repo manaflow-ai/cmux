@@ -1,31 +1,44 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
+use std::sync::Arc;
 use std::time::Duration;
 #[cfg(unix)]
 use std::time::Instant;
 
-use cmux_tui_core::{Rect, SurfaceId};
+use cmux_tui_core::{BrowserFrame, Rect, SurfaceId};
 
 const ESC: &str = "\x1b";
 const CHUNK: usize = 4096;
 const PLACEMENT_ID: u32 = 1;
+pub(crate) const PROCESSING_FENCE_ID_BASE: u32 = 2_000_000_001;
+const PROCESSING_FENCE_ID_COUNT: u64 = 2_000_000_000;
 
 #[derive(Debug, Clone)]
 pub struct GraphicPlacement {
     pub surface: SurfaceId,
     pub rect: Rect,
-    pub seq: u64,
-    pub data_b64: String,
+    pub pointer_frame_seq: Option<u64>,
+    pub source_crop_px: Option<(u32, u32)>,
+    pub frame: Arc<BrowserFrame>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct GraphicsState {
+    session_generation: Option<u64>,
     transmitted: HashMap<SurfaceId, u64>,
     visible: HashSet<SurfaceId>,
 }
 
 impl GraphicsState {
-    pub fn frame_batches(&mut self, placements: &[GraphicPlacement]) -> Vec<Vec<u8>> {
+    pub fn frame_batches(
+        &mut self,
+        session_generation: u64,
+        placements: &[GraphicPlacement],
+    ) -> Vec<Vec<u8>> {
+        if self.session_generation != Some(session_generation) {
+            self.session_generation = Some(session_generation);
+            self.transmitted.clear();
+        }
         let visible_placements = placements
             .iter()
             .filter(|placement| placement.rect.width > 0 && placement.rect.height > 0)
@@ -40,13 +53,19 @@ impl GraphicsState {
 
         for placement in visible_placements {
             let mut batch = Vec::new();
-            let already_sent =
-                self.transmitted.get(&placement.surface).is_some_and(|seq| *seq == placement.seq);
+            let already_sent = self
+                .transmitted
+                .get(&placement.surface)
+                .is_some_and(|seq| *seq == placement.frame.seq);
             if !already_sent {
-                batch.extend(transmit_png(placement.surface, &placement.data_b64));
-                self.transmitted.insert(placement.surface, placement.seq);
+                batch.extend(transmit_png(placement.surface, &placement.frame.data_b64));
+                self.transmitted.insert(placement.surface, placement.frame.seq);
             }
-            batch.extend(place_image(placement.surface, placement.rect));
+            batch.extend(place_image_cropped(
+                placement.surface,
+                placement.rect,
+                placement.source_crop_px,
+            ));
             if !batch.is_empty() {
                 out.push(batch);
             }
@@ -79,10 +98,16 @@ pub fn transmit_png(surface: SurfaceId, data_b64: &str) -> Vec<u8> {
     out
 }
 
-pub fn place_image(surface: SurfaceId, rect: Rect) -> Vec<u8> {
+pub fn place_image_cropped(
+    surface: SurfaceId,
+    rect: Rect,
+    source_crop_px: Option<(u32, u32)>,
+) -> Vec<u8> {
     let id = image_id(surface);
+    let crop =
+        source_crop_px.map_or_else(String::new, |(x, width)| format!(",x={x},w={}", width.max(1)));
     format!(
-        "{ESC}7{ESC}[{};{}H{ESC}_Ga=p,i={id},p={PLACEMENT_ID},c={},r={},q=2;{ESC}\\{ESC}8",
+        "{ESC}7{ESC}[{};{}H{ESC}_Ga=p,i={id},p={PLACEMENT_ID}{crop},c={},r={},q=2;{ESC}\\{ESC}8",
         rect.y + 1,
         rect.x + 1,
         rect.width.max(1),
@@ -96,40 +121,58 @@ pub fn delete_image(surface: SurfaceId) -> Vec<u8> {
     format!("{ESC}_Ga=d,d=i,i={id},q=2;{ESC}\\").into_bytes()
 }
 
+pub(crate) fn processing_fence_id(submission: u64) -> u32 {
+    PROCESSING_FENCE_ID_BASE + (submission.wrapping_sub(1) % PROCESSING_FENCE_ID_COUNT) as u32
+}
+
+/// Append a side-effect-free graphics query after one submitted frame. Its
+/// immediate reply confirms that the terminal parsed every preceding Kitty
+/// graphics command. It does not report compositor presentation.
+pub(crate) fn processing_fence(id: u32) -> Vec<u8> {
+    format!("{ESC}_Gi={id},s=1,v=1,a=q,t=d,f=24;AAAA{ESC}\\").into_bytes()
+}
+
 pub fn probe_kitty_graphics() -> bool {
     let mut stdout = std::io::stdout();
     let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
     let _ = stdout.flush();
     let bytes = read_stdin_for(Duration::from_millis(180));
-    let ok = find_bytes(&bytes, b"_Gi=31;OK");
-    let da = find_da1(&bytes);
-    match (ok, da) {
-        (Some(ok), Some(da)) => ok < da,
-        (Some(_), None) => true,
-        _ => false,
-    }
+    kitty_probe_succeeded(&bytes)
 }
 
-pub fn detect_cell_pixels(query_fallback: bool) -> (u16, u16) {
-    if let Some(cell) = ioctl_cell_pixels() {
-        return cell;
+const FALLBACK_CELL_PIXELS: (u16, u16) = (8, 16);
+
+/// Resolve host cell metrics without treating an absent resize-time ioctl
+/// value as a new measurement. Some outer terminals zero `ws_xpixel` and
+/// `ws_ypixel` after `TIOCSWINSZ`; in that case the last real measurement is
+/// more accurate than the synthetic startup fallback.
+pub fn detect_cell_pixels(known: Option<(u16, u16)>, query_fallback: bool) -> (u16, u16) {
+    let detected = ioctl_cell_pixels().or_else(|| query_fallback.then(query_cell_pixels).flatten());
+    resolve_cell_pixels(known, detected)
+}
+
+fn resolve_cell_pixels(known: Option<(u16, u16)>, detected: Option<(u16, u16)>) -> (u16, u16) {
+    detected.or(known).unwrap_or(FALLBACK_CELL_PIXELS)
+}
+
+fn cell_pixels_from_terminal_size(
+    cols: u16,
+    rows: u16,
+    width_px: u16,
+    height_px: u16,
+) -> Option<(u16, u16)> {
+    if cols == 0 || rows == 0 || width_px == 0 || height_px == 0 {
+        return None;
     }
-    if query_fallback && let Some(cell) = query_cell_pixels() {
-        return cell;
-    }
-    (8, 16)
+    Some(((width_px / cols).max(1), (height_px / rows).max(1)))
 }
 
 #[cfg(unix)]
 fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
     let ok = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) } == 0;
-    if !ok || ws.ws_col == 0 || ws.ws_row == 0 || ws.ws_xpixel == 0 || ws.ws_ypixel == 0 {
-        return None;
-    }
-    let w = (ws.ws_xpixel / ws.ws_col).max(1);
-    let h = (ws.ws_ypixel / ws.ws_row).max(1);
-    Some((w, h))
+    ok.then(|| cell_pixels_from_terminal_size(ws.ws_col, ws.ws_row, ws.ws_xpixel, ws.ws_ypixel))
+        .flatten()
 }
 
 #[cfg(not(unix))]
@@ -174,9 +217,11 @@ fn read_stdin_for(timeout: Duration) -> Vec<u8> {
             break;
         }
         out.extend_from_slice(&buf[..n as usize]);
-        if find_da1(&out).is_some() {
-            break;
-        }
+        // DA1 is emitted as an inexpensive progress marker, but it is not a
+        // completion fence: terminals can produce the Kitty APC reply on a
+        // different render/output lane. Drain the entire bounded probe window
+        // so that a valid reply arriving after DA1 cannot leak into crossterm
+        // input (or the shell that resumes after cmux exits).
     }
     out
 }
@@ -193,19 +238,46 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|window| window == needle)
 }
 
-fn find_da1(bytes: &[u8]) -> Option<usize> {
-    bytes.iter().enumerate().find_map(|(idx, byte)| {
-        if *byte == b'c' && bytes[..idx].iter().rev().take(16).any(|b| *b == b'[') {
-            Some(idx)
-        } else {
-            None
-        }
-    })
+fn kitty_probe_succeeded(bytes: &[u8]) -> bool {
+    find_bytes(bytes, b"_Gi=31;OK").is_some()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zero_pixel_resize_preserves_known_cell_metrics() {
+        let detected = cell_pixels_from_terminal_size(120, 40, 0, 0);
+        assert_eq!(detected, None);
+        assert_eq!(resolve_cell_pixels(Some((11, 23)), detected), (11, 23));
+    }
+
+    #[test]
+    fn missing_initial_metrics_use_synthetic_fallback() {
+        assert_eq!(resolve_cell_pixels(None, None), FALLBACK_CELL_PIXELS);
+    }
+
+    #[test]
+    fn newly_detected_metrics_replace_known_metrics() {
+        assert_eq!(resolve_cell_pixels(Some((8, 16)), Some((11, 23))), (11, 23));
+    }
+
+    #[test]
+    fn kitty_probe_accepts_ok_before_da1() {
+        assert!(kitty_probe_succeeded(b"\x1b_Gi=31;OK\x1b\\\x1b[?62;c"));
+    }
+
+    #[test]
+    fn kitty_probe_accepts_async_ok_after_da1() {
+        assert!(kitty_probe_succeeded(b"\x1b[?62;c\x1b_Gi=31;OK\x1b\\"));
+    }
+
+    #[test]
+    fn kitty_probe_rejects_da1_or_error_without_ok() {
+        assert!(!kitty_probe_succeeded(b"\x1b[?62;c"));
+        assert!(!kitty_probe_succeeded(b"\x1b_Gi=31;EINVAL\x1b\\"));
+    }
 
     #[test]
     fn transmits_png_in_quiet_chunks() {
@@ -222,8 +294,12 @@ mod tests {
 
     #[test]
     fn places_at_cursor_rect_with_save_restore() {
-        let bytes =
-            String::from_utf8(place_image(2, Rect { x: 4, y: 6, width: 80, height: 24 })).unwrap();
+        let bytes = String::from_utf8(place_image_cropped(
+            2,
+            Rect { x: 4, y: 6, width: 80, height: 24 },
+            None,
+        ))
+        .unwrap();
         assert_eq!(bytes, "\x1b7\x1b[7;5H\x1b_Ga=p,i=3,p=1,c=80,r=24,q=2;\x1b\\\x1b8");
     }
 
@@ -234,18 +310,84 @@ mod tests {
     }
 
     #[test]
+    fn processing_fence_uses_reserved_query_id() {
+        let id = processing_fence_id(7);
+        assert!(id >= PROCESSING_FENCE_ID_BASE);
+        assert_eq!(
+            String::from_utf8(processing_fence(id)).unwrap(),
+            format!("\x1b_Gi={id},s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\")
+        );
+    }
+
+    #[test]
+    fn cropped_placement_selects_a_horizontal_source_slice() {
+        let bytes = String::from_utf8(place_image_cropped(
+            2,
+            Rect { x: 4, y: 6, width: 40, height: 24 },
+            Some((80, 320)),
+        ))
+        .unwrap();
+        assert!(bytes.contains(",x=80,w=320,c=40,r=24,"));
+    }
+
+    #[test]
     fn zero_sized_placement_hides_a_previously_visible_image() {
         let visible = GraphicPlacement {
             surface: 7,
             rect: Rect { x: 4, y: 6, width: 80, height: 24 },
-            seq: 1,
-            data_b64: "frame".to_string(),
+            pointer_frame_seq: Some(1),
+            source_crop_px: None,
+            frame: Arc::new(BrowserFrame {
+                session_id: "test".to_string(),
+                data_b64: "frame".to_string(),
+                css_width: 80,
+                css_height: 24,
+                image_width: 80,
+                image_height: 24,
+                seq: 1,
+            }),
         };
         let collapsed =
             GraphicPlacement { rect: Rect { height: 0, ..visible.rect }, ..visible.clone() };
         let mut state = GraphicsState::default();
 
-        assert!(!state.frame_batches(&[visible]).is_empty());
-        assert_eq!(state.frame_batches(&[collapsed]), vec![delete_image(7)]);
+        assert!(!state.frame_batches(1, &[visible]).is_empty());
+        assert_eq!(state.frame_batches(1, &[collapsed]), vec![delete_image(7)]);
+    }
+
+    #[test]
+    fn replacement_session_retransmits_a_reused_surface_sequence() {
+        let old = GraphicPlacement {
+            surface: 7,
+            rect: Rect { x: 4, y: 6, width: 80, height: 24 },
+            pointer_frame_seq: Some(1),
+            source_crop_px: None,
+            frame: Arc::new(BrowserFrame {
+                session_id: "old".to_string(),
+                data_b64: "old-frame".to_string(),
+                css_width: 80,
+                css_height: 24,
+                image_width: 80,
+                image_height: 24,
+                seq: 1,
+            }),
+        };
+        let replacement = GraphicPlacement {
+            frame: Arc::new(BrowserFrame {
+                session_id: "replacement".to_string(),
+                data_b64: "replacement-frame".to_string(),
+                ..(*old.frame).clone()
+            }),
+            ..old.clone()
+        };
+        let mut state = GraphicsState::default();
+
+        state.frame_batches(1, &[old]);
+        let output = state.frame_batches(2, &[replacement]).concat();
+
+        assert!(
+            output.windows(b"replacement-frame".len()).any(|bytes| bytes == b"replacement-frame"),
+            "a new machine session must retransmit even when surface and frame counters restart"
+        );
     }
 }

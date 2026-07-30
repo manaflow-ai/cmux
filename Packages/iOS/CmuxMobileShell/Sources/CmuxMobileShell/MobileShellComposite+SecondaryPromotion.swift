@@ -1,65 +1,471 @@
+internal import CMUXMobileCore
 import Foundation
 import CmuxMobileShellModel
 import os
 
-private let secondaryPromotionLog = Logger(
+nonisolated private let secondaryPromotionLog = Logger(
     subsystem: "com.cmuxterm.app",
     category: "MobileSecondaryPromotion"
 )
 
 @MainActor
 extension MobileShellComposite {
+    /// Stop a focused client's terminal lane before changing its role. This
+    /// suspending phase deliberately does not publish a new role: the caller
+    /// must revalidate switch ownership after the acknowledgement arrives.
+    func prepareFocusedConnectionForHandoff(
+        _ connection: MacConnection
+    ) async -> Bool {
+        guard isFocusedConnectionCurrent(connection) else { return false }
+        // Publish non-readiness before the unsubscribe await. Cancellation can
+        // run while the acknowledgement is being delivered, and restoration
+        // must never accept this focus after the host removed its render stream.
+        focusedHandoffPreparedGenerations.insert(connection.generation)
+        guard await prepareTerminalSubscriptionHandoff(
+            on: connection.client
+        ) else {
+            if isFocusedConnectionCurrent(connection) {
+                connection.client.retire()
+                await connection.client.disconnect()
+            }
+            return false
+        }
+        let terminalStopped = await unsubscribeTerminalEventStream(
+            on: connection.client
+        )
+        guard terminalStopped else {
+            if isFocusedConnectionCurrent(connection) {
+                connection.client.retire()
+                await connection.client.disconnect()
+            } else {
+                focusedHandoffPreparedGenerations.remove(
+                    connection.generation
+                )
+            }
+            return false
+        }
+        guard isFocusedConnectionCurrent(connection) else {
+            focusedHandoffPreparedGenerations.remove(connection.generation)
+            return false
+        }
+        return true
+    }
+
+    /// Commit a prepared focused-client role transition. Registry ownership
+    /// moves atomically before the transport role is rebound.
+    func commitFocusedConnectionHandoff(
+        _ connection: MacConnection,
+        terminalStopped: Bool,
+        retainAsControl: Bool
+    ) async {
+        defer {
+            focusedHandoffPreparedGenerations.remove(connection.generation)
+        }
+        guard terminalStopped else {
+            removeFocusedConnection(ifMatching: connection)
+            return
+        }
+        guard retainAsControl else {
+            guard removeFocusedConnection(ifMatching: connection) else {
+                return
+            }
+            connection.client.retire()
+            Task { await connection.client.disconnect() }
+            return
+        }
+        await installControlConnection(from: connection)
+    }
+
+    /// Change a retained focused client to control-only ownership after its
+    /// terminal subscription has been removed. The workspace snapshot stays in
+    /// `workspacesByMac`, so the aggregate never blinks while roles change.
+    func installControlConnection(from connection: MacConnection) async {
+        guard multiMacAggregationEnabled else {
+            removeFocusedConnection(ifMatching: connection)
+            connection.client.retire()
+            Task { await connection.client.disconnect() }
+            return
+        }
+        let subscription = makeControlSubscription(from: connection)
+        guard transitionFocusedConnectionToControl(
+            subscription,
+            replacing: connection
+        ) else {
+            // A newer focus generation may intentionally reuse this client.
+            // Never let the stale demotion disconnect its current owner.
+            if !registryOwnsClient(of: connection) {
+                subscription.cancel()
+            }
+            return
+        }
+        await activateDemotedControlConnection(
+            subscription,
+            from: connection
+        )
+    }
+
+    func makeControlSubscription(
+        from connection: MacConnection
+    ) -> SecondaryMacSubscription {
+        SecondaryMacSubscription(
+            macDeviceID: connection.macDeviceID,
+            client: connection.client,
+            route: connection.route,
+            ticket: connection.ticket,
+            storedInstanceTag: connection.storedInstanceTag,
+            authenticatedInstanceTag: connection.authenticatedInstanceTag,
+            supportedHostCapabilities: connection.supportedHostCapabilities,
+            actionCapabilities: connection.actionCapabilities,
+            displayName: connection.displayName
+        )
+    }
+
+    func activateDemotedControlConnection(
+        _ subscription: SecondaryMacSubscription,
+        from connection: MacConnection
+    ) async {
+        focusedHandoffPreparedGenerations.remove(connection.generation)
+        guard secondaryMacSubscriptions[connection.macDeviceID]
+                === subscription,
+              !subscription.isTransitioningToFocus else {
+            return
+        }
+        await connection.client.updateTransportSessionPurpose(
+            .backgroundControl
+        )
+        // A concurrent switch may have promoted or removed this exact owner
+        // while the transport actor applied its role. Its newer role update
+        // wins; only the still-current control owner may start maintenance.
+        guard secondaryMacSubscriptions[connection.macDeviceID]
+                === subscription,
+              !subscription.isTransitioningToFocus else {
+            return
+        }
+        startSecondaryControlMaintenance(
+            subscription,
+            displayName: connection.displayName
+        )
+    }
+
+    /// Permanently discard one failed promotion candidate before the caller
+    /// falls back to a fresh dial. Retirement closes transport admission
+    /// synchronously; awaiting disconnect guarantees the old peer session is
+    /// gone before a replacement client can compete for it.
+    func retireSecondaryPromotionCandidate(
+        _ subscription: SecondaryMacSubscription,
+        macDeviceID: String
+    ) async {
+        guard beginSecondaryMacDrainReservation(
+            subscription,
+            macDeviceID: macDeviceID
+        ) else {
+            return
+        }
+        let operation = secondaryMacTransportDrainOperation(
+            subscription,
+            macDeviceID: macDeviceID
+        )
+        if await operation.wait(
+            nanoseconds: connectionHandoffDrainTimeoutNanoseconds
+        ) {
+            finishRetiredSecondaryPromotionCandidate(
+                subscription,
+                macDeviceID: macDeviceID
+            )
+        }
+    }
+
+    /// Start or reuse the reservation's exact physical transport close. The
+    /// completion owner is also installed once, so repeated same-Mac switches
+    /// only wait on this operation instead of accumulating cleanup tasks.
+    func secondaryMacTransportDrainOperation(
+        _ subscription: SecondaryMacSubscription,
+        macDeviceID: String
+    ) -> SecondaryMacTransportDrainOperation {
+        if let operation = subscription.transportDrainOperation {
+            return operation
+        }
+        let client = subscription.client
+        let task = Task {
+            await client.disconnectAndWaitForTransportDrain()
+        }
+        let operation = SecondaryMacTransportDrainOperation(task: task)
+        subscription.transportDrainOperation = operation
+        operation.completionTask = Task { @MainActor [
+            weak self,
+            weak subscription,
+            weak operation
+        ] in
+            await task.value
+            guard let self, let subscription, let operation,
+                  subscription.transportDrainOperation === operation else {
+                return
+            }
+            operation.finish()
+            operation.completionTask = nil
+            self.finishRetiredSecondaryPromotionCandidate(
+                subscription,
+                macDeviceID: macDeviceID
+            )
+        }
+        return operation
+    }
+
+    @discardableResult
+    func finishRetiredSecondaryPromotionCandidate(
+        _ subscription: SecondaryMacSubscription,
+        macDeviceID: String,
+        forceRemovalDuringMacSwitch: Bool = false
+    ) -> Bool {
+        let reservationKey = cmxCanonicalDeviceID(macDeviceID)
+        guard secondaryMacDrainReservations[reservationKey]
+                === subscription else {
+            return false
+        }
+        subscription.hasCompletedTransportDrain = true
+        guard subscription.transportDrainReservationHolders.isEmpty else {
+            return false
+        }
+        guard forceRemovalDuringMacSwitch || macSwitchAttemptID == nil else {
+            return false
+        }
+        secondaryMacDrainReservations[reservationKey] = nil
+        markSecondaryMacUnavailableIfUnowned(macDeviceID)
+        switch subscription.postDrainAction {
+        case .none:
+            break
+        case .refreshPresence:
+            scheduleSecondaryPresenceAggregation(
+                forMacDeviceID: macDeviceID
+            )
+        case .retry:
+            scheduleSecondaryAggregationRetry(
+                macDeviceIDs: [macDeviceID]
+            )
+        }
+        subscription.postDrainAction = .none
+        return true
+    }
+
+    func secondaryMacDrainReservation(
+        forMacDeviceID macDeviceID: String
+    ) -> SecondaryMacSubscription? {
+        secondaryMacDrainReservations[
+            cmxCanonicalDeviceID(macDeviceID)
+        ]
+    }
+
+    @discardableResult
+    func beginSecondaryMacDrainReservation(
+        _ subscription: SecondaryMacSubscription,
+        macDeviceID: String,
+        postDrainAction: SecondaryMacPostDrainAction = .refreshPresence
+    ) -> Bool {
+        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+            return false
+        }
+        let reservationKey = cmxCanonicalDeviceID(macDeviceID)
+        guard secondaryMacDrainReservations[reservationKey] == nil else {
+            return false
+        }
+        subscription.isTransitioningToFocus = true
+        subscription.detachKeepingClient()
+        subscription.client.retire()
+        subscription.hasCompletedTransportDrain = false
+        subscription.transportDrainOperation = nil
+        subscription.transportDrainReservationHolders = []
+        subscription.postDrainAction = postDrainAction
+        secondaryMacSubscriptions[macDeviceID] = nil
+        secondaryMacDrainReservations[reservationKey] = subscription
+        markSecondaryMacUnavailable(macDeviceID)
+        _ = secondaryMacTransportDrainOperation(
+            subscription,
+            macDeviceID: macDeviceID
+        )
+        return true
+    }
+
+    func retireSecondaryControlOwner(
+        _ subscription: SecondaryMacSubscription,
+        macDeviceID: String,
+        shouldRetry: Bool
+    ) async {
+        guard beginSecondaryMacDrainReservation(
+            subscription,
+            macDeviceID: macDeviceID,
+            postDrainAction: shouldRetry ? .retry : .none
+        ) else {
+            return
+        }
+        let operation = secondaryMacTransportDrainOperation(
+            subscription,
+            macDeviceID: macDeviceID
+        )
+        if await operation.wait(
+            nanoseconds: connectionHandoffDrainTimeoutNanoseconds
+        ) {
+            finishRetiredSecondaryPromotionCandidate(
+                subscription,
+                macDeviceID: macDeviceID
+            )
+            return
+        }
+    }
+
+    func finishCompletedSecondaryMacDrainReservations() {
+        let completed = secondaryMacDrainReservations.values.filter(
+            \.hasCompletedTransportDrain
+        )
+        for subscription in completed {
+            finishRetiredSecondaryPromotionCandidate(
+                subscription,
+                macDeviceID: subscription.macDeviceID
+            )
+        }
+    }
+
+    /// A pooled client can fail after it has already become the focused owner.
+    /// Remove its public/actionable role, retain a same-Mac reservation, and
+    /// bound the switch-visible drain before the caller enters fresh fallback.
+    func retirePromotedConnectionForFreshDial(
+        _ connection: MacConnection,
+        subscription: SecondaryMacSubscription,
+        macDeviceID: String,
+        switchAttemptID: UUID
+    ) async {
+        let isStillFocused = isFocusedConnectionCurrent(connection)
+        if !isStillFocused {
+            let reservationKey = cmxCanonicalDeviceID(macDeviceID)
+            guard isCurrentMacSwitchAttempt(switchAttemptID),
+                  secondaryMacDrainReservations[reservationKey] == nil,
+                  !liveMacConnections.contains(where: {
+                      cmxCanonicalDeviceID($0.macDeviceID)
+                          == reservationKey
+                  }) else {
+                return
+            }
+        }
+        let reservationKey = cmxCanonicalDeviceID(macDeviceID)
+        guard secondaryMacDrainReservations[reservationKey] == nil else {
+            return
+        }
+        subscription.isTransitioningToFocus = true
+        subscription.detachKeepingClient()
+        subscription.client.retire()
+        subscription.hasCompletedTransportDrain = false
+        subscription.transportDrainOperation = nil
+        subscription.transportDrainReservationHolders = []
+        subscription.postDrainAction = .refreshPresence
+        secondaryMacDrainReservations[reservationKey] = subscription
+        if isStillFocused {
+            invalidateFocusedConnectionAfterAbortedHandoff(connection)
+        } else {
+            markSecondaryMacUnavailable(macDeviceID)
+        }
+
+        let operation = secondaryMacTransportDrainOperation(
+            subscription,
+            macDeviceID: macDeviceID
+        )
+        if await operation.wait(
+            nanoseconds: connectionHandoffDrainTimeoutNanoseconds
+        ) {
+            finishRetiredSecondaryPromotionCandidate(
+                subscription,
+                macDeviceID: macDeviceID
+            )
+            return
+        }
+    }
+
     /// Reuse a live secondary client only while both pre- and post-probe store
     /// reads retain the authority authenticated for that client.
     func promoteSecondaryToForeground(
         _ macID: String,
         switchAttemptID: UUID
     ) async -> Bool {
-        guard runtime != nil,
-              let sub = secondaryMacSubscriptions[macID],
-              let pairedMacStore,
-              let scope = await currentScopeSnapshot(),
-              let current = try? await pairedMacStore.loadAll(
-                  stackUserID: scope.userID, teamID: scope.teamID
-              ).first(where: {
-                  $0.macDeviceID == macID
-                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
-                          $0.instanceTag,
-                          sub.storedInstanceTag
-                      )
-              }),
-              MobileMacInstanceTagAuthority.sameStoredAuthority(
-                  current.instanceTag, sub.storedInstanceTag
-              ) else {
-            secondaryMacSubscriptions[macID]?.cancel()
-            secondaryMacSubscriptions[macID] = nil
+        switch await promoteSecondaryToForegroundOutcome(
+            macID,
+            switchAttemptID: switchAttemptID
+        ) {
+        case .promoted:
+            return true
+        case .unavailable, .transientFailure:
             return false
         }
-        guard let previews = await fetchSecondaryWorkspaces(
-                  on: sub.client, macDeviceID: macID
-              ),
+    }
+
+    func promoteSecondaryToForegroundOutcome(
+        _ macID: String,
+        switchAttemptID: UUID
+    ) async -> SecondaryPromotionOutcome {
+        guard runtime != nil,
+              let sub = secondaryMacSubscriptions[macID] else {
+            return .unavailable
+        }
+        guard let scope = await currentScopeSnapshot() else {
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
+        }
+        switch await readSecondaryStoredAuthority(
+            macDeviceID: macID,
+            storedInstanceTag: sub.storedInstanceTag,
+            scope: scope
+        ) {
+        case .authorized:
+            break
+        case .revoked:
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
+        case .transientFailure:
+            scheduleSecondaryAggregationRetry(macDeviceIDs: [macID])
+            return .transientFailure
+        }
+        let preflightWorkspaces = await fetchSecondaryWorkspaces(
+            on: sub.client,
+            macDeviceID: macID
+        )
+        guard case .received = preflightWorkspaces,
               secondaryMacSubscriptions[macID] === sub,
-              isCurrentMacSwitchAttempt(switchAttemptID),
-              let refreshed = try? await pairedMacStore.loadAll(
-                  stackUserID: scope.userID, teamID: scope.teamID
-              ).first(where: {
-                  $0.macDeviceID == macID
-                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
-                          $0.instanceTag,
-                          sub.storedInstanceTag
-                      )
-              }),
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
+        }
+        switch await readSecondaryStoredAuthority(
+            macDeviceID: macID,
+            storedInstanceTag: sub.storedInstanceTag,
+            scope: scope
+        ) {
+        case .authorized:
+            break
+        case .revoked:
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
+        case .transientFailure:
+            scheduleSecondaryAggregationRetry(macDeviceIDs: [macID])
+            return .transientFailure
+        }
+        guard
               secondaryMacSubscriptions[macID] === sub,
-              MobileMacInstanceTagAuthority.sameStoredAuthority(
-                  refreshed.instanceTag, sub.storedInstanceTag
-              ),
               scope.generation == secondaryAggregationScopeGeneration,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            if secondaryMacSubscriptions[macID] === sub {
-                sub.cancel()
-                secondaryMacSubscriptions[macID] = nil
-            }
-            return false
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
         }
         secondaryPromotionLog.info(
             "reusing authenticated secondary client mac=\(macID, privacy: .public)"
@@ -67,18 +473,196 @@ extension MobileShellComposite {
         let generation = UUID()
         connectionAttemptGeneration = generation
         connectionGeneration = generation
-        cancelRemoteOperationTasks()
+        let previousForegroundID = foregroundMacDeviceID
+        let previousForegroundConnection = previousForegroundID.flatMap {
+            connections[$0]
+        }
+        let unregisteredPreviousClient = previousForegroundConnection == nil
+            ? remoteClient
+            : nil
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+            return .unavailable
+        }
+        guard await prepareSecondarySubscriptionForPromotion(
+            sub,
+            macDeviceID: macID
+        ) else {
+            return .unavailable
+        }
+        guard secondaryMacSubscriptions[macID] === sub,
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await resumeSecondarySubscriptionAfterAbortedPromotion(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
+        }
+        // Remove the target's control registration before disturbing the live
+        // foreground. If this acknowledgement fails, its client is discarded
+        // and the ordinary fresh-dial switch path can proceed.
+        if sub.supportedHostCapabilities.contains("events.v1") {
+            guard await unsubscribeEventStream(
+                on: sub.client,
+                streamID: sub.streamID
+            ) else {
+                await retireSecondaryPromotionCandidate(
+                    sub,
+                    macDeviceID: macID
+                )
+                return .unavailable
+            }
+        }
+        guard secondaryMacSubscriptions[macID] === sub,
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
+        }
+        await sub.client.updateTransportSessionPurpose(.foregroundControl)
+        guard secondaryMacSubscriptions[macID] === sub,
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
+        }
+        clearPendingTerminalInputForFocusChange()
+        // The old foreground can stay warm only after the Mac proves its
+        // terminal registration is gone.
+        var previousForegroundCanStayWarm = false
+        if let previousForegroundConnection {
+            let terminalStopped = await prepareFocusedConnectionForHandoff(
+                previousForegroundConnection
+            )
+            if terminalStopped {
+                // Presence, visibility, or account scope may change while the
+                // target and old terminal unsubscribe acknowledgements are in
+                // flight. Re-read membership immediately before demotion.
+                previousForegroundCanStayWarm =
+                    await canRetainFocusedConnectionInControlPool(
+                        previousForegroundConnection,
+                        vacatingControlMacDeviceID: macID
+                    )
+            }
+            if !previousForegroundCanStayWarm,
+               isFocusedConnectionCurrent(previousForegroundConnection) {
+                // Close request admission on the main actor before teardown
+                // yields. `remoteClient` still points at this client until the
+                // promoted owner is adopted, so it must not reopen while the
+                // old transport is closing.
+                previousForegroundConnection.client.retire()
+                await previousForegroundConnection.client.disconnect()
+            }
+        }
+        guard secondaryMacSubscriptions[macID] === sub,
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            if let previousForegroundConnection {
+                invalidateFocusedConnectionAfterAbortedHandoff(
+                    previousForegroundConnection
+                )
+            }
+            return .unavailable
+        }
         let previousForegroundKey = foregroundMacKey
-        secondaryMacSubscriptions[macID] = nil
         sub.detachKeepingClient()
         let displayName = workspacesByMac[macID]?.displayName
+        var demotedForegroundSubscription: SecondaryMacSubscription?
+        if let previousForegroundID,
+           previousForegroundID != macID,
+           let previousForegroundConnection {
+            if previousForegroundCanStayWarm {
+                let subscription = makeControlSubscription(
+                    from: previousForegroundConnection
+                )
+                guard exchangePromotedControlForDemotedFocus(
+                    promotedControl: sub,
+                    demotedControl: subscription,
+                    replacing: previousForegroundConnection
+                ) else {
+                    if registryOwnsClient(
+                        of: previousForegroundConnection
+                    ) {
+                        subscription.detachKeepingClient()
+                    } else {
+                        subscription.cancel()
+                    }
+                    await retireSecondaryPromotionCandidate(
+                        sub,
+                        macDeviceID: macID
+                    )
+                    invalidateFocusedConnectionAfterAbortedHandoff(
+                        previousForegroundConnection
+                    )
+                    return .unavailable
+                }
+                focusedHandoffPreparedGenerations.remove(
+                    previousForegroundConnection.generation
+                )
+                demotedForegroundSubscription = subscription
+            } else {
+                removeFocusedConnection(ifMatching: previousForegroundConnection)
+            }
+        }
+        guard (demotedForegroundSubscription != nil
+                  || secondaryMacSubscriptions[macID] === sub),
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
+        }
+        if let unregisteredPreviousClient,
+           unregisteredPreviousClient !== sub.client {
+            // Anonymous and legacy foreground sessions have no registry owner
+            // to demote. Retire synchronously before replacing `remoteClient`;
+            // the asynchronous close removes all of their server registrations.
+            unregisteredPreviousClient.retire()
+            Task { await unregisteredPreviousClient.disconnect() }
+        }
+        let liveConnectionGeneration = adoptPooledRemoteClient(sub.client)
         activeTicket = sub.ticket
-        activeRoute = sub.route
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
         connectedHostName = placeholderHostName(for: sub.ticket, firstRoute: sub.route)
-        replaceRemoteClient(with: sub.client)
         foregroundMacDeviceID = macID
         supportedHostCapabilities = sub.supportedHostCapabilities
+        // Promotion has already authenticated this capability snapshot on the
+        // control connection. Publish its terminal mode synchronously so input
+        // can use the warm connection immediately while the render listener
+        // attaches and refreshes status.
+        terminalOutputTransport = Self.resolvedTerminalOutputTransport(
+            capabilities: sub.supportedHostCapabilities,
+            terminalFidelity: nil
+        )
+        let promotedConnection = MacConnection(
+            macDeviceID: macID,
+            ticket: sub.ticket,
+            route: sub.route,
+            client: sub.client,
+            generation: liveConnectionGeneration,
+            displayName: displayName ?? connectedHostName,
+            storedInstanceTag: sub.storedInstanceTag,
+            authenticatedInstanceTag: sub.authenticatedInstanceTag,
+            supportedHostCapabilities: sub.supportedHostCapabilities,
+            actionCapabilities: sub.actionCapabilities
+        )
+        installFocusedConnection(promotedConnection)
+        if let previousForegroundConnection,
+           let demotedForegroundSubscription {
+            Task { @MainActor [weak self] in
+                await self?.activateDemotedControlConnection(
+                    demotedForegroundSubscription,
+                    from: previousForegroundConnection
+                )
+            }
+        }
         // Promotion reuses the live client without a fresh `mobile.host.status`
         // probe, so the previous foreground Mac's update hint would otherwise
         // survive the switch. Recompute against this Mac's capabilities; the
@@ -89,26 +673,126 @@ extension MobileShellComposite {
             statusMacAppVersion: nil,
             macDeviceID: macID
         )
-        workspacesByMac[macID] = MacWorkspaceState(
-            macDeviceID: macID,
-            displayName: displayName,
-            workspaces: previews,
-            status: .connected,
-            actionCapabilities: sub.actionCapabilities
-        )
-        dropStalePreviousForeground(previousForegroundKey)
+        // Move selection across the Mac ownership boundary before `activeRoute`
+        // restarts mounted terminal lanes. Until this point the aggregate may
+        // still preserve the previous Mac's selected workspace and surface IDs.
+        selectWorkspaceOnCurrentForegroundMac()
+        syncSelectedTerminalForWorkspace()
+        activeRoute = sub.route
         connectionState = .connected
         markMacConnectionHealthy()
-        stopTerminalRefreshPolling()
-        startTerminalRefreshPolling()
+        // Establish the foreground listener before fetching the snapshot that
+        // focus will publish. This closes the control-unsubscribe/terminal-
+        // subscribe gap for legacy Macs that have no state-sync cursor repair.
+        let subscriptionReadiness =
+            MobileTerminalEventSubscriptionReadiness()
+        startTerminalRefreshPolling(
+            subscriptionReadiness: subscriptionReadiness,
+            recoversConnectionOnSubscriptionFailure: false
+        )
+        let foregroundEventsReady = await subscriptionReadiness.wait()
+        guard isCurrentMacSwitchAttempt(switchAttemptID),
+              remoteClient === sub.client,
+              foregroundMacDeviceID == macID else {
+            await retirePromotedConnectionForFreshDial(
+                promotedConnection,
+                subscription: sub,
+                macDeviceID: macID,
+                switchAttemptID: switchAttemptID
+            )
+            return .unavailable
+        }
+        guard foregroundEventsReady else {
+            stopTerminalRefreshPolling()
+            await retirePromotedConnectionForFreshDial(
+                promotedConnection,
+                subscription: sub,
+                macDeviceID: macID,
+                switchAttemptID: switchAttemptID
+            )
+            return .unavailable
+        }
+        let snapshotEventGeneration = workspaceListEventGeneration
+        let snapshotStateRevision = foregroundWorkspaceStateRevision
+        let authoritativeWorkspaceAttempt = await fetchSecondaryWorkspaces(
+            on: sub.client,
+            macDeviceID: macID
+        )
+        guard isCurrentMacSwitchAttempt(switchAttemptID),
+              remoteClient === sub.client,
+              foregroundMacDeviceID == macID else {
+            await retirePromotedConnectionForFreshDial(
+                promotedConnection,
+                subscription: sub,
+                macDeviceID: macID,
+                switchAttemptID: switchAttemptID
+            )
+            return .unavailable
+        }
+        guard case let .received(authoritativePreviews) =
+                authoritativeWorkspaceAttempt else {
+            stopTerminalRefreshPolling()
+            await retirePromotedConnectionForFreshDial(
+                promotedConnection,
+                subscription: sub,
+                macDeviceID: macID,
+                switchAttemptID: switchAttemptID
+            )
+            return .unavailable
+        }
+        let eventRaced =
+            workspaceListEventGeneration != snapshotEventGeneration
+        let newerWorkspaceStateApplied =
+            foregroundWorkspaceStateRevision != snapshotStateRevision
+        if eventRaced, !newerWorkspaceStateApplied {
+            // The event fetch is part of the promotion's freshness contract.
+            // If it fails, fail closed and let the normal switch path redial
+            // instead of returning success with the older control snapshot.
+            for _ in 0 ..< 3
+                where foregroundWorkspaceStateRevision
+                    == snapshotStateRevision {
+                guard let racedRefresh = workspaceListRefreshTask else {
+                    break
+                }
+                _ = await racedRefresh.value
+            }
+            guard foregroundWorkspaceStateRevision
+                    != snapshotStateRevision,
+                  isCurrentMacSwitchAttempt(switchAttemptID),
+                  remoteClient === sub.client,
+                  foregroundMacDeviceID == macID else {
+                stopTerminalRefreshPolling()
+                await retirePromotedConnectionForFreshDial(
+                    promotedConnection,
+                    subscription: sub,
+                    macDeviceID: macID,
+                    switchAttemptID: switchAttemptID
+                )
+                return .unavailable
+            }
+        } else if !newerWorkspaceStateApplied {
+            workspacesByMac[macID] = MacWorkspaceState(
+                macDeviceID: macID,
+                displayName: displayName,
+                workspaces: authoritativePreviews,
+                status: .connected,
+                actionCapabilities: sub.actionCapabilities
+            )
+            foregroundWorkspaceStateRevision &+= 1
+        }
+        selectWorkspaceOnCurrentForegroundMac()
+        // The old foreground snapshot remains live through its new control
+        // connection, so `dropStalePreviousForeground` keeps it in the aggregate.
+        dropStalePreviousForeground(previousForegroundKey)
+        scheduleForegroundNotificationFeedRefresh(client: sub.client)
         syncSelectedTerminalForWorkspace()
         enqueueActivePairedMacWrite(
             macDeviceID: macID,
-            instanceTag: activeMacInstanceTag,
+            instanceTag: sub.storedInstanceTag,
             scope: scope,
             reloadAfterWrite: false
         )
         scheduleSecondaryAggregation()
-        return true
+        return .promoted
     }
 }

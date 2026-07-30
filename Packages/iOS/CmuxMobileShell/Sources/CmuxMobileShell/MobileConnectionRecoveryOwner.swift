@@ -93,6 +93,21 @@ final class MobileConnectionRecoveryOwner {
         return attempt
     }
 
+    /// Cancels an in-flight health probe and returns the owner to idle.
+    /// Used when the app leaves the foreground: a suspended probe burns its
+    /// wall-clock deadline while the process is frozen, so its timeout on
+    /// resume is not evidence the connection died. Redialing/validating
+    /// attempts are left alone — they own teardown side effects and settle
+    /// through their own deadline.
+    @discardableResult
+    func cancelProbing() -> Bool {
+        guard case .probing = phase else { return false }
+        task?.cancel()
+        task = nil
+        phase = .idle
+        return true
+    }
+
     func install(_ task: Task<Void, Never>, for attempt: Attempt) {
         guard isCurrent(attempt) else {
             task.cancel()
