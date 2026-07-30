@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -242,6 +242,31 @@ function makeLiveRepository(): IrohRepositoryShape {
         if ((outstanding?.total ?? 0) >= challengeQuota.outstanding) {
           throw new IrohQuotaExceededError({ code: "too_many_outstanding_challenges", retryAfterSeconds: 300 });
         }
+        // The register gate rejects a challenge whose createdAt is strictly
+        // below the slot's registeredAt high-water mark. Both are millisecond
+        // wall clocks, so two serialized mints can carry EQUAL timestamps; a
+        // delayed older challenge that ties the mark passes the `<` gate and
+        // can land after a newer one, reversing the order the gate enforces.
+        // Fix at the source: make challenge mint time a strict total order per
+        // slot. registeredAt is only ever stamped from a challenge's createdAt
+        // (insert, reincarnation, and heartbeat paths alike), so if each new
+        // challenge is strictly newer than every prior challenge for its slot,
+        // the strict `<` gate is exact. All mints for a user serialize under
+        // the per-user challenge advisory lock above, so this read cannot race
+        // another mint for the same slot.
+        const [priorChallenge] = await tx
+          .select({ createdAt: irohRegistrationChallenges.createdAt })
+          .from(irohRegistrationChallenges)
+          .where(and(
+            eq(irohRegistrationChallenges.userId, input.userId),
+            eq(irohRegistrationChallenges.deviceUuid, input.deviceUuid),
+            eq(irohRegistrationChallenges.tag, input.tag),
+          ))
+          .orderBy(desc(irohRegistrationChallenges.createdAt))
+          .limit(1);
+        const createdAt = priorChallenge && input.now <= priorChallenge.createdAt
+          ? new Date(priorChallenge.createdAt.getTime() + 1)
+          : input.now;
         const [challenge] = await tx
           .insert(irohRegistrationChallenges)
           .values({
@@ -253,7 +278,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             identityGeneration: input.identityGeneration,
             payloadSha256: input.payloadSha256,
             nonceHash: input.nonceHash,
-            createdAt: input.now,
+            createdAt,
             expiresAt: input.expiresAt,
           })
           .returning();

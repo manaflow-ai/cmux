@@ -143,7 +143,7 @@ public enum SSHPTYAttachExitCode: Int32 {
         ]
     }
 
-    private static func noProgressShellPolicy() -> (
+    static func noProgressShellPolicy() -> (
         configurationLines: [String],
         status: Int32,
         limitReachedCommand: String
