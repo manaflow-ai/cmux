@@ -171,7 +171,8 @@ struct AgentResumeReturnShellStartupTests {
             String(bytes: Data(contentsOf: missingOutput), encoding: .utf8)
         )
         #expect(
-            missingCwd.trimmingCharacters(in: .whitespacesAndNewlines) == root.path
+            missingCwd.trimmingCharacters(in: .whitespacesAndNewlines) ==
+                root.resolvingSymlinksInPath().path
         )
 
         if getuid() != 0 {
@@ -344,7 +345,10 @@ struct AgentResumeReturnShellStartupTests {
         #expect(stdout.contains("zprofile_count=1"), Comment(rawValue: diagnostic))
         #expect(stdout.contains("zshrc_count=1"), Comment(rawValue: diagnostic))
         #expect(stdout.contains("zlogin_count=1"), Comment(rawValue: diagnostic))
-        #expect(stdout.contains("cwd=\(workingDirectory.path)"), Comment(rawValue: diagnostic))
+        #expect(
+            stdout.contains("cwd=\(workingDirectory.resolvingSymlinksInPath().path)"),
+            Comment(rawValue: diagnostic)
+        )
         #expect(stdout.contains("alias=present"), Comment(rawValue: diagnostic))
         let history = try #require(
             String(bytes: Data(contentsOf: historyURL), encoding: .utf8)

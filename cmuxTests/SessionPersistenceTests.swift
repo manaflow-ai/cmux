@@ -5663,15 +5663,14 @@ extension SessionPersistenceTests {
 
             XCTAssertNil(restoredPanel.requestedWorkingDirectory)
             XCTAssertTrue(startupPayload.contains("codex resume session-duplicate-turn -c check_for_update_on_startup=false --yolo"), startupPayload)
-            // The guard is the fish-safe, brace-free form (https://github.com/manaflow-ai/cmux/issues/6285):
-            // `cd -- '<dir>' 2>/dev/null || [ ! -d '<dir>' ] && <cmd>`.
-            XCTAssertFalse(startupPayload.contains("{ cd -- "), startupPayload)
-            let guardStart = try XCTUnwrap(startupPayload.range(of: "cd -- "), startupPayload)
-            let guardSuffix = String(startupPayload[guardStart.lowerBound...])
-            let guardEnd = try XCTUnwrap(guardSuffix.range(of: "] &&")?.upperBound, guardSuffix)
-            let guardSnippet = String(guardSuffix[..<guardEnd])
-            XCTAssertTrue(guardSnippet.contains(missingCwd.path), guardSnippet)
-            XCTAssertTrue(guardSnippet.contains("2>/dev/null || [ ! -d"), guardSnippet)
+            XCTAssertTrue(
+                startupPayload.contains(
+                    "if ! cd -- \(TerminalStartupShellQuoting.singleQuoted(missingCwd.path)) 2>/dev/null; then"
+                ),
+                startupPayload
+            )
+            XCTAssertTrue(startupPayload.contains("_cmux_resume_probe="), startupPayload)
+            XCTAssertFalse(startupPayload.contains("2>/dev/null || [ ! -d"), startupPayload)
         }
     }
 
@@ -5758,6 +5757,12 @@ extension SessionPersistenceTests {
             )
         }
         return try String(contentsOfFile: scriptPath, encoding: .utf8)
+    }
+
+    private func launcherScriptPath(from input: String) -> String? {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
+        guard words.count == 2, words.first == "/bin/zsh" else { return nil }
+        return words.last
     }
 
     @MainActor
@@ -5930,9 +5935,16 @@ extension SessionPersistenceTests {
 
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["EMPTY"])
-        XCTAssertEqual(
-            restoredPanel.surface.debugInitialInputForTesting(),
-            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' 'codex resume session'\n"
+        let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
+        XCTAssertTrue(input.hasPrefix(" /bin/zsh '"), input)
+        let scriptPath = try XCTUnwrap(launcherScriptPath(from: input))
+        defer { try? FileManager.default.removeItem(atPath: scriptPath) }
+        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        XCTAssertTrue(
+            scriptContents.contains(
+                "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' 'codex resume session'"
+            ),
+            scriptContents
         )
     }
 
