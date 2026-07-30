@@ -1,6 +1,7 @@
 import CmuxControlSocket
 import CmuxSimulator
 import CmuxSimulatorUI
+import CmuxSimulatorUIAutomation
 import Foundation
 
 extension TerminalController {
@@ -81,7 +82,7 @@ extension TerminalController {
             }
             if let capability = simulatorCapability(for: operation) {
                 if capability.requiresAttachmentHydration {
-                    try await coordinator.waitForCapabilityHydration()
+                    try await coordinator.waitForCapabilityResolution(capability)
                 }
                 if !coordinator.supports(capability) {
                     throw SimulatorFailure(
@@ -96,6 +97,17 @@ extension TerminalController {
             }
             let payload: JSONValue
             var mutationCommitted = false
+            let serializesLegacyUI = simulatorSerializesLegacyUIOperation(operation)
+            if serializesLegacyUI {
+                try await coordinator.beginUIAutomationTransaction()
+            }
+            defer {
+                if serializesLegacyUI {
+                    coordinator.clearUIAutomationSnapshot()
+                    coordinator.endUIAutomationTransaction()
+                }
+            }
+            try Task.checkCancellation()
             switch operation {
             case .context, .prepareScreenshot:
                 guard let deviceID = coordinator.selectedDeviceID ?? persistedDeviceID else {
@@ -139,12 +151,22 @@ extension TerminalController {
                 try await coordinator.recoverAndWait()
                 mutationCommitted = operation.commitsExternalMutation
                 payload = .object(["completed": .bool(true)])
-            case let .gesture(touches):
-                let geometry = coordinator.display.map(SimulatorOrientationGeometry.init(display:))
-                let events = try touches.map { try controlSimulatorPointerEvent($0, geometry: geometry) }
-                _ = try await coordinator.perform(.interactive(.gesture(events)))
+            case .uiSnapshot, .uiWait, .uiAction, .accessibilityTap:
+                payload = try await performSimulatorUIAutomationOperation(
+                    operation,
+                    coordinator: coordinator
+                )
                 mutationCommitted = operation.commitsExternalMutation
-                payload = .object(["completed": .bool(true), "event_count": .int(Int64(events.count))])
+            case let .gesture(touches):
+                let eventCount = try await performSimulatorGesture(
+                    touches,
+                    coordinator: coordinator
+                )
+                mutationCommitted = operation.commitsExternalMutation
+                payload = .object([
+                    "completed": .bool(true),
+                    "event_count": .int(Int64(eventCount)),
+                ])
             case let .hardwareButton(raw):
                 guard let button = SimulatorHardwareButton(rawValue: raw) else {
                     throw invalidSimulatorOperation(String.localizedStringWithFormat(
@@ -332,6 +354,12 @@ extension TerminalController {
                     defaultValue: "The Simulator operation was cancelled"
                 )
             ))
+        } catch let failure as SimulatorUIAutomationFailure {
+            receipt.complete(.failed(
+                code: failure.code,
+                message: failure.message,
+                data: failure.controlData
+            ))
         } catch let failure as SimulatorFailure {
             receipt.complete(.failed(code: failure.code, message: failure.message))
         } catch {
@@ -353,7 +381,10 @@ extension TerminalController {
         case .prepareScreenshot: nil
         case .selectDevice: nil
         case .recover: nil
+        case .uiSnapshot, .uiWait: .accessibility
+        case .uiAction: nil
         case let .gesture(events): events.contains(where: { $0.secondX != nil }) ? .multiTouch : .touch
+        case .accessibilityTap: .accessibility
         case .hardwareButton: .hardwareButtons
         case .rotate: .rotation
         case .coreAnimation: .coreAnimationDiagnostics
@@ -375,11 +406,29 @@ extension TerminalController {
         }
     }
 
+    private func simulatorSerializesLegacyUIOperation(
+        _ operation: ControlSimulatorOperation
+    ) -> Bool {
+        switch operation {
+        case .gesture, .hardwareButton, .rotate,
+             .memoryWarning, .permissionsSet, .interfaceSet:
+            true
+        default:
+            false
+        }
+    }
+
     private func simulatorTimeout(for operation: ControlSimulatorOperation) -> TimeInterval {
         if case .context = operation { return simulatorOperationDeadlines.selectDevice }
         if case .prepareScreenshot = operation { return simulatorOperationDeadlines.selectDevice }
         if case .selectDevice = operation { return simulatorOperationDeadlines.selectDevice }
         if case .recover = operation { return simulatorOperationDeadlines.recover }
+        if case .uiSnapshot = operation { return simulatorOperationDeadlines.inspectionRead }
+        if case let .uiWait(wait) = operation {
+            return min(160, Double(wait.timeoutMilliseconds) / 1_000 + 35)
+        }
+        if case .uiAction = operation { return 140 }
+        if case .accessibilityTap = operation { return 140 }
         if case .cameraConfigure = operation { return 160 }
         if case .cameraSwitch = operation { return 160 }
         if case .interfaceStatus = operation { return simulatorOperationDeadlines.interfaceRead }
@@ -405,6 +454,16 @@ extension TerminalController {
             ))
         }
         return deviceID
+    }
+
+    private func performSimulatorGesture(
+        _ touches: [ControlSimulatorTouch],
+        coordinator: SimulatorPaneCoordinator
+    ) async throws -> Int {
+        let geometry = coordinator.display.map(SimulatorOrientationGeometry.init(display:))
+        let events = try touches.map { try controlSimulatorPointerEvent($0, geometry: geometry) }
+        _ = try await coordinator.perform(.interactive(.gesture(events)))
+        return events.count
     }
 
     private func simulatorCommittedMutationPayload(

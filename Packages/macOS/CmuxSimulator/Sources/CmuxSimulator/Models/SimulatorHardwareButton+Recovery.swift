@@ -3,6 +3,8 @@ extension SimulatorHardwareButton {
     /// worker dies during a convenience press. Gesture-only actions return nil.
     public var recoveryHIDUsage: SimulatorHIDButtonUsage? {
         switch self {
+        case .applePay:
+            SimulatorHIDButtonUsage(page: 0x0C, usage: 0x30)
         case .home:
             SimulatorHIDButtonUsage(page: 0x0C, usage: 0x40)
         case .lock, .sideButton, .power:

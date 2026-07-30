@@ -128,13 +128,29 @@ extension SimulatorWorkerClient {
             }
         case let .capabilities(capabilities):
             currentCapabilities = capabilities
+            currentCapabilityResolutions = [:]
             currentCapabilitiesAreHydrated = false
+        case let .capabilityResolved(capability, available):
+            currentCapabilityResolutions[capability] = available
+            if available {
+                currentCapabilities.insert(capability)
+            } else {
+                currentCapabilities.remove(capability)
+            }
         case let .capabilitiesHydrated(capabilities):
             currentCapabilities = capabilities
+            for capability in [
+                SimulatorCapability.accessibility,
+                .foregroundApplication,
+                .webInspector,
+            ] {
+                currentCapabilityResolutions[capability] = capabilities.contains(capability)
+            }
             currentCapabilitiesAreHydrated = true
         case .status(.deviceUnavailable):
             clearFrameTransportState()
             currentCapabilities = []
+            currentCapabilityResolutions = [:]
             currentCapabilitiesAreHydrated = false
             lastDisplayOrientation = nil
             currentDisplayMetadata = nil
@@ -150,6 +166,7 @@ extension SimulatorWorkerClient {
         case let .status(.failed(failure)):
             clearFrameTransportState()
             currentCapabilities = []
+            currentCapabilityResolutions = [:]
             currentCapabilitiesAreHydrated = false
             lastDisplayOrientation = nil
             currentDisplayMetadata = nil
@@ -428,6 +445,7 @@ extension SimulatorWorkerClient {
         cancelReplayWait()
         clearFrameTransportState()
         currentCapabilities = []
+        currentCapabilityResolutions = [:]
         currentCapabilitiesAreHydrated = false
         currentStatus = nil
         failDeferredDeliveries(with: SimulatorFailure(

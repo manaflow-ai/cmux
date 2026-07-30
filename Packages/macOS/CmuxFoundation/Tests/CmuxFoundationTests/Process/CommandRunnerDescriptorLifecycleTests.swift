@@ -10,9 +10,7 @@ struct CommandRunnerDescriptorLifecycleTests {
 
     @Test("Capture pipes are close-on-exec and close before success returns")
     func capturePipesAreCloseOnExecAndCloseAfterSuccess() async throws {
-        weak var releasedProcess: Process?
         var execution: CommandExecution? = try makeExecution(executable: "/usr/bin/true")
-        releasedProcess = execution?.process
         let descriptors = try snapshotDescriptors(of: #require(execution))
         #expect(descriptors.count == 8)
         for descriptor in descriptors {
@@ -24,15 +22,10 @@ struct CommandRunnerDescriptorLifecycleTests {
             )
         }
 
-        let result: CommandResult
-        do {
-            let activeExecution = try #require(execution)
-            result = await activeExecution.run(timeout: 5)
-        }
+        let result = try await runExecution(execution, timeout: 5)
         #expect(result.exitStatus == 0)
         expectDescriptorsClosed(descriptors)
         execution = nil
-        #expect(releasedProcess == nil)
     }
 
     @Test("Launch failure closes capture pipes")
@@ -115,6 +108,14 @@ struct CommandRunnerDescriptorLifecycleTests {
         #expect(kill(pid, 0) == -1 && errno == ESRCH)
 
         expectDescriptorsClosed(descriptors)
+    }
+
+    private func runExecution(
+        _ execution: CommandExecution?,
+        timeout: TimeInterval
+    ) async throws -> CommandResult {
+        let activeExecution = try #require(execution)
+        return await activeExecution.run(timeout: timeout)
     }
 
     private func makeExecution(

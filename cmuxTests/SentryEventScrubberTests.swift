@@ -244,6 +244,24 @@ import Testing
         )
     }
 
+    @Test func embeddedAppHostTestBundlePreventsSentryStartup() {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: [:],
+                telemetryEnabled: true
+            ).shouldStart == false
+        )
+    }
+
+    @Test func embeddedXCTestInjectionLibraryIsATestRunMarker() {
+        #expect(
+            MacSentryStartupPolicy.containsXCTestArtifacts(
+                plugInNames: [],
+                frameworkNames: ["libXCTestBundleInject.dylib"]
+            )
+        )
+    }
+
     @Test func explicitTestTelemetryOptInOverridesUITestMarker() {
         #expect(
             MacSentryStartupPolicy(

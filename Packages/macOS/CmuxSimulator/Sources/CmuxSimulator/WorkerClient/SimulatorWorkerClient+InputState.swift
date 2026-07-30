@@ -193,7 +193,32 @@ extension SimulatorWorkerClient {
                 $0.phase == .began || $0.phase == .moved
             }) else { return }
             rememberPointer(event)
+        case let .timedGesture(events, _):
+            guard let event = events.first(where: {
+                $0.phase == .began || $0.phase == .moved
+            }) else { return }
+            rememberPointer(event)
+        case let .touch(events, _):
+            for event in events {
+                rememberPointer(event)
+            }
+        case let .keyPresses(usages, _, _):
+            for usage in usages {
+                retainPotentialKeyUsage(usage)
+            }
+        case let .keyChord(modifiers, key):
+            for usage in modifiers + [key] {
+                retainPotentialKeyUsage(usage)
+            }
+        case let .typeText(sequence):
+            for usage in Set(sequence.events.map(\.usage)) {
+                retainPotentialKeyUsage(usage)
+            }
         case let .hardwareButton(button):
+            if let usage = button.recoveryHIDUsage {
+                retainPotentialHIDButton(usage)
+            }
+        case let .hardwareButtonHold(button, _):
             if let usage = button.recoveryHIDUsage {
                 retainPotentialHIDButton(usage)
             }

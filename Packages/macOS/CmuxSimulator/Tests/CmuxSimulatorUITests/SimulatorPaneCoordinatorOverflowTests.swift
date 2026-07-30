@@ -4,6 +4,31 @@ import Testing
 
 @Suite("Simulator pane bounded output")
 struct SimulatorPaneCoordinatorOverflowTests {
+    @Test("A dropped UI mutation preserves the last accepted semantic snapshot")
+    @MainActor
+    func droppedMutationPreservesSnapshot() throws {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+        for sequence in 0..<SimulatorPaneCoordinator.maximumOutgoingMessageCount {
+            #expect(coordinator.enqueue(.ping(UInt64(sequence))))
+        }
+        let record = try coordinator.recordUIAutomationSnapshot(
+            Self.snapshot(),
+            simulatorID: "DEVICE",
+            capturedAtMilliseconds: 1_000
+        )
+
+        #expect(!coordinator.enqueue(.key(
+            SimulatorKeyEvent(usage: 4, phase: .down)
+        )))
+        #expect(
+            try coordinator.currentUIAutomationSnapshot(
+                nowMilliseconds: 1_001
+            ).snapshot.sequence == record.snapshot.sequence
+        )
+    }
+
     @Test("Outgoing overflow releases held input and stops the worker")
     @MainActor
     func outgoingOverflow() async {
@@ -102,6 +127,33 @@ struct SimulatorPaneCoordinatorOverflowTests {
             state: .booted,
             isAvailable: true,
             lastBootedAt: nil
+        )
+    }
+
+    private static func snapshot() -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: [
+                SimulatorAccessibilityNode(
+                    id: "root",
+                    role: "Application",
+                    label: "Example",
+                    value: nil,
+                    frame: SimulatorRect(
+                        x: 0,
+                        y: 0,
+                        width: 390,
+                        height: 844
+                    ),
+                    isEnabled: true,
+                    children: []
+                ),
+            ],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
         )
     }
 }

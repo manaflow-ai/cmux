@@ -564,10 +564,13 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     @objc private func windowDidResignKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
         cancelInputs()
+        reconcileHostWindowVisibility()
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
         cancelInputs()
     }
 }

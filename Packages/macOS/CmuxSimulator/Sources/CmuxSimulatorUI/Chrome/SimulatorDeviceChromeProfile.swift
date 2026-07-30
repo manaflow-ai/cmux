@@ -66,6 +66,19 @@ struct SimulatorDeviceChromeProfile: Equatable, Sendable {
         )
     }
 
+    func swiftUIScreenRect(
+        in bounds: CGRect,
+        orientation: SimulatorOrientation
+    ) -> CGRect {
+        let appKitScreen = screenRect(in: bounds, orientation: orientation)
+        return CGRect(
+            x: appKitScreen.minX,
+            y: bounds.height - appKitScreen.maxY,
+            width: appKitScreen.width,
+            height: appKitScreen.height
+        )
+    }
+
     func scaledScreenCornerRadius(
         in bounds: CGRect,
         orientation: SimulatorOrientation

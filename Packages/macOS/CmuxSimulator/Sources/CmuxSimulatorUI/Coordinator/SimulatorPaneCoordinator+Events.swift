@@ -32,6 +32,9 @@ extension SimulatorPaneCoordinator {
     func enqueue(_ message: SimulatorWorkerInbound) -> Bool {
         switch outgoingContinuation.yield(message) {
         case .enqueued:
+            if message.invalidatesUIAutomationSnapshot {
+                clearUIAutomationSnapshot()
+            }
             return true
         case .dropped:
             handleOutgoingQueueOverflow()
@@ -118,19 +121,33 @@ extension SimulatorPaneCoordinator {
             updateLiveStatusWatcher()
         case let .capabilities(capabilities):
             self.capabilities = capabilities
-            capabilityHydrationCompleted = false
+            capabilityResolutions = [:]
             if selectedDeviceID != nil { self.capabilities.insert(.userInterfaceSettings) }
             if chromeProfile != nil { self.capabilities.insert(.deviceChrome) }
+            updateLiveStatusWatcher()
+        case let .capabilityResolved(capability, available):
+            applyCapabilityResolution(capability, available: available)
+            if selectedDeviceID != nil { capabilities.insert(.userInterfaceSettings) }
+            if chromeProfile != nil { capabilities.insert(.deviceChrome) }
             updateLiveStatusWatcher()
         case let .capabilitiesHydrated(capabilities):
             self.capabilities = capabilities
-            capabilityHydrationCompleted = true
             if selectedDeviceID != nil { self.capabilities.insert(.userInterfaceSettings) }
             if chromeProfile != nil { self.capabilities.insert(.deviceChrome) }
-            resolveCapabilityHydrationWaiters()
+            for capability in [
+                SimulatorCapability.accessibility,
+                .foregroundApplication,
+                .webInspector,
+            ] {
+                applyCapabilityResolution(
+                    capability,
+                    available: capabilities.contains(capability)
+                )
+            }
             updateLiveStatusWatcher()
         case let .display(display):
             self.display = display
+            ensureAgentCursorPresentation()
         case let .hidCapture(mode):
             hidCaptureMode = mode
         case let .accessibility(_, snapshot):
@@ -196,14 +213,16 @@ extension SimulatorPaneCoordinator {
                 actionLog.removeLast(actionLog.count - Self.maximumActionLogCount)
             }
         case let .failure(failure):
+            if failure.code.hasPrefix("web_inspector") {
+                failPendingWebInspectorResponses(code: failure.code, message: failure.message)
+                controlFailure = failure
+                break
+            }
             if failure.code == "worker_send_failed" || failure.code == "worker_crash_fuse" {
                 failPendingTextInputCompletions()
                 beginLocationRouteTeardown()
             }
             self.failure = failure
-            if failure.code.hasPrefix("web_inspector") {
-                failPendingWebInspectorResponses(code: failure.code, message: failure.message)
-            }
             if failure.isRecoverable, frameTransport != nil {
                 controlFailure = failure
             } else {
@@ -244,5 +263,27 @@ extension SimulatorPaneCoordinator {
         if case .detached = status { webInspectorIsHighlighted = false }
         webInspectorResponseBuffer.reset()
         webInspectorResponses = []
+    }
+}
+
+private extension SimulatorWorkerInbound {
+    var invalidatesUIAutomationSnapshot: Bool {
+        switch self {
+        case .pointer, .key, .keySequence, .scrollWheel, .typeText,
+             .interactiveAction, .button, .hidButton, .rotate, .digitalCrown,
+             .toggleSoftwareKeyboard, .memoryWarning, .setPrivateInterface,
+             .setPrivatePrivacy, .reloadReactNative:
+            true
+        case .ping, .attach, .resize, .setFramebufferPublishing,
+             .acknowledgeFrameTransport, .setHIDCapture, .coreAnimationDiagnostic,
+             .configureCamera, .acknowledgeCameraTarget, .switchCameraSource,
+             .setCameraMirror, .requestCameraStatus, .prepareApplicationMutation,
+             .requestPrivateInterfaceStatus, .requestPrivacy,
+             .setAccessibilityHighlight, .requestAccessibility,
+             .requestForegroundApplication, .requestWebInspectorTargets,
+             .attachWebInspector, .releaseWebInspector, .setWebInspectorHighlight,
+             .sendWebInspectorMessage, .releaseInputs, .terminateRenderer, .shutdown:
+            false
+        }
     }
 }

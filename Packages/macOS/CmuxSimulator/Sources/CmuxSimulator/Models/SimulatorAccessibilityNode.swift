@@ -2,6 +2,8 @@
 public struct SimulatorAccessibilityNode: Codable, Equatable, Identifiable, Sendable {
     /// A stable identifier when the runtime supplies one, otherwise a synthesized path.
     public let id: String
+    /// The runtime-provided accessibility identifier, excluding synthesized paths.
+    public let identifier: String?
     /// The element role or type.
     public let role: String?
     /// The accessibility label.
@@ -14,27 +16,37 @@ public struct SimulatorAccessibilityNode: Codable, Equatable, Identifiable, Send
     public let frame: SimulatorRect?
     /// Whether the element accepts interaction.
     public let isEnabled: Bool?
+    /// Whether the element owns accessibility focus, when exposed by the runtime.
+    public let isFocused: Bool?
+    /// Whether the element is selected, when exposed by the runtime.
+    public let isSelected: Bool?
     /// Nested accessibility children.
     public let children: [SimulatorAccessibilityNode]
 
     /// Creates an accessibility element snapshot.
     public init(
         id: String,
+        identifier: String? = nil,
         role: String?,
         label: String?,
         value: String?,
         roleDescription: String? = nil,
         frame: SimulatorRect?,
         isEnabled: Bool?,
+        isFocused: Bool? = nil,
+        isSelected: Bool? = nil,
         children: [SimulatorAccessibilityNode]
     ) {
         self.id = id
+        self.identifier = identifier
         self.role = role
         self.label = label
         self.value = value
         self.roleDescription = roleDescription
         self.frame = frame
         self.isEnabled = isEnabled
+        self.isFocused = isFocused
+        self.isSelected = isSelected
         self.children = children
     }
 }

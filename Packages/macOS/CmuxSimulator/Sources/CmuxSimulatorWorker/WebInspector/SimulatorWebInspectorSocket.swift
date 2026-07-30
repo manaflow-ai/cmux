@@ -7,18 +7,15 @@ import Foundation
 /// safely race a read without descriptor reuse. Writes are isolated to the
 /// worker's main actor, which is the safety argument for unchecked Sendable.
 final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchecked Sendable {
-    /// Only one decoded plist body may wait behind the consumer. If inspectord
-    /// outruns that budget, the worker drops the socket instead of buffering a
-    /// burst of potentially 64 MiB frames.
-    static let maximumBufferedBodyCount = 1
-    static let maximumBufferedBodyBytes = maximumBufferedBodyCount * 64 * 1024 * 1024
+    /// Decoded plist bodies share one aggregate byte budget. This accepts
+    /// inspectord's small census burst without admitting multiple 64 MiB frames.
+    static let maximumBufferedBodyBytes = 64 * 1024 * 1024
     static let maximumPendingWriteBytes = 4 * 1024 * 1024
     static let writeDeadline: TimeInterval = 5
 
-    let messages: AsyncStream<Data>
+    let messages: SimulatorWebInspectorMessageStream
 
     private let frameCodec: SimulatorWebInspectorPlistFrameCodec
-    private let continuation: AsyncStream<Data>.Continuation
     private let descriptor: Int32
     private let writerQueue = DispatchQueue(label: "com.cmux.simulator.web-inspector-writer")
     @MainActor private var pendingWriteBytes = 0
@@ -27,12 +24,9 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
     init(descriptor: Int32, frameCodec: SimulatorWebInspectorPlistFrameCodec) {
         self.descriptor = descriptor
         self.frameCodec = frameCodec
-        let pair = AsyncStream.makeStream(
-            of: Data.self,
-            bufferingPolicy: .bufferingOldest(Self.maximumBufferedBodyCount)
+        messages = SimulatorWebInspectorMessageStream(
+            maximumBufferedBytes: Self.maximumBufferedBodyBytes
         )
-        messages = pair.stream
-        continuation = pair.continuation
         startReader()
     }
 
@@ -82,14 +76,10 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
                 break
             }
             guard let body = readExactly(length) else { break }
-            switch continuation.yield(body) {
+            switch messages.yield(body) {
             case .enqueued:
                 continue
-            case .dropped, .terminated:
-                requestClose()
-                finishReader()
-                return
-            @unknown default:
+            case .overflow, .terminated:
                 requestClose()
                 finishReader()
                 return
@@ -169,7 +159,7 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
 
     private nonisolated func requestClose() {
         Darwin.shutdown(descriptor, SHUT_RDWR)
-        continuation.finish()
+        messages.finish()
         Task { @MainActor [weak self] in
             self?.writesClosed = true
         }
@@ -177,6 +167,6 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
 
     private nonisolated func finishReader() {
         Darwin.shutdown(descriptor, SHUT_RDWR)
-        continuation.finish()
+        messages.finish()
     }
 }

@@ -1,3 +1,5 @@
+import Foundation
+
 struct MacSentryStartupPolicy: Sendable {
     let telemetryEnabled: Bool
     let isRunningUnderXCTest: Bool
@@ -36,6 +38,29 @@ struct MacSentryStartupPolicy: Sendable {
         if environment["XCInjectBundleInto"] != nil { return true }
         if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
         if environment.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
+        if hasEmbeddedXCTestArtifacts() { return true }
         return false
+    }
+
+    static func containsXCTestArtifacts(
+        plugInNames: [String],
+        frameworkNames: [String]
+    ) -> Bool {
+        plugInNames.contains { $0.hasSuffix(".xctest") }
+            || frameworkNames.contains("libXCTestBundleInject.dylib")
+    }
+
+    private static func hasEmbeddedXCTestArtifacts() -> Bool {
+        let fileManager = FileManager.default
+        let plugInNames = Bundle.main.builtInPlugInsPath.flatMap {
+            try? fileManager.contentsOfDirectory(atPath: $0)
+        } ?? []
+        let frameworkNames = Bundle.main.privateFrameworksPath.flatMap {
+            try? fileManager.contentsOfDirectory(atPath: $0)
+        } ?? []
+        return containsXCTestArtifacts(
+            plugInNames: plugInNames,
+            frameworkNames: frameworkNames
+        )
     }
 }
