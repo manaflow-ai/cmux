@@ -618,6 +618,137 @@ import Testing
         })
     }
 
+    @Test func coldStartStoreFailureRetriesWithoutCachedMacIDs()
+        async throws {
+        let route = try CmxAttachRoute(
+            id: "cold-store-retry-route",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_590)
+        )
+        let pairedMac = MobilePairedMac(
+            macDeviceID: "mac-cold-store-retry",
+            displayName: "Cold Store Retry Mac",
+            routes: [route],
+            createdAt: .distantPast,
+            lastSeenAt: Date(),
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            instanceTag: "cold-store-tag"
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-1": [pairedMac],
+            ],
+            blockedTeams: []
+        )
+        await pairedStore.failNextLoadAll()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: pairedMac.macDeviceID,
+            instanceTag: pairedMac.instanceTag,
+            displayName: pairedMac.displayName
+        )
+        let clock = ControlPoolManualClock()
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: TransportBox()
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" },
+            controlPlaneSchedulingClock: clock
+        )
+
+        await shell.refreshSecondaryMacWorkspaces()
+
+        #expect(shell.secondaryAggregationRetryMacIDs.isEmpty)
+        #expect(shell.secondaryAggregationRetryNeedsFullRefresh)
+        #expect(shell.secondaryAggregationRetryTask != nil)
+        #expect(try await pollUntil { clock.sleeperCount == 1 })
+
+        clock.advance(by: .seconds(2))
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions[pairedMac.macDeviceID] != nil
+        })
+        #expect(shell.pairedMacLoadState == .loaded)
+
+        shell.secondaryMacSubscriptions[pairedMac.macDeviceID]?.cancel()
+    }
+
+    @Test func publicationStoreFailureRetriesAsTransient()
+        async throws {
+        let route = try CmxAttachRoute(
+            id: "publication-store-retry-route",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_591)
+        )
+        let pairedMac = MobilePairedMac(
+            macDeviceID: "mac-publication-store-retry",
+            displayName: "Publication Store Retry Mac",
+            routes: [route],
+            createdAt: .distantPast,
+            lastSeenAt: Date(),
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            instanceTag: "publication-store-tag"
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-1": [pairedMac],
+            ],
+            blockedTeams: []
+        )
+        await pairedStore.failLoadAll(call: 2)
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: pairedMac.macDeviceID,
+            instanceTag: pairedMac.instanceTag,
+            displayName: pairedMac.displayName
+        )
+        let clock = ControlPoolManualClock()
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: TransportBox()
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" },
+            controlPlaneSchedulingClock: clock
+        )
+
+        await shell.refreshSecondaryMacWorkspaces()
+
+        #expect(
+            shell.secondaryMacSubscriptions[pairedMac.macDeviceID] == nil
+        )
+        #expect(shell.secondaryAggregationRetryMacIDs == [
+            pairedMac.macDeviceID,
+        ])
+        #expect(shell.secondaryAggregationRetryTask != nil)
+        #expect(try await pollUntil { clock.sleeperCount == 1 })
+
+        clock.advance(by: .seconds(2))
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions[pairedMac.macDeviceID] != nil
+        })
+
+        shell.secondaryMacSubscriptions[pairedMac.macDeviceID]?.cancel()
+    }
+
     @Test
     func targetedOfflineAliasRetiresRepresentativeControlConnection()
         async throws {

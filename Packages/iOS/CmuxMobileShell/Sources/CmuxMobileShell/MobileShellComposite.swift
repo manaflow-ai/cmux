@@ -4923,16 +4923,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // candidate set, but a dial crosses several suspension points. Read the
         // current store immediately before publication so a removed or replaced
         // app instance cannot become authoritative from the older cache.
-        let currentMac = try? await pairedMacStore.loadAll(
-            stackUserID: scope.userID,
-            teamID: scope.teamID
-        ).first(where: {
-            $0.macDeviceID == macID
-                && macInstanceTagAuthority.sameStoredAuthority(
-                    $0.instanceTag,
-                    handle.storedInstanceTag
-                )
-        })
+        let currentMac: MobilePairedMac?
+        do {
+            currentMac = try await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            ).first(where: {
+                $0.macDeviceID == macID
+                    && macInstanceTagAuthority.sameStoredAuthority(
+                        $0.instanceTag,
+                        handle.storedInstanceTag
+                    )
+            })
+        } catch {
+            await client.disconnect()
+            guard await isAggregationScopeValid(scope) else {
+                return .superseded
+            }
+            markSecondaryMacUnavailableIfUnowned(macID)
+            return .transientFailure
+        }
         guard !Task.isCancelled,
               secondaryMacSubscriptions[macID] == nil,
               secondaryMacDrainReservation(
@@ -4942,12 +4952,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   macID,
                   instanceTag: handle.storedInstanceTag,
                   scope: scope
-              ),
-              let currentMac,
+              ) else {
+            await client.disconnect()
+            return .superseded
+        }
+        guard let currentMac,
               macInstanceTagAuthority.sameStoredAuthority(
                   currentMac.instanceTag,
                   handle.storedInstanceTag
               ) else {
+            markSecondaryMacUnavailableIfUnowned(macID)
             await client.disconnect()
             return .permanentFailure
         }
@@ -5532,13 +5546,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         retainSecondaryAggregationRetryEvidence(
             macDeviceIDs.map(cmxCanonicalDeviceID)
         )
-        if !secondaryAggregationRetryMacIDs.isEmpty {
+        if needsFullRefresh {
             secondaryAggregationRetryNeedsFullRefresh =
-                secondaryAggregationRetryNeedsFullRefresh || needsFullRefresh
+                true
         }
         guard presence != nil,
               secondaryAggregationRetryTask == nil,
-              !secondaryAggregationRetryMacIDs.isEmpty,
+              (!secondaryAggregationRetryMacIDs.isEmpty
+                  || secondaryAggregationRetryNeedsFullRefresh),
               isSignedIn else {
             return
         }
