@@ -63,12 +63,14 @@ enum SSHPTYAttachStartupCommandBuilder {
 
     static func restoredRemoteShellCommand(
         relayPort: Int,
-        initialCommand: String? = nil
+        initialCommand: String? = nil,
+        configuredRemoteCommand: String? = nil
     ) -> String {
         RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: relayPort,
             shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
             initialCommand: initialCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
             bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
             bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
             bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "fish/config.fish")
@@ -114,8 +116,11 @@ enum SSHPTYAttachStartupCommandBuilder {
         successShellLines: [String]
     ) -> (command: String, reportsReadiness: Bool) {
         let sharingOptions = SSHConnectionSharingOptions()
-        var arguments = ["ssh"]
-        let options = sharingOptions.mergingDefaults(into: auth.sshOptions)
+        var arguments = ["/usr/bin/ssh"]
+        let options = SSHAgentSocketResolver().removingOptions(
+            named: "RemoteCommand",
+            from: sharingOptions.mergingDefaults(into: auth.sshOptions)
+        )
         if !hasSSHOptionKey(options, key: "ConnectTimeout") {
             arguments += ["-o", "ConnectTimeout=6"]
         }

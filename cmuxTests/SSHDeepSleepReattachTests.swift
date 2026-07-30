@@ -121,7 +121,11 @@ struct SSHDeepSleepReattachTests {
     @Test func confirmedSSHPTYExitRestartsWithInheritedCustomIdentity() throws {
         let workspace = Workspace()
         let foregroundAuthToken = "foreground-auth-restored-session"
-        let configuration = Self.persistentConfiguration(foregroundAuthToken: foregroundAuthToken)
+        let configuredRemoteCommand = #"cd "/srv/project dir" && exec fish"#
+        let configuration = Self.persistentConfiguration(
+            foregroundAuthToken: foregroundAuthToken,
+            configuredRemoteCommand: configuredRemoteCommand
+        )
         let initialPanel = try #require(workspace.focusedTerminalPanel)
         workspace.configureRemoteConnection(configuration, autoConnect: false)
         let customSessionID = "ssh-restored-custom-session"
@@ -130,6 +134,19 @@ struct SSHDeepSleepReattachTests {
             orientation: .horizontal,
             focus: false,
             remotePTYSessionID: customSessionID
+        ))
+        let resumeCommand = "printf resumed-session"
+        #expect(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                command: resumeCommand,
+                source: "process-detected",
+                launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                    workspaceID: workspace.id,
+                    surfaceID: panel.id,
+                    persistentPTYSessionID: customSessionID
+                ))
+            ),
+            panelId: panel.id
         ))
         let originalSurface = panel.surface
         #expect(panel.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
@@ -158,6 +175,18 @@ struct SSHDeepSleepReattachTests {
         #expect(command.contains("workspace.remote.foreground_auth_ready"))
         #expect(command.contains(foregroundAuthToken))
         #expect(command.contains("ssh-session-end"))
+        let commandRange = try #require(
+            command.range(of: #"--command-b64 [A-Za-z0-9+/=]+"#, options: .regularExpression)
+        )
+        let encodedCommand = String(command[commandRange])
+            .split(separator: " ", maxSplits: 1)
+            .last
+            .map(String.init)
+        let commandData = try #require(encodedCommand.flatMap { Data(base64Encoded: $0) })
+        let decodedCommand = try #require(String(data: commandData, encoding: .utf8))
+        #expect(!decodedCommand.contains(configuredRemoteCommand))
+        #expect(decodedCommand.contains(Data((resumeCommand + "\n").utf8).base64EncodedString()))
+        #expect(decodedCommand.contains("64007"))
         #expect(restarted.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
         #expect(!workspace.endedPersistentRemotePTYAttachSurfaceIds.contains(panel.id))
@@ -423,7 +452,8 @@ struct SSHDeepSleepReattachTests {
     }
 
     private static func persistentConfiguration(
-        foregroundAuthToken: String? = nil
+        foregroundAuthToken: String? = nil,
+        configuredRemoteCommand: String? = nil
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini", port: nil, identityFile: nil, sshOptions: [],
@@ -432,6 +462,7 @@ struct SSHDeepSleepReattachTests {
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(requireExisting: false),
+            configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             preserveAfterTerminalExit: true, persistentDaemonSlot: "ssh-test"
         )
