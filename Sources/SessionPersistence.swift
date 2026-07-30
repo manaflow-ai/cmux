@@ -513,7 +513,10 @@ struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
     }
 
     func matches(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
-        guard !commandPrefix.isEmpty,
+        // Remote approvals require a follow-up location-scoped record design that
+        // persists and signs an execution-location field.
+        guard binding.launchFlavor == .local,
+              !commandPrefix.isEmpty,
               let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command),
               tokens.count >= commandPrefix.count,
               Array(tokens.prefix(commandPrefix.count)) == commandPrefix else {
@@ -784,7 +787,8 @@ enum SurfaceResumeCommandCanonicalizer {
                 }
                 if scalar == "\"" {
                     quote = nil
-                } else if scalar == "$" || scalar == "`" || scalar == "\n" || scalar == "\r" {
+                } else if scalar == "$" || scalar == "`" || scalar == "!" ||
+                            scalar == "\n" || scalar == "\r" {
                     return true
                 }
                 index = scalars.index(after: index)
@@ -804,7 +808,8 @@ enum SurfaceResumeCommandCanonicalizer {
             } else if scalar == "\"" {
                 isAtTokenStart = false
                 quote = scalar
-            } else if scalar == "$" || scalar == "`" || scalar == "\n" || scalar == "\r" {
+            } else if scalar == "$" || scalar == "`" || scalar == "!" ||
+                        scalar == "\n" || scalar == "\r" {
                 return true
             } else if CharacterSet.whitespacesAndNewlines.contains(scalar) {
                 isAtTokenStart = true
@@ -1023,9 +1028,8 @@ enum SurfaceResumeApprovalStore {
         }
         let now = Date().timeIntervalSince1970
         var records = loadRecords(fileURL: fileURL, fileManager: fileManager)
-        let matchingRecords = records.filter {
-            $0.hasValidSignature(secret: signingSecret) && $0.matches(binding)
-        }
+        let validRecords = records.filter { $0.hasValidSignature(secret: signingSecret) }
+        let matchingRecords = validRecords.filter { $0.matches(binding) }
         let existingWithSamePrefix = matchingRecords.first { $0.commandPrefix == prefix }
         let record = SurfaceResumeApprovalRecord(
             id: existingWithSamePrefix?.id ?? UUID().uuidString.lowercased(),
@@ -1042,7 +1046,7 @@ enum SurfaceResumeApprovalStore {
             signature: nil
         ).signed(secret: signingSecret)
         let subsumedRecordIds = Set(
-            matchingRecords
+            validRecords
                 .filter {
                     $0.commandPrefix.count > prefix.count &&
                         $0.commandPrefix.starts(with: prefix) &&
