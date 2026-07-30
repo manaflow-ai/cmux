@@ -596,7 +596,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         try Self.throwApplicationSurfaceResponseError(response)
     }
 
-    nonisolated private static func applicationSurfaceEventArguments(
+    nonisolated static func applicationSurfaceEventArguments(
         sessionID: String,
         event: ApplicationSurfaceInputEvent
     ) -> [String: Any] {

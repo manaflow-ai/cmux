@@ -415,6 +415,20 @@ struct ApplicationSurfaceTests {
         #expect(delivered == [first, second])
     }
 
+    @Test func applicationInputSerializesTheDisplayedFrameSequence() {
+        let arguments = ComputerUseRuntimeService.applicationSurfaceEventArguments(
+            sessionID: "surface-one",
+            event: ApplicationSurfaceInputEvent(
+                kind: .mouseMoved,
+                frameSequence: 73,
+                x: 0.25,
+                y: 0.75
+            )
+        )
+
+        #expect((arguments["frame_sequence"] as? NSNumber)?.uint64Value == 73)
+    }
+
     @Test func inputPumpQueuesNamedKeyPairAtomically() async {
         var delivered: [ApplicationSurfaceInputEvent] = []
         let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 1) { events in
@@ -537,11 +551,13 @@ struct ApplicationSurfaceTests {
         let keyDown = ApplicationSurfaceInputEvent(kind: .key, keyCode: 56, keyDown: true)
         let mouseDown = ApplicationSurfaceInputEvent(
             kind: .leftMouseDown,
+            frameSequence: 41,
             x: 0.25,
             y: 0.5
         )
         let mouseDrag = ApplicationSurfaceInputEvent(
             kind: .leftMouseDragged,
+            frameSequence: 42,
             x: 0.75,
             y: 0.8
         )
@@ -560,6 +576,7 @@ struct ApplicationSurfaceTests {
         )))
         #expect(releases.contains(ApplicationSurfaceInputEvent(
             kind: .leftMouseUp,
+            frameSequence: 42,
             x: 0.75,
             y: 0.8
         )))
