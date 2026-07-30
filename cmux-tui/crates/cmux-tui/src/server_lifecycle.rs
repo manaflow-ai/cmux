@@ -1373,15 +1373,15 @@ fn current_replay_command() -> String {
     replay_command_from(current_launcher_command(), std::env::args_os().skip(1))
 }
 
-fn replay_command_from<I, S>(mut command: String, arguments: I) -> String
+fn replay_command_from<I, S>(command: String, arguments: I) -> String
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    for argument in arguments {
-        command.push(' ');
-        command.push_str(&shell_quote(Path::new(argument.as_ref())));
-    }
+    // Arguments can contain terminal input, child commands, or credentials.
+    // Shell history already retains them for the user; diagnostics identify only
+    // the launcher that should rerun the previous command.
+    drop(arguments);
     command
 }
 
@@ -1765,13 +1765,10 @@ mod tests {
             message.contains(&format!("{launcher} server stop --socket '/tmp/test socket'")),
             "{message}"
         );
-        let replay_arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
-        let mut replay = launcher;
-        for argument in replay_arguments {
-            replay.push(' ');
-            replay.push_str(&shell_quote(Path::new(&argument)));
-        }
-        assert!(message.contains(&format!("then run `{replay}` again")), "{message}");
+        assert!(
+            message.contains(&format!("then rerun the previous command using `{launcher}`.")),
+            "{message}"
+        );
         assert!(message.contains("Stopping exits pane processes."));
     }
 
