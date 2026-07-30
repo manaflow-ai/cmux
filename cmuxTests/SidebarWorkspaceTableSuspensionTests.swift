@@ -195,7 +195,8 @@ struct SidebarWorkspaceTableSuspensionTests {
             container.tableView.view(atColumn: 0, row: 1, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView
         )
-        cell.beginInlineRenameForTesting(draft: "Atomic reload rename")
+        cell.isEditing = true
+        cell.renameField.stringValue = "Atomic reload rename"
 
         let resizedFirstRow = makeRowConfiguration(
             workspaceId: firstId,
@@ -221,7 +222,8 @@ struct SidebarWorkspaceTableSuspensionTests {
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView
         )
-        reloadedCell.beginInlineRenameForTesting(draft: "Detached rename")
+        reloadedCell.isEditing = true
+        reloadedCell.renameField.stringValue = "Detached rename"
 
         controller.dismantleContainerView(container)
 
