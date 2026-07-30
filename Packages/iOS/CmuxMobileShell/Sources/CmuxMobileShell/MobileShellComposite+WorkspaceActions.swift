@@ -356,7 +356,7 @@ extension MobileShellComposite {
                 activeTicket ?? client.attachTicket
             )
         }
-        let ticket = target.macDeviceID.flatMap { secondaryMacSubscriptions[$0]?.ticket }
+        let ticket = target.ownerKey.flatMap { secondaryMacSubscriptions[$0]?.ticket }
             ?? client.attachTicket
         return policy.allowsMacScopedWorkspaceMutations(ticket)
     }
@@ -525,8 +525,10 @@ extension MobileShellComposite {
         target: WorkspaceMutationTarget,
         fallback: String?
     ) -> String? {
-        if let macDeviceID = target.macDeviceID,
-           let displayName = workspacesByMac[macDeviceID]?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let ownerKey = target.ownerKey ?? target.macDeviceID.map({
+               MacPairingKey(macDeviceID: $0, instanceTag: nil)
+           }),
+           let displayName = workspacesByMac[ownerKey]?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
            !displayName.isEmpty {
             return displayName
         }

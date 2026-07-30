@@ -528,8 +528,17 @@ extension MobileShellComposite {
                 instanceTag: connectedMacInstanceTag
             )
         }
-        let isActiveMac = targets.contains(where: \.isActive)
-            || foregroundPairingID.map(targetPairingIDs.contains) == true
+        // With a live foreground identity whose TAG is known, only hiding that
+        // EXACT pairing may disconnect it: stored `isActive` persists
+        // asynchronously after promotion, so a stale active row for the
+        // previous sibling must not tear down the build that is actually
+        // foreground now. Without a proven live tag the bare device pairing
+        // cannot name a build, so stored `isActive` remains the authority.
+        let isActiveMac = foregroundPairingID.map { pairingID in
+            targetPairingIDs.contains(pairingID)
+                || (macInstanceTagAuthority.normalize(connectedMacInstanceTag) == nil
+                    && targets.contains(where: \.isActive))
+        } ?? targets.contains(where: \.isActive)
         if isActiveMac {
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }
@@ -537,15 +546,27 @@ extension MobileShellComposite {
         let remainingPhysicalIDs = Set(pairedMacsForIdentityMatching
             .filter { !targetPairingIDs.contains($0.id) }
             .map(\.macDeviceID))
-        // Workspace state is keyed by PHYSICAL device id, so it is shared by
-        // every app instance of a Mac. Prune it only when no visible sibling
-        // instance remains; a per-instance hide leaves the sibling's state.
+        // Subscriptions, workspace entries, and feed snapshots are keyed per
+        // pairing: tear down exactly the hidden pairings' entries, whether or
+        // not a sibling instance remains visible.
+        for pairingID in targetPairingIDs {
+            let ownerKey = MacPairingKey(pairingID: pairingID)
+            if let subscription = secondaryMacSubscriptions[ownerKey] {
+                subscription.cancel()
+                secondaryMacSubscriptions[ownerKey] = nil
+            }
+            workspacesByMac[ownerKey] = nil
+            removeNotificationFeedSnapshot(macDeviceID: pairingID)
+        }
+        // The foreground pairing's feed snapshot may live under the bare
+        // DEVICE key. Hiding it while a sibling pairing stays visible skips
+        // the fully-hidden prune below, so remove that spelling explicitly.
+        if let foregroundPairingID, targetPairingIDs.contains(foregroundPairingID) {
+            let identity = MobilePairedMac.pairingIdentity(from: foregroundPairingID)
+            removeNotificationFeedSnapshot(macDeviceID: identity.macDeviceID)
+        }
         let fullyHiddenPhysicalIDs = targetPhysicalIDs.subtracting(remainingPhysicalIDs)
         for id in fullyHiddenPhysicalIDs {
-            if let subscription = secondaryMacSubscriptions[id] {
-                subscription.cancel()
-                secondaryMacSubscriptions[id] = nil
-            }
             pruneWorkspaceStateForHiddenMac(id)
             removeNotificationFeedSnapshot(macDeviceID: id)
         }
@@ -561,9 +582,9 @@ extension MobileShellComposite {
         if foregroundMacDeviceID == storedMacID {
             foregroundMacDeviceID = nil
         }
-        let pruned = workspacesByMac.reduce(into: [String: MacWorkspaceState]()) { result, entry in
+        let pruned = workspacesByMac.reduce(into: [MacPairingKey: MacWorkspaceState]()) { result, entry in
             let (key, state) = entry
-            guard key != storedMacID, state.macDeviceID != storedMacID else { return }
+            guard !key.isOnDevice(storedMacID), state.macDeviceID != storedMacID else { return }
             let filteredWorkspaces = state.workspaces.filter { $0.macDeviceID != storedMacID }
             var filteredState = state
             filteredState.workspaces = filteredWorkspaces
