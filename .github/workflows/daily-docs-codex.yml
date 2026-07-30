@@ -1,0 +1,109 @@
+name: Daily docs Codex
+
+on:
+  schedule:
+    - cron: "37 11 * * *"
+  workflow_dispatch:
+    inputs:
+      prompt_suffix:
+        description: Extra instructions to append to the docs maintenance prompt
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: daily-docs-codex
+  cancel-in-progress: false
+
+jobs:
+  docs-maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      BRANCH_NAME: automation/daily-docs-codex
+      CODEX_DOCS_PROMPT_SUFFIX: ${{ inputs.prompt_suffix || '' }}
+      CODEX_MODEL: ${{ vars.DAILY_DOCS_CODEX_MODEL || 'gpt-5.5' }}
+      CODEX_REASONING_EFFORT: ${{ vars.DAILY_DOCS_CODEX_REASONING_EFFORT || 'high' }}
+      CODEX_SUBROUTER_API_KEY: ${{ secrets.SUBROUTER_CODEX_API_KEY }}
+      CODEX_SUBROUTER_BASE_URL: ${{ vars.SUBROUTER_CODEX_BASE_URL || secrets.SUBROUTER_CODEX_BASE_URL }}
+      SUBROUTER_CODEX_ACCOUNT_ID: ${{ vars.SUBROUTER_CODEX_ACCOUNT_ID || secrets.SUBROUTER_CODEX_ACCOUNT_ID }}
+      SUBROUTER_CODEX_USER_EMAIL: ${{ vars.SUBROUTER_CODEX_USER_EMAIL || secrets.SUBROUTER_CODEX_USER_EMAIL }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex@0.136.0
+
+      - name: Run Codex docs maintenance through Subrouter
+        id: codex
+        run: |
+          set -euo pipefail
+          scripts/run-daily-docs-codex.sh
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update pull request
+        if: steps.codex.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "cmux docs bot"
+          git config user.email "cmux-docs-bot@users.noreply.github.com"
+          git switch -c "$BRANCH_NAME"
+          git add -A
+          git commit -m "Update docs from daily Codex audit"
+          git fetch origin "$BRANCH_NAME:refs/remotes/origin/$BRANCH_NAME" || true
+          git push --force-with-lease origin "HEAD:$BRANCH_NAME"
+
+          pr_body="$RUNNER_TEMP/daily-docs-codex-pr-body.md"
+          {
+            echo "## Summary"
+            echo "- Runs the daily Codex documentation audit against recent and historical commits."
+            echo "- Updates this PR branch with any docs changes Codex produced through Subrouter."
+            echo
+            echo "## Codex report"
+            codex_report="${CODEX_DOCS_OUTPUT_FILE:-$RUNNER_TEMP/codex-docs-maintenance.txt}"
+            if [ -s "$codex_report" ]; then
+              sed -n '1,160p' "$codex_report"
+            else
+              echo "- Codex did not write a final report file."
+            fi
+            echo
+            echo "## Testing"
+            echo "- scripts/run-daily-docs-codex.sh completed through Subrouter."
+          } > "$pr_body"
+
+          existing_number="$(
+            gh pr list \
+              --repo "$GITHUB_REPOSITORY" \
+              --head "$BRANCH_NAME" \
+              --state open \
+              --json number \
+              --jq '.[0].number // ""'
+          )"
+
+          if [ -n "$existing_number" ]; then
+            gh pr edit "$existing_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Update docs from daily Codex audit" \
+              --body-file "$pr_body"
+            gh pr view "$existing_number" --repo "$GITHUB_REPOSITORY" --json url --jq '.url'
+          else
+            gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
+              --base main \
+              --head "$BRANCH_NAME" \
+              --title "Update docs from daily Codex audit" \
+              --body-file "$pr_body"
+          fi
