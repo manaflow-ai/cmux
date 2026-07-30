@@ -1911,7 +1911,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if CmxPairingURLScheme.hasPairingScheme(trimmedCode) {
+        if CmxPairingURLScheme(urlString: trimmedCode) != nil {
             return
         }
         let attemptID = beginPairingAttempt()
@@ -1935,7 +1935,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if CmxPairingURLScheme.hasPairingScheme(trimmedCode) {
+        if CmxPairingURLScheme(urlString: trimmedCode) != nil {
             await connectPairingURL(trimmedCode)
             return
         }

@@ -280,6 +280,10 @@ extension CmxIrohHostRuntimeTests {
         await store.resumeSuspendedWrite()
         let preparation = await signOut.value
         #expect(preparation.wasPersisted)
+        #expect(
+            preparation.bindingAuthorization?.bindingID
+                == fixture.binding.bindingID
+        )
         #expect(await ordering.values() == ["true:true"])
         #expect(await runtime.snapshot().state == .inactive)
     }

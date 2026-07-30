@@ -524,6 +524,43 @@ describe("applyBackupOps", () => {
     }
   });
 
+  it("isolates paired-Mac backups by exact iOS bundle namespace", async () => {
+    const storage = new FakeStorage();
+    const internalScope = "ios:v3:ZGV2LmNtdXguYXBwLmludGVybmFs";
+    const demoScope = "ios:v3:ZGV2LmNtdXguYXBwLmRlbW8";
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{
+        kind: "upsert",
+        id: "mac-a",
+        record: record("mac-a", "10.0.0.1", 4001),
+      }],
+      T0,
+      internalScope,
+    );
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{
+        kind: "upsert",
+        id: "mac-a",
+        record: record("mac-a", "10.0.0.2", 4002),
+      }],
+      T0,
+      demoScope,
+    );
+
+    expect(pairedMacsCollection("user-1", internalScope)
+      .startsWith("pairedMacsScopedIosV3:user-1:")).toBe(true);
+    expect(pairedMacsCollection("user-1", demoScope)
+      .startsWith("pairedMacsScopedIosV3:user-1:")).toBe(true);
+    expect((await listBackupSnapshot(storage, "user-1", internalScope))
+      .records[0]?.routes).toEqual(record("mac-a", "10.0.0.1", 4001).routes);
+    expect((await listBackupSnapshot(storage, "user-1", demoScope))
+      .records[0]?.routes).toEqual(record("mac-a", "10.0.0.2", 4002).routes);
+  });
+
   it("recycles the oldest inactive current iOS development scope at capacity", async () => {
     const storage = new FakeStorage();
     for (let i = 0; i < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER; i += 1) {

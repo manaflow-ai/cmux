@@ -29,13 +29,24 @@ private final class MobileIrohSendableDefaults: @unchecked Sendable {
 
 private actor MobileIrohDurableDeviceIDResolver {
     private let defaults: MobileIrohSendableDefaults
+    private let appNamespace: MobileIOSAppNamespace
+    private let keychainAccessGroup: String?
 
-    init(defaults: MobileIrohSendableDefaults) {
+    init(
+        defaults: MobileIrohSendableDefaults,
+        appNamespace: MobileIOSAppNamespace,
+        keychainAccessGroup: String?
+    ) {
         self.defaults = defaults
+        self.appNamespace = appNamespace
+        self.keychainAccessGroup = keychainAccessGroup
     }
 
     func resolve() -> String? {
-        DeviceRegistryService.durableDeviceID(defaults: defaults.value)
+        appNamespace.durableDeviceRegistryDeviceID(
+            keychainAccessGroup: keychainAccessGroup,
+            defaults: defaults.value
+        )
     }
 }
 
@@ -89,7 +100,8 @@ public final class MobileIrohRuntimeComposition:
         case unavailableCustomPrivatePath
     }
     typealias BrokerFactory = @Sendable (
-        _ tokenSource: CmxIrohBrokerTokenSource
+        _ tokenSource: CmxIrohBrokerTokenSource,
+        _ bindingAuthorization: CmxIrohBindingRequestAuthorization?
     ) throws -> any CmxIrohClientBrokerServing
 
     private struct BrokerBundle {
@@ -160,6 +172,7 @@ public final class MobileIrohRuntimeComposition:
     /// under it would orphan the retained `(user, device, tag)` binding. When
     /// this returns `nil`, activation defers and retries on the next reconcile.
     private let deviceID: @MainActor @Sendable () async -> String?
+    private let clientNamespace: String
     private let tag: String
     private let discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     private let now: @Sendable () -> Date
@@ -218,8 +231,17 @@ public final class MobileIrohRuntimeComposition:
         defaults: UserDefaults = .standard,
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appNamespace injectedAppNamespace: MobileIOSAppNamespace? = nil,
+        keychainAccessGroup injectedKeychainAccessGroup: String? = nil,
         diagnosticLog: DiagnosticLog? = nil
     ) {
+        guard let appNamespace = injectedAppNamespace
+            ?? MobileIOSAppNamespace(bundleIdentifier: bundleIdentifier)
+        else {
+            preconditionFailure("cmux iOS requires a valid bundle identifier")
+        }
+        let keychainAccessGroup = injectedKeychainAccessGroup
+            ?? Self.keychainAccessGroup(infoDictionary: infoDictionary)
         #if DEBUG
         let transportVerificationMode = Self.initialTransportVerificationMode(
             defaults: defaults
@@ -246,7 +268,9 @@ public final class MobileIrohRuntimeComposition:
         )
         let networkPathState = MobileIrohNetworkPathState()
         let durableDeviceIDResolver = MobileIrohDurableDeviceIDResolver(
-            defaults: MobileIrohSendableDefaults(defaults)
+            defaults: MobileIrohSendableDefaults(defaults),
+            appNamespace: appNamespace,
+            keychainAccessGroup: keychainAccessGroup
         )
         let lanPeerDiscovery = CmxIrohLANPeerDiscovery(
             networkPath: { await networkPathState.snapshot() },
@@ -268,51 +292,59 @@ public final class MobileIrohRuntimeComposition:
             appInstances: CmxIrohAppInstanceRepository(store: installState),
             identities: CmxIrohIdentityRepository(
                 secureStore: Self.identityStore(
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 ),
                 installState: installState
             ),
             brokerCredentials: CmxIrohBrokerCredentialRepository(
                 secureStore: Self.credentialStore(
                     service: "broker-credentials",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 ),
                 installState: installState
             ),
             pendingRevocations: CmxIrohPendingRevocationOutbox(
                 secureStore: Self.credentialStore(
                     service: "pending-revocations",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             offlinePolicies: CmxIrohClientOfflinePolicyCache(
                 secureStore: Self.credentialStore(
                     service: "client-offline-policy",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             customRelayProfiles: CmxIrohCustomRelayProfileStore(
                 secureStore: Self.credentialStore(
                     service: "custom-relays",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             relayPolicyCache: CmxIrohRelayPolicyCache(
                 secureStore: Self.credentialStore(
                     service: "relay-policy",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             relayPreferenceStore: CmxIrohRelayPreferenceStore(
                 secureStore: Self.credentialStore(
                     service: "relay-preference",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             customRelayCredentials: CmxIrohCustomRelayCredentialStore(
                 secureStore: Self.credentialStore(
                     service: "custom-relay-credentials",
-                    bundleIdentifier: bundleIdentifier
+                    appNamespace: appNamespace,
+                    keychainAccessGroup: keychainAccessGroup
                 )
             ),
             customPrivatePaths: CmxIrohCustomPrivatePathStore(store: installState),
@@ -328,13 +360,15 @@ public final class MobileIrohRuntimeComposition:
             },
             transportVerificationMode: transportVerificationMode,
             automaticRelayCredentialRefreshEnabled: automaticRelayCredentialRefreshEnabled,
-            brokerFactory: { tokenSource in
+            brokerFactory: { tokenSource, bindingAuthorization in
                 guard let baseURL else {
                     throw CmxIrohTrustBrokerClientError.invalidBaseURL
                 }
                 return try CmxIrohTrustBrokerClient(
                     baseURL: baseURL,
                     tokenSource: tokenSource,
+                    clientNamespace: appNamespace.bundleIdentifier,
+                    bindingAuthorization: bindingAuthorization,
                     backpressureMode: .callerOwned
                 )
             },
@@ -342,6 +376,7 @@ public final class MobileIrohRuntimeComposition:
                 store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
             ),
             deviceID: { await durableDeviceIDResolver.resolve() },
+            clientNamespace: appNamespace.bundleIdentifier,
             tag: Self.currentTag(
                 infoDictionary: infoDictionary,
                 bundleIdentifier: bundleIdentifier
@@ -386,6 +421,7 @@ public final class MobileIrohRuntimeComposition:
         brokerFactory: @escaping BrokerFactory,
         brokerBackpressureGate: CmxIrohBrokerBackpressureGate = CmxIrohBrokerBackpressureGate(),
         deviceID: @escaping @MainActor @Sendable () async -> String?,
+        clientNamespace: String = "legacy",
         tag: String,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         now: @escaping @Sendable () -> Date,
@@ -417,6 +453,7 @@ public final class MobileIrohRuntimeComposition:
         self.brokerFactory = brokerFactory
         self.brokerBackpressureGate = brokerBackpressureGate
         self.deviceID = deviceID
+        self.clientNamespace = clientNamespace
         self.tag = tag
         self.discoveryCompatibilityPolicy = discoveryCompatibilityPolicy
         self.now = now
@@ -429,9 +466,10 @@ public final class MobileIrohRuntimeComposition:
 
     private func makeBrokerBundle(
         accountID: String,
-        tokenSource: CmxIrohBrokerTokenSource
+        tokenSource: CmxIrohBrokerTokenSource,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil
     ) throws -> BrokerBundle {
-        let rawClient = try brokerFactory(tokenSource)
+        let rawClient = try brokerFactory(tokenSource, bindingAuthorization)
         let client = CmxIrohBackpressuredClientBroker(
             broker: rawClient,
             gate: brokerBackpressureGate,
@@ -905,7 +943,8 @@ public final class MobileIrohRuntimeComposition:
                 tokenSource: CmxIrohBrokerTokenSource(
                     accessToken: { accessToken },
                     refreshToken: { refreshToken }
-                )
+                ),
+                bindingAuthorization: preparation.bindingAuthorization
             ).client
             let released = await recoverSignOutQuarantine(
                 preparation,
@@ -1062,7 +1101,8 @@ public final class MobileIrohRuntimeComposition:
                             }
                             return tokens.refreshToken
                         }
-                    )
+                    ),
+                    bindingAuthorization: preparation.bindingAuthorization
                 ).client
                 return await recoverSignOutQuarantine(
                     preparation,
@@ -1204,7 +1244,8 @@ public final class MobileIrohRuntimeComposition:
                   tokenSource: CmxIrohBrokerTokenSource(
                       accessToken: { accessToken },
                       refreshToken: { refreshToken }
-                  )
+                  ),
+                  bindingAuthorization: preparation.bindingAuthorization
               ).client else { return }
         do {
             try await preparation.revoke(
@@ -1403,7 +1444,16 @@ public final class MobileIrohRuntimeComposition:
                           let tokens = try? await auth.currentTokens() else { return nil }
                     return tokens.refreshToken
                 }
-            )
+            ),
+            bindingAuthorization: try cachedBinding.flatMap { binding in
+                guard bindingMatches else { return nil }
+                return try CmxIrohBindingRequestAuthorization(
+                    bindingID: binding.bindingID,
+                    clientNamespace: clientNamespace,
+                    identity: identity,
+                    endpointID: endpointID
+                )
+            }
         )
         let broker = brokerBundle.client
         let endpointRelayProfile: CmxIrohEndpointRelayProfile?
@@ -1475,6 +1525,7 @@ public final class MobileIrohRuntimeComposition:
             accountID: accountID,
             deviceID: deviceID,
             appInstanceID: appInstanceID,
+            clientNamespace: clientNamespace,
             tag: tag,
             displayName: nil,
             identity: identity,
@@ -1748,36 +1799,59 @@ public final class MobileIrohRuntimeComposition:
     }
 
     private static func identityStore(
-        bundleIdentifier: String?
+        appNamespace: MobileIOSAppNamespace,
+        keychainAccessGroup: String?
     ) -> any CmxIrohSecureIdentityStoring {
         #if DEBUG
         CmxIrohDevelopmentFileIdentityStore(
             directory: developmentStoreDirectory(
                 service: "identity",
-                bundleIdentifier: bundleIdentifier
+                bundleIdentifier: appNamespace.bundleIdentifier
             )
         )
         #else
-        CmxIrohKeychainIdentityStore()
+        CmxIrohKeychainIdentityStore(
+            service: appNamespace.keychainService(
+                base: "com.cmuxterm.iroh.endpoint-identity.v1"
+            ),
+            accessGroup: keychainAccessGroup,
+            legacyService: "com.cmuxterm.iroh.endpoint-identity.v1"
+        )
         #endif
     }
 
     private static func credentialStore(
         service: String,
-        bundleIdentifier: String?
+        appNamespace: MobileIOSAppNamespace,
+        keychainAccessGroup: String?
     ) -> any CmxIrohSecureCredentialStoring {
         #if DEBUG
         CmxIrohDevelopmentFileCredentialStore(
             directory: developmentStoreDirectory(
                 service: service,
-                bundleIdentifier: bundleIdentifier
+                bundleIdentifier: appNamespace.bundleIdentifier
             )
         )
         #else
         CmxIrohKeychainCredentialStore(
-            service: "com.cmuxterm.iroh.\(service).v1"
+            service: appNamespace.keychainService(
+                base: "com.cmuxterm.iroh.\(service).v1"
+            ),
+            accessGroup: keychainAccessGroup,
+            legacyService: "com.cmuxterm.iroh.\(service).v1"
         )
         #endif
+    }
+
+    private static func keychainAccessGroup(
+        infoDictionary: [String: Any]?
+    ) -> String? {
+        let raw = infoDictionary?["CMUXKeychainAccessGroup"] as? String
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty, !trimmed.contains("$(") else {
+            return nil
+        }
+        return trimmed
     }
 
     static func initialTransportVerificationMode(
@@ -2574,6 +2648,8 @@ enum MobileIrohForgetError: Error {
     /// The authenticated account changed after the forget began, so the revoke
     /// was aborted rather than applied to a different account's bindings.
     case accountChanged
+    /// The requested Mac belongs to another build lane.
+    case incompatibleBuild
 }
 
 extension MobileIrohRuntimeComposition {
@@ -2590,6 +2666,9 @@ extension MobileIrohRuntimeComposition {
         expectedAccountID: String
     ) async throws {
         guard let auth else { throw MobileIrohForgetError.notAuthenticated }
+        if let instanceTag, !isCompatibleMacTag(instanceTag) {
+            throw MobileIrohForgetError.incompatibleBuild
+        }
         // Capture the account identity AND both tokens as one consistent snapshot
         // from a single auth-session generation, so the revoke acts with
         // credentials that provably belong to `expectedAccountID`. Reading the
@@ -2610,6 +2689,9 @@ extension MobileIrohRuntimeComposition {
             tokenSource: brokerTokenSource(
                 pinnedTo: expectedAccountID,
                 generation: session.generation
+            ),
+            bindingAuthorization: try await managementBindingAuthorization(
+                accountID: expectedAccountID
             )
         ).client
         let snapshot = try await broker.discover()
@@ -2625,16 +2707,57 @@ extension MobileIrohRuntimeComposition {
             guard cmxCanonicalDeviceID(binding.deviceID) == canonicalTarget else {
                 return false
             }
-            if let instanceTag { return binding.tag == instanceTag }
-            return true
+            return isCompatibleMacTag(binding.tag)
+                && (instanceTag == nil || binding.tag == instanceTag)
         }
         for binding in matches {
             try ensureSessionUnchanged(
                 generation: session.generation,
                 expectedAccountID: expectedAccountID
             )
-            try await broker.revoke(bindingID: binding.bindingID)
+            try await broker.forgetMac(bindingID: binding.bindingID)
         }
+    }
+
+    private func isCompatibleMacTag(_ candidate: String?) -> Bool {
+        if let discoveryCompatibilityPolicy {
+            return discoveryCompatibilityPolicy.allows(instanceTag: candidate)
+        }
+        let normalized = candidate?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized == tag.lowercased()
+    }
+
+    private func managementBindingAuthorization(
+        accountID: String
+    ) async throws -> CmxIrohBindingRequestAuthorization {
+        let appInstanceID = try await appInstances.appInstanceID(
+            accountID: accountID,
+            tag: tag
+        )
+        let identity = try await identities.identity(
+            accountID: accountID,
+            appInstanceID: appInstanceID
+        )
+        let endpointID = try Self.peerIdentity(for: identity)
+        guard let binding = try await brokerCredentials.loadBinding(
+            accountID: accountID,
+            appInstanceID: appInstanceID
+        ),
+        binding.appInstanceID == appInstanceID,
+        binding.tag == tag,
+        binding.platform == .ios,
+        binding.endpointID == endpointID,
+        binding.identityGeneration == identity.generation else {
+            throw CmxIrohClientRuntimeError.inactive
+        }
+        return try CmxIrohBindingRequestAuthorization(
+            bindingID: binding.bindingID,
+            clientNamespace: clientNamespace,
+            identity: identity,
+            endpointID: endpointID
+        )
     }
 
     /// Throws if the authenticated session that initiated the forget was replaced,

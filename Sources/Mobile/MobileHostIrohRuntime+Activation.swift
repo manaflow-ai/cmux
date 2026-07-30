@@ -102,6 +102,7 @@ extension MobileHostIrohRuntime {
                     return tokens.refreshToken
                 }
             ),
+            clientNamespace: "mac:\(tag)",
             backpressureMode: .callerOwned
         )
         let broker = CmxIrohBackpressuredHostBroker(

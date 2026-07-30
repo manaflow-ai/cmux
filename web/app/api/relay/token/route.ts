@@ -35,6 +35,13 @@ import {
   IrohRepositoryLive,
 } from "../../../../services/iroh/repository";
 import {
+  verifyBindingRequestSignature,
+  type IrohBindingRequestProof,
+} from "../../../../services/iroh/crypto";
+import {
+  parseBindingRequestProof,
+} from "../../../../services/iroh/routeHandler";
+import {
   unauthorized,
   verifyRequest,
   type AuthedUser,
@@ -61,10 +68,12 @@ export interface RelayTokenDeps {
     readonly key: KeyObject;
     readonly nowSeconds: number;
   }) => readonly ManagedRelayCredentialGrant[];
-  readonly isEndpointBound: (input: {
+  readonly isEndpointAuthorized: (input: {
     readonly accountId: string;
     readonly endpointId: string;
+    readonly clientNamespace: string;
     readonly nowSeconds: number;
+    readonly bindingProof: IrohBindingRequestProof | undefined;
   }) => Promise<boolean>;
   readonly checkRateLimit: RelayRateLimitCheck;
   readonly rateLimitRuleId: () => string | undefined;
@@ -89,14 +98,28 @@ const productionDeps: RelayTokenDeps = {
     key: input.key,
     nowSeconds: input.nowSeconds,
   }),
-  isEndpointBound: async (input) => await runRelayEffect(
+  isEndpointAuthorized: async (input) => await runRelayEffect(
     Effect.gen(function* () {
       const repository = yield* IrohRepository;
       const binding = yield* repository.findActiveBindingByEndpoint(
         input.accountId,
         input.endpointId,
       );
-      return binding !== null;
+      if (!binding || binding.clientNamespace !== input.clientNamespace) {
+        return false;
+      }
+      if (!input.bindingProof) return input.clientNamespace === "legacy";
+      if (input.bindingProof.bindingId !== binding.id) return false;
+      try {
+        verifyBindingRequestSignature({
+          ...input.bindingProof,
+          endpointId: binding.endpointId,
+          nowSeconds: input.nowSeconds,
+        });
+        return true;
+      } catch {
+        return false;
+      }
     }).pipe(
       Effect.provide(IrohRepositoryLive),
       Effect.mapError((cause) => new RelayDatabaseError({
@@ -116,6 +139,11 @@ export async function handleRelayTokenRequest(
 ): Promise<Response> {
   const user = await deps.verifyRequest(request);
   if (!user) return unauthorized();
+  const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
+  if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace)) {
+    return jsonResponse({ error: "invalid_client_namespace" }, 400);
+  }
+  const proofRequest = request.clone();
 
   try {
     const key = deps.signingKey();
@@ -132,6 +160,27 @@ export async function handleRelayTokenRequest(
     if (typeof rawEndpointId !== "string" || !isValidEndpointId(rawEndpointId)) {
       return jsonResponse({ error: "invalid_endpoint_id" }, 400);
     }
+    const bindingProof = parseBindingRequestProof(
+      proofRequest,
+      new Uint8Array(await proofRequest.arrayBuffer()),
+    );
+    if (bindingProof instanceof Response) return bindingProof;
+    if (clientNamespace !== "legacy" && !bindingProof) {
+      return jsonResponse({ error: "binding_request_proof_required" }, 403);
+    }
+
+    const nowSeconds = deps.nowSeconds();
+    const endpointId = rawEndpointId.toLowerCase();
+    const isEndpointAuthorized = await deps.isEndpointAuthorized({
+      accountId: user.id,
+      endpointId,
+      clientNamespace,
+      nowSeconds,
+      bindingProof,
+    });
+    if (clientNamespace !== "legacy" && !isEndpointAuthorized) {
+      return jsonResponse({ error: "invalid_binding_request_proof" }, 403);
+    }
 
     // Rate limited per account+endpoint so one storming device only starves
     // itself; runs after validation so malformed requests never consume the
@@ -146,16 +195,9 @@ export async function handleRelayTokenRequest(
       retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_RETRY_AFTER_SECONDS,
     }));
 
-    const nowSeconds = deps.nowSeconds();
     const policy = await deps.signedPolicy(user.id, nowSeconds);
     const relayUrls = policy.payload.relays.map((relay) => relay.url);
-    const endpointId = rawEndpointId.toLowerCase();
-    const isEndpointBound = await deps.isEndpointBound({
-      accountId: user.id,
-      endpointId,
-      nowSeconds,
-    });
-    const relayCredentials = isEndpointBound
+    const relayCredentials = isEndpointAuthorized
       ? deps.issueCredentials({
         accountId: user.id,
         endpointId,

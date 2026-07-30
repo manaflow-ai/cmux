@@ -7,8 +7,10 @@ import {
   type IrohTrustBrokerConfigShape,
 } from "../services/iroh/config";
 import {
+  bindingRequestTranscript,
   parseVerificationKeys,
   registrationTranscript,
+  type IrohBindingRequestProof,
   verifyEndpointAttestation,
 } from "../services/iroh/crypto";
 import {
@@ -24,6 +26,10 @@ import {
   sha256,
   type IrohRegistrationPayload,
 } from "../services/iroh/model";
+import {
+  canIOSBindingForgetMac,
+  canIOSBindingUseMac,
+} from "../services/iroh/buildCompatibility";
 import {
   IROH_ACTIVE_BINDING_SANITY_CAP,
   type IrohBindingRecord,
@@ -269,6 +275,63 @@ describe("Iroh trust broker registration", () => {
     expect(retired?.revokedAt).toEqual(NOW);
     expect(retired?.revokedReason).toBe("slot_reincarnated");
   });
+
+  test("keeps the same device and tag in separate app namespace slots", async () => {
+    const repository = new MemoryRepository();
+    const deviceId = randomUUID();
+    const internal = makeFixture({
+      repository,
+      deviceId,
+      registrationClientNamespace: "dev.cmux.app.internal",
+    });
+    await Effect.runPromise(internal.broker.register(
+      USER_A,
+      await internal.signedRegistration(),
+      NOW,
+      "dev.cmux.app.internal",
+    ));
+    const internalBindingId = repository.bindings[0]!.id;
+
+    const demo = makeFixture({
+      repository,
+      deviceId,
+      registrationClientNamespace: "dev.cmux.app.demo",
+    });
+    await Effect.runPromise(demo.broker.register(
+      USER_A,
+      await demo.signedRegistration(),
+      NOW,
+      "dev.cmux.app.demo",
+    ));
+
+    const active = repository.bindings.filter((row) => !row.revokedAt);
+    expect(active).toHaveLength(2);
+    expect(active.map((row) => row.clientNamespace).sort()).toEqual([
+      "dev.cmux.app.demo",
+      "dev.cmux.app.internal",
+    ]);
+    expect(repository.bindings.find((row) => row.id === internalBindingId)?.revokedAt).toBeNull();
+  });
+
+  test("adopts the matching legacy endpoint into its exact app namespace", async () => {
+    const fixture = makeFixture();
+    const legacy = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration("mac", undefined, "legacy"),
+      NOW,
+      "legacy",
+    )) as { binding: { binding_id: string } };
+    const adopted = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration("mac", undefined, "mac:stable"),
+      NOW,
+      "mac:stable",
+    )) as { binding: { binding_id: string } };
+
+    expect(adopted.binding.binding_id).toBe(legacy.binding.binding_id);
+    expect(fixture.repository.bindings).toHaveLength(1);
+    expect(fixture.repository.bindings[0]?.clientNamespace).toBe("mac:stable");
+  });
 });
 
 describe("Iroh discovery and grants", () => {
@@ -310,6 +373,228 @@ describe("Iroh discovery and grants", () => {
       fixture.broker.revoke(USER_A, { bindingId: randomUUID() }, NOW),
       "IrohNotFoundError",
     );
+  });
+
+  test("a namespaced client can drain its migrated legacy revocation", async () => {
+    const fixture = makeFixture({
+      registrationClientNamespace: "dev.cmux.app.internal",
+    });
+    const current = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      appInstanceId: fixture.appInstanceId,
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "stable",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const legacy = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      appInstanceId: fixture.appInstanceId,
+      platform: "ios",
+      clientNamespace: "legacy",
+      tag: "stable",
+    });
+    fixture.repository.bindings.push(current, legacy);
+    const body = { bindingId: legacy.id };
+
+    const result = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      body,
+      NOW,
+      "dev.cmux.app.internal",
+      fixture.bindingProof(
+        current.id,
+        "DELETE",
+        "api/devices/iroh",
+        body,
+      ),
+    ));
+
+    expect(result).toEqual({
+      revoked: true,
+      lan_rendezvous_rotated: true,
+    });
+    expect(legacy.revokedAt).toEqual(NOW);
+  });
+
+  test("a reincarnated slot can finish an already-completed revocation", async () => {
+    const fixture = makeFixture({
+      registrationClientNamespace: "dev.cmux.app.internal",
+    });
+    const current = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      appInstanceId: fixture.appInstanceId,
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "stable",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const retiredAt = new Date(NOW.getTime() - 60_000);
+    const retired = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      appInstanceId: randomUUID(),
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "stable",
+      platform: "ios",
+      revokedAt: retiredAt,
+    });
+    fixture.repository.bindings.push(current, retired);
+    const body = { bindingId: retired.id };
+
+    const result = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      body,
+      NOW,
+      "dev.cmux.app.internal",
+      fixture.bindingProof(
+        current.id,
+        "DELETE",
+        "api/devices/iroh",
+        body,
+      ),
+    ));
+
+    expect(result).toEqual({
+      revoked: true,
+      lan_rendezvous_rotated: true,
+    });
+    expect(retired.revokedAt).toEqual(retiredAt);
+  });
+
+  test("a binding proof cannot claim another app namespace", async () => {
+    const fixture = makeFixture();
+    const current = binding({
+      userId: USER_A,
+      clientNamespace: "dev.cmux.app.internal",
+      endpointId: fixture.endpointId,
+    });
+    fixture.repository.bindings.push(current);
+
+    await expectEffectFailure(
+      fixture.broker.discover(
+        USER_A,
+        NOW,
+        "dev.cmux.app.demo",
+        fixture.bindingProof(
+          current.id,
+          "GET",
+          "api/devices/iroh",
+          undefined,
+        ),
+      ),
+      "IrohNotFoundError",
+    );
+  });
+
+  test("an iOS binding can forget only its same-build Mac", async () => {
+    const fixture = makeFixture();
+    const ios = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "stable",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const mac = binding({
+      userId: USER_A,
+      deviceUuid: randomUUID(),
+      clientNamespace: "mac:stable",
+      tag: "stable",
+      platform: "mac",
+    });
+    const siblingMac = binding({
+      userId: USER_A,
+      deviceUuid: randomUUID(),
+      clientNamespace: "mac:demo",
+      tag: "demo",
+      platform: "mac",
+    });
+    fixture.repository.bindings.push(ios, mac, siblingMac);
+    const body = { bindingId: mac.id, intent: "forget_mac" };
+
+    const result = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      body,
+      NOW,
+      ios.clientNamespace,
+      fixture.bindingProof(
+        ios.id,
+        "DELETE",
+        "api/devices/iroh",
+        body,
+      ),
+    ));
+
+    expect(result).toEqual({
+      revoked: true,
+      lan_rendezvous_rotated: true,
+    });
+    expect(mac.revokedAt).toEqual(NOW);
+    const siblingBody = {
+      bindingId: siblingMac.id,
+      intent: "forget_mac",
+    };
+    await expectEffectFailure(
+      fixture.broker.revoke(
+        USER_A,
+        siblingBody,
+        NOW,
+        ios.clientNamespace,
+        fixture.bindingProof(
+          ios.id,
+          "DELETE",
+          "api/devices/iroh",
+          siblingBody,
+        ),
+      ),
+      "IrohNotFoundError",
+    );
+    expect(siblingMac.revokedAt).toBeNull();
+  });
+
+  test("an official iOS binding can forget Stable and Nightly Macs", async () => {
+    const fixture = makeFixture();
+    const ios = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "default",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const nightlyMac = binding({
+      userId: USER_A,
+      deviceUuid: randomUUID(),
+      clientNamespace: "mac:nightly",
+      tag: "nightly",
+      platform: "mac",
+    });
+    fixture.repository.bindings.push(ios, nightlyMac);
+    const body = { bindingId: nightlyMac.id, intent: "forget_mac" };
+
+    const result = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      body,
+      NOW,
+      ios.clientNamespace,
+      fixture.bindingProof(
+        ios.id,
+        "DELETE",
+        "api/devices/iroh",
+        body,
+      ),
+    ));
+
+    expect(result).toEqual({
+      revoked: true,
+      lan_rendezvous_rotated: true,
+    });
+    expect(nightlyMac.revokedAt).toEqual(NOW);
   });
 
   test("never exposes another user through shared team context", async () => {
@@ -510,6 +795,252 @@ describe("Iroh discovery and grants", () => {
       acceptorBindingId: macAcceptor.id,
     }, NOW), "IrohForbiddenError");
     expect(fixture.repository.pairGrantAudits).toHaveLength(0);
+  });
+
+  test("pair grants reject a Mac from another build lane", async () => {
+    const fixture = makeFixture();
+    const initiator = binding({
+      userId: USER_A,
+      clientNamespace: "dev.cmux.ios.feature-a",
+      tag: "feature-a",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const acceptor = binding({
+      userId: USER_A,
+      clientNamespace: "mac:feature-b",
+      tag: "feature-b",
+      platform: "mac",
+      pairingEnabled: true,
+    });
+    fixture.repository.bindings.push(initiator, acceptor);
+    const body = {
+      initiatorBindingId: initiator.id,
+      acceptorBindingId: acceptor.id,
+    };
+
+    await expectEffectFailure(
+      fixture.broker.issuePairGrant(
+        USER_A,
+        body,
+        NOW,
+        initiator.clientNamespace,
+        fixture.bindingProof(
+          initiator.id,
+          "POST",
+          "api/devices/iroh/pair-grants",
+          body,
+        ),
+      ),
+      "IrohForbiddenError",
+    );
+    expect(fixture.repository.pairGrantAudits).toHaveLength(0);
+  });
+
+  test("an official iOS binding can pair with a Nightly Mac", async () => {
+    const fixture = makeFixture();
+    const initiator = binding({
+      userId: USER_A,
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "default",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const acceptor = binding({
+      userId: USER_A,
+      clientNamespace: "mac:nightly",
+      tag: "nightly",
+      platform: "mac",
+      pairingEnabled: true,
+    });
+    fixture.repository.bindings.push(initiator, acceptor);
+    const body = {
+      initiatorBindingId: initiator.id,
+      acceptorBindingId: acceptor.id,
+    };
+
+    const result = await Effect.runPromise(fixture.broker.issuePairGrant(
+      USER_A,
+      body,
+      NOW,
+      initiator.clientNamespace,
+      fixture.bindingProof(
+        initiator.id,
+        "POST",
+        "api/devices/iroh/pair-grants",
+        body,
+      ),
+    )) as { grant: string };
+
+    expect(result.grant.split(".")).toHaveLength(3);
+    expect(fixture.repository.pairGrantAudits).toHaveLength(1);
+  });
+
+  test("a namespaced app cannot discover or mutate a sibling app binding", async () => {
+    const fixture = makeFixture();
+    const internal = binding({
+      platform: "ios",
+      clientNamespace: "dev.cmux.app.internal",
+    });
+    const demo = binding({
+      platform: "ios",
+      clientNamespace: "dev.cmux.app.demo",
+      endpointId: fixture.endpointId,
+    });
+    const mac = binding({
+      platform: "mac",
+      clientNamespace: "mac:stable",
+      endpointId: fixture.endpointId,
+    });
+    fixture.repository.bindings.push(internal, demo, mac);
+
+    const discovered = await Effect.runPromise(
+      fixture.broker.discover(
+        USER_A,
+        NOW,
+        "dev.cmux.app.demo",
+        fixture.bindingProof(
+          demo.id,
+          "GET",
+          "api/devices/iroh",
+          undefined,
+        ),
+      ),
+    ) as { bindings: Array<{ binding_id: string }> };
+    expect(discovered.bindings.map((row) => row.binding_id)).toEqual([
+      demo.id,
+      mac.id,
+    ]);
+
+    const macDiscovered = await Effect.runPromise(
+      fixture.broker.discover(
+        USER_A,
+        NOW,
+        "mac:stable",
+        fixture.bindingProof(
+          mac.id,
+          "GET",
+          "api/devices/iroh",
+          undefined,
+        ),
+      ),
+    ) as { bindings: Array<{ binding_id: string }> };
+    expect(macDiscovered.bindings.map((row) => row.binding_id)).toEqual([
+      internal.id,
+      demo.id,
+      mac.id,
+    ]);
+
+    const legacyDiscovered = await Effect.runPromise(
+      fixture.broker.discover(USER_A, NOW),
+    ) as { bindings: Array<{ binding_id: string }> };
+    expect(legacyDiscovered.bindings.map((row) => row.binding_id)).toEqual([
+      internal.id,
+      demo.id,
+      mac.id,
+    ]);
+
+    const revokeBody = { bindingId: internal.id };
+    await expectEffectFailure(fixture.broker.revoke(
+      USER_A,
+      revokeBody,
+      NOW,
+      "dev.cmux.app.demo",
+      fixture.bindingProof(
+        demo.id,
+        "DELETE",
+        "api/devices/iroh",
+        revokeBody,
+      ),
+    ), "IrohNotFoundError");
+    await expectEffectFailure(fixture.broker.revoke(
+      USER_A,
+      { bindingId: internal.id },
+      NOW,
+    ), "IrohNotFoundError");
+    const bindingBody = { bindingId: internal.id };
+    await expectEffectFailure(fixture.broker.issueEndpointAttestation(
+      USER_A,
+      bindingBody,
+      NOW,
+      "dev.cmux.app.demo",
+      fixture.bindingProof(
+        demo.id,
+        "POST",
+        "api/devices/iroh/endpoint-attestations",
+        bindingBody,
+      ),
+    ), "IrohNotFoundError");
+    await expectEffectFailure(fixture.broker.issueRelayToken(
+      USER_A,
+      bindingBody,
+      NOW,
+      "dev.cmux.app.demo",
+      fixture.bindingProof(
+        demo.id,
+        "POST",
+        "api/relay/token",
+        bindingBody,
+      ),
+    ), "IrohNotFoundError");
+    const pairBody = {
+      initiatorBindingId: internal.id,
+      acceptorBindingId: mac.id,
+    };
+    await expectEffectFailure(fixture.broker.issuePairGrant(
+      USER_A,
+      pairBody,
+      NOW,
+      "dev.cmux.app.demo",
+      fixture.bindingProof(
+        demo.id,
+        "POST",
+        "api/devices/iroh/pair-grants",
+        pairBody,
+      ),
+    ), "IrohNotFoundError");
+
+    expect(internal.revokedAt).toBeNull();
+    expect(fixture.minter.calls).toBe(0);
+    expect(fixture.repository.pairGrantAudits).toHaveLength(0);
+  });
+
+  test("tagged discovery never exposes sibling Mac lane metadata", async () => {
+    const fixture = makeFixture();
+    const iosA = binding({
+      platform: "ios",
+      clientNamespace: "dev.cmux.ios.feature-a",
+      tag: "feature-a",
+      endpointId: fixture.endpointId,
+    });
+    const macA = binding({
+      platform: "mac",
+      clientNamespace: "mac:feature-a",
+      tag: "feature-a",
+    });
+    const macB = binding({
+      platform: "mac",
+      clientNamespace: "mac:feature-b",
+      tag: "feature-b",
+    });
+    fixture.repository.bindings.push(iosA, macA, macB);
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(
+      USER_A,
+      NOW,
+      iosA.clientNamespace,
+      fixture.bindingProof(
+        iosA.id,
+        "GET",
+        "api/devices/iroh",
+        undefined,
+      ),
+    )) as { bindings: Array<{ binding_id: string }> };
+
+    expect(discovered.bindings.map((row) => row.binding_id)).toEqual([
+      iosA.id,
+      macA.id,
+    ]);
   });
 
   test("issues a short-lived opaque same-account attestation only for an owned active binding", async () => {
@@ -717,6 +1248,7 @@ class MemoryRepository implements IrohRepositoryShape {
       userId: input.userId,
       deviceUuid: input.deviceUuid,
       appInstanceId: input.appInstanceId,
+      clientNamespace: input.clientNamespace ?? "legacy",
       tag: input.tag,
       endpointId: input.endpointId,
       identityGeneration: input.identityGeneration,
@@ -743,13 +1275,28 @@ class MemoryRepository implements IrohRepositoryShape {
     const directPorts = (input.payload as IrohRegistrationPayload & {
       directPorts?: TestDirectPorts;
     }).directPorts;
-    // The slot is keyed on (user, device, tag). A reinstall, sign-out/in, or key
-    // rotation reuses that slot.
-    const existing = this.bindings.find((row) =>
+    // The slot is keyed on (user, namespace, device, tag). A reinstall,
+    // sign-out/in, or key rotation inside one app reuses that slot.
+    const exactExisting = this.bindings.find((row) =>
       row.userId === input.userId &&
+      row.clientNamespace === input.payload.clientNamespace &&
       row.deviceUuid === input.payload.deviceId &&
       row.tag === input.payload.tag &&
       !row.revokedAt);
+    const legacyExisting = input.payload.clientNamespace === "legacy"
+      ? undefined
+      : this.bindings.find((row) =>
+        row.userId === input.userId &&
+        row.clientNamespace === "legacy" &&
+        row.deviceUuid === input.payload.deviceId &&
+        row.tag === input.payload.tag &&
+        row.endpointId === input.payload.endpointId &&
+        row.platform === input.payload.platform &&
+        !row.revokedAt);
+    if (legacyExisting) {
+      legacyExisting.clientNamespace = input.payload.clientNamespace;
+    }
+    const existing = exactExisting ?? legacyExisting;
     if (existing && challenge.createdAt < existing.registeredAt) {
       return Effect.fail(new IrohConflictError({ code: "challenge_superseded" }));
     }
@@ -815,6 +1362,7 @@ class MemoryRepository implements IrohRepositoryShape {
       userId: input.userId,
       deviceUuid: input.payload.deviceId,
       appInstanceId: input.payload.appInstanceId,
+      clientNamespace: input.payload.clientNamespace,
       tag: input.payload.tag,
       platform: input.payload.platform,
       displayName: input.payload.displayName ?? null,
@@ -837,8 +1385,32 @@ class MemoryRepository implements IrohRepositoryShape {
   discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
     return Effect.promise(async () => {
       await this.beforeDiscoverySnapshot?.();
+      const clientNamespace = input.clientNamespace ?? "legacy";
+      const candidateBindings = this.bindings.filter((row) =>
+        row.userId === input.userId &&
+        !row.revokedAt &&
+        (input.callerBindingId && input.callerPlatform
+          ? row.id === input.callerBindingId
+            || row.platform === (input.callerPlatform === "mac" ? "ios" : "mac")
+          : clientNamespace === "legacy"
+            || row.clientNamespace === clientNamespace));
+      const caller = input.callerBindingId && input.callerPlatform
+        ? candidateBindings.find((row) =>
+          row.id === input.callerBindingId
+          && row.platform === input.callerPlatform)
+        : undefined;
       return {
-        bindings: this.bindings.filter((row) => row.userId === input.userId && !row.revokedAt),
+        bindings: input.callerBindingId && input.callerPlatform
+          ? caller
+            ? candidateBindings.filter((row) =>
+              row.id === caller.id
+              || (
+                caller.platform === "ios"
+                  ? canIOSBindingUseMac(caller, row)
+                  : canIOSBindingUseMac(row, caller)
+              ))
+            : []
+          : candidateBindings,
         lanDiscoveryGeneration: this.lanGenerations.get(input.userId) ?? 1,
       };
     });
@@ -858,6 +1430,46 @@ class MemoryRepository implements IrohRepositoryShape {
     const row = this.bindings.find((candidate) =>
       candidate.id === input.bindingId && candidate.userId === input.userId);
     if (!row) return Effect.succeed(false);
+    if (input.authorizedBindingId) {
+      const authorized = this.bindings.find((candidate) =>
+        candidate.id === input.authorizedBindingId
+        && candidate.userId === input.userId
+        && !candidate.revokedAt);
+      if (input.intent === "forget_mac") {
+        if (!authorized || !canIOSBindingForgetMac(authorized, row)) {
+          return Effect.succeed(false);
+        }
+        if (row.revokedAt) return Effect.succeed(true);
+      } else {
+        const sameDurableSlot = authorized
+          && authorized.deviceUuid === row.deviceUuid
+          && authorized.tag === row.tag
+          && authorized.platform === row.platform
+          && (
+            authorized.clientNamespace === row.clientNamespace
+            || row.clientNamespace === "legacy"
+          );
+        if (
+          row.revokedAt
+          && authorized
+          && (authorized.id === row.id || sameDurableSlot)
+        ) {
+          return Effect.succeed(true);
+        }
+        const sameOwnedSlot = sameDurableSlot
+          && authorized?.appInstanceId === row.appInstanceId;
+        if (!authorized || (authorized.id !== row.id && !sameOwnedSlot)) {
+          return Effect.succeed(false);
+        }
+      }
+    } else if (input.intent === "forget_mac") {
+      return Effect.succeed(false);
+    } else if (
+      (input.clientNamespace ?? "legacy") !== "legacy"
+      || row.clientNamespace !== "legacy"
+    ) {
+      return Effect.succeed(false);
+    }
     if (row.revokedAt) return Effect.succeed(true);
     row.revokedAt = input.now;
     row.revokedReason = "user_requested";
@@ -944,6 +1556,9 @@ class MemoryRepository implements IrohRepositoryShape {
     const active = this.bindings.find((row) =>
       row.id === input.bindingId && row.userId === input.userId && !row.revokedAt);
     if (!active) return Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+    if (active.clientNamespace !== (input.clientNamespace ?? "legacy")) {
+      return Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+    }
     active.lastSeenAt = input.now;
     active.updatedAt = input.now;
     const recent = this.relayIssuances.filter((row) =>
@@ -1004,6 +1619,7 @@ function makeFixture(options: {
   relayPreference?: RelayPreference;
   registrationPathHints?: IrohRegistrationPayload["pathHints"];
   registrationDirectPorts?: TestDirectPorts;
+  registrationClientNamespace?: string;
   developmentBindingLimits?: {
     account: number;
     device: number;
@@ -1067,17 +1683,45 @@ function makeFixture(options: {
     appInstanceId,
     deviceId,
     identityGeneration,
+    bindingProof(
+      bindingId: string,
+      method: string,
+      path: string,
+      body: unknown,
+    ): IrohBindingRequestProof {
+      const bodyBytes = body === undefined
+        ? Buffer.alloc(0)
+        : Buffer.from(JSON.stringify(body));
+      const proof = {
+        bindingId,
+        method,
+        path,
+        timestampSeconds: Math.floor(NOW.getTime() / 1_000),
+        bodySha256: sha256(bodyBytes),
+      };
+      return {
+        ...proof,
+        signature: sign(
+          null,
+          bindingRequestTranscript(proof),
+          endpointKeys.privateKey,
+        ).toString("base64url"),
+      };
+    },
     setRelayPreference(next: RelayPreference) {
       relayPreference = next;
     },
     async signedRegistration(
       platform: "mac" | "ios" = "mac",
       directPorts: TestDirectPorts | null | undefined = options.registrationDirectPorts,
+      clientNamespace: string =
+        options.registrationClientNamespace ?? "legacy",
     ) {
       const payload: IrohRegistrationPayload & { directPorts?: TestDirectPorts } = {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
+        clientNamespace,
         tag: "stable",
         platform,
         displayName: "Test Mac",
@@ -1099,11 +1743,12 @@ function makeFixture(options: {
       const challenge = await Effect.runPromise(broker.issueChallenge(USER_A, {
         deviceId,
         appInstanceId,
+        clientNamespace: payload.clientNamespace,
         tag: payload.tag,
         endpointId,
         identityGeneration,
         payloadSha256: sha256(payloadBytes),
-      }, NOW)) as { challenge_id: string; nonce: string };
+      }, NOW, payload.clientNamespace)) as { challenge_id: string; nonce: string };
       return {
         challengeId: challenge.challenge_id,
         nonce: challenge.nonce,
@@ -1136,6 +1781,7 @@ function binding(overrides: Partial<MutableBinding> = {}): MutableBinding {
     userId: USER_A,
     deviceUuid: randomUUID(),
     appInstanceId: randomUUID(),
+    clientNamespace: "legacy",
     tag: "stable",
     platform: "mac",
     displayName: null,

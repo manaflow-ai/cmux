@@ -4,6 +4,8 @@ public struct CmxIrohChallengeRequest: Encodable, Equatable, Sendable {
     public let deviceId: String
     /// Stable app-instance UUID.
     public let appInstanceId: String
+    /// Exact app namespace that owns the prospective binding.
+    public let clientNamespace: String
     /// Safe build or app-instance tag.
     public let tag: String
     /// Exact Iroh EndpointID that will sign the challenge.
@@ -16,6 +18,7 @@ public struct CmxIrohChallengeRequest: Encodable, Equatable, Sendable {
     init(payload: CmxIrohRegistrationPayload, payloadSHA256: String) {
         deviceId = payload.deviceID
         appInstanceId = payload.appInstanceID
+        clientNamespace = payload.clientNamespace
         tag = payload.tag
         endpointId = payload.endpointID
         identityGeneration = payload.identityGeneration

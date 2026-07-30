@@ -1318,7 +1318,9 @@ final class MobileHostService {
         routeID: String? = nil,
         routeKind: String? = nil,
         routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
-        target: MobileAttachTarget? = nil
+        target: MobileAttachTarget? = nil,
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved
     ) async throws -> [String: Any] {
         let routes = MobileHostPublicStatusCache.snapshot()
         let filteredRoutes = try Self.filteredRoutes(
@@ -1341,7 +1343,8 @@ final class MobileHostService {
         return try ticketStore.payload(
             for: ticket,
             routeDisclosureMode: routeDisclosureMode,
-            target: target
+            target: target,
+            pairingURLScheme: pairingURLScheme
         )
     }
 

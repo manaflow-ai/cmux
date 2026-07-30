@@ -10,10 +10,19 @@ public protocol CmxIrohClientBrokerServing: CmxIrohRegistryServing,
         prepared: CmxIrohPreparedRegistration,
         signer: CmxIrohRegistrationSigner
     ) async throws -> CmxIrohRegistrationResponse
+
+    /// Revokes one same-build Mac through the explicit account-management path.
+    func forgetMac(bindingID: String) async throws
 }
 
 public extension CmxIrohClientBrokerServing {
+    /// Accepts the operation when a conformer does not impose a local broker floor.
     func preflight(operation _: CmxIrohBrokerOperation) async throws {}
+
+    /// Falls back to ordinary revocation for conformers without a management route.
+    func forgetMac(bindingID: String) async throws {
+        try await revoke(bindingID: bindingID)
+    }
 }
 
 extension CmxIrohTrustBrokerClient: CmxIrohClientBrokerServing {}

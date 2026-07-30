@@ -23,12 +23,18 @@ public struct StackAuthClient: AuthClient {
     ///   - config: The resolved auth configuration (project id + publishable key).
     ///   - tokenStore: Where Stack persists tokens. Pass `.memory` for the
     ///     simulator DEBUG flow and `.keychain` for real devices/release.
-    public init(config: AuthConfig, tokenStore: TokenStoreInit) {
+    ///   - oauthBrowserSessionPrivacy: Whether OAuth may reuse Safari cookies.
+    public init(
+        config: AuthConfig,
+        tokenStore: TokenStoreInit,
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared
+    ) {
         self.init(
             stack: StackClientApp(
                 projectId: config.stack.projectId,
                 publishableClientKey: config.stack.publishableClientKey,
-                tokenStore: tokenStore
+                tokenStore: tokenStore,
+                oauthBrowserSessionPrivacy: oauthBrowserSessionPrivacy
             )
         )
     }

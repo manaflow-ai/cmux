@@ -1,10 +1,7 @@
-// Send a push to the authenticated user's registered iOS devices. Called by the
-// macOS app when it shows a terminal notification AND the user enabled phone
-// forwarding. No-ops (no APNs traffic) when the user has no registered devices.
-// Auth: Stack Bearer from the Mac's signed-in user; routing is by that user id.
+// Every Mac sender must name one exact iOS target. Missing targets fail closed.
 
 import { checkRateLimit } from "@vercel/firewall";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { env } from "../../../env";
 import { cloudDb } from "../../../../db/client";
 import { deviceTokens } from "../../../../db/schema";
@@ -15,6 +12,7 @@ import { withApnsApiRoute } from "../../../../services/apns/routeHandler";
 import {
   MAX_DEVICE_TOKENS_PER_USER,
   MAX_PUSH_REQUEST_BYTES,
+  normalizeApnsBundle,
   parsePushPayload,
   readBoundedJsonObject,
 } from "../../../../services/apns/routePolicy";
@@ -43,6 +41,33 @@ function rateLimitResponse(error: PushRateLimitExceededError): Response {
       },
     },
   );
+}
+
+type NotificationDb = ReturnType<typeof cloudDb>;
+
+export function notificationPushTargetLimit(): number {
+  return MAX_DEVICE_TOKENS_PER_USER;
+}
+
+/** Selects one exact iOS bundle owned by the authenticated account. */
+export async function selectNotificationPushTargets(
+  db: NotificationDb,
+  userId: string,
+  bundleId: string,
+) {
+  return db
+    .select({
+      deviceToken: deviceTokens.deviceToken,
+      bundleId: deviceTokens.bundleId,
+      environment: deviceTokens.environment,
+    })
+    .from(deviceTokens)
+    .where(and(
+      eq(deviceTokens.userId, userId),
+      eq(deviceTokens.platform, "ios"),
+      eq(deviceTokens.bundleId, bundleId),
+    ))
+    .limit(notificationPushTargetLimit());
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -76,17 +101,21 @@ async function sendPush(request: Request): Promise<Response> {
 
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
+  const requestedNamespace = request.headers.get("x-cmux-ios-target-namespace");
+  if (!requestedNamespace) {
+    return jsonResponse({ error: "missing_target_namespace" }, 400);
+  }
+  const targetNamespace = normalizeApnsBundle(requestedNamespace);
+  if (!targetNamespace) {
+    return jsonResponse({ error: "invalid_target_namespace" }, 400);
+  }
 
   const db = cloudDb();
-  const tokens = await db
-    .select({
-      deviceToken: deviceTokens.deviceToken,
-      bundleId: deviceTokens.bundleId,
-      environment: deviceTokens.environment,
-    })
-    .from(deviceTokens)
-    .where(and(eq(deviceTokens.userId, user.id), eq(deviceTokens.platform, "ios")))
-    .limit(MAX_DEVICE_TOKENS_PER_USER);
+  const tokens = await selectNotificationPushTargets(
+    db,
+    user.id,
+    targetNamespace.bundleId,
+  );
 
   if (tokens.length === 0) {
     return jsonResponse(summarizeApnsSendResults([]));
@@ -108,11 +137,19 @@ async function sendPush(request: Request): Promise<Response> {
 
   const results = await sendApnsNotification(config, tokens, payload.value);
 
-  const dead = results.filter((r) => r.prune).map((r) => r.deviceToken);
+  const dead = results.filter((result) =>
+    result.prune && result.bundleId);
   if (dead.length > 0) {
     await db
       .delete(deviceTokens)
-      .where(and(eq(deviceTokens.userId, user.id), eq(deviceTokens.platform, "ios"), inArray(deviceTokens.deviceToken, dead)));
+      .where(and(
+        eq(deviceTokens.userId, user.id),
+        eq(deviceTokens.platform, "ios"),
+        or(...dead.map((result) => and(
+          eq(deviceTokens.bundleId, result.bundleId!),
+          eq(deviceTokens.deviceToken, result.deviceToken),
+        ))),
+      ));
   }
 
   return jsonResponse(summarizeApnsSendResults(results));

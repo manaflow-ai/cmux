@@ -587,6 +587,10 @@ struct CmxIrohClientRuntimeTests {
 
         #expect(preparation.bindingID == fixture.binding.bindingID)
         #expect(preparation.wasPersisted)
+        #expect(
+            preparation.bindingAuthorization?.bindingID
+                == fixture.binding.bindingID
+        )
         #expect(await recorder.observedLocalWipes() == [true])
         #expect(await offlineStore.deleteAllCount() == 1)
         #expect(await runtime.snapshot().state == .inactive)
@@ -694,7 +698,7 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func pendingRevocationFailureBlocksRegistrationAndOfflineFallback() async throws {
+    func pendingRevocationFailureStopsAfterAuthenticatedRegistration() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let store = TestSecureCredentialStore()
         let pendingRevocations = CmxIrohPendingRevocationOutbox(secureStore: store)
@@ -727,7 +731,8 @@ struct CmxIrohClientRuntimeTests {
             try await runtime.start()
         }
 
-        #expect(await broker.observedRegistrations().isEmpty)
+        #expect(await broker.observedRegistrations().count == 1)
+        #expect(await broker.observedDiscoveryCount() == 0)
         #expect(await broker.observedRevokedBindingIDs() == [pending.bindingID])
         #expect(
             try await pendingRevocations.pending(

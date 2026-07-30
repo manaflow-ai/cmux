@@ -24,7 +24,8 @@ enum PhonePushSettings {
 /// Two push kinds share the transport: the visible banner mirror
 /// (``forward(_:badgeCount:)``) and the silent dismiss/badge push
 /// (``forwardDismissed(ids:badgeCount:)``), the cold lane of Mac→iOS
-/// dismiss-sync that reaches every registered device, attached or not.
+/// dismiss-sync that reaches every registered device in the selected iOS app
+/// namespace, attached or not.
 @MainActor
 final class PhonePushClient {
     static let shared = PhonePushClient()
@@ -164,10 +165,10 @@ final class PhonePushClient {
 
     /// The cold lane of Mac→iOS dismiss-sync: mirror a Mac-side dismiss through
     /// a silent APNs push (`content-available` + `aps.badge` + the dismissed
-    /// ids). Sent unconditionally — the push route fans out to every registered
-    /// device token, so a live-attached phone (which already handled the peer
-    /// event; the push is an idempotent no-op there) must not starve an offline
-    /// second device.
+    /// ids). Sent unconditionally. The push route fans out to every registered
+    /// device token in the selected iOS app namespace, so a live-attached phone
+    /// (which already handled the peer event; the push is an idempotent no-op
+    /// there) must not starve an offline second device.
     /// The system applies the badge immediately; banner removal happens when iOS
     /// grants the (strictly budgeted) background wake, and the app-foreground
     /// reconcile sweep heals anything iOS deferred. Carries only opaque UUIDs.
@@ -245,11 +246,19 @@ final class PhonePushClient {
             bodyDict["notificationIds"] = payload.notificationIds
         }
 
+        guard let targetNamespace =
+            MobileIOSPairingTargetStore().pushTargetNamespace else {
+            return
+        }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.timeoutInterval = 10
         req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
         req.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        req.setValue(
+            targetNamespace.bundleIdentifier,
+            forHTTPHeaderField: "X-Cmux-IOS-Target-Namespace"
+        )
         if let teamID, !teamID.isEmpty {
             req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }

@@ -30,6 +30,8 @@ struct cmuxApp: App {
             apiBaseURL: auth.config.apiBaseURL,
             reachability: reachability,
             discoveryCompatibilityPolicy: buildCompatibilityPolicy,
+            appNamespace: auth.appNamespace,
+            keychainAccessGroup: auth.keychainAccessGroup,
             diagnosticLog: diagnosticLog
         )
         iroh.configure(auth: auth.coordinator)

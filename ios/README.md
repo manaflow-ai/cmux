@@ -57,10 +57,11 @@ What `--prod-auth` does:
   are per-Stack-project), so you start signed out instead of restoring a
   stale identity.
 
-The system Camera routes release QR links (`cmux-ios://…`) to an official iOS
-app and DEV QR links (`cmux-ios-dev://…`) to a DEV iOS app. The authenticated
-Mac status supplies the exact instance tag, which the app validates before it
-saves or adopts the connection.
+Every installed iOS bundle registers one URL scheme derived from its complete
+bundle identifier, for example `cmux-ios-dev.cmux.app.beta://…` or
+`cmux-ios-dev.cmux.ios.my-tag://…`. No two cmux builds register the same system
+route. The authenticated Mac status supplies the exact instance tag, which the
+app validates before it saves or adopts the connection.
 
 Without the flag, the same override is available by bundling a
 `LocalConfig.plist` with an `AuthEnvironment` string of `production` (see

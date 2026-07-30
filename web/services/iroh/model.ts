@@ -41,6 +41,7 @@ export type IrohRegistrationPayload = {
   readonly route_contract_version: typeof IROH_ROUTE_CONTRACT_VERSION;
   readonly deviceId: string;
   readonly appInstanceId: string;
+  readonly clientNamespace: string;
   readonly tag: string;
   readonly platform: "mac" | "ios";
   readonly displayName?: string;
@@ -54,7 +55,7 @@ export type IrohRegistrationPayload = {
 
 export type IrohChallengeRequest = Pick<
   IrohRegistrationPayload,
-  "deviceId" | "appInstanceId" | "tag" | "endpointId" | "identityGeneration"
+  "deviceId" | "appInstanceId" | "clientNamespace" | "tag" | "endpointId" | "identityGeneration"
 > & {
   readonly payloadSha256: string;
 };
@@ -71,6 +72,7 @@ export function parseChallengeRequest(value: unknown): IrohChallengeRequest {
   const parsed: IrohChallengeRequest = {
     deviceId: uuid(body.deviceId, "invalid_device_id"),
     appInstanceId: uuid(body.appInstanceId, "invalid_app_instance_id"),
+    clientNamespace: clientNamespace(body.clientNamespace),
     tag: safeTag(body.tag),
     endpointId: endpointId(body.endpointId),
     identityGeneration: positiveInteger(body.identityGeneration, "invalid_identity_generation"),
@@ -79,6 +81,7 @@ export function parseChallengeRequest(value: unknown): IrohChallengeRequest {
   rejectUnknownKeys(body, [
     "deviceId",
     "appInstanceId",
+    "clientNamespace",
     "tag",
     "endpointId",
     "identityGeneration",
@@ -154,6 +157,7 @@ export function parseRegistrationPayload(value: unknown, now: Date): IrohRegistr
     route_contract_version: routeContractVersion(body.route_contract_version),
     deviceId: uuid(body.deviceId, "invalid_device_id"),
     appInstanceId: uuid(body.appInstanceId, "invalid_app_instance_id"),
+    clientNamespace: clientNamespace(body.clientNamespace),
     tag: safeTag(body.tag),
     platform: oneOf(body.platform, ["mac", "ios"] as const, "invalid_platform"),
     ...(body.displayName === undefined || body.displayName === null
@@ -172,6 +176,7 @@ export function parseRegistrationPayload(value: unknown, now: Date): IrohRegistr
     "deviceId",
     "route_contract_version",
     "appInstanceId",
+    "clientNamespace",
     "tag",
     "platform",
     "displayName",
@@ -209,6 +214,23 @@ export function parseBindingIdBody(value: unknown): { readonly bindingId: string
   return result;
 }
 
+export function parseRevokeBindingBody(value: unknown): {
+  readonly bindingId: string;
+  readonly intent: "self" | "forget_mac";
+} {
+  const body = record(value);
+  const intent = body.intent === undefined ? "self" : body.intent;
+  if (intent !== "self" && intent !== "forget_mac") {
+    throw new IrohInvalidInputError({ code: "invalid_revoke_intent" });
+  }
+  const result = {
+    bindingId: uuid(body.bindingId, "invalid_binding_id"),
+    intent,
+  } as const;
+  rejectUnknownKeys(body, ["bindingId", "intent"]);
+  return result;
+}
+
 export function parsePairGrantRequest(value: unknown): {
   readonly initiatorBindingId: string;
   readonly acceptorBindingId: string;
@@ -232,6 +254,7 @@ export function assertChallengeMatchesPayload(
   if (
     challenge.deviceUuid !== payload.deviceId ||
     challenge.appInstanceId !== payload.appInstanceId ||
+    challenge.clientNamespace !== payload.clientNamespace ||
     challenge.tag !== payload.tag ||
     challenge.endpointId !== payload.endpointId ||
     challenge.identityGeneration !== payload.identityGeneration
@@ -243,10 +266,20 @@ export function assertChallengeMatchesPayload(
 export type IrohChallengeIdentity = {
   readonly deviceUuid: string;
   readonly appInstanceId: string;
+  readonly clientNamespace: string;
   readonly tag: string;
   readonly endpointId: string;
   readonly identityGeneration: number;
 };
+
+export function clientNamespace(value: unknown): string {
+  if (value === undefined) return "legacy";
+  const parsed = boundedString(value, 1, 255, "invalid_client_namespace");
+  if (!/^[A-Za-z0-9._:-]+$/.test(parsed)) {
+    throw new IrohInvalidInputError({ code: "invalid_client_namespace" });
+  }
+  return parsed;
+}
 
 export function parseIrohPathHint(value: unknown, now: Date): IrohPathHint {
   const hint = record(value);
