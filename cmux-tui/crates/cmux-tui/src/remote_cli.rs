@@ -3744,7 +3744,7 @@ mod tests {
             &runtime_path,
             serde_json::to_vec(&crate::remote_runtime::DaemonRuntimeInfo {
                 session: session.into(),
-                state_dir,
+                state_dir: state_dir.clone(),
                 link_socket,
                 admin_socket,
                 daemon_fingerprint: "active-daemon".into(),
@@ -3772,6 +3772,10 @@ mod tests {
 
         assert!(error.to_string().contains("daemon socket"), "{error:#}");
         assert!(runtime_path.exists());
+        assert!(
+            !state_dir.join("auth").exists(),
+            "rejected recovery created authorization state before probing the active socket"
+        );
         drop(listener);
     }
 
@@ -3782,14 +3786,7 @@ mod tests {
         let session = "reject-active-legacy-acknowledgement";
         let (state_dir, link_socket, admin_socket) =
             daemon_paths(session, Some(directory.path())).unwrap();
-        drop(
-            cmux_remote::identity::AuthDatabase::load_or_create(
-                state_dir.join("auth"),
-                session,
-                true,
-            )
-            .unwrap(),
-        );
+        seed_legacy_authorization_state(&state_dir);
         let listener = std::os::unix::net::UnixListener::bind(&link_socket).unwrap();
         fs::write(
             state_dir.join("runtime.json"),
@@ -3823,6 +3820,11 @@ mod tests {
 
         assert!(error.to_string().contains("daemon socket"), "{error:#}");
         assert!(!state_dir.join("lifecycle-fence.json").exists());
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&state_dir.join("auth")).unwrap(),
+            Some(1),
+            "rejected recovery migrated authorization state before probing the active socket"
+        );
         drop(listener);
     }
 

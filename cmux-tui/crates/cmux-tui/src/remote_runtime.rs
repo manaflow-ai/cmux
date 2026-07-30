@@ -3367,6 +3367,31 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn existing_lifecycle_fence_retry_resyncs_parent_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_dir = directory.path().join("state");
+        fs::create_dir_all(&state_dir).unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o100)).unwrap();
+        let result = persist_daemon_lifecycle_fence(&state_dir);
+        fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let error = result.expect_err("existing lifecycle fence skipped its directory sync");
+        assert!(
+            matches!(
+                error,
+                IdentityError::Io(ref error)
+                    if error.kind() == std::io::ErrorKind::PermissionDenied
+            ),
+            "{error}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn lifecycle_fence_allows_retry_before_runtime_metadata_is_published() {
         let directory = tempfile::tempdir_in("/tmp").unwrap();
         let state_root = directory.path().join("state");
