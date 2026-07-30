@@ -64,8 +64,9 @@ class GoEmitterTests(unittest.TestCase):
             types,
         )
         self.assertRegex(types, r"Label\s+\*string")
-        self.assertIn("required nullable field mode is missing", types)
-        self.assertIn("non-nullable field label is null", types)
+        self.assertIn("required field mode is missing", types)
+        self.assertRegex(types, r"Label\s+optionalNonNullJSON\[string\]")
+        self.assertIn("if fields.Label.null", types)
         for field in ("Name", "Mode", "Source", "Lifecycle", "Label"):
             self.assertIn(f't.Run("Workspace.{field}"', presence_tests)
         self.assertRegex(
@@ -83,6 +84,77 @@ class GoEmitterTests(unittest.TestCase):
         self.assertRegex(
             presence_tests,
             r"generatedOptionalNonnullableFieldCount\s+= 1",
+        )
+
+    def test_decoders_reject_missing_required_and_invalid_constraints(self) -> None:
+        document = schema_document()
+        document["types"]["Mode"] = {
+            "kind": "enum",
+            "values": ["running", "stopped"],
+        }
+        document["types"]["Workspace"]["fields"].update(
+            {
+                "mode": {
+                    "type": {"kind": "ref", "name": "Mode"},
+                    "presence": "required",
+                    "nullable": False,
+                },
+                "source": {
+                    "type": {
+                        "kind": "enum",
+                        "values": ["external", "launched"],
+                    },
+                    "presence": "required",
+                    "nullable": False,
+                },
+                "lifecycle": {
+                    "type": {"kind": "literal", "value": "running"},
+                    "presence": "required",
+                    "nullable": False,
+                },
+            }
+        )
+
+        generated = emit(load_ir_document(document))
+        types = generated["generated_types.go"]
+        presence_tests = generated["generated_presence_test.go"]
+
+        self.assertIn("func (value *Mode) UnmarshalJSON", types)
+        self.assertIn("required field id is missing", types)
+        self.assertIn("required field lifecycle is missing", types)
+        self.assertRegex(types, r"Source\s+WorkspaceSource")
+        self.assertRegex(types, r"Lifecycle\s+WorkspaceLifecycle")
+        self.assertIn(
+            "func (value WorkspaceSource) MarshalJSON",
+            types,
+        )
+        self.assertIn("switch decoded.Source", types)
+        self.assertIn("switch decoded.Lifecycle", types)
+        self.assertIn(
+            "func TestGeneratedRequiredFieldsRejectOmission",
+            presence_tests,
+        )
+        self.assertIn(
+            "func TestGeneratedRequiredNonnullableFieldsRejectNull",
+            presence_tests,
+        )
+        self.assertIn(
+            "func TestGeneratedConstrainedFieldsRejectUnknownValues",
+            presence_tests,
+        )
+        self.assertIn(
+            "func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal",
+            presence_tests,
+        )
+        for field in ("ID", "Mode", "Source", "Lifecycle"):
+            self.assertIn(f't.Run("Workspace.{field}"', presence_tests)
+        self.assertRegex(
+            presence_tests,
+            r"generatedRequiredFieldCount\s+= 5",
+        )
+        self.assertRegex(
+            presence_tests,
+            r"generatedConstrainedFieldCount\s+= 3",
         )
 
     def test_command_maps_propagate_presence_encoding_errors(self) -> None:
@@ -104,6 +176,34 @@ class GoEmitterTests(unittest.TestCase):
             "ErrInvalidArgument, err)",
             commands,
         )
+
+    def test_shaped_methods_reject_invalid_inline_constraints(self) -> None:
+        document = schema_document()
+        document["commands"]["list-workspaces"]["request"]["fields"] = {
+            "mode": {
+                "type": {
+                    "kind": "enum",
+                    "values": ["active", "all"],
+                },
+                "presence": "required",
+                "nullable": False,
+            }
+        }
+
+        generated = emit(load_ir_document(document))
+        commands = generated["generated_commands.go"]
+
+        self.assertIn("type ListWorkspacesRequestMode string", commands)
+        self.assertIn(
+            "mode ListWorkspacesRequestMode",
+            commands,
+        )
+        self.assertIn("switch mode", commands)
+        self.assertIn(
+            "encode list-workspaces.mode: invalid value",
+            commands,
+        )
+        self.assertIn("ErrInvalidArgument", commands)
 
     def test_additional_properties_survive_custom_presence_json(self) -> None:
         document = schema_document()
@@ -128,6 +228,14 @@ class GoEmitterTests(unittest.TestCase):
         )
         self.assertIn(
             "decoded.Additional = make(map[string]json.RawMessage)",
+            types,
+        )
+        self.assertIn(
+            "json.RawMessage(nil), fieldValue...",
+            types,
+        )
+        self.assertIn(
+            'case "name":',
             types,
         )
 

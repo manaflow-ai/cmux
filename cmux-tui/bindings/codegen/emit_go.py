@@ -131,6 +131,63 @@ def _enum_base(values: list[Any]) -> str:
     return rendered.pop() if len(rendered) == 1 else "any"
 
 
+def _go_literal(value: Any) -> str:
+    if value is None:
+        return "nil"
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _render_constrained_type(name: str, expr: Mapping[str, Any]) -> list[str]:
+    kind = expr["kind"]
+    if kind == "literal":
+        values = [expr["value"]]
+    elif kind == "enum":
+        values = list(expr["values"])
+    else:
+        raise ValueError(f"unsupported constrained Go type kind: {kind}")
+
+    base = _enum_base(values)
+    lines = [f"type {name} {base}", "", "const ("]
+    for value in values:
+        constant = name + _go_name(str(value))
+        lines.append(f"\t{constant} {name} = {_go_literal(value)}")
+    lines.extend(
+        [
+            ")",
+            "",
+            f"func (value {name}) valid() bool {{",
+            "\tswitch value {",
+            "\tcase " + ", ".join(name + _go_name(str(value)) for value in values) + ":",
+            "\t\treturn true",
+            "\tdefault:",
+            "\t\treturn false",
+            "\t}",
+            "}",
+            "",
+            f"func (value {name}) MarshalJSON() ([]byte, error) {{",
+            "\tif !value.valid() {",
+            f'\t\treturn nil, fmt.Errorf("%s has invalid value %v", {_go_string(name)}, value)',
+            "\t}",
+            f"\treturn json.Marshal({base}(value))",
+            "}",
+            "",
+            f"func (value *{name}) UnmarshalJSON(data []byte) error {{",
+            f"\tvar decoded {base}",
+            "\tif err := json.Unmarshal(data, &decoded); err != nil {",
+            "\t\treturn err",
+            "\t}",
+            f"\tcandidate := {name}(decoded)",
+            "\tif !candidate.valid() {",
+            f'\t\treturn fmt.Errorf("%s has invalid value %v", {_go_string(name)}, decoded)',
+            "\t}",
+            "\t*value = candidate",
+            "\treturn nil",
+            "}",
+        ]
+    )
+    return lines
+
+
 def _go_type(expr: Mapping[str, Any], *, anonymous_indent: str = "") -> str:
     kind = expr["kind"]
     if kind == "scalar":
@@ -158,7 +215,33 @@ def _go_type(expr: Mapping[str, Any], *, anonymous_indent: str = "") -> str:
     raise ValueError(f"unsupported Go IR type kind: {kind}")
 
 
-def _nullable_field_value_type(
+def _inline_constraint(
+    expr: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    if expr["kind"] == "alias":
+        return _inline_constraint(expr["target"])
+    if expr["kind"] in {"enum", "literal"}:
+        return expr
+    return None
+
+
+def _inline_named_constraint(
+    expr: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    constraint = _inline_constraint(expr)
+    if constraint is None:
+        return None
+    values = (
+        [constraint["value"]]
+        if constraint["kind"] == "literal"
+        else list(constraint["values"])
+    )
+    if _enum_base(values) == "bool":
+        return None
+    return constraint
+
+
+def _field_value_type(
     owner_name: str | None,
     wire_name: str | None,
     field: Mapping[str, Any],
@@ -166,7 +249,7 @@ def _nullable_field_value_type(
     indent: str = "",
 ) -> str:
     expr = field["type"]
-    if owner_name and wire_name and expr["kind"] in {"enum", "literal"}:
+    if owner_name and wire_name and _inline_named_constraint(expr) is not None:
         return owner_name + _go_name(wire_name)
     return _go_type(expr, anonymous_indent=indent)
 
@@ -178,17 +261,17 @@ def _field_type(
     wire_name: str | None = None,
     indent: str = "",
 ) -> str:
+    value_type = _field_value_type(
+        owner_name,
+        wire_name,
+        field,
+        indent=indent,
+    )
     if field["nullable"]:
-        value_type = _nullable_field_value_type(
-            owner_name,
-            wire_name,
-            field,
-            indent=indent,
-        )
         if field["presence"] == "optional":
             return f"Presence[{value_type}]"
         return f"RequiredNullable[{value_type}]"
-    rendered = _go_type(field["type"], anonymous_indent=indent)
+    rendered = value_type
     if field["presence"] == "optional":
         rendered = "*" + rendered
     return rendered
@@ -226,56 +309,16 @@ def _doc(description: Any, indent: str) -> list[str]:
     return [f"{indent}// {text}"]
 
 
-def _render_nullable_inline_type(
+def _render_inline_constrained_type(
     owner_name: str,
     wire_name: str,
     field: Mapping[str, Any],
 ) -> list[str]:
-    if not field["nullable"]:
-        return []
-    expr = field["type"]
-    if expr["kind"] not in {"enum", "literal"}:
+    constraint = _inline_named_constraint(field["type"])
+    if constraint is None:
         return []
     name = owner_name + _go_name(wire_name)
-    if expr["kind"] == "enum":
-        base = _enum_base(list(expr["values"]))
-        lines = [f"type {name} {base}", "", "const ("]
-        for value in expr["values"]:
-            lines.append(
-                f"\t{name}{_go_name(str(value))} {name} = "
-                f"{json.dumps(value, ensure_ascii=False)}"
-            )
-        lines.append(")")
-        return lines
-
-    value = expr["value"]
-    base = _underlying_literal_type(value)
-    constant = name + _go_name(str(value))
-    encoded = json.dumps(value, ensure_ascii=False)
-    return [
-        f"type {name} {base}",
-        "",
-        f"const {constant} {name} = {encoded}",
-        "",
-        f"func (value {name}) MarshalJSON() ([]byte, error) {{",
-        f"\tif value != {constant} {{",
-        f'\t\treturn nil, fmt.Errorf("%s must equal %v", {_go_string(name)}, {constant})',
-        "\t}",
-        f"\treturn json.Marshal({base}(value))",
-        "}",
-        "",
-        f"func (value *{name}) UnmarshalJSON(data []byte) error {{",
-        f"\tvar decoded {base}",
-        "\tif err := json.Unmarshal(data, &decoded); err != nil {",
-        "\t\treturn err",
-        "\t}",
-        f"\tif decoded != {base}({constant}) {{",
-        f'\t\treturn fmt.Errorf("%s must equal %v", {_go_string(name)}, {constant})',
-        "\t}",
-        f"\t*value = {name}(decoded)",
-        "\treturn nil",
-        "}",
-    ]
+    return _render_constrained_type(name, constraint)
 
 
 def _nullable_fields(
@@ -288,13 +331,57 @@ def _nullable_fields(
     ]
 
 
-def _optional_nonnullable_fields(
+def _render_decoded_constraint_validation(
+    model_name: str,
+    wire_name: str,
     expr: Mapping[str, Any],
-) -> list[tuple[str, Mapping[str, Any]]]:
+    decoded_value: str,
+    indent: str,
+) -> list[str]:
+    constraint = _inline_constraint(expr)
+    if constraint is None:
+        return []
+
+    go_name = _go_name(wire_name)
+    context = f"decode {model_name}.{go_name}"
+    if constraint["kind"] == "literal":
+        values = [constraint["value"]]
+    else:
+        values = list(constraint["values"])
+    allowed = ", ".join(_go_literal(item) for item in values)
     return [
-        (wire_name, field)
-        for wire_name, field in expr["fields"].items()
-        if field["presence"] == "optional" and not field["nullable"]
+        f"{indent}switch {decoded_value} {{",
+        f"{indent}case {allowed}:",
+        f"{indent}default:",
+        f'{indent}\treturn fmt.Errorf("{context}: invalid value %v", {decoded_value})',
+        f"{indent}}}",
+    ]
+
+
+def _render_encoded_constraint_validation(
+    model_name: str,
+    wire_name: str,
+    expr: Mapping[str, Any],
+    encoded_value: str,
+    indent: str,
+) -> list[str]:
+    constraint = _inline_constraint(expr)
+    if constraint is None:
+        return []
+
+    go_name = _go_name(wire_name)
+    context = f"encode {model_name}.{go_name}"
+    if constraint["kind"] == "literal":
+        values = [constraint["value"]]
+    else:
+        values = list(constraint["values"])
+    allowed = ", ".join(_go_literal(item) for item in values)
+    return [
+        f"{indent}switch {encoded_value} {{",
+        f"{indent}case {allowed}:",
+        f"{indent}default:",
+        f'{indent}\treturn nil, fmt.Errorf("{context}: invalid value %v", {encoded_value})',
+        f"{indent}}}",
     ]
 
 
@@ -303,27 +390,76 @@ def _render_object_json(
     expr: Mapping[str, Any],
 ) -> list[str]:
     nullable = _nullable_fields(expr)
-    optional_nonnullable = _optional_nonnullable_fields(expr)
+    constrained = [
+        (wire_name, field)
+        for wire_name, field in expr["fields"].items()
+        if _inline_constraint(field["type"]) is not None
+    ]
     additional = bool(expr["additional_properties"])
-    if not nullable and not optional_nonnullable and not additional:
-        return []
 
     lines: list[str] = []
-    if nullable or additional:
-        lines.extend(
-            [
-                f"func (value {name}) MarshalJSON() ([]byte, error) {{",
-                f"\ttype wire {name}",
-                "\tencoded, err := json.Marshal(wire(value))",
-                "\tif err != nil {",
-                "\t\treturn nil, err",
-                "\t}",
-                "\tvar object map[string]json.RawMessage",
-                "\tif err := json.Unmarshal(encoded, &object); err != nil {",
-                "\t\treturn nil, err",
-                "\t}",
-            ]
-        )
+    if nullable or additional or constrained:
+        lines.append(f"func (value {name}) MarshalJSON() ([]byte, error) {{")
+        for wire_name, field in constrained:
+            go_name = _go_name(wire_name)
+            if field["nullable"]:
+                lines.append(
+                    f"\tif fieldValue, ok := value.{go_name}.Get(); ok {{"
+                )
+                lines.extend(
+                    _render_encoded_constraint_validation(
+                        name,
+                        wire_name,
+                        field["type"],
+                        "fieldValue",
+                        "\t\t",
+                    )
+                )
+                lines.append("\t}")
+            elif field["presence"] == "optional":
+                lines.append(f"\tif value.{go_name} != nil {{")
+                lines.extend(
+                    _render_encoded_constraint_validation(
+                        name,
+                        wire_name,
+                        field["type"],
+                        f"*value.{go_name}",
+                        "\t\t",
+                    )
+                )
+                lines.append("\t}")
+            else:
+                lines.extend(
+                    _render_encoded_constraint_validation(
+                        name,
+                        wire_name,
+                        field["type"],
+                        f"value.{go_name}",
+                        "\t",
+                    )
+                )
+        lines.append(f"\ttype wire {name}")
+        if not nullable and not additional:
+            lines.extend(
+                [
+                    "\treturn json.Marshal(wire(value))",
+                    "}",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "\tencoded, err := json.Marshal(wire(value))",
+                    "\tif err != nil {",
+                    "\t\treturn nil, err",
+                    "\t}",
+                    "\tvar object map[string]json.RawMessage",
+                    "\tif err := json.Unmarshal(encoded, &object); err != nil {",
+                    "\t\treturn nil, err",
+                    "\t}",
+                ]
+            )
         if additional:
             lines.append("\tfor key, fieldValue := range value.Additional {")
             if expr["fields"]:
@@ -382,76 +518,130 @@ def _render_object_json(
                         "\t}",
                     ]
                 )
-        lines.extend(["\treturn json.Marshal(object)", "}", ""])
+        if nullable or additional:
+            lines.extend(["\treturn json.Marshal(object)", "}", ""])
 
     lines.extend(
         [
             f"func (value *{name}) UnmarshalJSON(data []byte) error {{",
-            f"\ttype wire {name}",
-            "\tvar decoded wire",
-            "\tif err := json.Unmarshal(data, &decoded); err != nil {",
-            "\t\treturn err",
+            "\tif !isJSONObject(data) {",
+            f'\t\treturn fmt.Errorf("decode {name}: expected object")',
             "\t}",
-            "\tvar object map[string]json.RawMessage",
-            "\tif err := json.Unmarshal(data, &object); err != nil {",
-            "\t\treturn err",
-            "\t}",
+            "\tvar fields struct {",
         ]
     )
-    for wire_name, field in optional_nonnullable:
-        lines.extend(
-            [
-                f"\tif raw, exists := object[{_go_string(wire_name)}]; "
-                "exists && isJSONNull(raw) {",
-                f'\t\treturn fmt.Errorf("decode {name}: non-nullable field '
-                f'{wire_name} is null")',
-                "\t}",
-            ]
-        )
-    for wire_name, field in nullable:
+    for wire_name, field in expr["fields"].items():
         go_name = _go_name(wire_name)
-        value_type = _nullable_field_value_type(name, wire_name, field)
-        lines.extend(
-            [
-                f"\traw{go_name}, has{go_name} := object[{_go_string(wire_name)}]",
-            ]
+        if field["nullable"]:
+            value_type = _field_value_type(
+                name,
+                wire_name,
+                field,
+                indent="\t\t",
+            )
+            decoded_type = (
+                f"Presence[{value_type}]"
+                if field["presence"] == "optional"
+                else f"RequiredNullable[{value_type}]"
+            )
+        elif field["presence"] == "optional":
+            decoded_type = (
+                "optionalNonNullJSON["
+                + _field_value_type(
+                    name,
+                    wire_name,
+                    field,
+                    indent="\t\t",
+                )
+                + "]"
+            )
+        else:
+            decoded_type = (
+                "*"
+                + _field_value_type(
+                    name,
+                    wire_name,
+                    field,
+                    indent="\t\t",
+                )
+            )
+        lines.append(
+            f"\t\t{go_name} {decoded_type} "
+            f'`json:"{wire_name}"`'
         )
-        if field["presence"] == "required":
+    lines.extend(
+        [
+            "\t}",
+            "\tif err := json.Unmarshal(data, &fields); err != nil {",
+            f'\t\treturn fmt.Errorf("decode {name}: %w", err)',
+            "\t}",
+            f"\ttype wire {name}",
+            "\tvar decoded wire",
+        ]
+    )
+    for wire_name, field in expr["fields"].items():
+        go_name = _go_name(wire_name)
+        if field["nullable"]:
+            if field["presence"] == "required":
+                lines.extend(
+                    [
+                        f"\tif !fields.{go_name}.IsSet() {{",
+                        f'\t\treturn fmt.Errorf("decode {name}: required field '
+                        f'{wire_name} is missing")',
+                        "\t}",
+                    ]
+                )
+            lines.append(f"\tdecoded.{go_name} = fields.{go_name}")
+        elif field["presence"] == "optional":
             lines.extend(
                 [
-                    f"\tif !has{go_name} {{",
-                    f'\t\treturn fmt.Errorf("decode {name}: required nullable field '
-                    f'{wire_name} is missing")',
+                    f"\tif fields.{go_name}.null {{",
+                    f'\t\treturn fmt.Errorf("decode {name}: non-nullable field '
+                    f'{wire_name} is null")',
                     "\t}",
-                    f"\tif isJSONNull(raw{go_name}) {{",
-                    f"\t\tdecoded.{go_name} = RequiredNull[{value_type}]()",
-                    "\t} else {",
-                    f"\t\tvar fieldValue {value_type}",
-                    f"\t\tif err := json.Unmarshal(raw{go_name}, &fieldValue); err != nil {{",
-                    f'\t\t\treturn fmt.Errorf("decode {name}.{go_name}: %w", err)',
-                    "\t\t}",
-                    f"\t\tdecoded.{go_name} = RequiredValue(fieldValue)",
-                    "\t}",
+                    f"\tif fields.{go_name}.set {{",
+                    f"\t\tdecoded.{go_name} = &fields.{go_name}.value",
                 ]
             )
+            lines.extend(
+                _render_decoded_constraint_validation(
+                    name,
+                    wire_name,
+                    field["type"],
+                    f"*decoded.{go_name}",
+                    "\t\t",
+                )
+            )
+            lines.append("\t}")
         else:
             lines.extend(
                 [
-                    f"\tif !has{go_name} {{",
-                    f"\t\tdecoded.{go_name} = Presence[{value_type}]{{}}",
-                    f"\t}} else if isJSONNull(raw{go_name}) {{",
-                    f"\t\tdecoded.{go_name} = Null[{value_type}]()",
-                    "\t} else {",
-                    f"\t\tvar fieldValue {value_type}",
-                    f"\t\tif err := json.Unmarshal(raw{go_name}, &fieldValue); err != nil {{",
-                    f'\t\t\treturn fmt.Errorf("decode {name}.{go_name}: %w", err)',
-                    "\t\t}",
-                    f"\t\tdecoded.{go_name} = Value(fieldValue)",
+                    f"\tif fields.{go_name} == nil {{",
+                    f'\t\treturn fmt.Errorf("decode {name}: required field '
+                    f'{wire_name} is missing or null")',
                     "\t}",
+                    f"\tdecoded.{go_name} = *fields.{go_name}",
                 ]
             )
+            lines.extend(
+                _render_decoded_constraint_validation(
+                    name,
+                    wire_name,
+                    field["type"],
+                    f"decoded.{go_name}",
+                    "\t",
+                )
+            )
     if additional:
-        lines.append("\tfor key, fieldValue := range object {")
+        lines.extend(
+            [
+                "\tvar object map[string]json.RawMessage",
+                "\tif err := json.Unmarshal(data, &object); err != nil {",
+                f'\t\treturn fmt.Errorf("decode {name}: %w", err)',
+                "\t}",
+                "\tfor key, fieldValue := range object {",
+            ]
+        )
         if expr["fields"]:
             known_fields = ", ".join(
                 _go_string(wire_name) for wire_name in expr["fields"]
@@ -469,8 +659,9 @@ def _render_object_json(
                 "\t\tif decoded.Additional == nil {",
                 "\t\t\tdecoded.Additional = make(map[string]json.RawMessage)",
                 "\t\t}",
-                "\t\tdecoded.Additional[key] = "
-                "append(json.RawMessage(nil), fieldValue...)",
+                "\t\tdecoded.Additional[key] = append(",
+                "\t\t\tjson.RawMessage(nil), fieldValue...",
+                "\t\t)",
                 "\t}",
             ]
         )
@@ -481,7 +672,11 @@ def _render_object_json(
 def _render_object(name: str, expr: Mapping[str, Any]) -> list[str]:
     lines: list[str] = []
     for wire_name, field in expr["fields"].items():
-        declarations = _render_nullable_inline_type(name, wire_name, field)
+        declarations = _render_inline_constrained_type(
+            name,
+            wire_name,
+            field,
+        )
         if declarations:
             lines.extend(declarations)
             lines.append("")
@@ -526,13 +721,24 @@ def _render_tagged_union(name: str, expr: Mapping[str, Any]) -> list[str]:
             "}",
             "",
             f"func (value *{name}) UnmarshalJSON(data []byte) error {{",
-            f'\tvar tag struct {{ Tag string `json:"{tag}"` }}',
-            "\tif err := decodeJSON(data, &tag); err != nil {",
+            "\tvar fields map[string]json.RawMessage",
+            "\tif err := decodeJSON(data, &fields); err != nil {",
             "\t\treturn err",
             "\t}",
-            "\tvalue.Tag = tag.Tag",
+            f"\trawTag, hasTag := fields[{_go_string(tag)}]",
+            "\tif !hasTag {",
+            f'\t\treturn fmt.Errorf("decode {name}: required field {tag} is missing")',
+            "\t}",
+            "\tif isJSONNull(rawTag) {",
+            f'\t\treturn fmt.Errorf("decode {name}: non-nullable field {tag} is null")',
+            "\t}",
+            "\tvar decodedTag string",
+            "\tif err := decodeJSON(rawTag, &decodedTag); err != nil {",
+            f'\t\treturn fmt.Errorf("decode {name}.{_go_name(tag)}: %w", err)',
+            "\t}",
+            "\tvalue.Tag = decodedTag",
             "\tvalue.Raw = append(value.Raw[:0], data...)",
-            "\tswitch tag.Tag {",
+            "\tswitch decodedTag {",
         ]
     )
     for tag_value, _variant in expr["variants"].items():
@@ -579,13 +785,29 @@ def _render_tagged_union(name: str, expr: Mapping[str, Any]) -> list[str]:
             "}",
         ]
     )
-    for tag_value, _variant in expr["variants"].items():
+    for tag_value, variant in expr["variants"].items():
         variant_name = _variant_name(name, str(tag_value))
         accessor = _go_name(str(tag_value))
         lines.extend(
             [
                 "",
                 f"func New{name}{accessor}(value {variant_name}) {name} {{",
+            ]
+        )
+        if variant["kind"] == "object" and tag in variant["fields"]:
+            tag_field = variant["fields"][tag]
+            constraint = _inline_named_constraint(tag_field["type"])
+            if constraint is not None and constraint["kind"] == "literal":
+                constant = (
+                    variant_name
+                    + _go_name(tag)
+                    + _go_name(str(constraint["value"]))
+                )
+                lines.append(
+                    f"\tvalue.{_go_name(tag)} = {constant}"
+                )
+        lines.extend(
+            [
                 f"\treturn {name}{{Tag: {_go_string(str(tag_value))}, Value: value}}",
                 "}",
                 "",
@@ -725,16 +947,9 @@ def _render_named_type(
     if kind == "tagged_union":
         return _render_tagged_union(go_name, expr)
     if kind == "enum":
-        base = _enum_base(list(expr["values"]))
-        lines = [f"type {go_name} {base}", "", "const ("]
-        for value in expr["values"]:
-            constant = go_name + _go_name(str(value))
-            literal = json.dumps(value, ensure_ascii=False)
-            lines.append(f"\t{constant} {go_name} = {literal}")
-        lines.append(")")
-        return lines
+        return _render_constrained_type(go_name, expr)
     if kind == "literal":
-        return [f"type {go_name} = {_underlying_literal_type(expr['value'])}"]
+        return _render_constrained_type(go_name, expr)
     if kind == "opaque_json":
         return [f"type {go_name} = json.RawMessage"]
     if kind == "untagged_union":
@@ -869,6 +1084,26 @@ def _render_presence_types() -> list[str]:
         "\t}",
         "\t*value = RequiredValue(decoded)",
         "\treturn nil",
+        "}",
+        "",
+        "type optionalNonNullJSON[T any] struct {",
+        "\tset bool",
+        "\tnull bool",
+        "\tvalue T",
+        "}",
+        "",
+        "func (value *optionalNonNullJSON[T]) UnmarshalJSON(data []byte) error {",
+        "\tvalue.set = true",
+        "\tif isJSONNull(data) {",
+        "\t\tvalue.null = true",
+        "\t\treturn nil",
+        "\t}",
+        "\treturn json.Unmarshal(data, &value.value)",
+        "}",
+        "",
+        "func isJSONObject(data []byte) bool {",
+        "\ttrimmed := bytes.TrimSpace(data)",
+        "\treturn len(trimmed) > 0 && trimmed[0] == '{'",
         "}",
         "",
         "func isJSONNull(data []byte) bool {",
@@ -1059,6 +1294,37 @@ def _render_options_type(
     )
 
 
+def _render_method_constraint_validation(
+    command_name: str,
+    wire_name: str,
+    expr: Mapping[str, Any],
+    encoded_value: str,
+    indent: str,
+    *,
+    empty_result: bool,
+) -> list[str]:
+    constraint = _inline_constraint(expr)
+    if constraint is None:
+        return []
+    if constraint["kind"] == "literal":
+        values = [constraint["value"]]
+    else:
+        values = list(constraint["values"])
+    allowed = ", ".join(_go_literal(item) for item in values)
+    error = (
+        f'fmt.Errorf("%w: encode {command_name}.{wire_name}: '
+        f'invalid value %v", ErrInvalidArgument, {encoded_value})'
+    )
+    returned = f"return {error}" if empty_result else f"return result, {error}"
+    return [
+        f"{indent}switch {encoded_value} {{",
+        f"{indent}case {allowed}:",
+        f"{indent}default:",
+        f"{indent}\t{returned}",
+        f"{indent}}}",
+    ]
+
+
 def _render_method(
     wire_name: str,
     command: Mapping[str, Any],
@@ -1067,7 +1333,7 @@ def _render_method(
     if wire_name in _SPECIAL_METHODS:
         return []
     name = _go_name(wire_name)
-    _shape, arguments, params, params_may_error = _method_shape(
+    shape, arguments, params, params_may_error = _method_shape(
         wire_name,
         command,
         named_types,
@@ -1085,6 +1351,40 @@ def _render_method(
     ]
     if not empty:
         lines.append(f"\tvar result {result_name}")
+    if shape == "shaped":
+        for field_name, field in _request_expr(command)["fields"].items():
+            if (
+                field["presence"] != "required"
+                or _inline_constraint(field["type"]) is None
+            ):
+                continue
+            argument = _lower_go_name(field_name)
+            if field["nullable"]:
+                lines.append(
+                    f"\tif fieldValue, ok := {argument}.Get(); ok {{"
+                )
+                lines.extend(
+                    _render_method_constraint_validation(
+                        wire_name,
+                        field_name,
+                        field["type"],
+                        "fieldValue",
+                        "\t\t",
+                        empty_result=empty,
+                    )
+                )
+                lines.append("\t}")
+            else:
+                lines.extend(
+                    _render_method_constraint_validation(
+                        wire_name,
+                        field_name,
+                        field["type"],
+                        argument,
+                        "\t",
+                        empty_result=empty,
+                    )
+                )
     if params_may_error:
         lines.extend(
             [
@@ -1644,6 +1944,58 @@ def _presence_base_json(
     return result
 
 
+def _resolved_constraint(
+    expr: Mapping[str, Any],
+    named_types: Mapping[str, Any],
+    seen: frozenset[str] = frozenset(),
+) -> Mapping[str, Any] | None:
+    kind = expr["kind"]
+    if kind in {"enum", "literal"}:
+        return expr
+    if kind == "alias":
+        return _resolved_constraint(expr["target"], named_types, seen)
+    if kind == "ref":
+        name = expr["name"]
+        if name in seen:
+            return None
+        return _resolved_constraint(
+            named_types[name],
+            named_types,
+            seen | {name},
+        )
+    return None
+
+
+def _invalid_constraint_value(expr: Mapping[str, Any]) -> Any:
+    values = (
+        [expr["value"]]
+        if expr["kind"] == "literal"
+        else list(expr["values"])
+    )
+    first = values[0]
+    if isinstance(first, bool):
+        candidate: Any = not first
+        if candidate not in values:
+            return candidate
+        return "__cmux_invalid_boolean__"
+    if isinstance(first, str):
+        candidate = "__cmux_invalid__"
+        while candidate in values:
+            candidate += "_"
+        return candidate
+    if isinstance(first, int):
+        candidate = max(value for value in values if isinstance(value, int)) + 1
+        while candidate in values:
+            candidate += 1
+        return candidate
+    if isinstance(first, float):
+        candidate = max(float(value) for value in values) + 0.5
+        while candidate in values:
+            candidate += 0.5
+        return candidate
+    return "__cmux_invalid_null_literal__"
+
+
 def _render_presence_tests(
     ir: SdkIR,
     document: Mapping[str, Any],
@@ -1846,6 +2198,164 @@ def _render_presence_tests(
                     ]
                 )
             lines.extend(["\t})"])
+    lines.extend(["}", "", "func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {"])
+    required_fields = 0
+    for model_name, expr in _generated_object_models(document):
+        base = _presence_base_json(expr, document["types"])
+        for wire_name, field in expr["fields"].items():
+            if field["presence"] != "required":
+                continue
+            required_fields += 1
+            missing = dict(base)
+            missing.pop(wire_name, None)
+            missing_json = json.dumps(
+                missing,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            lines.extend(
+                [
+                    f"\tt.Run({_go_string(f'{model_name}.{_go_name(wire_name)}')}, func(t *testing.T) {{",
+                    f"\t\tvar decoded {model_name}",
+                    f"\t\tif err := json.Unmarshal([]byte({_go_string(missing_json)}), &decoded); err == nil {{",
+                    f'\t\t\tt.Fatal("missing required field {wire_name} decoded successfully")',
+                    "\t\t}",
+                    "\t})",
+                ]
+            )
+    lines.extend(
+        [
+            "}",
+            "",
+            "func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {",
+        ]
+    )
+    required_nonnullable_fields = 0
+    for model_name, expr in _generated_object_models(document):
+        base = _presence_base_json(expr, document["types"])
+        for wire_name, field in expr["fields"].items():
+            if field["presence"] != "required" or field["nullable"]:
+                continue
+            required_nonnullable_fields += 1
+            null = dict(base)
+            null[wire_name] = None
+            null_json = json.dumps(
+                null,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            lines.extend(
+                [
+                    f"\tt.Run({_go_string(f'{model_name}.{_go_name(wire_name)}')}, func(t *testing.T) {{",
+                    f"\t\tvar decoded {model_name}",
+                    f"\t\tif err := json.Unmarshal([]byte({_go_string(null_json)}), &decoded); err == nil {{",
+                    f'\t\t\tt.Fatal("required non-nullable field {wire_name} accepted null")',
+                    "\t\t}",
+                    "\t})",
+                ]
+            )
+    lines.extend(
+        [
+            "}",
+            "",
+            "func TestGeneratedConstrainedFieldsRejectUnknownValues(t *testing.T) {",
+        ]
+    )
+    constrained_fields = 0
+    for model_name, expr in _generated_object_models(document):
+        base = _presence_base_json(expr, document["types"])
+        for wire_name, field in expr["fields"].items():
+            constraint = _resolved_constraint(field["type"], document["types"])
+            if constraint is None:
+                continue
+            constrained_fields += 1
+            invalid = dict(base)
+            invalid[wire_name] = _invalid_constraint_value(constraint)
+            invalid_json = json.dumps(
+                invalid,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            lines.extend(
+                [
+                    f"\tt.Run({_go_string(f'{model_name}.{_go_name(wire_name)}')}, func(t *testing.T) {{",
+                    f"\t\tvar decoded {model_name}",
+                    f"\t\tif err := json.Unmarshal([]byte({_go_string(invalid_json)}), &decoded); err == nil {{",
+                    f'\t\t\tt.Fatal("invalid constrained field {wire_name} decoded successfully")',
+                    "\t\t}",
+                    "\t})",
+                ]
+            )
+    lines.extend(
+        [
+            "}",
+            "",
+            "func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {",
+        ]
+    )
+    encoded_constrained_fields = 0
+    for model_name, expr in _generated_object_models(document):
+        base = _presence_base_json(expr, document["types"])
+        base_json = json.dumps(
+            base,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        for wire_name, field in expr["fields"].items():
+            constraint = _resolved_constraint(field["type"], document["types"])
+            if constraint is None:
+                continue
+            invalid = _invalid_constraint_value(constraint)
+            values = (
+                [constraint["value"]]
+                if constraint["kind"] == "literal"
+                else list(constraint["values"])
+            )
+            if _underlying_literal_type(invalid) != _enum_base(values):
+                continue
+            encoded_constrained_fields += 1
+            go_name = _go_name(wire_name)
+            value_type = _field_value_type(
+                model_name,
+                wire_name,
+                field,
+            )
+            converted = f"{value_type}({_go_literal(invalid)})"
+            lines.extend(
+                [
+                    f"\tt.Run({_go_string(f'{model_name}.{go_name}')}, func(t *testing.T) {{",
+                    f"\t\tvar decoded {model_name}",
+                    f"\t\tif err := json.Unmarshal([]byte({_go_string(base_json)}), &decoded); err != nil {{",
+                    "\t\t\tt.Fatal(err)",
+                    "\t\t}",
+                ]
+            )
+            if field["nullable"]:
+                constructor = (
+                    "Value"
+                    if field["presence"] == "optional"
+                    else "RequiredValue"
+                )
+                lines.append(
+                    f"\t\tdecoded.{go_name} = {constructor}({converted})"
+                )
+            elif field["presence"] == "optional":
+                lines.extend(
+                    [
+                        f"\t\tinvalidValue := {converted}",
+                        f"\t\tdecoded.{go_name} = &invalidValue",
+                    ]
+                )
+            else:
+                lines.append(f"\t\tdecoded.{go_name} = {converted}")
+            lines.extend(
+                [
+                    "\t\tif _, err := json.Marshal(decoded); err == nil {",
+                    f'\t\t\tt.Fatal("invalid constrained field {wire_name} encoded successfully")',
+                    "\t\t}",
+                    "\t})",
+                ]
+            )
     lines.extend(
         [
             "}",
@@ -1855,6 +2365,10 @@ def _render_presence_tests(
             f"\tgeneratedOptionalNullableFieldCount = {optional_nullable}",
             f"\tgeneratedRequiredNullableFieldCount = {required_nullable}",
             f"\tgeneratedOptionalNonnullableFieldCount = {optional_nonnullable}",
+            f"\tgeneratedRequiredFieldCount = {required_fields}",
+            f"\tgeneratedRequiredNonnullableFieldCount = {required_nonnullable_fields}",
+            f"\tgeneratedConstrainedFieldCount = {constrained_fields}",
+            f"\tgeneratedEncodedConstrainedFieldCount = {encoded_constrained_fields}",
             ")",
         ]
     )

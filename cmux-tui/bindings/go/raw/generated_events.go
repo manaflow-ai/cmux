@@ -43,25 +43,87 @@ type BellEvent struct {
 	Surface ID `json:"surface"`
 }
 
+func (value *BellEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BellEvent: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BellEvent: %w", err)
+	}
+	type wire BellEvent
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BellEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = BellEvent(decoded)
+	return nil
+}
+
 func (BellEvent) EventName() string { return "bell" }
 func (BellEvent) isDeltaEvent()     {}
 func (BellEvent) isSubscribeEvent() {}
 
 // BrowserStateEvent is emitted by protocol v6.
+type BrowserStateEventStatus string
+
+const (
+	BrowserStateEventStatusStarting BrowserStateEventStatus = "starting"
+	BrowserStateEventStatusLive     BrowserStateEventStatus = "live"
+	BrowserStateEventStatusFailed   BrowserStateEventStatus = "failed"
+)
+
+func (value BrowserStateEventStatus) valid() bool {
+	switch value {
+	case BrowserStateEventStatusStarting, BrowserStateEventStatusLive, BrowserStateEventStatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value BrowserStateEventStatus) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "BrowserStateEventStatus", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *BrowserStateEventStatus) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := BrowserStateEventStatus(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "BrowserStateEventStatus", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type BrowserStateEvent struct {
 	Cols  uint16                   `json:"cols"`
 	Error RequiredNullable[string] `json:"-"`
 	// The initial browser-state includes the latest frame when one exists; later state updates omit it.
-	Frame         Presence[BrowserFrame] `json:"-"`
-	FramesStalled bool                   `json:"frames_stalled"`
-	Rows          uint16                 `json:"rows"`
-	Status        string                 `json:"status"`
-	Surface       ID                     `json:"surface"`
-	Title         string                 `json:"title"`
-	URL           string                 `json:"url"`
+	Frame         Presence[BrowserFrame]  `json:"-"`
+	FramesStalled bool                    `json:"frames_stalled"`
+	Rows          uint16                  `json:"rows"`
+	Status        BrowserStateEventStatus `json:"status"`
+	Surface       ID                      `json:"surface"`
+	Title         string                  `json:"title"`
+	URL           string                  `json:"url"`
 }
 
 func (value BrowserStateEvent) MarshalJSON() ([]byte, error) {
+	switch value.Status {
+	case "starting", "live", "failed":
+	default:
+		return nil, fmt.Errorf("encode BrowserStateEvent.Status: invalid value %v", value.Status)
+	}
 	type wire BrowserStateEvent
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -100,40 +162,63 @@ func (value BrowserStateEvent) MarshalJSON() ([]byte, error) {
 }
 
 func (value *BrowserStateEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserStateEvent: expected object")
+	}
+	var fields struct {
+		Cols          *uint16                  `json:"cols"`
+		Error         RequiredNullable[string] `json:"error"`
+		Frame         Presence[BrowserFrame]   `json:"frame"`
+		FramesStalled *bool                    `json:"frames_stalled"`
+		Rows          *uint16                  `json:"rows"`
+		Status        *BrowserStateEventStatus `json:"status"`
+		Surface       *ID                      `json:"surface"`
+		Title         *string                  `json:"title"`
+		URL           *string                  `json:"url"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserStateEvent: %w", err)
+	}
 	type wire BrowserStateEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Cols == nil {
+		return fmt.Errorf("decode BrowserStateEvent: required field cols is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Cols = *fields.Cols
+	if !fields.Error.IsSet() {
+		return fmt.Errorf("decode BrowserStateEvent: required field error is missing")
 	}
-	rawError, hasError := object["error"]
-	if !hasError {
-		return fmt.Errorf("decode BrowserStateEvent: required nullable field error is missing")
+	decoded.Error = fields.Error
+	decoded.Frame = fields.Frame
+	if fields.FramesStalled == nil {
+		return fmt.Errorf("decode BrowserStateEvent: required field frames_stalled is missing or null")
 	}
-	if isJSONNull(rawError) {
-		decoded.Error = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawError, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserStateEvent.Error: %w", err)
-		}
-		decoded.Error = RequiredValue(fieldValue)
+	decoded.FramesStalled = *fields.FramesStalled
+	if fields.Rows == nil {
+		return fmt.Errorf("decode BrowserStateEvent: required field rows is missing or null")
 	}
-	rawFrame, hasFrame := object["frame"]
-	if !hasFrame {
-		decoded.Frame = Presence[BrowserFrame]{}
-	} else if isJSONNull(rawFrame) {
-		decoded.Frame = Null[BrowserFrame]()
-	} else {
-		var fieldValue BrowserFrame
-		if err := json.Unmarshal(rawFrame, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserStateEvent.Frame: %w", err)
-		}
-		decoded.Frame = Value(fieldValue)
+	decoded.Rows = *fields.Rows
+	if fields.Status == nil {
+		return fmt.Errorf("decode BrowserStateEvent: required field status is missing or null")
 	}
+	decoded.Status = *fields.Status
+	switch decoded.Status {
+	case "starting", "live", "failed":
+	default:
+		return fmt.Errorf("decode BrowserStateEvent.Status: invalid value %v", decoded.Status)
+	}
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserStateEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	if fields.Title == nil {
+		return fmt.Errorf("decode BrowserStateEvent: required field title is missing or null")
+	}
+	decoded.Title = *fields.Title
+	if fields.URL == nil {
+		return fmt.Errorf("decode BrowserStateEvent: required field url is missing or null")
+	}
+	decoded.URL = *fields.URL
 	*value = BrowserStateEvent(decoded)
 	return nil
 }
@@ -143,14 +228,55 @@ func (BrowserStateEvent) isAttachEvent()        {}
 func (BrowserStateEvent) isBrowserAttachEvent() {}
 
 // ClientAttachedEvent is emitted by protocol v6.
+type ClientAttachedEventTransport string
+
+const (
+	ClientAttachedEventTransportUnix ClientAttachedEventTransport = "unix"
+	ClientAttachedEventTransportWS   ClientAttachedEventTransport = "ws"
+)
+
+func (value ClientAttachedEventTransport) valid() bool {
+	switch value {
+	case ClientAttachedEventTransportUnix, ClientAttachedEventTransportWS:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value ClientAttachedEventTransport) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "ClientAttachedEventTransport", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *ClientAttachedEventTransport) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := ClientAttachedEventTransport(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "ClientAttachedEventTransport", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type ClientAttachedEvent struct {
-	Client    uint64                   `json:"client"`
-	Kind      RequiredNullable[string] `json:"-"`
-	Name      RequiredNullable[string] `json:"-"`
-	Transport string                   `json:"transport"`
+	Client    uint64                       `json:"client"`
+	Kind      RequiredNullable[string]     `json:"-"`
+	Name      RequiredNullable[string]     `json:"-"`
+	Transport ClientAttachedEventTransport `json:"transport"`
 }
 
 func (value ClientAttachedEvent) MarshalJSON() ([]byte, error) {
+	switch value.Transport {
+	case "unix", "ws":
+	default:
+		return nil, fmt.Errorf("encode ClientAttachedEvent.Transport: invalid value %v", value.Transport)
+	}
 	type wire ClientAttachedEvent
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -190,40 +316,40 @@ func (value ClientAttachedEvent) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ClientAttachedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClientAttachedEvent: expected object")
+	}
+	var fields struct {
+		Client    *uint64                       `json:"client"`
+		Kind      RequiredNullable[string]      `json:"kind"`
+		Name      RequiredNullable[string]      `json:"name"`
+		Transport *ClientAttachedEventTransport `json:"transport"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClientAttachedEvent: %w", err)
+	}
 	type wire ClientAttachedEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Client == nil {
+		return fmt.Errorf("decode ClientAttachedEvent: required field client is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Client = *fields.Client
+	if !fields.Kind.IsSet() {
+		return fmt.Errorf("decode ClientAttachedEvent: required field kind is missing")
 	}
-	rawKind, hasKind := object["kind"]
-	if !hasKind {
-		return fmt.Errorf("decode ClientAttachedEvent: required nullable field kind is missing")
+	decoded.Kind = fields.Kind
+	if !fields.Name.IsSet() {
+		return fmt.Errorf("decode ClientAttachedEvent: required field name is missing")
 	}
-	if isJSONNull(rawKind) {
-		decoded.Kind = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
-			return fmt.Errorf("decode ClientAttachedEvent.Kind: %w", err)
-		}
-		decoded.Kind = RequiredValue(fieldValue)
+	decoded.Name = fields.Name
+	if fields.Transport == nil {
+		return fmt.Errorf("decode ClientAttachedEvent: required field transport is missing or null")
 	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		return fmt.Errorf("decode ClientAttachedEvent: required nullable field name is missing")
-	}
-	if isJSONNull(rawName) {
-		decoded.Name = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode ClientAttachedEvent.Name: %w", err)
-		}
-		decoded.Name = RequiredValue(fieldValue)
+	decoded.Transport = *fields.Transport
+	switch decoded.Transport {
+	case "unix", "ws":
+	default:
+		return fmt.Errorf("decode ClientAttachedEvent.Transport: invalid value %v", decoded.Transport)
 	}
 	*value = ClientAttachedEvent(decoded)
 	return nil
@@ -280,41 +406,31 @@ func (value ClientChangedEvent) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ClientChangedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClientChangedEvent: expected object")
+	}
+	var fields struct {
+		Client *uint64                  `json:"client"`
+		Kind   RequiredNullable[string] `json:"kind"`
+		Name   RequiredNullable[string] `json:"name"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClientChangedEvent: %w", err)
+	}
 	type wire ClientChangedEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Client == nil {
+		return fmt.Errorf("decode ClientChangedEvent: required field client is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Client = *fields.Client
+	if !fields.Kind.IsSet() {
+		return fmt.Errorf("decode ClientChangedEvent: required field kind is missing")
 	}
-	rawKind, hasKind := object["kind"]
-	if !hasKind {
-		return fmt.Errorf("decode ClientChangedEvent: required nullable field kind is missing")
+	decoded.Kind = fields.Kind
+	if !fields.Name.IsSet() {
+		return fmt.Errorf("decode ClientChangedEvent: required field name is missing")
 	}
-	if isJSONNull(rawKind) {
-		decoded.Kind = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
-			return fmt.Errorf("decode ClientChangedEvent.Kind: %w", err)
-		}
-		decoded.Kind = RequiredValue(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		return fmt.Errorf("decode ClientChangedEvent: required nullable field name is missing")
-	}
-	if isJSONNull(rawName) {
-		decoded.Name = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode ClientChangedEvent.Name: %w", err)
-		}
-		decoded.Name = RequiredValue(fieldValue)
-	}
+	decoded.Name = fields.Name
 	*value = ClientChangedEvent(decoded)
 	return nil
 }
@@ -328,12 +444,47 @@ type ClientDetachedEvent struct {
 	Client uint64 `json:"client"`
 }
 
+func (value *ClientDetachedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClientDetachedEvent: expected object")
+	}
+	var fields struct {
+		Client *uint64 `json:"client"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClientDetachedEvent: %w", err)
+	}
+	type wire ClientDetachedEvent
+	var decoded wire
+	if fields.Client == nil {
+		return fmt.Errorf("decode ClientDetachedEvent: required field client is missing or null")
+	}
+	decoded.Client = *fields.Client
+	*value = ClientDetachedEvent(decoded)
+	return nil
+}
+
 func (ClientDetachedEvent) EventName() string { return "client-detached" }
 func (ClientDetachedEvent) isDeltaEvent()     {}
 func (ClientDetachedEvent) isSubscribeEvent() {}
 
 // ClientListInvalidatedEvent is emitted by protocol v9.
 type ClientListInvalidatedEvent struct {
+}
+
+func (value *ClientListInvalidatedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClientListInvalidatedEvent: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClientListInvalidatedEvent: %w", err)
+	}
+	type wire ClientListInvalidatedEvent
+	var decoded wire
+	*value = ClientListInvalidatedEvent(decoded)
+	return nil
 }
 
 func (ClientListInvalidatedEvent) EventName() string { return "client-list-invalidated" }
@@ -455,108 +606,55 @@ func (value ColorsChangedEvent) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ColorsChangedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ColorsChangedEvent: expected object")
+	}
+	var fields struct {
+		Bg          RequiredNullable[ColorHex]               `json:"bg"`
+		Cursor      Presence[ColorHex]                       `json:"cursor"`
+		CursorBlink Presence[bool]                           `json:"cursor_blink"`
+		CursorStyle Presence[CursorStyle]                    `json:"cursor_style"`
+		Fg          RequiredNullable[ColorHex]               `json:"fg"`
+		Palette     optionalNonNullJSON[map[string]ColorHex] `json:"palette"`
+		SelectionBg RequiredNullable[ColorHex]               `json:"selection_bg"`
+		SelectionFg RequiredNullable[ColorHex]               `json:"selection_fg"`
+		Surface     optionalNonNullJSON[ID]                  `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ColorsChangedEvent: %w", err)
+	}
 	type wire ColorsChangedEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if !fields.Bg.IsSet() {
+		return fmt.Errorf("decode ColorsChangedEvent: required field bg is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Bg = fields.Bg
+	decoded.Cursor = fields.Cursor
+	decoded.CursorBlink = fields.CursorBlink
+	decoded.CursorStyle = fields.CursorStyle
+	if !fields.Fg.IsSet() {
+		return fmt.Errorf("decode ColorsChangedEvent: required field fg is missing")
 	}
-	if raw, exists := object["palette"]; exists && isJSONNull(raw) {
+	decoded.Fg = fields.Fg
+	if fields.Palette.null {
 		return fmt.Errorf("decode ColorsChangedEvent: non-nullable field palette is null")
 	}
-	if raw, exists := object["surface"]; exists && isJSONNull(raw) {
+	if fields.Palette.set {
+		decoded.Palette = &fields.Palette.value
+	}
+	if !fields.SelectionBg.IsSet() {
+		return fmt.Errorf("decode ColorsChangedEvent: required field selection_bg is missing")
+	}
+	decoded.SelectionBg = fields.SelectionBg
+	if !fields.SelectionFg.IsSet() {
+		return fmt.Errorf("decode ColorsChangedEvent: required field selection_fg is missing")
+	}
+	decoded.SelectionFg = fields.SelectionFg
+	if fields.Surface.null {
 		return fmt.Errorf("decode ColorsChangedEvent: non-nullable field surface is null")
 	}
-	rawBg, hasBg := object["bg"]
-	if !hasBg {
-		return fmt.Errorf("decode ColorsChangedEvent: required nullable field bg is missing")
-	}
-	if isJSONNull(rawBg) {
-		decoded.Bg = RequiredNull[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawBg, &fieldValue); err != nil {
-			return fmt.Errorf("decode ColorsChangedEvent.Bg: %w", err)
-		}
-		decoded.Bg = RequiredValue(fieldValue)
-	}
-	rawCursor, hasCursor := object["cursor"]
-	if !hasCursor {
-		decoded.Cursor = Presence[ColorHex]{}
-	} else if isJSONNull(rawCursor) {
-		decoded.Cursor = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawCursor, &fieldValue); err != nil {
-			return fmt.Errorf("decode ColorsChangedEvent.Cursor: %w", err)
-		}
-		decoded.Cursor = Value(fieldValue)
-	}
-	rawCursorBlink, hasCursorBlink := object["cursor_blink"]
-	if !hasCursorBlink {
-		decoded.CursorBlink = Presence[bool]{}
-	} else if isJSONNull(rawCursorBlink) {
-		decoded.CursorBlink = Null[bool]()
-	} else {
-		var fieldValue bool
-		if err := json.Unmarshal(rawCursorBlink, &fieldValue); err != nil {
-			return fmt.Errorf("decode ColorsChangedEvent.CursorBlink: %w", err)
-		}
-		decoded.CursorBlink = Value(fieldValue)
-	}
-	rawCursorStyle, hasCursorStyle := object["cursor_style"]
-	if !hasCursorStyle {
-		decoded.CursorStyle = Presence[CursorStyle]{}
-	} else if isJSONNull(rawCursorStyle) {
-		decoded.CursorStyle = Null[CursorStyle]()
-	} else {
-		var fieldValue CursorStyle
-		if err := json.Unmarshal(rawCursorStyle, &fieldValue); err != nil {
-			return fmt.Errorf("decode ColorsChangedEvent.CursorStyle: %w", err)
-		}
-		decoded.CursorStyle = Value(fieldValue)
-	}
-	rawFg, hasFg := object["fg"]
-	if !hasFg {
-		return fmt.Errorf("decode ColorsChangedEvent: required nullable field fg is missing")
-	}
-	if isJSONNull(rawFg) {
-		decoded.Fg = RequiredNull[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawFg, &fieldValue); err != nil {
-			return fmt.Errorf("decode ColorsChangedEvent.Fg: %w", err)
-		}
-		decoded.Fg = RequiredValue(fieldValue)
-	}
-	rawSelectionBg, hasSelectionBg := object["selection_bg"]
-	if !hasSelectionBg {
-		return fmt.Errorf("decode ColorsChangedEvent: required nullable field selection_bg is missing")
-	}
-	if isJSONNull(rawSelectionBg) {
-		decoded.SelectionBg = RequiredNull[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawSelectionBg, &fieldValue); err != nil {
-			return fmt.Errorf("decode ColorsChangedEvent.SelectionBg: %w", err)
-		}
-		decoded.SelectionBg = RequiredValue(fieldValue)
-	}
-	rawSelectionFg, hasSelectionFg := object["selection_fg"]
-	if !hasSelectionFg {
-		return fmt.Errorf("decode ColorsChangedEvent: required nullable field selection_fg is missing")
-	}
-	if isJSONNull(rawSelectionFg) {
-		decoded.SelectionFg = RequiredNull[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawSelectionFg, &fieldValue); err != nil {
-			return fmt.Errorf("decode ColorsChangedEvent.SelectionFg: %w", err)
-		}
-		decoded.SelectionFg = RequiredValue(fieldValue)
+	if fields.Surface.set {
+		decoded.Surface = &fields.Surface.value
 	}
 	*value = ColorsChangedEvent(decoded)
 	return nil
@@ -570,6 +668,21 @@ func (ColorsChangedEvent) isByteAttachEvent() {}
 type ConfigReloadRequestedEvent struct {
 }
 
+func (value *ConfigReloadRequestedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ConfigReloadRequestedEvent: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ConfigReloadRequestedEvent: %w", err)
+	}
+	type wire ConfigReloadRequestedEvent
+	var decoded wire
+	*value = ConfigReloadRequestedEvent(decoded)
+	return nil
+}
+
 func (ConfigReloadRequestedEvent) EventName() string { return "config-reload-requested" }
 func (ConfigReloadRequestedEvent) isDeltaEvent()     {}
 func (ConfigReloadRequestedEvent) isSubscribeEvent() {}
@@ -577,6 +690,26 @@ func (ConfigReloadRequestedEvent) isSubscribeEvent() {}
 // DetachedEvent is emitted by protocol v5.
 type DetachedEvent struct {
 	Surface ID `json:"surface"`
+}
+
+func (value *DetachedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode DetachedEvent: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode DetachedEvent: %w", err)
+	}
+	type wire DetachedEvent
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode DetachedEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = DetachedEvent(decoded)
+	return nil
 }
 
 func (DetachedEvent) EventName() string     { return "detached" }
@@ -587,6 +720,21 @@ func (DetachedEvent) isRenderAttachEvent()  {}
 
 // EmptyEvent is emitted by protocol v5.
 type EmptyEvent struct {
+}
+
+func (value *EmptyEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode EmptyEvent: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode EmptyEvent: %w", err)
+	}
+	type wire EmptyEvent
+	var decoded wire
+	*value = EmptyEvent(decoded)
+	return nil
 }
 
 func (EmptyEvent) EventName() string { return "empty" }
@@ -600,6 +748,46 @@ type FrameEvent struct {
 	Seq     uint64 `json:"seq"`
 	Surface ID     `json:"surface"`
 	Width   uint32 `json:"width"`
+}
+
+func (value *FrameEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FrameEvent: expected object")
+	}
+	var fields struct {
+		Data    *Base64 `json:"data"`
+		Height  *uint32 `json:"height"`
+		Seq     *uint64 `json:"seq"`
+		Surface *ID     `json:"surface"`
+		Width   *uint32 `json:"width"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FrameEvent: %w", err)
+	}
+	type wire FrameEvent
+	var decoded wire
+	if fields.Data == nil {
+		return fmt.Errorf("decode FrameEvent: required field data is missing or null")
+	}
+	decoded.Data = *fields.Data
+	if fields.Height == nil {
+		return fmt.Errorf("decode FrameEvent: required field height is missing or null")
+	}
+	decoded.Height = *fields.Height
+	if fields.Seq == nil {
+		return fmt.Errorf("decode FrameEvent: required field seq is missing or null")
+	}
+	decoded.Seq = *fields.Seq
+	if fields.Surface == nil {
+		return fmt.Errorf("decode FrameEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	if fields.Width == nil {
+		return fmt.Errorf("decode FrameEvent: required field width is missing or null")
+	}
+	decoded.Width = *fields.Width
+	*value = FrameEvent(decoded)
+	return nil
 }
 
 func (FrameEvent) EventName() string     { return "frame" }
@@ -616,6 +804,51 @@ type FrontendProjectionChangedEvent struct {
 	SubjectKey         string `json:"subject_key"`
 }
 
+func (value *FrontendProjectionChangedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FrontendProjectionChangedEvent: expected object")
+	}
+	var fields struct {
+		Frontend           *string `json:"frontend"`
+		MutationID         *string `json:"mutation_id"`
+		Origin             *string `json:"origin"`
+		ProjectionRevision *uint64 `json:"projection_revision"`
+		Scope              *string `json:"scope"`
+		SubjectKey         *string `json:"subject_key"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FrontendProjectionChangedEvent: %w", err)
+	}
+	type wire FrontendProjectionChangedEvent
+	var decoded wire
+	if fields.Frontend == nil {
+		return fmt.Errorf("decode FrontendProjectionChangedEvent: required field frontend is missing or null")
+	}
+	decoded.Frontend = *fields.Frontend
+	if fields.MutationID == nil {
+		return fmt.Errorf("decode FrontendProjectionChangedEvent: required field mutation_id is missing or null")
+	}
+	decoded.MutationID = *fields.MutationID
+	if fields.Origin == nil {
+		return fmt.Errorf("decode FrontendProjectionChangedEvent: required field origin is missing or null")
+	}
+	decoded.Origin = *fields.Origin
+	if fields.ProjectionRevision == nil {
+		return fmt.Errorf("decode FrontendProjectionChangedEvent: required field projection_revision is missing or null")
+	}
+	decoded.ProjectionRevision = *fields.ProjectionRevision
+	if fields.Scope == nil {
+		return fmt.Errorf("decode FrontendProjectionChangedEvent: required field scope is missing or null")
+	}
+	decoded.Scope = *fields.Scope
+	if fields.SubjectKey == nil {
+		return fmt.Errorf("decode FrontendProjectionChangedEvent: required field subject_key is missing or null")
+	}
+	decoded.SubjectKey = *fields.SubjectKey
+	*value = FrontendProjectionChangedEvent(decoded)
+	return nil
+}
+
 func (FrontendProjectionChangedEvent) EventName() string { return "frontend-projection-changed" }
 func (FrontendProjectionChangedEvent) isDeltaEvent()     {}
 func (FrontendProjectionChangedEvent) isSubscribeEvent() {}
@@ -623,6 +856,26 @@ func (FrontendProjectionChangedEvent) isSubscribeEvent() {}
 // LayoutChangedEvent is emitted by protocol v6.
 type LayoutChangedEvent struct {
 	Screen ID `json:"screen"`
+}
+
+func (value *LayoutChangedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode LayoutChangedEvent: expected object")
+	}
+	var fields struct {
+		Screen *ID `json:"screen"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode LayoutChangedEvent: %w", err)
+	}
+	type wire LayoutChangedEvent
+	var decoded wire
+	if fields.Screen == nil {
+		return fmt.Errorf("decode LayoutChangedEvent: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	*value = LayoutChangedEvent(decoded)
+	return nil
 }
 
 func (LayoutChangedEvent) EventName() string { return "layout-changed" }
@@ -665,28 +918,41 @@ func (value NotificationEvent) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NotificationEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NotificationEvent: expected object")
+	}
+	var fields struct {
+		Body         *string              `json:"body"`
+		Level        *NotificationLevel   `json:"level"`
+		Notification *ID                  `json:"notification"`
+		Surface      RequiredNullable[ID] `json:"surface"`
+		Title        *string              `json:"title"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NotificationEvent: %w", err)
+	}
 	type wire NotificationEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Body == nil {
+		return fmt.Errorf("decode NotificationEvent: required field body is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Body = *fields.Body
+	if fields.Level == nil {
+		return fmt.Errorf("decode NotificationEvent: required field level is missing or null")
 	}
-	rawSurface, hasSurface := object["surface"]
-	if !hasSurface {
-		return fmt.Errorf("decode NotificationEvent: required nullable field surface is missing")
+	decoded.Level = *fields.Level
+	if fields.Notification == nil {
+		return fmt.Errorf("decode NotificationEvent: required field notification is missing or null")
 	}
-	if isJSONNull(rawSurface) {
-		decoded.Surface = RequiredNull[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
-			return fmt.Errorf("decode NotificationEvent.Surface: %w", err)
-		}
-		decoded.Surface = RequiredValue(fieldValue)
+	decoded.Notification = *fields.Notification
+	if !fields.Surface.IsSet() {
+		return fmt.Errorf("decode NotificationEvent: required field surface is missing")
 	}
+	decoded.Surface = fields.Surface
+	if fields.Title == nil {
+		return fmt.Errorf("decode NotificationEvent: required field title is missing or null")
+	}
+	decoded.Title = *fields.Title
 	*value = NotificationEvent(decoded)
 	return nil
 }
@@ -706,18 +972,33 @@ type OutputEvent struct {
 }
 
 func (value *OutputEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode OutputEvent: expected object")
+	}
+	var fields struct {
+		Colors  optionalNonNullJSON[TerminalColors] `json:"colors"`
+		Data    *Base64                             `json:"data"`
+		Surface *ID                                 `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode OutputEvent: %w", err)
+	}
 	type wire OutputEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["colors"]; exists && isJSONNull(raw) {
+	if fields.Colors.null {
 		return fmt.Errorf("decode OutputEvent: non-nullable field colors is null")
 	}
+	if fields.Colors.set {
+		decoded.Colors = &fields.Colors.value
+	}
+	if fields.Data == nil {
+		return fmt.Errorf("decode OutputEvent: required field data is missing or null")
+	}
+	decoded.Data = *fields.Data
+	if fields.Surface == nil {
+		return fmt.Errorf("decode OutputEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
 	*value = OutputEvent(decoded)
 	return nil
 }
@@ -727,27 +1008,93 @@ func (OutputEvent) isAttachEvent()     {}
 func (OutputEvent) isByteAttachEvent() {}
 
 // OverflowEvent is emitted by protocol v7.
-type OverflowEvent struct {
-	Error   string  `json:"error"`
-	Scope   *string `json:"scope,omitempty"`
-	Surface *ID     `json:"surface,omitempty"`
+type OverflowEventScope string
+
+const (
+	OverflowEventScopeSurface OverflowEventScope = "surface"
+)
+
+func (value OverflowEventScope) valid() bool {
+	switch value {
+	case OverflowEventScopeSurface:
+		return true
+	default:
+		return false
+	}
 }
 
-func (value *OverflowEvent) UnmarshalJSON(data []byte) error {
-	type wire OverflowEvent
-	var decoded wire
+func (value OverflowEventScope) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "OverflowEventScope", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *OverflowEventScope) UnmarshalJSON(data []byte) error {
+	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	candidate := OverflowEventScope(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "OverflowEventScope", decoded)
 	}
-	if raw, exists := object["scope"]; exists && isJSONNull(raw) {
+	*value = candidate
+	return nil
+}
+
+type OverflowEvent struct {
+	Error   string              `json:"error"`
+	Scope   *OverflowEventScope `json:"scope,omitempty"`
+	Surface *ID                 `json:"surface,omitempty"`
+}
+
+func (value OverflowEvent) MarshalJSON() ([]byte, error) {
+	if value.Scope != nil {
+		switch *value.Scope {
+		case "surface":
+		default:
+			return nil, fmt.Errorf("encode OverflowEvent.Scope: invalid value %v", *value.Scope)
+		}
+	}
+	type wire OverflowEvent
+	return json.Marshal(wire(value))
+}
+
+func (value *OverflowEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode OverflowEvent: expected object")
+	}
+	var fields struct {
+		Error   *string                                 `json:"error"`
+		Scope   optionalNonNullJSON[OverflowEventScope] `json:"scope"`
+		Surface optionalNonNullJSON[ID]                 `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode OverflowEvent: %w", err)
+	}
+	type wire OverflowEvent
+	var decoded wire
+	if fields.Error == nil {
+		return fmt.Errorf("decode OverflowEvent: required field error is missing or null")
+	}
+	decoded.Error = *fields.Error
+	if fields.Scope.null {
 		return fmt.Errorf("decode OverflowEvent: non-nullable field scope is null")
 	}
-	if raw, exists := object["surface"]; exists && isJSONNull(raw) {
+	if fields.Scope.set {
+		decoded.Scope = &fields.Scope.value
+		switch *decoded.Scope {
+		case "surface":
+		default:
+			return fmt.Errorf("decode OverflowEvent.Scope: invalid value %v", *decoded.Scope)
+		}
+	}
+	if fields.Surface.null {
 		return fmt.Errorf("decode OverflowEvent: non-nullable field surface is null")
+	}
+	if fields.Surface.set {
+		decoded.Surface = &fields.Surface.value
 	}
 	*value = OverflowEvent(decoded)
 	return nil
@@ -769,6 +1116,41 @@ type PairingRequestedEvent struct {
 	Request   uint64 `json:"request"`
 }
 
+func (value *PairingRequestedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PairingRequestedEvent: expected object")
+	}
+	var fields struct {
+		Code      *string `json:"code"`
+		ExpiresIn *uint64 `json:"expires_in"`
+		Peer      *string `json:"peer"`
+		Request   *uint64 `json:"request"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PairingRequestedEvent: %w", err)
+	}
+	type wire PairingRequestedEvent
+	var decoded wire
+	if fields.Code == nil {
+		return fmt.Errorf("decode PairingRequestedEvent: required field code is missing or null")
+	}
+	decoded.Code = *fields.Code
+	if fields.ExpiresIn == nil {
+		return fmt.Errorf("decode PairingRequestedEvent: required field expires_in is missing or null")
+	}
+	decoded.ExpiresIn = *fields.ExpiresIn
+	if fields.Peer == nil {
+		return fmt.Errorf("decode PairingRequestedEvent: required field peer is missing or null")
+	}
+	decoded.Peer = *fields.Peer
+	if fields.Request == nil {
+		return fmt.Errorf("decode PairingRequestedEvent: required field request is missing or null")
+	}
+	decoded.Request = *fields.Request
+	*value = PairingRequestedEvent(decoded)
+	return nil
+}
+
 func (PairingRequestedEvent) EventName() string { return "pairing-requested" }
 func (PairingRequestedEvent) isDeltaEvent()     {}
 func (PairingRequestedEvent) isSubscribeEvent() {}
@@ -776,6 +1158,26 @@ func (PairingRequestedEvent) isSubscribeEvent() {}
 // PairingResolvedEvent is emitted by protocol v7.
 type PairingResolvedEvent struct {
 	Request uint64 `json:"request"`
+}
+
+func (value *PairingResolvedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PairingResolvedEvent: expected object")
+	}
+	var fields struct {
+		Request *uint64 `json:"request"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PairingResolvedEvent: %w", err)
+	}
+	type wire PairingResolvedEvent
+	var decoded wire
+	if fields.Request == nil {
+		return fmt.Errorf("decode PairingResolvedEvent: required field request is missing or null")
+	}
+	decoded.Request = *fields.Request
+	*value = PairingResolvedEvent(decoded)
+	return nil
 }
 
 func (PairingResolvedEvent) EventName() string { return "pairing-resolved" }
@@ -791,6 +1193,46 @@ type PaneAddedEvent struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value *PaneAddedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PaneAddedEvent: expected object")
+	}
+	var fields struct {
+		Entity    *Pane   `json:"entity"`
+		Index     *uint64 `json:"index"`
+		Pane      *ID     `json:"pane"`
+		Screen    *ID     `json:"screen"`
+		Workspace *ID     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PaneAddedEvent: %w", err)
+	}
+	type wire PaneAddedEvent
+	var decoded wire
+	if fields.Entity == nil {
+		return fmt.Errorf("decode PaneAddedEvent: required field entity is missing or null")
+	}
+	decoded.Entity = *fields.Entity
+	if fields.Index == nil {
+		return fmt.Errorf("decode PaneAddedEvent: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.Pane == nil {
+		return fmt.Errorf("decode PaneAddedEvent: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.Screen == nil {
+		return fmt.Errorf("decode PaneAddedEvent: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode PaneAddedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	*value = PaneAddedEvent(decoded)
+	return nil
+}
+
 func (PaneAddedEvent) EventName() string { return "pane-added" }
 func (PaneAddedEvent) isDeltaEvent()     {}
 func (PaneAddedEvent) isSubscribeEvent() {}
@@ -802,6 +1244,46 @@ type PaneClosedEvent struct {
 	Pane      ID     `json:"pane"`
 	Screen    ID     `json:"screen"`
 	Workspace ID     `json:"workspace"`
+}
+
+func (value *PaneClosedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PaneClosedEvent: expected object")
+	}
+	var fields struct {
+		Entity    *Pane   `json:"entity"`
+		Index     *uint64 `json:"index"`
+		Pane      *ID     `json:"pane"`
+		Screen    *ID     `json:"screen"`
+		Workspace *ID     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PaneClosedEvent: %w", err)
+	}
+	type wire PaneClosedEvent
+	var decoded wire
+	if fields.Entity == nil {
+		return fmt.Errorf("decode PaneClosedEvent: required field entity is missing or null")
+	}
+	decoded.Entity = *fields.Entity
+	if fields.Index == nil {
+		return fmt.Errorf("decode PaneClosedEvent: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.Pane == nil {
+		return fmt.Errorf("decode PaneClosedEvent: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.Screen == nil {
+		return fmt.Errorf("decode PaneClosedEvent: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode PaneClosedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	*value = PaneClosedEvent(decoded)
+	return nil
 }
 
 func (PaneClosedEvent) EventName() string { return "pane-closed" }
@@ -821,27 +1303,64 @@ type RenderDeltaEvent struct {
 }
 
 func (value *RenderDeltaEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RenderDeltaEvent: expected object")
+	}
+	var fields struct {
+		Cursor         *RenderCursor                 `json:"cursor"`
+		DefaultBg      optionalNonNullJSON[ColorHex] `json:"default_bg"`
+		DefaultFg      optionalNonNullJSON[ColorHex] `json:"default_fg"`
+		Full           *bool                         `json:"full"`
+		Rows           *[]RenderRow                  `json:"rows"`
+		ScrollbackRows optionalNonNullJSON[uint32]   `json:"scrollback_rows"`
+		Size           optionalNonNullJSON[Size]     `json:"size"`
+		Surface        *ID                           `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RenderDeltaEvent: %w", err)
+	}
 	type wire RenderDeltaEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Cursor == nil {
+		return fmt.Errorf("decode RenderDeltaEvent: required field cursor is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["default_bg"]; exists && isJSONNull(raw) {
+	decoded.Cursor = *fields.Cursor
+	if fields.DefaultBg.null {
 		return fmt.Errorf("decode RenderDeltaEvent: non-nullable field default_bg is null")
 	}
-	if raw, exists := object["default_fg"]; exists && isJSONNull(raw) {
+	if fields.DefaultBg.set {
+		decoded.DefaultBg = &fields.DefaultBg.value
+	}
+	if fields.DefaultFg.null {
 		return fmt.Errorf("decode RenderDeltaEvent: non-nullable field default_fg is null")
 	}
-	if raw, exists := object["scrollback_rows"]; exists && isJSONNull(raw) {
+	if fields.DefaultFg.set {
+		decoded.DefaultFg = &fields.DefaultFg.value
+	}
+	if fields.Full == nil {
+		return fmt.Errorf("decode RenderDeltaEvent: required field full is missing or null")
+	}
+	decoded.Full = *fields.Full
+	if fields.Rows == nil {
+		return fmt.Errorf("decode RenderDeltaEvent: required field rows is missing or null")
+	}
+	decoded.Rows = *fields.Rows
+	if fields.ScrollbackRows.null {
 		return fmt.Errorf("decode RenderDeltaEvent: non-nullable field scrollback_rows is null")
 	}
-	if raw, exists := object["size"]; exists && isJSONNull(raw) {
+	if fields.ScrollbackRows.set {
+		decoded.ScrollbackRows = &fields.ScrollbackRows.value
+	}
+	if fields.Size.null {
 		return fmt.Errorf("decode RenderDeltaEvent: non-nullable field size is null")
 	}
+	if fields.Size.set {
+		decoded.Size = &fields.Size.value
+	}
+	if fields.Surface == nil {
+		return fmt.Errorf("decode RenderDeltaEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
 	*value = RenderDeltaEvent(decoded)
 	return nil
 }
@@ -861,6 +1380,56 @@ type RenderStateEvent struct {
 	Surface        ID           `json:"surface"`
 }
 
+func (value *RenderStateEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RenderStateEvent: expected object")
+	}
+	var fields struct {
+		Cursor         *RenderCursor `json:"cursor"`
+		DefaultBg      *ColorHex     `json:"default_bg"`
+		DefaultFg      *ColorHex     `json:"default_fg"`
+		Rows           *[]RenderRow  `json:"rows"`
+		ScrollbackRows *uint32       `json:"scrollback_rows"`
+		Size           *Size         `json:"size"`
+		Surface        *ID           `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RenderStateEvent: %w", err)
+	}
+	type wire RenderStateEvent
+	var decoded wire
+	if fields.Cursor == nil {
+		return fmt.Errorf("decode RenderStateEvent: required field cursor is missing or null")
+	}
+	decoded.Cursor = *fields.Cursor
+	if fields.DefaultBg == nil {
+		return fmt.Errorf("decode RenderStateEvent: required field default_bg is missing or null")
+	}
+	decoded.DefaultBg = *fields.DefaultBg
+	if fields.DefaultFg == nil {
+		return fmt.Errorf("decode RenderStateEvent: required field default_fg is missing or null")
+	}
+	decoded.DefaultFg = *fields.DefaultFg
+	if fields.Rows == nil {
+		return fmt.Errorf("decode RenderStateEvent: required field rows is missing or null")
+	}
+	decoded.Rows = *fields.Rows
+	if fields.ScrollbackRows == nil {
+		return fmt.Errorf("decode RenderStateEvent: required field scrollback_rows is missing or null")
+	}
+	decoded.ScrollbackRows = *fields.ScrollbackRows
+	if fields.Size == nil {
+		return fmt.Errorf("decode RenderStateEvent: required field size is missing or null")
+	}
+	decoded.Size = *fields.Size
+	if fields.Surface == nil {
+		return fmt.Errorf("decode RenderStateEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = RenderStateEvent(decoded)
+	return nil
+}
+
 func (RenderStateEvent) EventName() string    { return "render-state" }
 func (RenderStateEvent) isAttachEvent()       {}
 func (RenderStateEvent) isRenderAttachEvent() {}
@@ -877,24 +1446,52 @@ type ResizedEvent struct {
 }
 
 func (value *ResizedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ResizedEvent: expected object")
+	}
+	var fields struct {
+		Colors  optionalNonNullJSON[TerminalColors] `json:"colors"`
+		Cols    *uint16                             `json:"cols"`
+		Data    optionalNonNullJSON[Base64]         `json:"data"`
+		Replay  optionalNonNullJSON[Base64]         `json:"replay"`
+		Rows    *uint16                             `json:"rows"`
+		Surface *ID                                 `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ResizedEvent: %w", err)
+	}
 	type wire ResizedEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["colors"]; exists && isJSONNull(raw) {
+	if fields.Colors.null {
 		return fmt.Errorf("decode ResizedEvent: non-nullable field colors is null")
 	}
-	if raw, exists := object["data"]; exists && isJSONNull(raw) {
+	if fields.Colors.set {
+		decoded.Colors = &fields.Colors.value
+	}
+	if fields.Cols == nil {
+		return fmt.Errorf("decode ResizedEvent: required field cols is missing or null")
+	}
+	decoded.Cols = *fields.Cols
+	if fields.Data.null {
 		return fmt.Errorf("decode ResizedEvent: non-nullable field data is null")
 	}
-	if raw, exists := object["replay"]; exists && isJSONNull(raw) {
+	if fields.Data.set {
+		decoded.Data = &fields.Data.value
+	}
+	if fields.Replay.null {
 		return fmt.Errorf("decode ResizedEvent: non-nullable field replay is null")
 	}
+	if fields.Replay.set {
+		decoded.Replay = &fields.Replay.value
+	}
+	if fields.Rows == nil {
+		return fmt.Errorf("decode ResizedEvent: required field rows is missing or null")
+	}
+	decoded.Rows = *fields.Rows
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ResizedEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
 	*value = ResizedEvent(decoded)
 	return nil
 }
@@ -911,6 +1508,41 @@ type ScreenAddedEvent struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value *ScreenAddedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ScreenAddedEvent: expected object")
+	}
+	var fields struct {
+		Entity    *Screen `json:"entity"`
+		Index     *uint64 `json:"index"`
+		Screen    *ID     `json:"screen"`
+		Workspace *ID     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ScreenAddedEvent: %w", err)
+	}
+	type wire ScreenAddedEvent
+	var decoded wire
+	if fields.Entity == nil {
+		return fmt.Errorf("decode ScreenAddedEvent: required field entity is missing or null")
+	}
+	decoded.Entity = *fields.Entity
+	if fields.Index == nil {
+		return fmt.Errorf("decode ScreenAddedEvent: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.Screen == nil {
+		return fmt.Errorf("decode ScreenAddedEvent: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode ScreenAddedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	*value = ScreenAddedEvent(decoded)
+	return nil
+}
+
 func (ScreenAddedEvent) EventName() string { return "screen-added" }
 func (ScreenAddedEvent) isDeltaEvent()     {}
 func (ScreenAddedEvent) isSubscribeEvent() {}
@@ -921,6 +1553,41 @@ type ScreenClosedEvent struct {
 	Index     uint64 `json:"index"`
 	Screen    ID     `json:"screen"`
 	Workspace ID     `json:"workspace"`
+}
+
+func (value *ScreenClosedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ScreenClosedEvent: expected object")
+	}
+	var fields struct {
+		Entity    *Screen `json:"entity"`
+		Index     *uint64 `json:"index"`
+		Screen    *ID     `json:"screen"`
+		Workspace *ID     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ScreenClosedEvent: %w", err)
+	}
+	type wire ScreenClosedEvent
+	var decoded wire
+	if fields.Entity == nil {
+		return fmt.Errorf("decode ScreenClosedEvent: required field entity is missing or null")
+	}
+	decoded.Entity = *fields.Entity
+	if fields.Index == nil {
+		return fmt.Errorf("decode ScreenClosedEvent: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.Screen == nil {
+		return fmt.Errorf("decode ScreenClosedEvent: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode ScreenClosedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	*value = ScreenClosedEvent(decoded)
+	return nil
 }
 
 func (ScreenClosedEvent) EventName() string { return "screen-closed" }
@@ -934,6 +1601,36 @@ type ScreenRenamedEvent struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value *ScreenRenamedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ScreenRenamedEvent: expected object")
+	}
+	var fields struct {
+		Entity    *Screen `json:"entity"`
+		Screen    *ID     `json:"screen"`
+		Workspace *ID     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ScreenRenamedEvent: %w", err)
+	}
+	type wire ScreenRenamedEvent
+	var decoded wire
+	if fields.Entity == nil {
+		return fmt.Errorf("decode ScreenRenamedEvent: required field entity is missing or null")
+	}
+	decoded.Entity = *fields.Entity
+	if fields.Screen == nil {
+		return fmt.Errorf("decode ScreenRenamedEvent: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode ScreenRenamedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	*value = ScreenRenamedEvent(decoded)
+	return nil
+}
+
 func (ScreenRenamedEvent) EventName() string { return "screen-renamed" }
 func (ScreenRenamedEvent) isDeltaEvent()     {}
 func (ScreenRenamedEvent) isSubscribeEvent() {}
@@ -943,6 +1640,36 @@ type ScrollChangedEvent struct {
 	AtBottom bool   `json:"at_bottom"`
 	Offset   uint64 `json:"offset"`
 	Surface  ID     `json:"surface"`
+}
+
+func (value *ScrollChangedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ScrollChangedEvent: expected object")
+	}
+	var fields struct {
+		AtBottom *bool   `json:"at_bottom"`
+		Offset   *uint64 `json:"offset"`
+		Surface  *ID     `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ScrollChangedEvent: %w", err)
+	}
+	type wire ScrollChangedEvent
+	var decoded wire
+	if fields.AtBottom == nil {
+		return fmt.Errorf("decode ScrollChangedEvent: required field at_bottom is missing or null")
+	}
+	decoded.AtBottom = *fields.AtBottom
+	if fields.Offset == nil {
+		return fmt.Errorf("decode ScrollChangedEvent: required field offset is missing or null")
+	}
+	decoded.Offset = *fields.Offset
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ScrollChangedEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = ScrollChangedEvent(decoded)
+	return nil
 }
 
 func (ScrollChangedEvent) EventName() string     { return "scroll-changed" }
@@ -958,6 +1685,26 @@ type StatusEvent struct {
 	Message string `json:"message"`
 }
 
+func (value *StatusEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode StatusEvent: expected object")
+	}
+	var fields struct {
+		Message *string `json:"message"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode StatusEvent: %w", err)
+	}
+	type wire StatusEvent
+	var decoded wire
+	if fields.Message == nil {
+		return fmt.Errorf("decode StatusEvent: required field message is missing or null")
+	}
+	decoded.Message = *fields.Message
+	*value = StatusEvent(decoded)
+	return nil
+}
+
 func (StatusEvent) EventName() string { return "status" }
 func (StatusEvent) isDeltaEvent()     {}
 func (StatusEvent) isSubscribeEvent() {}
@@ -967,6 +1714,26 @@ type SurfaceExitedEvent struct {
 	Surface ID `json:"surface"`
 }
 
+func (value *SurfaceExitedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SurfaceExitedEvent: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SurfaceExitedEvent: %w", err)
+	}
+	type wire SurfaceExitedEvent
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode SurfaceExitedEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = SurfaceExitedEvent(decoded)
+	return nil
+}
+
 func (SurfaceExitedEvent) EventName() string { return "surface-exited" }
 func (SurfaceExitedEvent) isDeltaEvent()     {}
 func (SurfaceExitedEvent) isSubscribeEvent() {}
@@ -974,6 +1741,26 @@ func (SurfaceExitedEvent) isSubscribeEvent() {}
 // SurfaceOutputEvent is emitted by protocol v5.
 type SurfaceOutputEvent struct {
 	Surface ID `json:"surface"`
+}
+
+func (value *SurfaceOutputEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SurfaceOutputEvent: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SurfaceOutputEvent: %w", err)
+	}
+	type wire SurfaceOutputEvent
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode SurfaceOutputEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = SurfaceOutputEvent(decoded)
+	return nil
 }
 
 func (SurfaceOutputEvent) EventName() string { return "surface-output" }
@@ -1030,41 +1817,46 @@ func (value SurfaceResizeFailedEvent) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SurfaceResizeFailedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SurfaceResizeFailedEvent: expected object")
+	}
+	var fields struct {
+		Cols          *uint16                  `json:"cols"`
+		Error         *string                  `json:"error"`
+		ReservationID RequiredNullable[uint64] `json:"reservation_id"`
+		RetryAfterMs  RequiredNullable[uint64] `json:"retry_after_ms"`
+		Rows          *uint16                  `json:"rows"`
+		Surface       *ID                      `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SurfaceResizeFailedEvent: %w", err)
+	}
 	type wire SurfaceResizeFailedEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Cols == nil {
+		return fmt.Errorf("decode SurfaceResizeFailedEvent: required field cols is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Cols = *fields.Cols
+	if fields.Error == nil {
+		return fmt.Errorf("decode SurfaceResizeFailedEvent: required field error is missing or null")
 	}
-	rawReservationID, hasReservationID := object["reservation_id"]
-	if !hasReservationID {
-		return fmt.Errorf("decode SurfaceResizeFailedEvent: required nullable field reservation_id is missing")
+	decoded.Error = *fields.Error
+	if !fields.ReservationID.IsSet() {
+		return fmt.Errorf("decode SurfaceResizeFailedEvent: required field reservation_id is missing")
 	}
-	if isJSONNull(rawReservationID) {
-		decoded.ReservationID = RequiredNull[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawReservationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode SurfaceResizeFailedEvent.ReservationID: %w", err)
-		}
-		decoded.ReservationID = RequiredValue(fieldValue)
+	decoded.ReservationID = fields.ReservationID
+	if !fields.RetryAfterMs.IsSet() {
+		return fmt.Errorf("decode SurfaceResizeFailedEvent: required field retry_after_ms is missing")
 	}
-	rawRetryAfterMs, hasRetryAfterMs := object["retry_after_ms"]
-	if !hasRetryAfterMs {
-		return fmt.Errorf("decode SurfaceResizeFailedEvent: required nullable field retry_after_ms is missing")
+	decoded.RetryAfterMs = fields.RetryAfterMs
+	if fields.Rows == nil {
+		return fmt.Errorf("decode SurfaceResizeFailedEvent: required field rows is missing or null")
 	}
-	if isJSONNull(rawRetryAfterMs) {
-		decoded.RetryAfterMs = RequiredNull[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawRetryAfterMs, &fieldValue); err != nil {
-			return fmt.Errorf("decode SurfaceResizeFailedEvent.RetryAfterMs: %w", err)
-		}
-		decoded.RetryAfterMs = RequiredValue(fieldValue)
+	decoded.Rows = *fields.Rows
+	if fields.Surface == nil {
+		return fmt.Errorf("decode SurfaceResizeFailedEvent: required field surface is missing or null")
 	}
+	decoded.Surface = *fields.Surface
 	*value = SurfaceResizeFailedEvent(decoded)
 	return nil
 }
@@ -1108,28 +1900,36 @@ func (value SurfaceResizedEvent) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SurfaceResizedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SurfaceResizedEvent: expected object")
+	}
+	var fields struct {
+		Cols          *uint16                  `json:"cols"`
+		ReservationID RequiredNullable[uint64] `json:"reservation_id"`
+		Rows          *uint16                  `json:"rows"`
+		Surface       *ID                      `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SurfaceResizedEvent: %w", err)
+	}
 	type wire SurfaceResizedEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Cols == nil {
+		return fmt.Errorf("decode SurfaceResizedEvent: required field cols is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Cols = *fields.Cols
+	if !fields.ReservationID.IsSet() {
+		return fmt.Errorf("decode SurfaceResizedEvent: required field reservation_id is missing")
 	}
-	rawReservationID, hasReservationID := object["reservation_id"]
-	if !hasReservationID {
-		return fmt.Errorf("decode SurfaceResizedEvent: required nullable field reservation_id is missing")
+	decoded.ReservationID = fields.ReservationID
+	if fields.Rows == nil {
+		return fmt.Errorf("decode SurfaceResizedEvent: required field rows is missing or null")
 	}
-	if isJSONNull(rawReservationID) {
-		decoded.ReservationID = RequiredNull[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawReservationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode SurfaceResizedEvent.ReservationID: %w", err)
-		}
-		decoded.ReservationID = RequiredValue(fieldValue)
+	decoded.Rows = *fields.Rows
+	if fields.Surface == nil {
+		return fmt.Errorf("decode SurfaceResizedEvent: required field surface is missing or null")
 	}
+	decoded.Surface = *fields.Surface
 	*value = SurfaceResizedEvent(decoded)
 	return nil
 }
@@ -1148,6 +1948,51 @@ type TabAddedEvent struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value *TabAddedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TabAddedEvent: expected object")
+	}
+	var fields struct {
+		Entity    *Tab    `json:"entity"`
+		Index     *uint64 `json:"index"`
+		Pane      *ID     `json:"pane"`
+		Screen    *ID     `json:"screen"`
+		Surface   *ID     `json:"surface"`
+		Workspace *ID     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TabAddedEvent: %w", err)
+	}
+	type wire TabAddedEvent
+	var decoded wire
+	if fields.Entity == nil {
+		return fmt.Errorf("decode TabAddedEvent: required field entity is missing or null")
+	}
+	decoded.Entity = *fields.Entity
+	if fields.Index == nil {
+		return fmt.Errorf("decode TabAddedEvent: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.Pane == nil {
+		return fmt.Errorf("decode TabAddedEvent: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.Screen == nil {
+		return fmt.Errorf("decode TabAddedEvent: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	if fields.Surface == nil {
+		return fmt.Errorf("decode TabAddedEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode TabAddedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	*value = TabAddedEvent(decoded)
+	return nil
+}
+
 func (TabAddedEvent) EventName() string { return "tab-added" }
 func (TabAddedEvent) isDeltaEvent()     {}
 func (TabAddedEvent) isSubscribeEvent() {}
@@ -1160,6 +2005,51 @@ type TabClosedEvent struct {
 	Screen    ID     `json:"screen"`
 	Surface   ID     `json:"surface"`
 	Workspace ID     `json:"workspace"`
+}
+
+func (value *TabClosedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TabClosedEvent: expected object")
+	}
+	var fields struct {
+		Entity    *Tab    `json:"entity"`
+		Index     *uint64 `json:"index"`
+		Pane      *ID     `json:"pane"`
+		Screen    *ID     `json:"screen"`
+		Surface   *ID     `json:"surface"`
+		Workspace *ID     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TabClosedEvent: %w", err)
+	}
+	type wire TabClosedEvent
+	var decoded wire
+	if fields.Entity == nil {
+		return fmt.Errorf("decode TabClosedEvent: required field entity is missing or null")
+	}
+	decoded.Entity = *fields.Entity
+	if fields.Index == nil {
+		return fmt.Errorf("decode TabClosedEvent: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.Pane == nil {
+		return fmt.Errorf("decode TabClosedEvent: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.Screen == nil {
+		return fmt.Errorf("decode TabClosedEvent: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	if fields.Surface == nil {
+		return fmt.Errorf("decode TabClosedEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode TabClosedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	*value = TabClosedEvent(decoded)
+	return nil
 }
 
 func (TabClosedEvent) EventName() string { return "tab-closed" }
@@ -1175,16 +2065,141 @@ type TabRenamedEvent struct {
 	Workspace ID  `json:"workspace"`
 }
 
+func (value *TabRenamedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TabRenamedEvent: expected object")
+	}
+	var fields struct {
+		Entity    *Tab `json:"entity"`
+		Pane      *ID  `json:"pane"`
+		Screen    *ID  `json:"screen"`
+		Surface   *ID  `json:"surface"`
+		Workspace *ID  `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TabRenamedEvent: %w", err)
+	}
+	type wire TabRenamedEvent
+	var decoded wire
+	if fields.Entity == nil {
+		return fmt.Errorf("decode TabRenamedEvent: required field entity is missing or null")
+	}
+	decoded.Entity = *fields.Entity
+	if fields.Pane == nil {
+		return fmt.Errorf("decode TabRenamedEvent: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.Screen == nil {
+		return fmt.Errorf("decode TabRenamedEvent: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	if fields.Surface == nil {
+		return fmt.Errorf("decode TabRenamedEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode TabRenamedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	*value = TabRenamedEvent(decoded)
+	return nil
+}
+
 func (TabRenamedEvent) EventName() string { return "tab-renamed" }
 func (TabRenamedEvent) isDeltaEvent()     {}
 func (TabRenamedEvent) isSubscribeEvent() {}
 
 // TerminalRegistryChangedEvent is emitted by protocol v9.
+type TerminalRegistryChangedEventRefetch string
+
+const (
+	TerminalRegistryChangedEventRefetchTerminalEventsOrListTerminals TerminalRegistryChangedEventRefetch = "terminal-events-or-list-terminals"
+)
+
+func (value TerminalRegistryChangedEventRefetch) valid() bool {
+	switch value {
+	case TerminalRegistryChangedEventRefetchTerminalEventsOrListTerminals:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value TerminalRegistryChangedEventRefetch) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TerminalRegistryChangedEventRefetch", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *TerminalRegistryChangedEventRefetch) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := TerminalRegistryChangedEventRefetch(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TerminalRegistryChangedEventRefetch", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type TerminalRegistryChangedEvent struct {
-	Generation       string `json:"generation"`
-	Refetch          string `json:"refetch"`
-	RegistryID       string `json:"registry_id"`
-	TerminalRevision uint64 `json:"terminal_revision"`
+	Generation       string                              `json:"generation"`
+	Refetch          TerminalRegistryChangedEventRefetch `json:"refetch"`
+	RegistryID       string                              `json:"registry_id"`
+	TerminalRevision uint64                              `json:"terminal_revision"`
+}
+
+func (value TerminalRegistryChangedEvent) MarshalJSON() ([]byte, error) {
+	switch value.Refetch {
+	case "terminal-events-or-list-terminals":
+	default:
+		return nil, fmt.Errorf("encode TerminalRegistryChangedEvent.Refetch: invalid value %v", value.Refetch)
+	}
+	type wire TerminalRegistryChangedEvent
+	return json.Marshal(wire(value))
+}
+
+func (value *TerminalRegistryChangedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalRegistryChangedEvent: expected object")
+	}
+	var fields struct {
+		Generation       *string                              `json:"generation"`
+		Refetch          *TerminalRegistryChangedEventRefetch `json:"refetch"`
+		RegistryID       *string                              `json:"registry_id"`
+		TerminalRevision *uint64                              `json:"terminal_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalRegistryChangedEvent: %w", err)
+	}
+	type wire TerminalRegistryChangedEvent
+	var decoded wire
+	if fields.Generation == nil {
+		return fmt.Errorf("decode TerminalRegistryChangedEvent: required field generation is missing or null")
+	}
+	decoded.Generation = *fields.Generation
+	if fields.Refetch == nil {
+		return fmt.Errorf("decode TerminalRegistryChangedEvent: required field refetch is missing or null")
+	}
+	decoded.Refetch = *fields.Refetch
+	switch decoded.Refetch {
+	case "terminal-events-or-list-terminals":
+	default:
+		return fmt.Errorf("decode TerminalRegistryChangedEvent.Refetch: invalid value %v", decoded.Refetch)
+	}
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode TerminalRegistryChangedEvent: required field registry_id is missing or null")
+	}
+	decoded.RegistryID = *fields.RegistryID
+	if fields.TerminalRevision == nil {
+		return fmt.Errorf("decode TerminalRegistryChangedEvent: required field terminal_revision is missing or null")
+	}
+	decoded.TerminalRevision = *fields.TerminalRevision
+	*value = TerminalRegistryChangedEvent(decoded)
+	return nil
 }
 
 func (TerminalRegistryChangedEvent) EventName() string { return "terminal-registry-changed" }
@@ -1198,17 +2213,27 @@ type TitleChangedEvent struct {
 }
 
 func (value *TitleChangedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TitleChangedEvent: expected object")
+	}
+	var fields struct {
+		Surface *ID                         `json:"surface"`
+		Title   optionalNonNullJSON[string] `json:"title"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TitleChangedEvent: %w", err)
+	}
 	type wire TitleChangedEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Surface == nil {
+		return fmt.Errorf("decode TitleChangedEvent: required field surface is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["title"]; exists && isJSONNull(raw) {
+	decoded.Surface = *fields.Surface
+	if fields.Title.null {
 		return fmt.Errorf("decode TitleChangedEvent: non-nullable field title is null")
+	}
+	if fields.Title.set {
+		decoded.Title = &fields.Title.value
 	}
 	*value = TitleChangedEvent(decoded)
 	return nil
@@ -1220,6 +2245,21 @@ func (TitleChangedEvent) isSubscribeEvent() {}
 
 // TreeChangedEvent is emitted by protocol v5.
 type TreeChangedEvent struct {
+}
+
+func (value *TreeChangedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TreeChangedEvent: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TreeChangedEvent: %w", err)
+	}
+	type wire TreeChangedEvent
+	var decoded wire
+	*value = TreeChangedEvent(decoded)
+	return nil
 }
 
 func (TreeChangedEvent) EventName() string { return "tree-changed" }
@@ -1236,18 +2276,43 @@ type VTStateEvent struct {
 }
 
 func (value *VTStateEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode VTStateEvent: expected object")
+	}
+	var fields struct {
+		Colors  optionalNonNullJSON[TerminalColors] `json:"colors"`
+		Cols    *uint16                             `json:"cols"`
+		Data    *Base64                             `json:"data"`
+		Rows    *uint16                             `json:"rows"`
+		Surface *ID                                 `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode VTStateEvent: %w", err)
+	}
 	type wire VTStateEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["colors"]; exists && isJSONNull(raw) {
+	if fields.Colors.null {
 		return fmt.Errorf("decode VTStateEvent: non-nullable field colors is null")
 	}
+	if fields.Colors.set {
+		decoded.Colors = &fields.Colors.value
+	}
+	if fields.Cols == nil {
+		return fmt.Errorf("decode VTStateEvent: required field cols is missing or null")
+	}
+	decoded.Cols = *fields.Cols
+	if fields.Data == nil {
+		return fmt.Errorf("decode VTStateEvent: required field data is missing or null")
+	}
+	decoded.Data = *fields.Data
+	if fields.Rows == nil {
+		return fmt.Errorf("decode VTStateEvent: required field rows is missing or null")
+	}
+	decoded.Rows = *fields.Rows
+	if fields.Surface == nil {
+		return fmt.Errorf("decode VTStateEvent: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
 	*value = VTStateEvent(decoded)
 	return nil
 }
@@ -1259,6 +2324,26 @@ func (VTStateEvent) isByteAttachEvent() {}
 // WindowTitleRequestedEvent is emitted by protocol v6.
 type WindowTitleRequestedEvent struct {
 	Title string `json:"title"`
+}
+
+func (value *WindowTitleRequestedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode WindowTitleRequestedEvent: expected object")
+	}
+	var fields struct {
+		Title *string `json:"title"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode WindowTitleRequestedEvent: %w", err)
+	}
+	type wire WindowTitleRequestedEvent
+	var decoded wire
+	if fields.Title == nil {
+		return fmt.Errorf("decode WindowTitleRequestedEvent: required field title is missing or null")
+	}
+	decoded.Title = *fields.Title
+	*value = WindowTitleRequestedEvent(decoded)
+	return nil
 }
 
 func (WindowTitleRequestedEvent) EventName() string { return "window-title-requested" }
@@ -1278,21 +2363,60 @@ type WorkspaceAddedEvent struct {
 }
 
 func (value *WorkspaceAddedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode WorkspaceAddedEvent: expected object")
+	}
+	var fields struct {
+		Entity            *Workspace                  `json:"entity"`
+		Generation        *string                     `json:"generation"`
+		Index             *uint64                     `json:"index"`
+		MutationID        optionalNonNullJSON[string] `json:"mutation_id"`
+		Origin            optionalNonNullJSON[string] `json:"origin"`
+		RegistryID        *string                     `json:"registry_id"`
+		Workspace         *ID                         `json:"workspace"`
+		WorkspaceRevision *uint64                     `json:"workspace_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode WorkspaceAddedEvent: %w", err)
+	}
 	type wire WorkspaceAddedEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Entity == nil {
+		return fmt.Errorf("decode WorkspaceAddedEvent: required field entity is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Entity = *fields.Entity
+	if fields.Generation == nil {
+		return fmt.Errorf("decode WorkspaceAddedEvent: required field generation is missing or null")
 	}
-	if raw, exists := object["mutation_id"]; exists && isJSONNull(raw) {
+	decoded.Generation = *fields.Generation
+	if fields.Index == nil {
+		return fmt.Errorf("decode WorkspaceAddedEvent: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.MutationID.null {
 		return fmt.Errorf("decode WorkspaceAddedEvent: non-nullable field mutation_id is null")
 	}
-	if raw, exists := object["origin"]; exists && isJSONNull(raw) {
+	if fields.MutationID.set {
+		decoded.MutationID = &fields.MutationID.value
+	}
+	if fields.Origin.null {
 		return fmt.Errorf("decode WorkspaceAddedEvent: non-nullable field origin is null")
 	}
+	if fields.Origin.set {
+		decoded.Origin = &fields.Origin.value
+	}
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode WorkspaceAddedEvent: required field registry_id is missing or null")
+	}
+	decoded.RegistryID = *fields.RegistryID
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode WorkspaceAddedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	if fields.WorkspaceRevision == nil {
+		return fmt.Errorf("decode WorkspaceAddedEvent: required field workspace_revision is missing or null")
+	}
+	decoded.WorkspaceRevision = *fields.WorkspaceRevision
 	*value = WorkspaceAddedEvent(decoded)
 	return nil
 }
@@ -1314,21 +2438,60 @@ type WorkspaceClosedEvent struct {
 }
 
 func (value *WorkspaceClosedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode WorkspaceClosedEvent: expected object")
+	}
+	var fields struct {
+		Entity            *Workspace                  `json:"entity"`
+		Generation        *string                     `json:"generation"`
+		Index             *uint64                     `json:"index"`
+		MutationID        optionalNonNullJSON[string] `json:"mutation_id"`
+		Origin            optionalNonNullJSON[string] `json:"origin"`
+		RegistryID        *string                     `json:"registry_id"`
+		Workspace         *ID                         `json:"workspace"`
+		WorkspaceRevision *uint64                     `json:"workspace_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode WorkspaceClosedEvent: %w", err)
+	}
 	type wire WorkspaceClosedEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Entity == nil {
+		return fmt.Errorf("decode WorkspaceClosedEvent: required field entity is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Entity = *fields.Entity
+	if fields.Generation == nil {
+		return fmt.Errorf("decode WorkspaceClosedEvent: required field generation is missing or null")
 	}
-	if raw, exists := object["mutation_id"]; exists && isJSONNull(raw) {
+	decoded.Generation = *fields.Generation
+	if fields.Index == nil {
+		return fmt.Errorf("decode WorkspaceClosedEvent: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.MutationID.null {
 		return fmt.Errorf("decode WorkspaceClosedEvent: non-nullable field mutation_id is null")
 	}
-	if raw, exists := object["origin"]; exists && isJSONNull(raw) {
+	if fields.MutationID.set {
+		decoded.MutationID = &fields.MutationID.value
+	}
+	if fields.Origin.null {
 		return fmt.Errorf("decode WorkspaceClosedEvent: non-nullable field origin is null")
 	}
+	if fields.Origin.set {
+		decoded.Origin = &fields.Origin.value
+	}
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode WorkspaceClosedEvent: required field registry_id is missing or null")
+	}
+	decoded.RegistryID = *fields.RegistryID
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode WorkspaceClosedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	if fields.WorkspaceRevision == nil {
+		return fmt.Errorf("decode WorkspaceClosedEvent: required field workspace_revision is missing or null")
+	}
+	decoded.WorkspaceRevision = *fields.WorkspaceRevision
 	*value = WorkspaceClosedEvent(decoded)
 	return nil
 }
@@ -1350,21 +2513,60 @@ type WorkspaceMovedEvent struct {
 }
 
 func (value *WorkspaceMovedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode WorkspaceMovedEvent: expected object")
+	}
+	var fields struct {
+		Entity            *Workspace                  `json:"entity"`
+		Generation        *string                     `json:"generation"`
+		Index             *uint64                     `json:"index"`
+		MutationID        optionalNonNullJSON[string] `json:"mutation_id"`
+		Origin            optionalNonNullJSON[string] `json:"origin"`
+		RegistryID        *string                     `json:"registry_id"`
+		Workspace         *ID                         `json:"workspace"`
+		WorkspaceRevision *uint64                     `json:"workspace_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode WorkspaceMovedEvent: %w", err)
+	}
 	type wire WorkspaceMovedEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Entity == nil {
+		return fmt.Errorf("decode WorkspaceMovedEvent: required field entity is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Entity = *fields.Entity
+	if fields.Generation == nil {
+		return fmt.Errorf("decode WorkspaceMovedEvent: required field generation is missing or null")
 	}
-	if raw, exists := object["mutation_id"]; exists && isJSONNull(raw) {
+	decoded.Generation = *fields.Generation
+	if fields.Index == nil {
+		return fmt.Errorf("decode WorkspaceMovedEvent: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.MutationID.null {
 		return fmt.Errorf("decode WorkspaceMovedEvent: non-nullable field mutation_id is null")
 	}
-	if raw, exists := object["origin"]; exists && isJSONNull(raw) {
+	if fields.MutationID.set {
+		decoded.MutationID = &fields.MutationID.value
+	}
+	if fields.Origin.null {
 		return fmt.Errorf("decode WorkspaceMovedEvent: non-nullable field origin is null")
 	}
+	if fields.Origin.set {
+		decoded.Origin = &fields.Origin.value
+	}
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode WorkspaceMovedEvent: required field registry_id is missing or null")
+	}
+	decoded.RegistryID = *fields.RegistryID
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode WorkspaceMovedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	if fields.WorkspaceRevision == nil {
+		return fmt.Errorf("decode WorkspaceMovedEvent: required field workspace_revision is missing or null")
+	}
+	decoded.WorkspaceRevision = *fields.WorkspaceRevision
 	*value = WorkspaceMovedEvent(decoded)
 	return nil
 }
@@ -1385,21 +2587,55 @@ type WorkspaceRenamedEvent struct {
 }
 
 func (value *WorkspaceRenamedEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode WorkspaceRenamedEvent: expected object")
+	}
+	var fields struct {
+		Entity            *Workspace                  `json:"entity"`
+		Generation        *string                     `json:"generation"`
+		MutationID        optionalNonNullJSON[string] `json:"mutation_id"`
+		Origin            optionalNonNullJSON[string] `json:"origin"`
+		RegistryID        *string                     `json:"registry_id"`
+		Workspace         *ID                         `json:"workspace"`
+		WorkspaceRevision *uint64                     `json:"workspace_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode WorkspaceRenamedEvent: %w", err)
+	}
 	type wire WorkspaceRenamedEvent
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Entity == nil {
+		return fmt.Errorf("decode WorkspaceRenamedEvent: required field entity is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Entity = *fields.Entity
+	if fields.Generation == nil {
+		return fmt.Errorf("decode WorkspaceRenamedEvent: required field generation is missing or null")
 	}
-	if raw, exists := object["mutation_id"]; exists && isJSONNull(raw) {
+	decoded.Generation = *fields.Generation
+	if fields.MutationID.null {
 		return fmt.Errorf("decode WorkspaceRenamedEvent: non-nullable field mutation_id is null")
 	}
-	if raw, exists := object["origin"]; exists && isJSONNull(raw) {
+	if fields.MutationID.set {
+		decoded.MutationID = &fields.MutationID.value
+	}
+	if fields.Origin.null {
 		return fmt.Errorf("decode WorkspaceRenamedEvent: non-nullable field origin is null")
 	}
+	if fields.Origin.set {
+		decoded.Origin = &fields.Origin.value
+	}
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode WorkspaceRenamedEvent: required field registry_id is missing or null")
+	}
+	decoded.RegistryID = *fields.RegistryID
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode WorkspaceRenamedEvent: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	if fields.WorkspaceRevision == nil {
+		return fmt.Errorf("decode WorkspaceRenamedEvent: required field workspace_revision is missing or null")
+	}
+	decoded.WorkspaceRevision = *fields.WorkspaceRevision
 	*value = WorkspaceRenamedEvent(decoded)
 	return nil
 }

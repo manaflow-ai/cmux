@@ -80,63 +80,29 @@ func (value ApplyLayoutRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ApplyLayoutRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ApplyLayoutRequest: expected object")
+	}
+	var fields struct {
+		Cols      Presence[uint16]   `json:"cols"`
+		Layout    *DeclarativeLayout `json:"layout"`
+		Name      Presence[string]   `json:"name"`
+		Rows      Presence[uint16]   `json:"rows"`
+		Workspace Presence[ID]       `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ApplyLayoutRequest: %w", err)
+	}
 	type wire ApplyLayoutRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Cols = fields.Cols
+	if fields.Layout == nil {
+		return fmt.Errorf("decode ApplyLayoutRequest: required field layout is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode ApplyLayoutRequest.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode ApplyLayoutRequest.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode ApplyLayoutRequest.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode ApplyLayoutRequest.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.Layout = *fields.Layout
+	decoded.Name = fields.Name
+	decoded.Rows = fields.Rows
+	decoded.Workspace = fields.Workspace
 	*value = ApplyLayoutRequest(decoded)
 	return nil
 }
@@ -210,63 +176,24 @@ func (value ApplyLayoutOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ApplyLayoutOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ApplyLayoutOptions: expected object")
+	}
+	var fields struct {
+		Cols      Presence[uint16] `json:"cols"`
+		Name      Presence[string] `json:"name"`
+		Rows      Presence[uint16] `json:"rows"`
+		Workspace Presence[ID]     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ApplyLayoutOptions: %w", err)
+	}
 	type wire ApplyLayoutOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode ApplyLayoutOptions.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode ApplyLayoutOptions.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode ApplyLayoutOptions.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode ApplyLayoutOptions.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.Cols = fields.Cols
+	decoded.Name = fields.Name
+	decoded.Rows = fields.Rows
+	decoded.Workspace = fields.Workspace
 	*value = ApplyLayoutOptions(decoded)
 	return nil
 }
@@ -279,6 +206,35 @@ const (
 	AttachSurfaceRequestModeRender AttachSurfaceRequestMode = "render"
 )
 
+func (value AttachSurfaceRequestMode) valid() bool {
+	switch value {
+	case AttachSurfaceRequestModeBytes, AttachSurfaceRequestModeRender:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value AttachSurfaceRequestMode) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "AttachSurfaceRequestMode", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *AttachSurfaceRequestMode) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := AttachSurfaceRequestMode(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "AttachSurfaceRequestMode", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type AttachSurfaceRequest struct {
 	Cols    Presence[uint16]                   `json:"-"`
 	Mode    Presence[AttachSurfaceRequestMode] `json:"-"`
@@ -287,6 +243,13 @@ type AttachSurfaceRequest struct {
 }
 
 func (value AttachSurfaceRequest) MarshalJSON() ([]byte, error) {
+	if fieldValue, ok := value.Mode.Get(); ok {
+		switch fieldValue {
+		case "bytes", "render":
+		default:
+			return nil, fmt.Errorf("encode AttachSurfaceRequest.Mode: invalid value %v", fieldValue)
+		}
+	}
 	type wire AttachSurfaceRequest
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -336,51 +299,27 @@ func (value AttachSurfaceRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *AttachSurfaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode AttachSurfaceRequest: expected object")
+	}
+	var fields struct {
+		Cols    Presence[uint16]                   `json:"cols"`
+		Mode    Presence[AttachSurfaceRequestMode] `json:"mode"`
+		Rows    Presence[uint16]                   `json:"rows"`
+		Surface *ID                                `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode AttachSurfaceRequest: %w", err)
+	}
 	type wire AttachSurfaceRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Cols = fields.Cols
+	decoded.Mode = fields.Mode
+	decoded.Rows = fields.Rows
+	if fields.Surface == nil {
+		return fmt.Errorf("decode AttachSurfaceRequest: required field surface is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode AttachSurfaceRequest.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawMode, hasMode := object["mode"]
-	if !hasMode {
-		decoded.Mode = Presence[AttachSurfaceRequestMode]{}
-	} else if isJSONNull(rawMode) {
-		decoded.Mode = Null[AttachSurfaceRequestMode]()
-	} else {
-		var fieldValue AttachSurfaceRequestMode
-		if err := json.Unmarshal(rawMode, &fieldValue); err != nil {
-			return fmt.Errorf("decode AttachSurfaceRequest.Mode: %w", err)
-		}
-		decoded.Mode = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode AttachSurfaceRequest.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Surface = *fields.Surface
 	*value = AttachSurfaceRequest(decoded)
 	return nil
 }
@@ -392,6 +331,26 @@ type BrowserActivateRequest struct {
 	Surface ID `json:"surface"`
 }
 
+func (value *BrowserActivateRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserActivateRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserActivateRequest: %w", err)
+	}
+	type wire BrowserActivateRequest
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserActivateRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = BrowserActivateRequest(decoded)
+	return nil
+}
+
 type BrowserActivateResult = EmptyResult
 
 // BrowserBackRequest is the exact browser-back wire payload.
@@ -399,11 +358,51 @@ type BrowserBackRequest struct {
 	Surface ID `json:"surface"`
 }
 
+func (value *BrowserBackRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserBackRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserBackRequest: %w", err)
+	}
+	type wire BrowserBackRequest
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserBackRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = BrowserBackRequest(decoded)
+	return nil
+}
+
 type BrowserBackResult = EmptyResult
 
 // BrowserForwardRequest is the exact browser-forward wire payload.
 type BrowserForwardRequest struct {
 	Surface ID `json:"surface"`
+}
+
+func (value *BrowserForwardRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserForwardRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserForwardRequest: %w", err)
+	}
+	type wire BrowserForwardRequest
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserForwardRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = BrowserForwardRequest(decoded)
+	return nil
 }
 
 type BrowserForwardResult = EmptyResult
@@ -414,6 +413,31 @@ type BrowserFramePresentedRequest struct {
 	Surface  ID     `json:"surface"`
 }
 
+func (value *BrowserFramePresentedRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserFramePresentedRequest: expected object")
+	}
+	var fields struct {
+		FrameSeq *uint64 `json:"frame_seq"`
+		Surface  *ID     `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserFramePresentedRequest: %w", err)
+	}
+	type wire BrowserFramePresentedRequest
+	var decoded wire
+	if fields.FrameSeq == nil {
+		return fmt.Errorf("decode BrowserFramePresentedRequest: required field frame_seq is missing or null")
+	}
+	decoded.FrameSeq = *fields.FrameSeq
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserFramePresentedRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = BrowserFramePresentedRequest(decoded)
+	return nil
+}
+
 type BrowserFramePresentedResult = EmptyResult
 
 // BrowserInsertTextRequest is the exact browser-insert-text wire payload.
@@ -422,20 +446,86 @@ type BrowserInsertTextRequest struct {
 	Text    string `json:"text"`
 }
 
+func (value *BrowserInsertTextRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserInsertTextRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID     `json:"surface"`
+		Text    *string `json:"text"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserInsertTextRequest: %w", err)
+	}
+	type wire BrowserInsertTextRequest
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserInsertTextRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	if fields.Text == nil {
+		return fmt.Errorf("decode BrowserInsertTextRequest: required field text is missing or null")
+	}
+	decoded.Text = *fields.Text
+	*value = BrowserInsertTextRequest(decoded)
+	return nil
+}
+
 type BrowserInsertTextResult = EmptyResult
 
 // BrowserKeyRequest is the exact browser-key wire payload.
+type BrowserKeyRequestKind string
+
+const (
+	BrowserKeyRequestKindDown BrowserKeyRequestKind = "down"
+	BrowserKeyRequestKindUp   BrowserKeyRequestKind = "up"
+)
+
+func (value BrowserKeyRequestKind) valid() bool {
+	switch value {
+	case BrowserKeyRequestKindDown, BrowserKeyRequestKindUp:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value BrowserKeyRequestKind) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "BrowserKeyRequestKind", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *BrowserKeyRequestKind) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := BrowserKeyRequestKind(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "BrowserKeyRequestKind", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type BrowserKeyRequest struct {
-	Code                  string           `json:"code"`
-	Key                   string           `json:"key"`
-	Kind                  string           `json:"kind"`
-	Modifiers             uint32           `json:"modifiers"`
-	Surface               ID               `json:"surface"`
-	Text                  Presence[string] `json:"-"`
-	WindowsVirtualKeyCode uint32           `json:"windows_virtual_key_code"`
+	Code                  string                `json:"code"`
+	Key                   string                `json:"key"`
+	Kind                  BrowserKeyRequestKind `json:"kind"`
+	Modifiers             uint32                `json:"modifiers"`
+	Surface               ID                    `json:"surface"`
+	Text                  Presence[string]      `json:"-"`
+	WindowsVirtualKeyCode uint32                `json:"windows_virtual_key_code"`
 }
 
 func (value BrowserKeyRequest) MarshalJSON() ([]byte, error) {
+	switch value.Kind {
+	case "down", "up":
+	default:
+		return nil, fmt.Errorf("encode BrowserKeyRequest.Kind: invalid value %v", value.Kind)
+	}
 	type wire BrowserKeyRequest
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -461,27 +551,53 @@ func (value BrowserKeyRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *BrowserKeyRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserKeyRequest: expected object")
+	}
+	var fields struct {
+		Code                  *string                `json:"code"`
+		Key                   *string                `json:"key"`
+		Kind                  *BrowserKeyRequestKind `json:"kind"`
+		Modifiers             *uint32                `json:"modifiers"`
+		Surface               *ID                    `json:"surface"`
+		Text                  Presence[string]       `json:"text"`
+		WindowsVirtualKeyCode *uint32                `json:"windows_virtual_key_code"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserKeyRequest: %w", err)
+	}
 	type wire BrowserKeyRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Code == nil {
+		return fmt.Errorf("decode BrowserKeyRequest: required field code is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Code = *fields.Code
+	if fields.Key == nil {
+		return fmt.Errorf("decode BrowserKeyRequest: required field key is missing or null")
 	}
-	rawText, hasText := object["text"]
-	if !hasText {
-		decoded.Text = Presence[string]{}
-	} else if isJSONNull(rawText) {
-		decoded.Text = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawText, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserKeyRequest.Text: %w", err)
-		}
-		decoded.Text = Value(fieldValue)
+	decoded.Key = *fields.Key
+	if fields.Kind == nil {
+		return fmt.Errorf("decode BrowserKeyRequest: required field kind is missing or null")
 	}
+	decoded.Kind = *fields.Kind
+	switch decoded.Kind {
+	case "down", "up":
+	default:
+		return fmt.Errorf("decode BrowserKeyRequest.Kind: invalid value %v", decoded.Kind)
+	}
+	if fields.Modifiers == nil {
+		return fmt.Errorf("decode BrowserKeyRequest: required field modifiers is missing or null")
+	}
+	decoded.Modifiers = *fields.Modifiers
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserKeyRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	decoded.Text = fields.Text
+	if fields.WindowsVirtualKeyCode == nil {
+		return fmt.Errorf("decode BrowserKeyRequest: required field windows_virtual_key_code is missing or null")
+	}
+	decoded.WindowsVirtualKeyCode = *fields.WindowsVirtualKeyCode
 	*value = BrowserKeyRequest(decoded)
 	return nil
 }
@@ -518,27 +634,18 @@ func (value BrowserKeyOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *BrowserKeyOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserKeyOptions: expected object")
+	}
+	var fields struct {
+		Text Presence[string] `json:"text"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserKeyOptions: %w", err)
+	}
 	type wire BrowserKeyOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawText, hasText := object["text"]
-	if !hasText {
-		decoded.Text = Presence[string]{}
-	} else if isJSONNull(rawText) {
-		decoded.Text = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawText, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserKeyOptions.Text: %w", err)
-		}
-		decoded.Text = Value(fieldValue)
-	}
+	decoded.Text = fields.Text
 	*value = BrowserKeyOptions(decoded)
 	return nil
 }
@@ -579,27 +686,43 @@ func (value BrowserKeyPressRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *BrowserKeyPressRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserKeyPressRequest: expected object")
+	}
+	var fields struct {
+		Code                  *string          `json:"code"`
+		Key                   *string          `json:"key"`
+		Modifiers             *uint32          `json:"modifiers"`
+		Surface               *ID              `json:"surface"`
+		Text                  Presence[string] `json:"text"`
+		WindowsVirtualKeyCode *uint32          `json:"windows_virtual_key_code"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserKeyPressRequest: %w", err)
+	}
 	type wire BrowserKeyPressRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Code == nil {
+		return fmt.Errorf("decode BrowserKeyPressRequest: required field code is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Code = *fields.Code
+	if fields.Key == nil {
+		return fmt.Errorf("decode BrowserKeyPressRequest: required field key is missing or null")
 	}
-	rawText, hasText := object["text"]
-	if !hasText {
-		decoded.Text = Presence[string]{}
-	} else if isJSONNull(rawText) {
-		decoded.Text = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawText, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserKeyPressRequest.Text: %w", err)
-		}
-		decoded.Text = Value(fieldValue)
+	decoded.Key = *fields.Key
+	if fields.Modifiers == nil {
+		return fmt.Errorf("decode BrowserKeyPressRequest: required field modifiers is missing or null")
 	}
+	decoded.Modifiers = *fields.Modifiers
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserKeyPressRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	decoded.Text = fields.Text
+	if fields.WindowsVirtualKeyCode == nil {
+		return fmt.Errorf("decode BrowserKeyPressRequest: required field windows_virtual_key_code is missing or null")
+	}
+	decoded.WindowsVirtualKeyCode = *fields.WindowsVirtualKeyCode
 	*value = BrowserKeyPressRequest(decoded)
 	return nil
 }
@@ -636,43 +759,76 @@ func (value BrowserKeyPressOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *BrowserKeyPressOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserKeyPressOptions: expected object")
+	}
+	var fields struct {
+		Text Presence[string] `json:"text"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserKeyPressOptions: %w", err)
+	}
 	type wire BrowserKeyPressOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawText, hasText := object["text"]
-	if !hasText {
-		decoded.Text = Presence[string]{}
-	} else if isJSONNull(rawText) {
-		decoded.Text = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawText, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserKeyPressOptions.Text: %w", err)
-		}
-		decoded.Text = Value(fieldValue)
-	}
+	decoded.Text = fields.Text
 	*value = BrowserKeyPressOptions(decoded)
 	return nil
 }
 
 // BrowserMouseRequest is the exact browser-mouse wire payload.
+type BrowserMouseRequestKind string
+
+const (
+	BrowserMouseRequestKindDown BrowserMouseRequestKind = "down"
+	BrowserMouseRequestKindUp   BrowserMouseRequestKind = "up"
+	BrowserMouseRequestKindMove BrowserMouseRequestKind = "move"
+)
+
+func (value BrowserMouseRequestKind) valid() bool {
+	switch value {
+	case BrowserMouseRequestKindDown, BrowserMouseRequestKindUp, BrowserMouseRequestKindMove:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value BrowserMouseRequestKind) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "BrowserMouseRequestKind", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *BrowserMouseRequestKind) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := BrowserMouseRequestKind(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "BrowserMouseRequestKind", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type BrowserMouseRequest struct {
-	Button     Presence[string] `json:"-"`
-	ClickCount Presence[uint32] `json:"-"`
-	FrameSeq   Presence[uint64] `json:"-"`
-	Kind       string           `json:"kind"`
-	Surface    ID               `json:"surface"`
-	XPx        float64          `json:"x_px"`
-	YPx        float64          `json:"y_px"`
+	Button     Presence[string]        `json:"-"`
+	ClickCount Presence[uint32]        `json:"-"`
+	FrameSeq   Presence[uint64]        `json:"-"`
+	Kind       BrowserMouseRequestKind `json:"kind"`
+	Surface    ID                      `json:"surface"`
+	XPx        float64                 `json:"x_px"`
+	YPx        float64                 `json:"y_px"`
 }
 
 func (value BrowserMouseRequest) MarshalJSON() ([]byte, error) {
+	switch value.Kind {
+	case "down", "up", "move":
+	default:
+		return nil, fmt.Errorf("encode BrowserMouseRequest.Kind: invalid value %v", value.Kind)
+	}
 	type wire BrowserMouseRequest
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -722,51 +878,47 @@ func (value BrowserMouseRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *BrowserMouseRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserMouseRequest: expected object")
+	}
+	var fields struct {
+		Button     Presence[string]         `json:"button"`
+		ClickCount Presence[uint32]         `json:"click_count"`
+		FrameSeq   Presence[uint64]         `json:"frame_seq"`
+		Kind       *BrowserMouseRequestKind `json:"kind"`
+		Surface    *ID                      `json:"surface"`
+		XPx        *float64                 `json:"x_px"`
+		YPx        *float64                 `json:"y_px"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserMouseRequest: %w", err)
+	}
 	type wire BrowserMouseRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Button = fields.Button
+	decoded.ClickCount = fields.ClickCount
+	decoded.FrameSeq = fields.FrameSeq
+	if fields.Kind == nil {
+		return fmt.Errorf("decode BrowserMouseRequest: required field kind is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Kind = *fields.Kind
+	switch decoded.Kind {
+	case "down", "up", "move":
+	default:
+		return fmt.Errorf("decode BrowserMouseRequest.Kind: invalid value %v", decoded.Kind)
 	}
-	rawButton, hasButton := object["button"]
-	if !hasButton {
-		decoded.Button = Presence[string]{}
-	} else if isJSONNull(rawButton) {
-		decoded.Button = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawButton, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserMouseRequest.Button: %w", err)
-		}
-		decoded.Button = Value(fieldValue)
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserMouseRequest: required field surface is missing or null")
 	}
-	rawClickCount, hasClickCount := object["click_count"]
-	if !hasClickCount {
-		decoded.ClickCount = Presence[uint32]{}
-	} else if isJSONNull(rawClickCount) {
-		decoded.ClickCount = Null[uint32]()
-	} else {
-		var fieldValue uint32
-		if err := json.Unmarshal(rawClickCount, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserMouseRequest.ClickCount: %w", err)
-		}
-		decoded.ClickCount = Value(fieldValue)
+	decoded.Surface = *fields.Surface
+	if fields.XPx == nil {
+		return fmt.Errorf("decode BrowserMouseRequest: required field x_px is missing or null")
 	}
-	rawFrameSeq, hasFrameSeq := object["frame_seq"]
-	if !hasFrameSeq {
-		decoded.FrameSeq = Presence[uint64]{}
-	} else if isJSONNull(rawFrameSeq) {
-		decoded.FrameSeq = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawFrameSeq, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserMouseRequest.FrameSeq: %w", err)
-		}
-		decoded.FrameSeq = Value(fieldValue)
+	decoded.XPx = *fields.XPx
+	if fields.YPx == nil {
+		return fmt.Errorf("decode BrowserMouseRequest: required field y_px is missing or null")
 	}
+	decoded.YPx = *fields.YPx
 	*value = BrowserMouseRequest(decoded)
 	return nil
 }
@@ -829,67 +981,80 @@ func (value BrowserMouseOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *BrowserMouseOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserMouseOptions: expected object")
+	}
+	var fields struct {
+		Button     Presence[string] `json:"button"`
+		ClickCount Presence[uint32] `json:"click_count"`
+		FrameSeq   Presence[uint64] `json:"frame_seq"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserMouseOptions: %w", err)
+	}
 	type wire BrowserMouseOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawButton, hasButton := object["button"]
-	if !hasButton {
-		decoded.Button = Presence[string]{}
-	} else if isJSONNull(rawButton) {
-		decoded.Button = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawButton, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserMouseOptions.Button: %w", err)
-		}
-		decoded.Button = Value(fieldValue)
-	}
-	rawClickCount, hasClickCount := object["click_count"]
-	if !hasClickCount {
-		decoded.ClickCount = Presence[uint32]{}
-	} else if isJSONNull(rawClickCount) {
-		decoded.ClickCount = Null[uint32]()
-	} else {
-		var fieldValue uint32
-		if err := json.Unmarshal(rawClickCount, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserMouseOptions.ClickCount: %w", err)
-		}
-		decoded.ClickCount = Value(fieldValue)
-	}
-	rawFrameSeq, hasFrameSeq := object["frame_seq"]
-	if !hasFrameSeq {
-		decoded.FrameSeq = Presence[uint64]{}
-	} else if isJSONNull(rawFrameSeq) {
-		decoded.FrameSeq = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawFrameSeq, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserMouseOptions.FrameSeq: %w", err)
-		}
-		decoded.FrameSeq = Value(fieldValue)
-	}
+	decoded.Button = fields.Button
+	decoded.ClickCount = fields.ClickCount
+	decoded.FrameSeq = fields.FrameSeq
 	*value = BrowserMouseOptions(decoded)
 	return nil
 }
 
 // BrowserMouseGuardedRequest is the exact browser-mouse-guarded wire payload.
+type BrowserMouseGuardedRequestKind string
+
+const (
+	BrowserMouseGuardedRequestKindDown BrowserMouseGuardedRequestKind = "down"
+	BrowserMouseGuardedRequestKindUp   BrowserMouseGuardedRequestKind = "up"
+	BrowserMouseGuardedRequestKindMove BrowserMouseGuardedRequestKind = "move"
+)
+
+func (value BrowserMouseGuardedRequestKind) valid() bool {
+	switch value {
+	case BrowserMouseGuardedRequestKindDown, BrowserMouseGuardedRequestKindUp, BrowserMouseGuardedRequestKindMove:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value BrowserMouseGuardedRequestKind) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "BrowserMouseGuardedRequestKind", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *BrowserMouseGuardedRequestKind) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := BrowserMouseGuardedRequestKind(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "BrowserMouseGuardedRequestKind", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type BrowserMouseGuardedRequest struct {
-	Button     Presence[string] `json:"-"`
-	ClickCount Presence[uint32] `json:"-"`
-	FrameSeq   uint64           `json:"frame_seq"`
-	Kind       string           `json:"kind"`
-	Surface    ID               `json:"surface"`
-	XPx        float64          `json:"x_px"`
-	YPx        float64          `json:"y_px"`
+	Button     Presence[string]               `json:"-"`
+	ClickCount Presence[uint32]               `json:"-"`
+	FrameSeq   uint64                         `json:"frame_seq"`
+	Kind       BrowserMouseGuardedRequestKind `json:"kind"`
+	Surface    ID                             `json:"surface"`
+	XPx        float64                        `json:"x_px"`
+	YPx        float64                        `json:"y_px"`
 }
 
 func (value BrowserMouseGuardedRequest) MarshalJSON() ([]byte, error) {
+	switch value.Kind {
+	case "down", "up", "move":
+	default:
+		return nil, fmt.Errorf("encode BrowserMouseGuardedRequest.Kind: invalid value %v", value.Kind)
+	}
 	type wire BrowserMouseGuardedRequest
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -927,39 +1092,50 @@ func (value BrowserMouseGuardedRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *BrowserMouseGuardedRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserMouseGuardedRequest: expected object")
+	}
+	var fields struct {
+		Button     Presence[string]                `json:"button"`
+		ClickCount Presence[uint32]                `json:"click_count"`
+		FrameSeq   *uint64                         `json:"frame_seq"`
+		Kind       *BrowserMouseGuardedRequestKind `json:"kind"`
+		Surface    *ID                             `json:"surface"`
+		XPx        *float64                        `json:"x_px"`
+		YPx        *float64                        `json:"y_px"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserMouseGuardedRequest: %w", err)
+	}
 	type wire BrowserMouseGuardedRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Button = fields.Button
+	decoded.ClickCount = fields.ClickCount
+	if fields.FrameSeq == nil {
+		return fmt.Errorf("decode BrowserMouseGuardedRequest: required field frame_seq is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.FrameSeq = *fields.FrameSeq
+	if fields.Kind == nil {
+		return fmt.Errorf("decode BrowserMouseGuardedRequest: required field kind is missing or null")
 	}
-	rawButton, hasButton := object["button"]
-	if !hasButton {
-		decoded.Button = Presence[string]{}
-	} else if isJSONNull(rawButton) {
-		decoded.Button = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawButton, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserMouseGuardedRequest.Button: %w", err)
-		}
-		decoded.Button = Value(fieldValue)
+	decoded.Kind = *fields.Kind
+	switch decoded.Kind {
+	case "down", "up", "move":
+	default:
+		return fmt.Errorf("decode BrowserMouseGuardedRequest.Kind: invalid value %v", decoded.Kind)
 	}
-	rawClickCount, hasClickCount := object["click_count"]
-	if !hasClickCount {
-		decoded.ClickCount = Presence[uint32]{}
-	} else if isJSONNull(rawClickCount) {
-		decoded.ClickCount = Null[uint32]()
-	} else {
-		var fieldValue uint32
-		if err := json.Unmarshal(rawClickCount, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserMouseGuardedRequest.ClickCount: %w", err)
-		}
-		decoded.ClickCount = Value(fieldValue)
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserMouseGuardedRequest: required field surface is missing or null")
 	}
+	decoded.Surface = *fields.Surface
+	if fields.XPx == nil {
+		return fmt.Errorf("decode BrowserMouseGuardedRequest: required field x_px is missing or null")
+	}
+	decoded.XPx = *fields.XPx
+	if fields.YPx == nil {
+		return fmt.Errorf("decode BrowserMouseGuardedRequest: required field y_px is missing or null")
+	}
+	decoded.YPx = *fields.YPx
 	*value = BrowserMouseGuardedRequest(decoded)
 	return nil
 }
@@ -1009,39 +1185,20 @@ func (value BrowserMouseGuardedOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *BrowserMouseGuardedOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserMouseGuardedOptions: expected object")
+	}
+	var fields struct {
+		Button     Presence[string] `json:"button"`
+		ClickCount Presence[uint32] `json:"click_count"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserMouseGuardedOptions: %w", err)
+	}
 	type wire BrowserMouseGuardedOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawButton, hasButton := object["button"]
-	if !hasButton {
-		decoded.Button = Presence[string]{}
-	} else if isJSONNull(rawButton) {
-		decoded.Button = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawButton, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserMouseGuardedOptions.Button: %w", err)
-		}
-		decoded.Button = Value(fieldValue)
-	}
-	rawClickCount, hasClickCount := object["click_count"]
-	if !hasClickCount {
-		decoded.ClickCount = Presence[uint32]{}
-	} else if isJSONNull(rawClickCount) {
-		decoded.ClickCount = Null[uint32]()
-	} else {
-		var fieldValue uint32
-		if err := json.Unmarshal(rawClickCount, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserMouseGuardedOptions.ClickCount: %w", err)
-		}
-		decoded.ClickCount = Value(fieldValue)
-	}
+	decoded.Button = fields.Button
+	decoded.ClickCount = fields.ClickCount
 	*value = BrowserMouseGuardedOptions(decoded)
 	return nil
 }
@@ -1052,11 +1209,56 @@ type BrowserNavigateRequest struct {
 	URL     string `json:"url"`
 }
 
+func (value *BrowserNavigateRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserNavigateRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID     `json:"surface"`
+		URL     *string `json:"url"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserNavigateRequest: %w", err)
+	}
+	type wire BrowserNavigateRequest
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserNavigateRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	if fields.URL == nil {
+		return fmt.Errorf("decode BrowserNavigateRequest: required field url is missing or null")
+	}
+	decoded.URL = *fields.URL
+	*value = BrowserNavigateRequest(decoded)
+	return nil
+}
+
 type BrowserNavigateResult = EmptyResult
 
 // BrowserReloadRequest is the exact browser-reload wire payload.
 type BrowserReloadRequest struct {
 	Surface ID `json:"surface"`
+}
+
+func (value *BrowserReloadRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserReloadRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserReloadRequest: %w", err)
+	}
+	type wire BrowserReloadRequest
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserReloadRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = BrowserReloadRequest(decoded)
+	return nil
 }
 
 type BrowserReloadResult = EmptyResult
@@ -1096,27 +1298,38 @@ func (value BrowserWheelRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *BrowserWheelRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserWheelRequest: expected object")
+	}
+	var fields struct {
+		DeltaYPx *float64         `json:"delta_y_px"`
+		FrameSeq Presence[uint64] `json:"frame_seq"`
+		Surface  *ID              `json:"surface"`
+		XPx      *float64         `json:"x_px"`
+		YPx      *float64         `json:"y_px"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserWheelRequest: %w", err)
+	}
 	type wire BrowserWheelRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.DeltaYPx == nil {
+		return fmt.Errorf("decode BrowserWheelRequest: required field delta_y_px is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.DeltaYPx = *fields.DeltaYPx
+	decoded.FrameSeq = fields.FrameSeq
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserWheelRequest: required field surface is missing or null")
 	}
-	rawFrameSeq, hasFrameSeq := object["frame_seq"]
-	if !hasFrameSeq {
-		decoded.FrameSeq = Presence[uint64]{}
-	} else if isJSONNull(rawFrameSeq) {
-		decoded.FrameSeq = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawFrameSeq, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserWheelRequest.FrameSeq: %w", err)
-		}
-		decoded.FrameSeq = Value(fieldValue)
+	decoded.Surface = *fields.Surface
+	if fields.XPx == nil {
+		return fmt.Errorf("decode BrowserWheelRequest: required field x_px is missing or null")
 	}
+	decoded.XPx = *fields.XPx
+	if fields.YPx == nil {
+		return fmt.Errorf("decode BrowserWheelRequest: required field y_px is missing or null")
+	}
+	decoded.YPx = *fields.YPx
 	*value = BrowserWheelRequest(decoded)
 	return nil
 }
@@ -1153,27 +1366,18 @@ func (value BrowserWheelOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *BrowserWheelOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserWheelOptions: expected object")
+	}
+	var fields struct {
+		FrameSeq Presence[uint64] `json:"frame_seq"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserWheelOptions: %w", err)
+	}
 	type wire BrowserWheelOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawFrameSeq, hasFrameSeq := object["frame_seq"]
-	if !hasFrameSeq {
-		decoded.FrameSeq = Presence[uint64]{}
-	} else if isJSONNull(rawFrameSeq) {
-		decoded.FrameSeq = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawFrameSeq, &fieldValue); err != nil {
-			return fmt.Errorf("decode BrowserWheelOptions.FrameSeq: %w", err)
-		}
-		decoded.FrameSeq = Value(fieldValue)
-	}
+	decoded.FrameSeq = fields.FrameSeq
 	*value = BrowserWheelOptions(decoded)
 	return nil
 }
@@ -1185,6 +1389,46 @@ type BrowserWheelGuardedRequest struct {
 	Surface  ID      `json:"surface"`
 	XPx      float64 `json:"x_px"`
 	YPx      float64 `json:"y_px"`
+}
+
+func (value *BrowserWheelGuardedRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserWheelGuardedRequest: expected object")
+	}
+	var fields struct {
+		DeltaYPx *float64 `json:"delta_y_px"`
+		FrameSeq *uint64  `json:"frame_seq"`
+		Surface  *ID      `json:"surface"`
+		XPx      *float64 `json:"x_px"`
+		YPx      *float64 `json:"y_px"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserWheelGuardedRequest: %w", err)
+	}
+	type wire BrowserWheelGuardedRequest
+	var decoded wire
+	if fields.DeltaYPx == nil {
+		return fmt.Errorf("decode BrowserWheelGuardedRequest: required field delta_y_px is missing or null")
+	}
+	decoded.DeltaYPx = *fields.DeltaYPx
+	if fields.FrameSeq == nil {
+		return fmt.Errorf("decode BrowserWheelGuardedRequest: required field frame_seq is missing or null")
+	}
+	decoded.FrameSeq = *fields.FrameSeq
+	if fields.Surface == nil {
+		return fmt.Errorf("decode BrowserWheelGuardedRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	if fields.XPx == nil {
+		return fmt.Errorf("decode BrowserWheelGuardedRequest: required field x_px is missing or null")
+	}
+	decoded.XPx = *fields.XPx
+	if fields.YPx == nil {
+		return fmt.Errorf("decode BrowserWheelGuardedRequest: required field y_px is missing or null")
+	}
+	decoded.YPx = *fields.YPx
+	*value = BrowserWheelGuardedRequest(decoded)
+	return nil
 }
 
 type BrowserWheelGuardedResult = EmptyResult
@@ -1221,27 +1465,23 @@ func (value ClearHistoryRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ClearHistoryRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClearHistoryRequest: expected object")
+	}
+	var fields struct {
+		FallbackKey Presence[TerminalKeyInput] `json:"fallback_key"`
+		Surface     *ID                        `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClearHistoryRequest: %w", err)
+	}
 	type wire ClearHistoryRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.FallbackKey = fields.FallbackKey
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ClearHistoryRequest: required field surface is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawFallbackKey, hasFallbackKey := object["fallback_key"]
-	if !hasFallbackKey {
-		decoded.FallbackKey = Presence[TerminalKeyInput]{}
-	} else if isJSONNull(rawFallbackKey) {
-		decoded.FallbackKey = Null[TerminalKeyInput]()
-	} else {
-		var fieldValue TerminalKeyInput
-		if err := json.Unmarshal(rawFallbackKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode ClearHistoryRequest.FallbackKey: %w", err)
-		}
-		decoded.FallbackKey = Value(fieldValue)
-	}
+	decoded.Surface = *fields.Surface
 	*value = ClearHistoryRequest(decoded)
 	return nil
 }
@@ -1278,27 +1518,18 @@ func (value ClearHistoryOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ClearHistoryOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClearHistoryOptions: expected object")
+	}
+	var fields struct {
+		FallbackKey Presence[TerminalKeyInput] `json:"fallback_key"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClearHistoryOptions: %w", err)
+	}
 	type wire ClearHistoryOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawFallbackKey, hasFallbackKey := object["fallback_key"]
-	if !hasFallbackKey {
-		decoded.FallbackKey = Presence[TerminalKeyInput]{}
-	} else if isJSONNull(rawFallbackKey) {
-		decoded.FallbackKey = Null[TerminalKeyInput]()
-	} else {
-		var fieldValue TerminalKeyInput
-		if err := json.Unmarshal(rawFallbackKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode ClearHistoryOptions.FallbackKey: %w", err)
-		}
-		decoded.FallbackKey = Value(fieldValue)
-	}
+	decoded.FallbackKey = fields.FallbackKey
 	*value = ClearHistoryOptions(decoded)
 	return nil
 }
@@ -1307,11 +1538,46 @@ func (value *ClearHistoryOptions) UnmarshalJSON(data []byte) error {
 type ClearWindowTitleRequest struct {
 }
 
+func (value *ClearWindowTitleRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClearWindowTitleRequest: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClearWindowTitleRequest: %w", err)
+	}
+	type wire ClearWindowTitleRequest
+	var decoded wire
+	*value = ClearWindowTitleRequest(decoded)
+	return nil
+}
+
 type ClearWindowTitleResult = EmptyResult
 
 // ClosePaneRequest is the exact close-pane wire payload.
 type ClosePaneRequest struct {
 	Pane ID `json:"pane"`
+}
+
+func (value *ClosePaneRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClosePaneRequest: expected object")
+	}
+	var fields struct {
+		Pane *ID `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClosePaneRequest: %w", err)
+	}
+	type wire ClosePaneRequest
+	var decoded wire
+	if fields.Pane == nil {
+		return fmt.Errorf("decode ClosePaneRequest: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	*value = ClosePaneRequest(decoded)
+	return nil
 }
 
 type ClosePaneResult = EmptyResult
@@ -1323,6 +1589,36 @@ type CloseProviderManagedWorkspaceRequest struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value *CloseProviderManagedWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CloseProviderManagedWorkspaceRequest: expected object")
+	}
+	var fields struct {
+		Authority *string `json:"authority"`
+		Key       *string `json:"key"`
+		Workspace *ID     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CloseProviderManagedWorkspaceRequest: %w", err)
+	}
+	type wire CloseProviderManagedWorkspaceRequest
+	var decoded wire
+	if fields.Authority == nil {
+		return fmt.Errorf("decode CloseProviderManagedWorkspaceRequest: required field authority is missing or null")
+	}
+	decoded.Authority = *fields.Authority
+	if fields.Key == nil {
+		return fmt.Errorf("decode CloseProviderManagedWorkspaceRequest: required field key is missing or null")
+	}
+	decoded.Key = *fields.Key
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode CloseProviderManagedWorkspaceRequest: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	*value = CloseProviderManagedWorkspaceRequest(decoded)
+	return nil
+}
+
 type CloseProviderManagedWorkspaceResult = ProviderWorkspaceMutationResult
 
 // CloseScreenRequest is the exact close-screen wire payload.
@@ -1330,11 +1626,51 @@ type CloseScreenRequest struct {
 	Screen ID `json:"screen"`
 }
 
+func (value *CloseScreenRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CloseScreenRequest: expected object")
+	}
+	var fields struct {
+		Screen *ID `json:"screen"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CloseScreenRequest: %w", err)
+	}
+	type wire CloseScreenRequest
+	var decoded wire
+	if fields.Screen == nil {
+		return fmt.Errorf("decode CloseScreenRequest: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	*value = CloseScreenRequest(decoded)
+	return nil
+}
+
 type CloseScreenResult = EmptyResult
 
 // CloseSurfaceRequest is the exact close-surface wire payload.
 type CloseSurfaceRequest struct {
 	Surface ID `json:"surface"`
+}
+
+func (value *CloseSurfaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CloseSurfaceRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CloseSurfaceRequest: %w", err)
+	}
+	type wire CloseSurfaceRequest
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode CloseSurfaceRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = CloseSurfaceRequest(decoded)
+	return nil
 }
 
 type CloseSurfaceResult = EmptyResult
@@ -1423,75 +1759,31 @@ func (value CloseTerminalRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *CloseTerminalRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CloseTerminalRequest: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration  Presence[string] `json:"expected_generation"`
+		ExpectedRevision    Presence[uint64] `json:"expected_revision"`
+		MutationID          Presence[string] `json:"mutation_id"`
+		Origin              Presence[string] `json:"origin"`
+		TerminalID          *string          `json:"terminal_id"`
+		TerminalIncarnation Presence[string] `json:"terminal_incarnation"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CloseTerminalRequest: %w", err)
+	}
 	type wire CloseTerminalRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.MutationID = fields.MutationID
+	decoded.Origin = fields.Origin
+	if fields.TerminalID == nil {
+		return fmt.Errorf("decode CloseTerminalRequest: required field terminal_id is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalRequest.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalRequest.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalRequest.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalRequest.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		decoded.TerminalIncarnation = Presence[string]{}
-	} else if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalRequest.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = Value(fieldValue)
-	}
+	decoded.TerminalID = *fields.TerminalID
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
 	*value = CloseTerminalRequest(decoded)
 	return nil
 }
@@ -1578,75 +1870,26 @@ func (value CloseTerminalOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *CloseTerminalOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CloseTerminalOptions: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration  Presence[string] `json:"expected_generation"`
+		ExpectedRevision    Presence[uint64] `json:"expected_revision"`
+		MutationID          Presence[string] `json:"mutation_id"`
+		Origin              Presence[string] `json:"origin"`
+		TerminalIncarnation Presence[string] `json:"terminal_incarnation"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CloseTerminalOptions: %w", err)
+	}
 	type wire CloseTerminalOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalOptions.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalOptions.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalOptions.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalOptions.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		decoded.TerminalIncarnation = Presence[string]{}
-	} else if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalOptions.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = Value(fieldValue)
-	}
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.MutationID = fields.MutationID
+	decoded.Origin = fields.Origin
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
 	*value = CloseTerminalOptions(decoded)
 	return nil
 }
@@ -1747,87 +1990,28 @@ func (value CloseWorkspaceRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *CloseWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CloseWorkspaceRequest: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration Presence[string] `json:"expected_generation"`
+		ExpectedRevision   Presence[uint64] `json:"expected_revision"`
+		Key                Presence[string] `json:"key"`
+		MutationID         Presence[string] `json:"mutation_id"`
+		Origin             Presence[string] `json:"origin"`
+		Workspace          Presence[ID]     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CloseWorkspaceRequest: %w", err)
+	}
 	type wire CloseWorkspaceRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceRequest.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceRequest.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceRequest.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceRequest.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceRequest.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceRequest.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.Key = fields.Key
+	decoded.MutationID = fields.MutationID
+	decoded.Origin = fields.Origin
+	decoded.Workspace = fields.Workspace
 	*value = CloseWorkspaceRequest(decoded)
 	return nil
 }
@@ -1929,95 +2113,113 @@ func (value CloseWorkspaceOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *CloseWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CloseWorkspaceOptions: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration Presence[string] `json:"expected_generation"`
+		ExpectedRevision   Presence[uint64] `json:"expected_revision"`
+		Key                Presence[string] `json:"key"`
+		MutationID         Presence[string] `json:"mutation_id"`
+		Origin             Presence[string] `json:"origin"`
+		Workspace          Presence[ID]     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CloseWorkspaceOptions: %w", err)
+	}
 	type wire CloseWorkspaceOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceOptions.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceOptions.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceOptions.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceOptions.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceOptions.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseWorkspaceOptions.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.Key = fields.Key
+	decoded.MutationID = fields.MutationID
+	decoded.Origin = fields.Origin
+	decoded.Workspace = fields.Workspace
 	*value = CloseWorkspaceOptions(decoded)
 	return nil
 }
 
 // CopyRequest is the exact copy wire payload.
+type CopyRequestMode string
+
+const (
+	CopyRequestModeScreen     CopyRequestMode = "screen"
+	CopyRequestModeSelection  CopyRequestMode = "selection"
+	CopyRequestModeScrollback CopyRequestMode = "scrollback"
+)
+
+func (value CopyRequestMode) valid() bool {
+	switch value {
+	case CopyRequestModeScreen, CopyRequestModeSelection, CopyRequestModeScrollback:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value CopyRequestMode) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "CopyRequestMode", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *CopyRequestMode) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := CopyRequestMode(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "CopyRequestMode", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type CopyRequest struct {
-	Mode    string `json:"mode"`
-	Surface ID     `json:"surface"`
+	Mode    CopyRequestMode `json:"mode"`
+	Surface ID              `json:"surface"`
+}
+
+func (value CopyRequest) MarshalJSON() ([]byte, error) {
+	switch value.Mode {
+	case "screen", "selection", "scrollback":
+	default:
+		return nil, fmt.Errorf("encode CopyRequest.Mode: invalid value %v", value.Mode)
+	}
+	type wire CopyRequest
+	return json.Marshal(wire(value))
+}
+
+func (value *CopyRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CopyRequest: expected object")
+	}
+	var fields struct {
+		Mode    *CopyRequestMode `json:"mode"`
+		Surface *ID              `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CopyRequest: %w", err)
+	}
+	type wire CopyRequest
+	var decoded wire
+	if fields.Mode == nil {
+		return fmt.Errorf("decode CopyRequest: required field mode is missing or null")
+	}
+	decoded.Mode = *fields.Mode
+	switch decoded.Mode {
+	case "screen", "selection", "scrollback":
+	default:
+		return fmt.Errorf("decode CopyRequest.Mode: invalid value %v", decoded.Mode)
+	}
+	if fields.Surface == nil {
+		return fmt.Errorf("decode CopyRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = CopyRequest(decoded)
+	return nil
 }
 
 // CreateTerminalRequest is the exact create-terminal wire payload.
@@ -2207,171 +2409,42 @@ func (value CreateTerminalRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *CreateTerminalRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CreateTerminalRequest: expected object")
+	}
+	var fields struct {
+		Argv               Presence[[]string] `json:"argv"`
+		Cols               Presence[uint16]   `json:"cols"`
+		Command            Presence[string]   `json:"command"`
+		Cwd                Presence[string]   `json:"cwd"`
+		ExpectedGeneration Presence[string]   `json:"expected_generation"`
+		ExpectedRevision   Presence[uint64]   `json:"expected_revision"`
+		Key                Presence[string]   `json:"key"`
+		MutationID         Presence[string]   `json:"mutation_id"`
+		Name               Presence[string]   `json:"name"`
+		Origin             Presence[string]   `json:"origin"`
+		Rows               Presence[uint16]   `json:"rows"`
+		TerminalID         Presence[string]   `json:"terminal_id"`
+		Workspace          Presence[ID]       `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CreateTerminalRequest: %w", err)
+	}
 	type wire CreateTerminalRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawArgv, hasArgv := object["argv"]
-	if !hasArgv {
-		decoded.Argv = Presence[[]string]{}
-	} else if isJSONNull(rawArgv) {
-		decoded.Argv = Null[[]string]()
-	} else {
-		var fieldValue []string
-		if err := json.Unmarshal(rawArgv, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.Argv: %w", err)
-		}
-		decoded.Argv = Value(fieldValue)
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawCommand, hasCommand := object["command"]
-	if !hasCommand {
-		decoded.Command = Presence[string]{}
-	} else if isJSONNull(rawCommand) {
-		decoded.Command = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCommand, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.Command: %w", err)
-		}
-		decoded.Command = Value(fieldValue)
-	}
-	rawCwd, hasCwd := object["cwd"]
-	if !hasCwd {
-		decoded.Cwd = Presence[string]{}
-	} else if isJSONNull(rawCwd) {
-		decoded.Cwd = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.Cwd: %w", err)
-		}
-		decoded.Cwd = Value(fieldValue)
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
-	rawTerminalID, hasTerminalID := object["terminal_id"]
-	if !hasTerminalID {
-		decoded.TerminalID = Presence[string]{}
-	} else if isJSONNull(rawTerminalID) {
-		decoded.TerminalID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalID, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.TerminalID: %w", err)
-		}
-		decoded.TerminalID = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalRequest.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.Argv = fields.Argv
+	decoded.Cols = fields.Cols
+	decoded.Command = fields.Command
+	decoded.Cwd = fields.Cwd
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.Key = fields.Key
+	decoded.MutationID = fields.MutationID
+	decoded.Name = fields.Name
+	decoded.Origin = fields.Origin
+	decoded.Rows = fields.Rows
+	decoded.TerminalID = fields.TerminalID
+	decoded.Workspace = fields.Workspace
 	*value = CreateTerminalRequest(decoded)
 	return nil
 }
@@ -2564,171 +2637,42 @@ func (value CreateTerminalOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *CreateTerminalOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CreateTerminalOptions: expected object")
+	}
+	var fields struct {
+		Argv               Presence[[]string] `json:"argv"`
+		Cols               Presence[uint16]   `json:"cols"`
+		Command            Presence[string]   `json:"command"`
+		Cwd                Presence[string]   `json:"cwd"`
+		ExpectedGeneration Presence[string]   `json:"expected_generation"`
+		ExpectedRevision   Presence[uint64]   `json:"expected_revision"`
+		Key                Presence[string]   `json:"key"`
+		MutationID         Presence[string]   `json:"mutation_id"`
+		Name               Presence[string]   `json:"name"`
+		Origin             Presence[string]   `json:"origin"`
+		Rows               Presence[uint16]   `json:"rows"`
+		TerminalID         Presence[string]   `json:"terminal_id"`
+		Workspace          Presence[ID]       `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CreateTerminalOptions: %w", err)
+	}
 	type wire CreateTerminalOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawArgv, hasArgv := object["argv"]
-	if !hasArgv {
-		decoded.Argv = Presence[[]string]{}
-	} else if isJSONNull(rawArgv) {
-		decoded.Argv = Null[[]string]()
-	} else {
-		var fieldValue []string
-		if err := json.Unmarshal(rawArgv, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.Argv: %w", err)
-		}
-		decoded.Argv = Value(fieldValue)
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawCommand, hasCommand := object["command"]
-	if !hasCommand {
-		decoded.Command = Presence[string]{}
-	} else if isJSONNull(rawCommand) {
-		decoded.Command = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCommand, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.Command: %w", err)
-		}
-		decoded.Command = Value(fieldValue)
-	}
-	rawCwd, hasCwd := object["cwd"]
-	if !hasCwd {
-		decoded.Cwd = Presence[string]{}
-	} else if isJSONNull(rawCwd) {
-		decoded.Cwd = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.Cwd: %w", err)
-		}
-		decoded.Cwd = Value(fieldValue)
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
-	rawTerminalID, hasTerminalID := object["terminal_id"]
-	if !hasTerminalID {
-		decoded.TerminalID = Presence[string]{}
-	} else if isJSONNull(rawTerminalID) {
-		decoded.TerminalID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalID, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.TerminalID: %w", err)
-		}
-		decoded.TerminalID = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateTerminalOptions.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.Argv = fields.Argv
+	decoded.Cols = fields.Cols
+	decoded.Command = fields.Command
+	decoded.Cwd = fields.Cwd
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.Key = fields.Key
+	decoded.MutationID = fields.MutationID
+	decoded.Name = fields.Name
+	decoded.Origin = fields.Origin
+	decoded.Rows = fields.Rows
+	decoded.TerminalID = fields.TerminalID
+	decoded.Workspace = fields.Workspace
 	*value = CreateTerminalOptions(decoded)
 	return nil
 }
@@ -2829,87 +2773,28 @@ func (value CreateWorkspaceRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *CreateWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CreateWorkspaceRequest: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration Presence[string] `json:"expected_generation"`
+		ExpectedRevision   Presence[uint64] `json:"expected_revision"`
+		Key                Presence[string] `json:"key"`
+		MutationID         Presence[string] `json:"mutation_id"`
+		Name               Presence[string] `json:"name"`
+		Origin             Presence[string] `json:"origin"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CreateWorkspaceRequest: %w", err)
+	}
 	type wire CreateWorkspaceRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceRequest.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceRequest.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceRequest.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceRequest.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceRequest.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceRequest.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.Key = fields.Key
+	decoded.MutationID = fields.MutationID
+	decoded.Name = fields.Name
+	decoded.Origin = fields.Origin
 	*value = CreateWorkspaceRequest(decoded)
 	return nil
 }
@@ -3011,87 +2896,28 @@ func (value CreateWorkspaceOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *CreateWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CreateWorkspaceOptions: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration Presence[string] `json:"expected_generation"`
+		ExpectedRevision   Presence[uint64] `json:"expected_revision"`
+		Key                Presence[string] `json:"key"`
+		MutationID         Presence[string] `json:"mutation_id"`
+		Name               Presence[string] `json:"name"`
+		Origin             Presence[string] `json:"origin"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CreateWorkspaceOptions: %w", err)
+	}
 	type wire CreateWorkspaceOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceOptions.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceOptions.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceOptions.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceOptions.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceOptions.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode CreateWorkspaceOptions.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.Key = fields.Key
+	decoded.MutationID = fields.MutationID
+	decoded.Name = fields.Name
+	decoded.Origin = fields.Origin
 	*value = CreateWorkspaceOptions(decoded)
 	return nil
 }
@@ -3099,6 +2925,26 @@ func (value *CreateWorkspaceOptions) UnmarshalJSON(data []byte) error {
 // DetachClientRequest is the exact detach-client wire payload.
 type DetachClientRequest struct {
 	Client uint64 `json:"client"`
+}
+
+func (value *DetachClientRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode DetachClientRequest: expected object")
+	}
+	var fields struct {
+		Client *uint64 `json:"client"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode DetachClientRequest: %w", err)
+	}
+	type wire DetachClientRequest
+	var decoded wire
+	if fields.Client == nil {
+		return fmt.Errorf("decode DetachClientRequest: required field client is missing or null")
+	}
+	decoded.Client = *fields.Client
+	*value = DetachClientRequest(decoded)
+	return nil
 }
 
 type DetachClientResult = EmptyResult
@@ -3134,27 +2980,18 @@ func (value ExportLayoutRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ExportLayoutRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ExportLayoutRequest: expected object")
+	}
+	var fields struct {
+		Screen Presence[ID] `json:"screen"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ExportLayoutRequest: %w", err)
+	}
 	type wire ExportLayoutRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawScreen, hasScreen := object["screen"]
-	if !hasScreen {
-		decoded.Screen = Presence[ID]{}
-	} else if isJSONNull(rawScreen) {
-		decoded.Screen = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawScreen, &fieldValue); err != nil {
-			return fmt.Errorf("decode ExportLayoutRequest.Screen: %w", err)
-		}
-		decoded.Screen = Value(fieldValue)
-	}
+	decoded.Screen = fields.Screen
 	*value = ExportLayoutRequest(decoded)
 	return nil
 }
@@ -3189,27 +3026,18 @@ func (value ExportLayoutOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ExportLayoutOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ExportLayoutOptions: expected object")
+	}
+	var fields struct {
+		Screen Presence[ID] `json:"screen"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ExportLayoutOptions: %w", err)
+	}
 	type wire ExportLayoutOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawScreen, hasScreen := object["screen"]
-	if !hasScreen {
-		decoded.Screen = Presence[ID]{}
-	} else if isJSONNull(rawScreen) {
-		decoded.Screen = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawScreen, &fieldValue); err != nil {
-			return fmt.Errorf("decode ExportLayoutOptions.Screen: %w", err)
-		}
-		decoded.Screen = Value(fieldValue)
-	}
+	decoded.Screen = fields.Screen
 	*value = ExportLayoutOptions(decoded)
 	return nil
 }
@@ -3246,27 +3074,23 @@ func (value FocusDirectionRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *FocusDirectionRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FocusDirectionRequest: expected object")
+	}
+	var fields struct {
+		Dir  *PaneDirection `json:"dir"`
+		Pane Presence[ID]   `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FocusDirectionRequest: %w", err)
+	}
 	type wire FocusDirectionRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Dir == nil {
+		return fmt.Errorf("decode FocusDirectionRequest: required field dir is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode FocusDirectionRequest.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
+	decoded.Dir = *fields.Dir
+	decoded.Pane = fields.Pane
 	*value = FocusDirectionRequest(decoded)
 	return nil
 }
@@ -3301,27 +3125,18 @@ func (value FocusDirectionOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *FocusDirectionOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FocusDirectionOptions: expected object")
+	}
+	var fields struct {
+		Pane Presence[ID] `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FocusDirectionOptions: %w", err)
+	}
 	type wire FocusDirectionOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode FocusDirectionOptions.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
+	decoded.Pane = fields.Pane
 	*value = FocusDirectionOptions(decoded)
 	return nil
 }
@@ -3329,6 +3144,26 @@ func (value *FocusDirectionOptions) UnmarshalJSON(data []byte) error {
 // FocusPaneRequest is the exact focus-pane wire payload.
 type FocusPaneRequest struct {
 	Pane ID `json:"pane"`
+}
+
+func (value *FocusPaneRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FocusPaneRequest: expected object")
+	}
+	var fields struct {
+		Pane *ID `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FocusPaneRequest: %w", err)
+	}
+	type wire FocusPaneRequest
+	var decoded wire
+	if fields.Pane == nil {
+		return fmt.Errorf("decode FocusPaneRequest: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	*value = FocusPaneRequest(decoded)
+	return nil
 }
 
 type FocusPaneResult = EmptyResult
@@ -3340,10 +3175,55 @@ type GetFrontendProjectionRequest struct {
 	SubjectKey string `json:"subject_key"`
 }
 
+func (value *GetFrontendProjectionRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode GetFrontendProjectionRequest: expected object")
+	}
+	var fields struct {
+		Frontend   *string `json:"frontend"`
+		Scope      *string `json:"scope"`
+		SubjectKey *string `json:"subject_key"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode GetFrontendProjectionRequest: %w", err)
+	}
+	type wire GetFrontendProjectionRequest
+	var decoded wire
+	if fields.Frontend == nil {
+		return fmt.Errorf("decode GetFrontendProjectionRequest: required field frontend is missing or null")
+	}
+	decoded.Frontend = *fields.Frontend
+	if fields.Scope == nil {
+		return fmt.Errorf("decode GetFrontendProjectionRequest: required field scope is missing or null")
+	}
+	decoded.Scope = *fields.Scope
+	if fields.SubjectKey == nil {
+		return fmt.Errorf("decode GetFrontendProjectionRequest: required field subject_key is missing or null")
+	}
+	decoded.SubjectKey = *fields.SubjectKey
+	*value = GetFrontendProjectionRequest(decoded)
+	return nil
+}
+
 type GetFrontendProjectionResult = FrontendProjection
 
 // IdentifyRequest is the exact identify wire payload.
 type IdentifyRequest struct {
+}
+
+func (value *IdentifyRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode IdentifyRequest: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode IdentifyRequest: %w", err)
+	}
+	type wire IdentifyRequest
+	var decoded wire
+	*value = IdentifyRequest(decoded)
+	return nil
 }
 
 // IDsRequest is the exact ids wire payload.
@@ -3356,11 +3236,47 @@ const (
 	IDsRequestKindSurface   IDsRequestKind = "surface"
 )
 
+func (value IDsRequestKind) valid() bool {
+	switch value {
+	case IDsRequestKindWorkspace, IDsRequestKindScreen, IDsRequestKindPane, IDsRequestKindSurface:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value IDsRequestKind) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "IDsRequestKind", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *IDsRequestKind) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := IDsRequestKind(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "IDsRequestKind", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type IDsRequest struct {
 	Kind Presence[IDsRequestKind] `json:"-"`
 }
 
 func (value IDsRequest) MarshalJSON() ([]byte, error) {
+	if fieldValue, ok := value.Kind.Get(); ok {
+		switch fieldValue {
+		case "workspace", "screen", "pane", "surface":
+		default:
+			return nil, fmt.Errorf("encode IDsRequest.Kind: invalid value %v", fieldValue)
+		}
+	}
 	type wire IDsRequest
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -3386,27 +3302,18 @@ func (value IDsRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *IDsRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode IDsRequest: expected object")
+	}
+	var fields struct {
+		Kind Presence[IDsRequestKind] `json:"kind"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode IDsRequest: %w", err)
+	}
 	type wire IDsRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawKind, hasKind := object["kind"]
-	if !hasKind {
-		decoded.Kind = Presence[IDsRequestKind]{}
-	} else if isJSONNull(rawKind) {
-		decoded.Kind = Null[IDsRequestKind]()
-	} else {
-		var fieldValue IDsRequestKind
-		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
-			return fmt.Errorf("decode IDsRequest.Kind: %w", err)
-		}
-		decoded.Kind = Value(fieldValue)
-	}
+	decoded.Kind = fields.Kind
 	*value = IDsRequest(decoded)
 	return nil
 }
@@ -3420,11 +3327,47 @@ const (
 	IDsOptionsKindSurface   IDsOptionsKind = "surface"
 )
 
+func (value IDsOptionsKind) valid() bool {
+	switch value {
+	case IDsOptionsKindWorkspace, IDsOptionsKindScreen, IDsOptionsKindPane, IDsOptionsKindSurface:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value IDsOptionsKind) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "IDsOptionsKind", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *IDsOptionsKind) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := IDsOptionsKind(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "IDsOptionsKind", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type IDsOptions struct {
 	Kind Presence[IDsOptionsKind] `json:"-"`
 }
 
 func (value IDsOptions) MarshalJSON() ([]byte, error) {
+	if fieldValue, ok := value.Kind.Get(); ok {
+		switch fieldValue {
+		case "workspace", "screen", "pane", "surface":
+		default:
+			return nil, fmt.Errorf("encode IDsOptions.Kind: invalid value %v", fieldValue)
+		}
+	}
 	type wire IDsOptions
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -3450,27 +3393,18 @@ func (value IDsOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *IDsOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode IDsOptions: expected object")
+	}
+	var fields struct {
+		Kind Presence[IDsOptionsKind] `json:"kind"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode IDsOptions: %w", err)
+	}
 	type wire IDsOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawKind, hasKind := object["kind"]
-	if !hasKind {
-		decoded.Kind = Presence[IDsOptionsKind]{}
-	} else if isJSONNull(rawKind) {
-		decoded.Kind = Null[IDsOptionsKind]()
-	} else {
-		var fieldValue IDsOptionsKind
-		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
-			return fmt.Errorf("decode IDsOptions.Kind: %w", err)
-		}
-		decoded.Kind = Value(fieldValue)
-	}
+	decoded.Kind = fields.Kind
 	*value = IDsOptions(decoded)
 	return nil
 }
@@ -3519,39 +3453,20 @@ func (value ListAgentsRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ListAgentsRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ListAgentsRequest: expected object")
+	}
+	var fields struct {
+		State   Presence[AgentState] `json:"state"`
+		Surface Presence[ID]         `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ListAgentsRequest: %w", err)
+	}
 	type wire ListAgentsRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawState, hasState := object["state"]
-	if !hasState {
-		decoded.State = Presence[AgentState]{}
-	} else if isJSONNull(rawState) {
-		decoded.State = Null[AgentState]()
-	} else {
-		var fieldValue AgentState
-		if err := json.Unmarshal(rawState, &fieldValue); err != nil {
-			return fmt.Errorf("decode ListAgentsRequest.State: %w", err)
-		}
-		decoded.State = Value(fieldValue)
-	}
-	rawSurface, hasSurface := object["surface"]
-	if !hasSurface {
-		decoded.Surface = Presence[ID]{}
-	} else if isJSONNull(rawSurface) {
-		decoded.Surface = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
-			return fmt.Errorf("decode ListAgentsRequest.Surface: %w", err)
-		}
-		decoded.Surface = Value(fieldValue)
-	}
+	decoded.State = fields.State
+	decoded.Surface = fields.Surface
 	*value = ListAgentsRequest(decoded)
 	return nil
 }
@@ -3599,39 +3514,20 @@ func (value ListAgentsOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ListAgentsOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ListAgentsOptions: expected object")
+	}
+	var fields struct {
+		State   Presence[AgentState] `json:"state"`
+		Surface Presence[ID]         `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ListAgentsOptions: %w", err)
+	}
 	type wire ListAgentsOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawState, hasState := object["state"]
-	if !hasState {
-		decoded.State = Presence[AgentState]{}
-	} else if isJSONNull(rawState) {
-		decoded.State = Null[AgentState]()
-	} else {
-		var fieldValue AgentState
-		if err := json.Unmarshal(rawState, &fieldValue); err != nil {
-			return fmt.Errorf("decode ListAgentsOptions.State: %w", err)
-		}
-		decoded.State = Value(fieldValue)
-	}
-	rawSurface, hasSurface := object["surface"]
-	if !hasSurface {
-		decoded.Surface = Presence[ID]{}
-	} else if isJSONNull(rawSurface) {
-		decoded.Surface = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
-			return fmt.Errorf("decode ListAgentsOptions.Surface: %w", err)
-		}
-		decoded.Surface = Value(fieldValue)
-	}
+	decoded.State = fields.State
+	decoded.Surface = fields.Surface
 	*value = ListAgentsOptions(decoded)
 	return nil
 }
@@ -3640,14 +3536,59 @@ func (value *ListAgentsOptions) UnmarshalJSON(data []byte) error {
 type ListClientsRequest struct {
 }
 
+func (value *ListClientsRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ListClientsRequest: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ListClientsRequest: %w", err)
+	}
+	type wire ListClientsRequest
+	var decoded wire
+	*value = ListClientsRequest(decoded)
+	return nil
+}
+
 type ListClientsResult = []ClientInfo
 
 // ListTerminalsRequest is the exact list-terminals wire payload.
 type ListTerminalsRequest struct {
 }
 
+func (value *ListTerminalsRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ListTerminalsRequest: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ListTerminalsRequest: %w", err)
+	}
+	type wire ListTerminalsRequest
+	var decoded wire
+	*value = ListTerminalsRequest(decoded)
+	return nil
+}
+
 // ListWorkspacesRequest is the exact list-workspaces wire payload.
 type ListWorkspacesRequest struct {
+}
+
+func (value *ListWorkspacesRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ListWorkspacesRequest: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ListWorkspacesRequest: %w", err)
+	}
+	type wire ListWorkspacesRequest
+	var decoded wire
+	*value = ListWorkspacesRequest(decoded)
+	return nil
 }
 
 type ListWorkspacesResult = Tree
@@ -3655,6 +3596,26 @@ type ListWorkspacesResult = Tree
 // MarkWorkspacesProviderManagedRequest is the exact mark-workspaces-provider-managed wire payload.
 type MarkWorkspacesProviderManagedRequest struct {
 	Authority string `json:"authority"`
+}
+
+func (value *MarkWorkspacesProviderManagedRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode MarkWorkspacesProviderManagedRequest: expected object")
+	}
+	var fields struct {
+		Authority *string `json:"authority"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode MarkWorkspacesProviderManagedRequest: %w", err)
+	}
+	type wire MarkWorkspacesProviderManagedRequest
+	var decoded wire
+	if fields.Authority == nil {
+		return fmt.Errorf("decode MarkWorkspacesProviderManagedRequest: required field authority is missing or null")
+	}
+	decoded.Authority = *fields.Authority
+	*value = MarkWorkspacesProviderManagedRequest(decoded)
+	return nil
 }
 
 type MarkWorkspacesProviderManagedResult = EmptyResult
@@ -3666,17 +3627,27 @@ type MintTerminalRendererRequest struct {
 }
 
 func (value *MintTerminalRendererRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode MintTerminalRendererRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID                         `json:"surface"`
+		TtlMs   optionalNonNullJSON[uint64] `json:"ttl_ms"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode MintTerminalRendererRequest: %w", err)
+	}
 	type wire MintTerminalRendererRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Surface == nil {
+		return fmt.Errorf("decode MintTerminalRendererRequest: required field surface is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["ttl_ms"]; exists && isJSONNull(raw) {
+	decoded.Surface = *fields.Surface
+	if fields.TtlMs.null {
 		return fmt.Errorf("decode MintTerminalRendererRequest: non-nullable field ttl_ms is null")
+	}
+	if fields.TtlMs.set {
+		decoded.TtlMs = &fields.TtlMs.value
 	}
 	*value = MintTerminalRendererRequest(decoded)
 	return nil
@@ -3687,17 +3658,22 @@ type MintTerminalRendererOptions struct {
 }
 
 func (value *MintTerminalRendererOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode MintTerminalRendererOptions: expected object")
+	}
+	var fields struct {
+		TtlMs optionalNonNullJSON[uint64] `json:"ttl_ms"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode MintTerminalRendererOptions: %w", err)
+	}
 	type wire MintTerminalRendererOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["ttl_ms"]; exists && isJSONNull(raw) {
+	if fields.TtlMs.null {
 		return fmt.Errorf("decode MintTerminalRendererOptions: non-nullable field ttl_ms is null")
+	}
+	if fields.TtlMs.set {
+		decoded.TtlMs = &fields.TtlMs.value
 	}
 	*value = MintTerminalRendererOptions(decoded)
 	return nil
@@ -3708,6 +3684,36 @@ type MoveTabRequest struct {
 	Index   uint64 `json:"index"`
 	Pane    ID     `json:"pane"`
 	Surface ID     `json:"surface"`
+}
+
+func (value *MoveTabRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode MoveTabRequest: expected object")
+	}
+	var fields struct {
+		Index   *uint64 `json:"index"`
+		Pane    *ID     `json:"pane"`
+		Surface *ID     `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode MoveTabRequest: %w", err)
+	}
+	type wire MoveTabRequest
+	var decoded wire
+	if fields.Index == nil {
+		return fmt.Errorf("decode MoveTabRequest: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.Pane == nil {
+		return fmt.Errorf("decode MoveTabRequest: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.Surface == nil {
+		return fmt.Errorf("decode MoveTabRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = MoveTabRequest(decoded)
+	return nil
 }
 
 type MoveTabResult = EmptyResult
@@ -3797,75 +3803,36 @@ func (value MoveTerminalRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *MoveTerminalRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode MoveTerminalRequest: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration  Presence[string] `json:"expected_generation"`
+		ExpectedRevision    Presence[uint64] `json:"expected_revision"`
+		MutationID          Presence[string] `json:"mutation_id"`
+		Origin              Presence[string] `json:"origin"`
+		TerminalID          *string          `json:"terminal_id"`
+		TerminalIncarnation Presence[string] `json:"terminal_incarnation"`
+		WorkspaceKey        *string          `json:"workspace_key"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode MoveTerminalRequest: %w", err)
+	}
 	type wire MoveTerminalRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.MutationID = fields.MutationID
+	decoded.Origin = fields.Origin
+	if fields.TerminalID == nil {
+		return fmt.Errorf("decode MoveTerminalRequest: required field terminal_id is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.TerminalID = *fields.TerminalID
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
+	if fields.WorkspaceKey == nil {
+		return fmt.Errorf("decode MoveTerminalRequest: required field workspace_key is missing or null")
 	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalRequest.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalRequest.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalRequest.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalRequest.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		decoded.TerminalIncarnation = Presence[string]{}
-	} else if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalRequest.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = Value(fieldValue)
-	}
+	decoded.WorkspaceKey = *fields.WorkspaceKey
 	*value = MoveTerminalRequest(decoded)
 	return nil
 }
@@ -3952,75 +3919,26 @@ func (value MoveTerminalOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *MoveTerminalOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode MoveTerminalOptions: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration  Presence[string] `json:"expected_generation"`
+		ExpectedRevision    Presence[uint64] `json:"expected_revision"`
+		MutationID          Presence[string] `json:"mutation_id"`
+		Origin              Presence[string] `json:"origin"`
+		TerminalIncarnation Presence[string] `json:"terminal_incarnation"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode MoveTerminalOptions: %w", err)
+	}
 	type wire MoveTerminalOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalOptions.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalOptions.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalOptions.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalOptions.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		decoded.TerminalIncarnation = Presence[string]{}
-	} else if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalOptions.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = Value(fieldValue)
-	}
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.MutationID = fields.MutationID
+	decoded.Origin = fields.Origin
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
 	*value = MoveTerminalOptions(decoded)
 	return nil
 }
@@ -4122,87 +4040,33 @@ func (value MoveWorkspaceRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *MoveWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode MoveWorkspaceRequest: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration Presence[string] `json:"expected_generation"`
+		ExpectedRevision   Presence[uint64] `json:"expected_revision"`
+		Index              *uint64          `json:"index"`
+		Key                Presence[string] `json:"key"`
+		MutationID         Presence[string] `json:"mutation_id"`
+		Origin             Presence[string] `json:"origin"`
+		Workspace          Presence[ID]     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode MoveWorkspaceRequest: %w", err)
+	}
 	type wire MoveWorkspaceRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	if fields.Index == nil {
+		return fmt.Errorf("decode MoveWorkspaceRequest: required field index is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceRequest.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceRequest.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceRequest.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceRequest.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceRequest.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceRequest.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.Index = *fields.Index
+	decoded.Key = fields.Key
+	decoded.MutationID = fields.MutationID
+	decoded.Origin = fields.Origin
+	decoded.Workspace = fields.Workspace
 	*value = MoveWorkspaceRequest(decoded)
 	return nil
 }
@@ -4304,87 +4168,28 @@ func (value MoveWorkspaceOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *MoveWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode MoveWorkspaceOptions: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration Presence[string] `json:"expected_generation"`
+		ExpectedRevision   Presence[uint64] `json:"expected_revision"`
+		Key                Presence[string] `json:"key"`
+		MutationID         Presence[string] `json:"mutation_id"`
+		Origin             Presence[string] `json:"origin"`
+		Workspace          Presence[ID]     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode MoveWorkspaceOptions: %w", err)
+	}
 	type wire MoveWorkspaceOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceOptions.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceOptions.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceOptions.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceOptions.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceOptions.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveWorkspaceOptions.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.Key = fields.Key
+	decoded.MutationID = fields.MutationID
+	decoded.Origin = fields.Origin
+	decoded.Workspace = fields.Workspace
 	*value = MoveWorkspaceOptions(decoded)
 	return nil
 }
@@ -4447,51 +4252,27 @@ func (value NewBrowserTabRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewBrowserTabRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewBrowserTabRequest: expected object")
+	}
+	var fields struct {
+		Cols Presence[uint16] `json:"cols"`
+		Pane Presence[ID]     `json:"pane"`
+		Rows Presence[uint16] `json:"rows"`
+		URL  *string          `json:"url"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewBrowserTabRequest: %w", err)
+	}
 	type wire NewBrowserTabRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Cols = fields.Cols
+	decoded.Pane = fields.Pane
+	decoded.Rows = fields.Rows
+	if fields.URL == nil {
+		return fmt.Errorf("decode NewBrowserTabRequest: required field url is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewBrowserTabRequest.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewBrowserTabRequest.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewBrowserTabRequest.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.URL = *fields.URL
 	*value = NewBrowserTabRequest(decoded)
 	return nil
 }
@@ -4554,51 +4335,22 @@ func (value NewBrowserTabOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewBrowserTabOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewBrowserTabOptions: expected object")
+	}
+	var fields struct {
+		Cols Presence[uint16] `json:"cols"`
+		Pane Presence[ID]     `json:"pane"`
+		Rows Presence[uint16] `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewBrowserTabOptions: %w", err)
+	}
 	type wire NewBrowserTabOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewBrowserTabOptions.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewBrowserTabOptions.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewBrowserTabOptions.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Cols = fields.Cols
+	decoded.Pane = fields.Pane
+	decoded.Rows = fields.Rows
 	*value = NewBrowserTabOptions(decoded)
 	return nil
 }
@@ -4648,39 +4400,25 @@ func (value NewPaneRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewPaneRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewPaneRequest: expected object")
+	}
+	var fields struct {
+		Cols Presence[uint16] `json:"cols"`
+		Pane *ID              `json:"pane"`
+		Rows Presence[uint16] `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewPaneRequest: %w", err)
+	}
 	type wire NewPaneRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Cols = fields.Cols
+	if fields.Pane == nil {
+		return fmt.Errorf("decode NewPaneRequest: required field pane is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewPaneRequest.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewPaneRequest.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Pane = *fields.Pane
+	decoded.Rows = fields.Rows
 	*value = NewPaneRequest(decoded)
 	return nil
 }
@@ -4730,39 +4468,20 @@ func (value NewPaneOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewPaneOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewPaneOptions: expected object")
+	}
+	var fields struct {
+		Cols Presence[uint16] `json:"cols"`
+		Rows Presence[uint16] `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewPaneOptions: %w", err)
+	}
 	type wire NewPaneOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewPaneOptions.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewPaneOptions.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Cols = fields.Cols
+	decoded.Rows = fields.Rows
 	*value = NewPaneOptions(decoded)
 	return nil
 }
@@ -4825,51 +4544,27 @@ func (value NewPaneRightRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewPaneRightRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewPaneRightRequest: expected object")
+	}
+	var fields struct {
+		Cols  Presence[uint16]  `json:"cols"`
+		Pane  *ID               `json:"pane"`
+		Rows  Presence[uint16]  `json:"rows"`
+		Width Presence[float32] `json:"width"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewPaneRightRequest: %w", err)
+	}
 	type wire NewPaneRightRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Cols = fields.Cols
+	if fields.Pane == nil {
+		return fmt.Errorf("decode NewPaneRightRequest: required field pane is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewPaneRightRequest.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewPaneRightRequest.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
-	rawWidth, hasWidth := object["width"]
-	if !hasWidth {
-		decoded.Width = Presence[float32]{}
-	} else if isJSONNull(rawWidth) {
-		decoded.Width = Null[float32]()
-	} else {
-		var fieldValue float32
-		if err := json.Unmarshal(rawWidth, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewPaneRightRequest.Width: %w", err)
-		}
-		decoded.Width = Value(fieldValue)
-	}
+	decoded.Pane = *fields.Pane
+	decoded.Rows = fields.Rows
+	decoded.Width = fields.Width
 	*value = NewPaneRightRequest(decoded)
 	return nil
 }
@@ -4932,51 +4627,22 @@ func (value NewPaneRightOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewPaneRightOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewPaneRightOptions: expected object")
+	}
+	var fields struct {
+		Cols  Presence[uint16]  `json:"cols"`
+		Rows  Presence[uint16]  `json:"rows"`
+		Width Presence[float32] `json:"width"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewPaneRightOptions: %w", err)
+	}
 	type wire NewPaneRightOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewPaneRightOptions.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewPaneRightOptions.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
-	rawWidth, hasWidth := object["width"]
-	if !hasWidth {
-		decoded.Width = Presence[float32]{}
-	} else if isJSONNull(rawWidth) {
-		decoded.Width = Null[float32]()
-	} else {
-		var fieldValue float32
-		if err := json.Unmarshal(rawWidth, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewPaneRightOptions.Width: %w", err)
-		}
-		decoded.Width = Value(fieldValue)
-	}
+	decoded.Cols = fields.Cols
+	decoded.Rows = fields.Rows
+	decoded.Width = fields.Width
 	*value = NewPaneRightOptions(decoded)
 	return nil
 }
@@ -5038,51 +4704,22 @@ func (value NewScreenRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewScreenRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewScreenRequest: expected object")
+	}
+	var fields struct {
+		Cols      Presence[uint16] `json:"cols"`
+		Rows      Presence[uint16] `json:"rows"`
+		Workspace Presence[ID]     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewScreenRequest: %w", err)
+	}
 	type wire NewScreenRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewScreenRequest.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewScreenRequest.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewScreenRequest.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.Cols = fields.Cols
+	decoded.Rows = fields.Rows
+	decoded.Workspace = fields.Workspace
 	*value = NewScreenRequest(decoded)
 	return nil
 }
@@ -5145,51 +4782,22 @@ func (value NewScreenOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewScreenOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewScreenOptions: expected object")
+	}
+	var fields struct {
+		Cols      Presence[uint16] `json:"cols"`
+		Rows      Presence[uint16] `json:"rows"`
+		Workspace Presence[ID]     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewScreenOptions: %w", err)
+	}
 	type wire NewScreenOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewScreenOptions.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewScreenOptions.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewScreenOptions.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.Cols = fields.Cols
+	decoded.Rows = fields.Rows
+	decoded.Workspace = fields.Workspace
 	*value = NewScreenOptions(decoded)
 	return nil
 }
@@ -5264,63 +4872,24 @@ func (value NewTabRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewTabRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewTabRequest: expected object")
+	}
+	var fields struct {
+		Cols Presence[uint16] `json:"cols"`
+		Cwd  Presence[string] `json:"cwd"`
+		Pane Presence[ID]     `json:"pane"`
+		Rows Presence[uint16] `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewTabRequest: %w", err)
+	}
 	type wire NewTabRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewTabRequest.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawCwd, hasCwd := object["cwd"]
-	if !hasCwd {
-		decoded.Cwd = Presence[string]{}
-	} else if isJSONNull(rawCwd) {
-		decoded.Cwd = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewTabRequest.Cwd: %w", err)
-		}
-		decoded.Cwd = Value(fieldValue)
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewTabRequest.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewTabRequest.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Cols = fields.Cols
+	decoded.Cwd = fields.Cwd
+	decoded.Pane = fields.Pane
+	decoded.Rows = fields.Rows
 	*value = NewTabRequest(decoded)
 	return nil
 }
@@ -5396,63 +4965,24 @@ func (value NewTabOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewTabOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewTabOptions: expected object")
+	}
+	var fields struct {
+		Cols Presence[uint16] `json:"cols"`
+		Cwd  Presence[string] `json:"cwd"`
+		Pane Presence[ID]     `json:"pane"`
+		Rows Presence[uint16] `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewTabOptions: %w", err)
+	}
 	type wire NewTabOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewTabOptions.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawCwd, hasCwd := object["cwd"]
-	if !hasCwd {
-		decoded.Cwd = Presence[string]{}
-	} else if isJSONNull(rawCwd) {
-		decoded.Cwd = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewTabOptions.Cwd: %w", err)
-		}
-		decoded.Cwd = Value(fieldValue)
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewTabOptions.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewTabOptions.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Cols = fields.Cols
+	decoded.Cwd = fields.Cwd
+	decoded.Pane = fields.Pane
+	decoded.Rows = fields.Rows
 	*value = NewTabOptions(decoded)
 	return nil
 }
@@ -5514,51 +5044,22 @@ func (value NewWorkspaceRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewWorkspaceRequest: expected object")
+	}
+	var fields struct {
+		Cols Presence[uint16] `json:"cols"`
+		Name Presence[string] `json:"name"`
+		Rows Presence[uint16] `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewWorkspaceRequest: %w", err)
+	}
 	type wire NewWorkspaceRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewWorkspaceRequest.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewWorkspaceRequest.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewWorkspaceRequest.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Cols = fields.Cols
+	decoded.Name = fields.Name
+	decoded.Rows = fields.Rows
 	*value = NewWorkspaceRequest(decoded)
 	return nil
 }
@@ -5621,51 +5122,22 @@ func (value NewWorkspaceOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NewWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NewWorkspaceOptions: expected object")
+	}
+	var fields struct {
+		Cols Presence[uint16] `json:"cols"`
+		Name Presence[string] `json:"name"`
+		Rows Presence[uint16] `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NewWorkspaceOptions: %w", err)
+	}
 	type wire NewWorkspaceOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewWorkspaceOptions.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewWorkspaceOptions.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode NewWorkspaceOptions.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Cols = fields.Cols
+	decoded.Name = fields.Name
+	decoded.Rows = fields.Rows
 	*value = NewWorkspaceOptions(decoded)
 	return nil
 }
@@ -5716,39 +5188,30 @@ func (value NotifyRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NotifyRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NotifyRequest: expected object")
+	}
+	var fields struct {
+		Body    *string                     `json:"body"`
+		Level   Presence[NotificationLevel] `json:"level"`
+		Surface Presence[ID]                `json:"surface"`
+		Title   *string                     `json:"title"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NotifyRequest: %w", err)
+	}
 	type wire NotifyRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Body == nil {
+		return fmt.Errorf("decode NotifyRequest: required field body is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Body = *fields.Body
+	decoded.Level = fields.Level
+	decoded.Surface = fields.Surface
+	if fields.Title == nil {
+		return fmt.Errorf("decode NotifyRequest: required field title is missing or null")
 	}
-	rawLevel, hasLevel := object["level"]
-	if !hasLevel {
-		decoded.Level = Presence[NotificationLevel]{}
-	} else if isJSONNull(rawLevel) {
-		decoded.Level = Null[NotificationLevel]()
-	} else {
-		var fieldValue NotificationLevel
-		if err := json.Unmarshal(rawLevel, &fieldValue); err != nil {
-			return fmt.Errorf("decode NotifyRequest.Level: %w", err)
-		}
-		decoded.Level = Value(fieldValue)
-	}
-	rawSurface, hasSurface := object["surface"]
-	if !hasSurface {
-		decoded.Surface = Presence[ID]{}
-	} else if isJSONNull(rawSurface) {
-		decoded.Surface = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
-			return fmt.Errorf("decode NotifyRequest.Surface: %w", err)
-		}
-		decoded.Surface = Value(fieldValue)
-	}
+	decoded.Title = *fields.Title
 	*value = NotifyRequest(decoded)
 	return nil
 }
@@ -5796,39 +5259,20 @@ func (value NotifyOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *NotifyOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NotifyOptions: expected object")
+	}
+	var fields struct {
+		Level   Presence[NotificationLevel] `json:"level"`
+		Surface Presence[ID]                `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NotifyOptions: %w", err)
+	}
 	type wire NotifyOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawLevel, hasLevel := object["level"]
-	if !hasLevel {
-		decoded.Level = Presence[NotificationLevel]{}
-	} else if isJSONNull(rawLevel) {
-		decoded.Level = Null[NotificationLevel]()
-	} else {
-		var fieldValue NotificationLevel
-		if err := json.Unmarshal(rawLevel, &fieldValue); err != nil {
-			return fmt.Errorf("decode NotifyOptions.Level: %w", err)
-		}
-		decoded.Level = Value(fieldValue)
-	}
-	rawSurface, hasSurface := object["surface"]
-	if !hasSurface {
-		decoded.Surface = Presence[ID]{}
-	} else if isJSONNull(rawSurface) {
-		decoded.Surface = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
-			return fmt.Errorf("decode NotifyOptions.Surface: %w", err)
-		}
-		decoded.Surface = Value(fieldValue)
-	}
+	decoded.Level = fields.Level
+	decoded.Surface = fields.Surface
 	*value = NotifyOptions(decoded)
 	return nil
 }
@@ -5839,6 +5283,31 @@ type PairingResponseRequest struct {
 	Request uint64 `json:"request"`
 }
 
+func (value *PairingResponseRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PairingResponseRequest: expected object")
+	}
+	var fields struct {
+		Approve *bool   `json:"approve"`
+		Request *uint64 `json:"request"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PairingResponseRequest: %w", err)
+	}
+	type wire PairingResponseRequest
+	var decoded wire
+	if fields.Approve == nil {
+		return fmt.Errorf("decode PairingResponseRequest: required field approve is missing or null")
+	}
+	decoded.Approve = *fields.Approve
+	if fields.Request == nil {
+		return fmt.Errorf("decode PairingResponseRequest: required field request is missing or null")
+	}
+	decoded.Request = *fields.Request
+	*value = PairingResponseRequest(decoded)
+	return nil
+}
+
 type PairingResponseResult = EmptyResult
 
 // PaneNeighborRequest is the exact pane-neighbor wire payload.
@@ -5847,13 +5316,73 @@ type PaneNeighborRequest struct {
 	Pane ID            `json:"pane"`
 }
 
+func (value *PaneNeighborRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PaneNeighborRequest: expected object")
+	}
+	var fields struct {
+		Dir  *PaneDirection `json:"dir"`
+		Pane *ID            `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PaneNeighborRequest: %w", err)
+	}
+	type wire PaneNeighborRequest
+	var decoded wire
+	if fields.Dir == nil {
+		return fmt.Errorf("decode PaneNeighborRequest: required field dir is missing or null")
+	}
+	decoded.Dir = *fields.Dir
+	if fields.Pane == nil {
+		return fmt.Errorf("decode PaneNeighborRequest: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	*value = PaneNeighborRequest(decoded)
+	return nil
+}
+
 // PingRequest is the exact ping wire payload.
 type PingRequest struct {
+}
+
+func (value *PingRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PingRequest: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PingRequest: %w", err)
+	}
+	type wire PingRequest
+	var decoded wire
+	*value = PingRequest(decoded)
+	return nil
 }
 
 // ProcessInfoRequest is the exact process-info wire payload.
 type ProcessInfoRequest struct {
 	Surface ID `json:"surface"`
+}
+
+func (value *ProcessInfoRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ProcessInfoRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ProcessInfoRequest: %w", err)
+	}
+	type wire ProcessInfoRequest
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ProcessInfoRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = ProcessInfoRequest(decoded)
+	return nil
 }
 
 // PutFrontendProjectionRequest is the exact put-frontend-projection wire payload.
@@ -5959,88 +5488,51 @@ func (value PutFrontendProjectionRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *PutFrontendProjectionRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PutFrontendProjectionRequest: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration         Presence[string]            `json:"expected_generation"`
+		ExpectedProjectionRevision Presence[uint64]            `json:"expected_projection_revision"`
+		ExpectedRevision           Presence[uint64]            `json:"expected_revision"`
+		Frontend                   *string                     `json:"frontend"`
+		MutationID                 Presence[string]            `json:"mutation_id"`
+		Origin                     Presence[string]            `json:"origin"`
+		Projection                 RequiredNullable[JSONValue] `json:"projection"`
+		SchemaVersion              *uint32                     `json:"schema_version"`
+		Scope                      *string                     `json:"scope"`
+		SubjectKey                 *string                     `json:"subject_key"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PutFrontendProjectionRequest: %w", err)
+	}
 	type wire PutFrontendProjectionRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedProjectionRevision = fields.ExpectedProjectionRevision
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	if fields.Frontend == nil {
+		return fmt.Errorf("decode PutFrontendProjectionRequest: required field frontend is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Frontend = *fields.Frontend
+	decoded.MutationID = fields.MutationID
+	decoded.Origin = fields.Origin
+	if !fields.Projection.IsSet() {
+		return fmt.Errorf("decode PutFrontendProjectionRequest: required field projection is missing")
 	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode PutFrontendProjectionRequest.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
+	decoded.Projection = fields.Projection
+	if fields.SchemaVersion == nil {
+		return fmt.Errorf("decode PutFrontendProjectionRequest: required field schema_version is missing or null")
 	}
-	rawExpectedProjectionRevision, hasExpectedProjectionRevision := object["expected_projection_revision"]
-	if !hasExpectedProjectionRevision {
-		decoded.ExpectedProjectionRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedProjectionRevision) {
-		decoded.ExpectedProjectionRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedProjectionRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode PutFrontendProjectionRequest.ExpectedProjectionRevision: %w", err)
-		}
-		decoded.ExpectedProjectionRevision = Value(fieldValue)
+	decoded.SchemaVersion = *fields.SchemaVersion
+	if fields.Scope == nil {
+		return fmt.Errorf("decode PutFrontendProjectionRequest: required field scope is missing or null")
 	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode PutFrontendProjectionRequest.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
+	decoded.Scope = *fields.Scope
+	if fields.SubjectKey == nil {
+		return fmt.Errorf("decode PutFrontendProjectionRequest: required field subject_key is missing or null")
 	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode PutFrontendProjectionRequest.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode PutFrontendProjectionRequest.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawProjection, hasProjection := object["projection"]
-	if !hasProjection {
-		return fmt.Errorf("decode PutFrontendProjectionRequest: required nullable field projection is missing")
-	}
-	if isJSONNull(rawProjection) {
-		decoded.Projection = RequiredNull[JSONValue]()
-	} else {
-		var fieldValue JSONValue
-		if err := json.Unmarshal(rawProjection, &fieldValue); err != nil {
-			return fmt.Errorf("decode PutFrontendProjectionRequest.Projection: %w", err)
-		}
-		decoded.Projection = RequiredValue(fieldValue)
-	}
+	decoded.SubjectKey = *fields.SubjectKey
 	*value = PutFrontendProjectionRequest(decoded)
 	return nil
 }
@@ -6131,75 +5623,26 @@ func (value PutFrontendProjectionOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *PutFrontendProjectionOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PutFrontendProjectionOptions: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration         Presence[string] `json:"expected_generation"`
+		ExpectedProjectionRevision Presence[uint64] `json:"expected_projection_revision"`
+		ExpectedRevision           Presence[uint64] `json:"expected_revision"`
+		MutationID                 Presence[string] `json:"mutation_id"`
+		Origin                     Presence[string] `json:"origin"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PutFrontendProjectionOptions: %w", err)
+	}
 	type wire PutFrontendProjectionOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode PutFrontendProjectionOptions.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedProjectionRevision, hasExpectedProjectionRevision := object["expected_projection_revision"]
-	if !hasExpectedProjectionRevision {
-		decoded.ExpectedProjectionRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedProjectionRevision) {
-		decoded.ExpectedProjectionRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedProjectionRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode PutFrontendProjectionOptions.ExpectedProjectionRevision: %w", err)
-		}
-		decoded.ExpectedProjectionRevision = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode PutFrontendProjectionOptions.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode PutFrontendProjectionOptions.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode PutFrontendProjectionOptions.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedProjectionRevision = fields.ExpectedProjectionRevision
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.MutationID = fields.MutationID
+	decoded.Origin = fields.Origin
 	*value = PutFrontendProjectionOptions(decoded)
 	return nil
 }
@@ -6209,6 +5652,26 @@ type ReadScreenRequest struct {
 	Surface ID `json:"surface"`
 }
 
+func (value *ReadScreenRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ReadScreenRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ReadScreenRequest: %w", err)
+	}
+	type wire ReadScreenRequest
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ReadScreenRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = ReadScreenRequest(decoded)
+	return nil
+}
+
 // ReadScrollbackRequest is the exact read-scrollback wire payload.
 type ReadScrollbackRequest struct {
 	Count   uint32 `json:"count"`
@@ -6216,9 +5679,59 @@ type ReadScrollbackRequest struct {
 	Surface ID     `json:"surface"`
 }
 
+func (value *ReadScrollbackRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ReadScrollbackRequest: expected object")
+	}
+	var fields struct {
+		Count   *uint32 `json:"count"`
+		Start   *uint32 `json:"start"`
+		Surface *ID     `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ReadScrollbackRequest: %w", err)
+	}
+	type wire ReadScrollbackRequest
+	var decoded wire
+	if fields.Count == nil {
+		return fmt.Errorf("decode ReadScrollbackRequest: required field count is missing or null")
+	}
+	decoded.Count = *fields.Count
+	if fields.Start == nil {
+		return fmt.Errorf("decode ReadScrollbackRequest: required field start is missing or null")
+	}
+	decoded.Start = *fields.Start
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ReadScrollbackRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = ReadScrollbackRequest(decoded)
+	return nil
+}
+
 // ReleaseSurfaceSizeRequest is the exact release-surface-size wire payload.
 type ReleaseSurfaceSizeRequest struct {
 	Surface ID `json:"surface"`
+}
+
+func (value *ReleaseSurfaceSizeRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ReleaseSurfaceSizeRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ReleaseSurfaceSizeRequest: %w", err)
+	}
+	type wire ReleaseSurfaceSizeRequest
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ReleaseSurfaceSizeRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = ReleaseSurfaceSizeRequest(decoded)
+	return nil
 }
 
 type ReleaseSurfaceSizeResult = EmptyResult
@@ -6227,12 +5740,32 @@ type ReleaseSurfaceSizeResult = EmptyResult
 type ReloadConfigRequest struct {
 }
 
+func (value *ReloadConfigRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ReloadConfigRequest: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ReloadConfigRequest: %w", err)
+	}
+	type wire ReloadConfigRequest
+	var decoded wire
+	*value = ReloadConfigRequest(decoded)
+	return nil
+}
+
 type ReloadConfigResult struct {
 	Path     RequiredNullable[string] `json:"-"`
 	Reloaded bool                     `json:"reloaded"`
 }
 
 func (value ReloadConfigResult) MarshalJSON() ([]byte, error) {
+	switch value.Reloaded {
+	case true:
+	default:
+		return nil, fmt.Errorf("encode ReloadConfigResult.Reloaded: invalid value %v", value.Reloaded)
+	}
 	type wire ReloadConfigResult
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -6259,27 +5792,30 @@ func (value ReloadConfigResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ReloadConfigResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ReloadConfigResult: expected object")
+	}
+	var fields struct {
+		Path     RequiredNullable[string] `json:"path"`
+		Reloaded *bool                    `json:"reloaded"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ReloadConfigResult: %w", err)
+	}
 	type wire ReloadConfigResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if !fields.Path.IsSet() {
+		return fmt.Errorf("decode ReloadConfigResult: required field path is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Path = fields.Path
+	if fields.Reloaded == nil {
+		return fmt.Errorf("decode ReloadConfigResult: required field reloaded is missing or null")
 	}
-	rawPath, hasPath := object["path"]
-	if !hasPath {
-		return fmt.Errorf("decode ReloadConfigResult: required nullable field path is missing")
-	}
-	if isJSONNull(rawPath) {
-		decoded.Path = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawPath, &fieldValue); err != nil {
-			return fmt.Errorf("decode ReloadConfigResult.Path: %w", err)
-		}
-		decoded.Path = RequiredValue(fieldValue)
+	decoded.Reloaded = *fields.Reloaded
+	switch decoded.Reloaded {
+	case true:
+	default:
+		return fmt.Errorf("decode ReloadConfigResult.Reloaded: invalid value %v", decoded.Reloaded)
 	}
 	*value = ReloadConfigResult(decoded)
 	return nil
@@ -6289,6 +5825,31 @@ func (value *ReloadConfigResult) UnmarshalJSON(data []byte) error {
 type RenamePaneRequest struct {
 	Name string `json:"name"`
 	Pane ID     `json:"pane"`
+}
+
+func (value *RenamePaneRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RenamePaneRequest: expected object")
+	}
+	var fields struct {
+		Name *string `json:"name"`
+		Pane *ID     `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RenamePaneRequest: %w", err)
+	}
+	type wire RenamePaneRequest
+	var decoded wire
+	if fields.Name == nil {
+		return fmt.Errorf("decode RenamePaneRequest: required field name is missing or null")
+	}
+	decoded.Name = *fields.Name
+	if fields.Pane == nil {
+		return fmt.Errorf("decode RenamePaneRequest: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	*value = RenamePaneRequest(decoded)
+	return nil
 }
 
 type RenamePaneResult = EmptyResult
@@ -6301,6 +5862,41 @@ type RenameProviderManagedWorkspaceRequest struct {
 	Workspace ID     `json:"workspace"`
 }
 
+func (value *RenameProviderManagedWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RenameProviderManagedWorkspaceRequest: expected object")
+	}
+	var fields struct {
+		Authority *string `json:"authority"`
+		Key       *string `json:"key"`
+		Name      *string `json:"name"`
+		Workspace *ID     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RenameProviderManagedWorkspaceRequest: %w", err)
+	}
+	type wire RenameProviderManagedWorkspaceRequest
+	var decoded wire
+	if fields.Authority == nil {
+		return fmt.Errorf("decode RenameProviderManagedWorkspaceRequest: required field authority is missing or null")
+	}
+	decoded.Authority = *fields.Authority
+	if fields.Key == nil {
+		return fmt.Errorf("decode RenameProviderManagedWorkspaceRequest: required field key is missing or null")
+	}
+	decoded.Key = *fields.Key
+	if fields.Name == nil {
+		return fmt.Errorf("decode RenameProviderManagedWorkspaceRequest: required field name is missing or null")
+	}
+	decoded.Name = *fields.Name
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode RenameProviderManagedWorkspaceRequest: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	*value = RenameProviderManagedWorkspaceRequest(decoded)
+	return nil
+}
+
 type RenameProviderManagedWorkspaceResult = ProviderWorkspaceMutationResult
 
 // RenameScreenRequest is the exact rename-screen wire payload.
@@ -6309,12 +5905,62 @@ type RenameScreenRequest struct {
 	Screen ID     `json:"screen"`
 }
 
+func (value *RenameScreenRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RenameScreenRequest: expected object")
+	}
+	var fields struct {
+		Name   *string `json:"name"`
+		Screen *ID     `json:"screen"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RenameScreenRequest: %w", err)
+	}
+	type wire RenameScreenRequest
+	var decoded wire
+	if fields.Name == nil {
+		return fmt.Errorf("decode RenameScreenRequest: required field name is missing or null")
+	}
+	decoded.Name = *fields.Name
+	if fields.Screen == nil {
+		return fmt.Errorf("decode RenameScreenRequest: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	*value = RenameScreenRequest(decoded)
+	return nil
+}
+
 type RenameScreenResult = EmptyResult
 
 // RenameSurfaceRequest is the exact rename-surface wire payload.
 type RenameSurfaceRequest struct {
 	Name    string `json:"name"`
 	Surface ID     `json:"surface"`
+}
+
+func (value *RenameSurfaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RenameSurfaceRequest: expected object")
+	}
+	var fields struct {
+		Name    *string `json:"name"`
+		Surface *ID     `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RenameSurfaceRequest: %w", err)
+	}
+	type wire RenameSurfaceRequest
+	var decoded wire
+	if fields.Name == nil {
+		return fmt.Errorf("decode RenameSurfaceRequest: required field name is missing or null")
+	}
+	decoded.Name = *fields.Name
+	if fields.Surface == nil {
+		return fmt.Errorf("decode RenameSurfaceRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = RenameSurfaceRequest(decoded)
+	return nil
 }
 
 type RenameSurfaceResult = EmptyResult
@@ -6416,87 +6062,33 @@ func (value RenameWorkspaceRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *RenameWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RenameWorkspaceRequest: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration Presence[string] `json:"expected_generation"`
+		ExpectedRevision   Presence[uint64] `json:"expected_revision"`
+		Key                Presence[string] `json:"key"`
+		MutationID         Presence[string] `json:"mutation_id"`
+		Name               *string          `json:"name"`
+		Origin             Presence[string] `json:"origin"`
+		Workspace          Presence[ID]     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RenameWorkspaceRequest: %w", err)
+	}
 	type wire RenameWorkspaceRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.Key = fields.Key
+	decoded.MutationID = fields.MutationID
+	if fields.Name == nil {
+		return fmt.Errorf("decode RenameWorkspaceRequest: required field name is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceRequest.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceRequest.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceRequest.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceRequest.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceRequest.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceRequest.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.Name = *fields.Name
+	decoded.Origin = fields.Origin
+	decoded.Workspace = fields.Workspace
 	*value = RenameWorkspaceRequest(decoded)
 	return nil
 }
@@ -6598,87 +6190,28 @@ func (value RenameWorkspaceOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *RenameWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RenameWorkspaceOptions: expected object")
+	}
+	var fields struct {
+		ExpectedGeneration Presence[string] `json:"expected_generation"`
+		ExpectedRevision   Presence[uint64] `json:"expected_revision"`
+		Key                Presence[string] `json:"key"`
+		MutationID         Presence[string] `json:"mutation_id"`
+		Origin             Presence[string] `json:"origin"`
+		Workspace          Presence[ID]     `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RenameWorkspaceOptions: %w", err)
+	}
 	type wire RenameWorkspaceOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawExpectedGeneration, hasExpectedGeneration := object["expected_generation"]
-	if !hasExpectedGeneration {
-		decoded.ExpectedGeneration = Presence[string]{}
-	} else if isJSONNull(rawExpectedGeneration) {
-		decoded.ExpectedGeneration = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawExpectedGeneration, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceOptions.ExpectedGeneration: %w", err)
-		}
-		decoded.ExpectedGeneration = Value(fieldValue)
-	}
-	rawExpectedRevision, hasExpectedRevision := object["expected_revision"]
-	if !hasExpectedRevision {
-		decoded.ExpectedRevision = Presence[uint64]{}
-	} else if isJSONNull(rawExpectedRevision) {
-		decoded.ExpectedRevision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawExpectedRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceOptions.ExpectedRevision: %w", err)
-		}
-		decoded.ExpectedRevision = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceOptions.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawMutationID, hasMutationID := object["mutation_id"]
-	if !hasMutationID {
-		decoded.MutationID = Presence[string]{}
-	} else if isJSONNull(rawMutationID) {
-		decoded.MutationID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawMutationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceOptions.MutationID: %w", err)
-		}
-		decoded.MutationID = Value(fieldValue)
-	}
-	rawOrigin, hasOrigin := object["origin"]
-	if !hasOrigin {
-		decoded.Origin = Presence[string]{}
-	} else if isJSONNull(rawOrigin) {
-		decoded.Origin = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawOrigin, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceOptions.Origin: %w", err)
-		}
-		decoded.Origin = Value(fieldValue)
-	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		decoded.Workspace = Presence[ID]{}
-	} else if isJSONNull(rawWorkspace) {
-		decoded.Workspace = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenameWorkspaceOptions.Workspace: %w", err)
-		}
-		decoded.Workspace = Value(fieldValue)
-	}
+	decoded.ExpectedGeneration = fields.ExpectedGeneration
+	decoded.ExpectedRevision = fields.ExpectedRevision
+	decoded.Key = fields.Key
+	decoded.MutationID = fields.MutationID
+	decoded.Origin = fields.Origin
+	decoded.Workspace = fields.Workspace
 	*value = RenameWorkspaceOptions(decoded)
 	return nil
 }
@@ -6717,27 +6250,33 @@ func (value ReportAgentRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ReportAgentRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ReportAgentRequest: expected object")
+	}
+	var fields struct {
+		Session Presence[string]   `json:"session"`
+		Source  *AgentReportSource `json:"source"`
+		State   *AgentState        `json:"state"`
+		Surface *ID                `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ReportAgentRequest: %w", err)
+	}
 	type wire ReportAgentRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Session = fields.Session
+	if fields.Source == nil {
+		return fmt.Errorf("decode ReportAgentRequest: required field source is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Source = *fields.Source
+	if fields.State == nil {
+		return fmt.Errorf("decode ReportAgentRequest: required field state is missing or null")
 	}
-	rawSession, hasSession := object["session"]
-	if !hasSession {
-		decoded.Session = Presence[string]{}
-	} else if isJSONNull(rawSession) {
-		decoded.Session = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawSession, &fieldValue); err != nil {
-			return fmt.Errorf("decode ReportAgentRequest.Session: %w", err)
-		}
-		decoded.Session = Value(fieldValue)
+	decoded.State = *fields.State
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ReportAgentRequest: required field surface is missing or null")
 	}
+	decoded.Surface = *fields.Surface
 	*value = ReportAgentRequest(decoded)
 	return nil
 }
@@ -6772,27 +6311,18 @@ func (value ReportAgentOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ReportAgentOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ReportAgentOptions: expected object")
+	}
+	var fields struct {
+		Session Presence[string] `json:"session"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ReportAgentOptions: %w", err)
+	}
 	type wire ReportAgentOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawSession, hasSession := object["session"]
-	if !hasSession {
-		decoded.Session = Presence[string]{}
-	} else if isJSONNull(rawSession) {
-		decoded.Session = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawSession, &fieldValue); err != nil {
-			return fmt.Errorf("decode ReportAgentOptions.Session: %w", err)
-		}
-		decoded.Session = Value(fieldValue)
-	}
+	decoded.Session = fields.Session
 	*value = ReportAgentOptions(decoded)
 	return nil
 }
@@ -6804,9 +6334,59 @@ type ResizeSurfaceRequest struct {
 	Surface ID     `json:"surface"`
 }
 
+func (value *ResizeSurfaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ResizeSurfaceRequest: expected object")
+	}
+	var fields struct {
+		Cols    *uint16 `json:"cols"`
+		Rows    *uint16 `json:"rows"`
+		Surface *ID     `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ResizeSurfaceRequest: %w", err)
+	}
+	type wire ResizeSurfaceRequest
+	var decoded wire
+	if fields.Cols == nil {
+		return fmt.Errorf("decode ResizeSurfaceRequest: required field cols is missing or null")
+	}
+	decoded.Cols = *fields.Cols
+	if fields.Rows == nil {
+		return fmt.Errorf("decode ResizeSurfaceRequest: required field rows is missing or null")
+	}
+	decoded.Rows = *fields.Rows
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ResizeSurfaceRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = ResizeSurfaceRequest(decoded)
+	return nil
+}
+
 // ResolveTerminalRequest is the exact resolve-terminal wire payload.
 type ResolveTerminalRequest struct {
 	TerminalID string `json:"terminal_id"`
+}
+
+func (value *ResolveTerminalRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ResolveTerminalRequest: expected object")
+	}
+	var fields struct {
+		TerminalID *string `json:"terminal_id"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ResolveTerminalRequest: %w", err)
+	}
+	type wire ResolveTerminalRequest
+	var decoded wire
+	if fields.TerminalID == nil {
+		return fmt.Errorf("decode ResolveTerminalRequest: required field terminal_id is missing or null")
+	}
+	decoded.TerminalID = *fields.TerminalID
+	*value = ResolveTerminalRequest(decoded)
+	return nil
 }
 
 // RunRequest is the exact run wire payload.
@@ -6932,114 +6512,39 @@ func (value RunRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *RunRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RunRequest: expected object")
+	}
+	var fields struct {
+		Argv         Presence[[]string]        `json:"argv"`
+		Cols         Presence[uint16]          `json:"cols"`
+		Command      Presence[string]          `json:"command"`
+		Cwd          Presence[string]          `json:"cwd"`
+		Key          Presence[string]          `json:"key"`
+		Name         Presence[string]          `json:"name"`
+		NewWorkspace optionalNonNullJSON[bool] `json:"new_workspace"`
+		Pane         Presence[ID]              `json:"pane"`
+		Rows         Presence[uint16]          `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RunRequest: %w", err)
+	}
 	type wire RunRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["new_workspace"]; exists && isJSONNull(raw) {
+	decoded.Argv = fields.Argv
+	decoded.Cols = fields.Cols
+	decoded.Command = fields.Command
+	decoded.Cwd = fields.Cwd
+	decoded.Key = fields.Key
+	decoded.Name = fields.Name
+	if fields.NewWorkspace.null {
 		return fmt.Errorf("decode RunRequest: non-nullable field new_workspace is null")
 	}
-	rawArgv, hasArgv := object["argv"]
-	if !hasArgv {
-		decoded.Argv = Presence[[]string]{}
-	} else if isJSONNull(rawArgv) {
-		decoded.Argv = Null[[]string]()
-	} else {
-		var fieldValue []string
-		if err := json.Unmarshal(rawArgv, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunRequest.Argv: %w", err)
-		}
-		decoded.Argv = Value(fieldValue)
+	if fields.NewWorkspace.set {
+		decoded.NewWorkspace = &fields.NewWorkspace.value
 	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunRequest.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawCommand, hasCommand := object["command"]
-	if !hasCommand {
-		decoded.Command = Presence[string]{}
-	} else if isJSONNull(rawCommand) {
-		decoded.Command = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCommand, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunRequest.Command: %w", err)
-		}
-		decoded.Command = Value(fieldValue)
-	}
-	rawCwd, hasCwd := object["cwd"]
-	if !hasCwd {
-		decoded.Cwd = Presence[string]{}
-	} else if isJSONNull(rawCwd) {
-		decoded.Cwd = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunRequest.Cwd: %w", err)
-		}
-		decoded.Cwd = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunRequest.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunRequest.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunRequest.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunRequest.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Pane = fields.Pane
+	decoded.Rows = fields.Rows
 	*value = RunRequest(decoded)
 	return nil
 }
@@ -7166,114 +6671,39 @@ func (value RunOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *RunOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RunOptions: expected object")
+	}
+	var fields struct {
+		Argv         Presence[[]string]        `json:"argv"`
+		Cols         Presence[uint16]          `json:"cols"`
+		Command      Presence[string]          `json:"command"`
+		Cwd          Presence[string]          `json:"cwd"`
+		Key          Presence[string]          `json:"key"`
+		Name         Presence[string]          `json:"name"`
+		NewWorkspace optionalNonNullJSON[bool] `json:"new_workspace"`
+		Pane         Presence[ID]              `json:"pane"`
+		Rows         Presence[uint16]          `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RunOptions: %w", err)
+	}
 	type wire RunOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["new_workspace"]; exists && isJSONNull(raw) {
+	decoded.Argv = fields.Argv
+	decoded.Cols = fields.Cols
+	decoded.Command = fields.Command
+	decoded.Cwd = fields.Cwd
+	decoded.Key = fields.Key
+	decoded.Name = fields.Name
+	if fields.NewWorkspace.null {
 		return fmt.Errorf("decode RunOptions: non-nullable field new_workspace is null")
 	}
-	rawArgv, hasArgv := object["argv"]
-	if !hasArgv {
-		decoded.Argv = Presence[[]string]{}
-	} else if isJSONNull(rawArgv) {
-		decoded.Argv = Null[[]string]()
-	} else {
-		var fieldValue []string
-		if err := json.Unmarshal(rawArgv, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunOptions.Argv: %w", err)
-		}
-		decoded.Argv = Value(fieldValue)
+	if fields.NewWorkspace.set {
+		decoded.NewWorkspace = &fields.NewWorkspace.value
 	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunOptions.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawCommand, hasCommand := object["command"]
-	if !hasCommand {
-		decoded.Command = Presence[string]{}
-	} else if isJSONNull(rawCommand) {
-		decoded.Command = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCommand, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunOptions.Command: %w", err)
-		}
-		decoded.Command = Value(fieldValue)
-	}
-	rawCwd, hasCwd := object["cwd"]
-	if !hasCwd {
-		decoded.Cwd = Presence[string]{}
-	} else if isJSONNull(rawCwd) {
-		decoded.Cwd = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunOptions.Cwd: %w", err)
-		}
-		decoded.Cwd = Value(fieldValue)
-	}
-	rawKey, hasKey := object["key"]
-	if !hasKey {
-		decoded.Key = Presence[string]{}
-	} else if isJSONNull(rawKey) {
-		decoded.Key = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKey, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunOptions.Key: %w", err)
-		}
-		decoded.Key = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunOptions.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunOptions.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunOptions.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Pane = fields.Pane
+	decoded.Rows = fields.Rows
 	*value = RunOptions(decoded)
 	return nil
 }
@@ -7282,6 +6712,31 @@ func (value *RunOptions) UnmarshalJSON(data []byte) error {
 type ScrollSurfaceRequest struct {
 	Delta   int64 `json:"delta"`
 	Surface ID    `json:"surface"`
+}
+
+func (value *ScrollSurfaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ScrollSurfaceRequest: expected object")
+	}
+	var fields struct {
+		Delta   *int64 `json:"delta"`
+		Surface *ID    `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ScrollSurfaceRequest: %w", err)
+	}
+	type wire ScrollSurfaceRequest
+	var decoded wire
+	if fields.Delta == nil {
+		return fmt.Errorf("decode ScrollSurfaceRequest: required field delta is missing or null")
+	}
+	decoded.Delta = *fields.Delta
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ScrollSurfaceRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = ScrollSurfaceRequest(decoded)
+	return nil
 }
 
 type ScrollSurfaceResult = EmptyResult
@@ -7330,39 +6785,20 @@ func (value SelectScreenRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SelectScreenRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SelectScreenRequest: expected object")
+	}
+	var fields struct {
+		Delta Presence[int64]  `json:"delta"`
+		Index Presence[uint64] `json:"index"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SelectScreenRequest: %w", err)
+	}
 	type wire SelectScreenRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawDelta, hasDelta := object["delta"]
-	if !hasDelta {
-		decoded.Delta = Presence[int64]{}
-	} else if isJSONNull(rawDelta) {
-		decoded.Delta = Null[int64]()
-	} else {
-		var fieldValue int64
-		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectScreenRequest.Delta: %w", err)
-		}
-		decoded.Delta = Value(fieldValue)
-	}
-	rawIndex, hasIndex := object["index"]
-	if !hasIndex {
-		decoded.Index = Presence[uint64]{}
-	} else if isJSONNull(rawIndex) {
-		decoded.Index = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectScreenRequest.Index: %w", err)
-		}
-		decoded.Index = Value(fieldValue)
-	}
+	decoded.Delta = fields.Delta
+	decoded.Index = fields.Index
 	*value = SelectScreenRequest(decoded)
 	return nil
 }
@@ -7412,39 +6848,20 @@ func (value SelectScreenOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SelectScreenOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SelectScreenOptions: expected object")
+	}
+	var fields struct {
+		Delta Presence[int64]  `json:"delta"`
+		Index Presence[uint64] `json:"index"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SelectScreenOptions: %w", err)
+	}
 	type wire SelectScreenOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawDelta, hasDelta := object["delta"]
-	if !hasDelta {
-		decoded.Delta = Presence[int64]{}
-	} else if isJSONNull(rawDelta) {
-		decoded.Delta = Null[int64]()
-	} else {
-		var fieldValue int64
-		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectScreenOptions.Delta: %w", err)
-		}
-		decoded.Delta = Value(fieldValue)
-	}
-	rawIndex, hasIndex := object["index"]
-	if !hasIndex {
-		decoded.Index = Presence[uint64]{}
-	} else if isJSONNull(rawIndex) {
-		decoded.Index = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectScreenOptions.Index: %w", err)
-		}
-		decoded.Index = Value(fieldValue)
-	}
+	decoded.Delta = fields.Delta
+	decoded.Index = fields.Index
 	*value = SelectScreenOptions(decoded)
 	return nil
 }
@@ -7506,51 +6923,22 @@ func (value SelectTabRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SelectTabRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SelectTabRequest: expected object")
+	}
+	var fields struct {
+		Delta Presence[int64]  `json:"delta"`
+		Index Presence[uint64] `json:"index"`
+		Pane  Presence[ID]     `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SelectTabRequest: %w", err)
+	}
 	type wire SelectTabRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawDelta, hasDelta := object["delta"]
-	if !hasDelta {
-		decoded.Delta = Presence[int64]{}
-	} else if isJSONNull(rawDelta) {
-		decoded.Delta = Null[int64]()
-	} else {
-		var fieldValue int64
-		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectTabRequest.Delta: %w", err)
-		}
-		decoded.Delta = Value(fieldValue)
-	}
-	rawIndex, hasIndex := object["index"]
-	if !hasIndex {
-		decoded.Index = Presence[uint64]{}
-	} else if isJSONNull(rawIndex) {
-		decoded.Index = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectTabRequest.Index: %w", err)
-		}
-		decoded.Index = Value(fieldValue)
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectTabRequest.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
+	decoded.Delta = fields.Delta
+	decoded.Index = fields.Index
+	decoded.Pane = fields.Pane
 	*value = SelectTabRequest(decoded)
 	return nil
 }
@@ -7613,51 +7001,22 @@ func (value SelectTabOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SelectTabOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SelectTabOptions: expected object")
+	}
+	var fields struct {
+		Delta Presence[int64]  `json:"delta"`
+		Index Presence[uint64] `json:"index"`
+		Pane  Presence[ID]     `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SelectTabOptions: %w", err)
+	}
 	type wire SelectTabOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawDelta, hasDelta := object["delta"]
-	if !hasDelta {
-		decoded.Delta = Presence[int64]{}
-	} else if isJSONNull(rawDelta) {
-		decoded.Delta = Null[int64]()
-	} else {
-		var fieldValue int64
-		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectTabOptions.Delta: %w", err)
-		}
-		decoded.Delta = Value(fieldValue)
-	}
-	rawIndex, hasIndex := object["index"]
-	if !hasIndex {
-		decoded.Index = Presence[uint64]{}
-	} else if isJSONNull(rawIndex) {
-		decoded.Index = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectTabOptions.Index: %w", err)
-		}
-		decoded.Index = Value(fieldValue)
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectTabOptions.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
+	decoded.Delta = fields.Delta
+	decoded.Index = fields.Index
+	decoded.Pane = fields.Pane
 	*value = SelectTabOptions(decoded)
 	return nil
 }
@@ -7706,39 +7065,20 @@ func (value SelectWorkspaceRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SelectWorkspaceRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SelectWorkspaceRequest: expected object")
+	}
+	var fields struct {
+		Delta Presence[int64]  `json:"delta"`
+		Index Presence[uint64] `json:"index"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SelectWorkspaceRequest: %w", err)
+	}
 	type wire SelectWorkspaceRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawDelta, hasDelta := object["delta"]
-	if !hasDelta {
-		decoded.Delta = Presence[int64]{}
-	} else if isJSONNull(rawDelta) {
-		decoded.Delta = Null[int64]()
-	} else {
-		var fieldValue int64
-		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectWorkspaceRequest.Delta: %w", err)
-		}
-		decoded.Delta = Value(fieldValue)
-	}
-	rawIndex, hasIndex := object["index"]
-	if !hasIndex {
-		decoded.Index = Presence[uint64]{}
-	} else if isJSONNull(rawIndex) {
-		decoded.Index = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectWorkspaceRequest.Index: %w", err)
-		}
-		decoded.Index = Value(fieldValue)
-	}
+	decoded.Delta = fields.Delta
+	decoded.Index = fields.Index
 	*value = SelectWorkspaceRequest(decoded)
 	return nil
 }
@@ -7788,39 +7128,20 @@ func (value SelectWorkspaceOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SelectWorkspaceOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SelectWorkspaceOptions: expected object")
+	}
+	var fields struct {
+		Delta Presence[int64]  `json:"delta"`
+		Index Presence[uint64] `json:"index"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SelectWorkspaceOptions: %w", err)
+	}
 	type wire SelectWorkspaceOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawDelta, hasDelta := object["delta"]
-	if !hasDelta {
-		decoded.Delta = Presence[int64]{}
-	} else if isJSONNull(rawDelta) {
-		decoded.Delta = Null[int64]()
-	} else {
-		var fieldValue int64
-		if err := json.Unmarshal(rawDelta, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectWorkspaceOptions.Delta: %w", err)
-		}
-		decoded.Delta = Value(fieldValue)
-	}
-	rawIndex, hasIndex := object["index"]
-	if !hasIndex {
-		decoded.Index = Presence[uint64]{}
-	} else if isJSONNull(rawIndex) {
-		decoded.Index = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawIndex, &fieldValue); err != nil {
-			return fmt.Errorf("decode SelectWorkspaceOptions.Index: %w", err)
-		}
-		decoded.Index = Value(fieldValue)
-	}
+	decoded.Delta = fields.Delta
+	decoded.Index = fields.Index
 	*value = SelectWorkspaceOptions(decoded)
 	return nil
 }
@@ -7871,42 +7192,32 @@ func (value SendRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SendRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SendRequest: expected object")
+	}
+	var fields struct {
+		Bytes   Presence[Base64]          `json:"bytes"`
+		Paste   optionalNonNullJSON[bool] `json:"paste"`
+		Surface *ID                       `json:"surface"`
+		Text    Presence[string]          `json:"text"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SendRequest: %w", err)
+	}
 	type wire SendRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["paste"]; exists && isJSONNull(raw) {
+	decoded.Bytes = fields.Bytes
+	if fields.Paste.null {
 		return fmt.Errorf("decode SendRequest: non-nullable field paste is null")
 	}
-	rawBytes, hasBytes := object["bytes"]
-	if !hasBytes {
-		decoded.Bytes = Presence[Base64]{}
-	} else if isJSONNull(rawBytes) {
-		decoded.Bytes = Null[Base64]()
-	} else {
-		var fieldValue Base64
-		if err := json.Unmarshal(rawBytes, &fieldValue); err != nil {
-			return fmt.Errorf("decode SendRequest.Bytes: %w", err)
-		}
-		decoded.Bytes = Value(fieldValue)
+	if fields.Paste.set {
+		decoded.Paste = &fields.Paste.value
 	}
-	rawText, hasText := object["text"]
-	if !hasText {
-		decoded.Text = Presence[string]{}
-	} else if isJSONNull(rawText) {
-		decoded.Text = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawText, &fieldValue); err != nil {
-			return fmt.Errorf("decode SendRequest.Text: %w", err)
-		}
-		decoded.Text = Value(fieldValue)
+	if fields.Surface == nil {
+		return fmt.Errorf("decode SendRequest: required field surface is missing or null")
 	}
+	decoded.Surface = *fields.Surface
+	decoded.Text = fields.Text
 	*value = SendRequest(decoded)
 	return nil
 }
@@ -7919,12 +7230,62 @@ type SendKeyRequest struct {
 	Surface ID       `json:"surface"`
 }
 
+func (value *SendKeyRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SendKeyRequest: expected object")
+	}
+	var fields struct {
+		Keys    *[]string `json:"keys"`
+		Surface *ID       `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SendKeyRequest: %w", err)
+	}
+	type wire SendKeyRequest
+	var decoded wire
+	if fields.Keys == nil {
+		return fmt.Errorf("decode SendKeyRequest: required field keys is missing or null")
+	}
+	decoded.Keys = *fields.Keys
+	if fields.Surface == nil {
+		return fmt.Errorf("decode SendKeyRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = SendKeyRequest(decoded)
+	return nil
+}
+
 type SendKeyResult = EmptyResult
 
 // SetCellPixelsRequest is the exact set-cell-pixels wire payload.
 type SetCellPixelsRequest struct {
 	HeightPx uint16 `json:"height_px"`
 	WidthPx  uint16 `json:"width_px"`
+}
+
+func (value *SetCellPixelsRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetCellPixelsRequest: expected object")
+	}
+	var fields struct {
+		HeightPx *uint16 `json:"height_px"`
+		WidthPx  *uint16 `json:"width_px"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetCellPixelsRequest: %w", err)
+	}
+	type wire SetCellPixelsRequest
+	var decoded wire
+	if fields.HeightPx == nil {
+		return fmt.Errorf("decode SetCellPixelsRequest: required field height_px is missing or null")
+	}
+	decoded.HeightPx = *fields.HeightPx
+	if fields.WidthPx == nil {
+		return fmt.Errorf("decode SetCellPixelsRequest: required field width_px is missing or null")
+	}
+	decoded.WidthPx = *fields.WidthPx
+	*value = SetCellPixelsRequest(decoded)
+	return nil
 }
 
 // SetClientInfoRequest is the exact set-client-info wire payload.
@@ -7984,51 +7345,22 @@ func (value SetClientInfoRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SetClientInfoRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetClientInfoRequest: expected object")
+	}
+	var fields struct {
+		Capabilities Presence[[]string] `json:"capabilities"`
+		Kind         Presence[string]   `json:"kind"`
+		Name         Presence[string]   `json:"name"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetClientInfoRequest: %w", err)
+	}
 	type wire SetClientInfoRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCapabilities, hasCapabilities := object["capabilities"]
-	if !hasCapabilities {
-		decoded.Capabilities = Presence[[]string]{}
-	} else if isJSONNull(rawCapabilities) {
-		decoded.Capabilities = Null[[]string]()
-	} else {
-		var fieldValue []string
-		if err := json.Unmarshal(rawCapabilities, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetClientInfoRequest.Capabilities: %w", err)
-		}
-		decoded.Capabilities = Value(fieldValue)
-	}
-	rawKind, hasKind := object["kind"]
-	if !hasKind {
-		decoded.Kind = Presence[string]{}
-	} else if isJSONNull(rawKind) {
-		decoded.Kind = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetClientInfoRequest.Kind: %w", err)
-		}
-		decoded.Kind = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetClientInfoRequest.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
+	decoded.Capabilities = fields.Capabilities
+	decoded.Kind = fields.Kind
+	decoded.Name = fields.Name
 	*value = SetClientInfoRequest(decoded)
 	return nil
 }
@@ -8091,51 +7423,22 @@ func (value SetClientInfoOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SetClientInfoOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetClientInfoOptions: expected object")
+	}
+	var fields struct {
+		Capabilities Presence[[]string] `json:"capabilities"`
+		Kind         Presence[string]   `json:"kind"`
+		Name         Presence[string]   `json:"name"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetClientInfoOptions: %w", err)
+	}
 	type wire SetClientInfoOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCapabilities, hasCapabilities := object["capabilities"]
-	if !hasCapabilities {
-		decoded.Capabilities = Presence[[]string]{}
-	} else if isJSONNull(rawCapabilities) {
-		decoded.Capabilities = Null[[]string]()
-	} else {
-		var fieldValue []string
-		if err := json.Unmarshal(rawCapabilities, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetClientInfoOptions.Capabilities: %w", err)
-		}
-		decoded.Capabilities = Value(fieldValue)
-	}
-	rawKind, hasKind := object["kind"]
-	if !hasKind {
-		decoded.Kind = Presence[string]{}
-	} else if isJSONNull(rawKind) {
-		decoded.Kind = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetClientInfoOptions.Kind: %w", err)
-		}
-		decoded.Kind = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		decoded.Name = Presence[string]{}
-	} else if isJSONNull(rawName) {
-		decoded.Name = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetClientInfoOptions.Name: %w", err)
-		}
-		decoded.Name = Value(fieldValue)
-	}
+	decoded.Capabilities = fields.Capabilities
+	decoded.Kind = fields.Kind
+	decoded.Name = fields.Name
 	*value = SetClientInfoOptions(decoded)
 	return nil
 }
@@ -8174,30 +7477,35 @@ func (value SetClientSizingRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SetClientSizingRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetClientSizingRequest: expected object")
+	}
+	var fields struct {
+		Client    Presence[uint64]          `json:"client"`
+		Enabled   *bool                     `json:"enabled"`
+		Exclusive optionalNonNullJSON[bool] `json:"exclusive"`
+		Surface   *ID                       `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetClientSizingRequest: %w", err)
+	}
 	type wire SetClientSizingRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Client = fields.Client
+	if fields.Enabled == nil {
+		return fmt.Errorf("decode SetClientSizingRequest: required field enabled is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["exclusive"]; exists && isJSONNull(raw) {
+	decoded.Enabled = *fields.Enabled
+	if fields.Exclusive.null {
 		return fmt.Errorf("decode SetClientSizingRequest: non-nullable field exclusive is null")
 	}
-	rawClient, hasClient := object["client"]
-	if !hasClient {
-		decoded.Client = Presence[uint64]{}
-	} else if isJSONNull(rawClient) {
-		decoded.Client = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawClient, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetClientSizingRequest.Client: %w", err)
-		}
-		decoded.Client = Value(fieldValue)
+	if fields.Exclusive.set {
+		decoded.Exclusive = &fields.Exclusive.value
 	}
+	if fields.Surface == nil {
+		return fmt.Errorf("decode SetClientSizingRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
 	*value = SetClientSizingRequest(decoded)
 	return nil
 }
@@ -8235,29 +7543,24 @@ func (value SetClientSizingOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SetClientSizingOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetClientSizingOptions: expected object")
+	}
+	var fields struct {
+		Client    Presence[uint64]          `json:"client"`
+		Exclusive optionalNonNullJSON[bool] `json:"exclusive"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetClientSizingOptions: %w", err)
+	}
 	type wire SetClientSizingOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["exclusive"]; exists && isJSONNull(raw) {
+	decoded.Client = fields.Client
+	if fields.Exclusive.null {
 		return fmt.Errorf("decode SetClientSizingOptions: non-nullable field exclusive is null")
 	}
-	rawClient, hasClient := object["client"]
-	if !hasClient {
-		decoded.Client = Presence[uint64]{}
-	} else if isJSONNull(rawClient) {
-		decoded.Client = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawClient, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetClientSizingOptions.Client: %w", err)
-		}
-		decoded.Client = Value(fieldValue)
+	if fields.Exclusive.set {
+		decoded.Exclusive = &fields.Exclusive.value
 	}
 	*value = SetClientSizingOptions(decoded)
 	return nil
@@ -8386,114 +7689,39 @@ func (value SetDefaultColorsRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SetDefaultColorsRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetDefaultColorsRequest: expected object")
+	}
+	var fields struct {
+		Bg          Presence[ColorHex]            `json:"bg"`
+		Complete    optionalNonNullJSON[bool]     `json:"complete"`
+		Cursor      Presence[ColorHex]            `json:"cursor"`
+		CursorBlink Presence[bool]                `json:"cursor_blink"`
+		CursorStyle Presence[CursorStyle]         `json:"cursor_style"`
+		Fg          Presence[ColorHex]            `json:"fg"`
+		Palette     Presence[map[string]ColorHex] `json:"palette"`
+		SelectionBg Presence[ColorHex]            `json:"selection_bg"`
+		SelectionFg Presence[ColorHex]            `json:"selection_fg"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetDefaultColorsRequest: %w", err)
+	}
 	type wire SetDefaultColorsRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["complete"]; exists && isJSONNull(raw) {
+	decoded.Bg = fields.Bg
+	if fields.Complete.null {
 		return fmt.Errorf("decode SetDefaultColorsRequest: non-nullable field complete is null")
 	}
-	rawBg, hasBg := object["bg"]
-	if !hasBg {
-		decoded.Bg = Presence[ColorHex]{}
-	} else if isJSONNull(rawBg) {
-		decoded.Bg = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawBg, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsRequest.Bg: %w", err)
-		}
-		decoded.Bg = Value(fieldValue)
+	if fields.Complete.set {
+		decoded.Complete = &fields.Complete.value
 	}
-	rawCursor, hasCursor := object["cursor"]
-	if !hasCursor {
-		decoded.Cursor = Presence[ColorHex]{}
-	} else if isJSONNull(rawCursor) {
-		decoded.Cursor = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawCursor, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsRequest.Cursor: %w", err)
-		}
-		decoded.Cursor = Value(fieldValue)
-	}
-	rawCursorBlink, hasCursorBlink := object["cursor_blink"]
-	if !hasCursorBlink {
-		decoded.CursorBlink = Presence[bool]{}
-	} else if isJSONNull(rawCursorBlink) {
-		decoded.CursorBlink = Null[bool]()
-	} else {
-		var fieldValue bool
-		if err := json.Unmarshal(rawCursorBlink, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsRequest.CursorBlink: %w", err)
-		}
-		decoded.CursorBlink = Value(fieldValue)
-	}
-	rawCursorStyle, hasCursorStyle := object["cursor_style"]
-	if !hasCursorStyle {
-		decoded.CursorStyle = Presence[CursorStyle]{}
-	} else if isJSONNull(rawCursorStyle) {
-		decoded.CursorStyle = Null[CursorStyle]()
-	} else {
-		var fieldValue CursorStyle
-		if err := json.Unmarshal(rawCursorStyle, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsRequest.CursorStyle: %w", err)
-		}
-		decoded.CursorStyle = Value(fieldValue)
-	}
-	rawFg, hasFg := object["fg"]
-	if !hasFg {
-		decoded.Fg = Presence[ColorHex]{}
-	} else if isJSONNull(rawFg) {
-		decoded.Fg = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawFg, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsRequest.Fg: %w", err)
-		}
-		decoded.Fg = Value(fieldValue)
-	}
-	rawPalette, hasPalette := object["palette"]
-	if !hasPalette {
-		decoded.Palette = Presence[map[string]ColorHex]{}
-	} else if isJSONNull(rawPalette) {
-		decoded.Palette = Null[map[string]ColorHex]()
-	} else {
-		var fieldValue map[string]ColorHex
-		if err := json.Unmarshal(rawPalette, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsRequest.Palette: %w", err)
-		}
-		decoded.Palette = Value(fieldValue)
-	}
-	rawSelectionBg, hasSelectionBg := object["selection_bg"]
-	if !hasSelectionBg {
-		decoded.SelectionBg = Presence[ColorHex]{}
-	} else if isJSONNull(rawSelectionBg) {
-		decoded.SelectionBg = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawSelectionBg, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsRequest.SelectionBg: %w", err)
-		}
-		decoded.SelectionBg = Value(fieldValue)
-	}
-	rawSelectionFg, hasSelectionFg := object["selection_fg"]
-	if !hasSelectionFg {
-		decoded.SelectionFg = Presence[ColorHex]{}
-	} else if isJSONNull(rawSelectionFg) {
-		decoded.SelectionFg = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawSelectionFg, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsRequest.SelectionFg: %w", err)
-		}
-		decoded.SelectionFg = Value(fieldValue)
-	}
+	decoded.Cursor = fields.Cursor
+	decoded.CursorBlink = fields.CursorBlink
+	decoded.CursorStyle = fields.CursorStyle
+	decoded.Fg = fields.Fg
+	decoded.Palette = fields.Palette
+	decoded.SelectionBg = fields.SelectionBg
+	decoded.SelectionFg = fields.SelectionFg
 	*value = SetDefaultColorsRequest(decoded)
 	return nil
 }
@@ -8622,114 +7850,39 @@ func (value SetDefaultColorsOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SetDefaultColorsOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetDefaultColorsOptions: expected object")
+	}
+	var fields struct {
+		Bg          Presence[ColorHex]            `json:"bg"`
+		Complete    optionalNonNullJSON[bool]     `json:"complete"`
+		Cursor      Presence[ColorHex]            `json:"cursor"`
+		CursorBlink Presence[bool]                `json:"cursor_blink"`
+		CursorStyle Presence[CursorStyle]         `json:"cursor_style"`
+		Fg          Presence[ColorHex]            `json:"fg"`
+		Palette     Presence[map[string]ColorHex] `json:"palette"`
+		SelectionBg Presence[ColorHex]            `json:"selection_bg"`
+		SelectionFg Presence[ColorHex]            `json:"selection_fg"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetDefaultColorsOptions: %w", err)
+	}
 	type wire SetDefaultColorsOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["complete"]; exists && isJSONNull(raw) {
+	decoded.Bg = fields.Bg
+	if fields.Complete.null {
 		return fmt.Errorf("decode SetDefaultColorsOptions: non-nullable field complete is null")
 	}
-	rawBg, hasBg := object["bg"]
-	if !hasBg {
-		decoded.Bg = Presence[ColorHex]{}
-	} else if isJSONNull(rawBg) {
-		decoded.Bg = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawBg, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsOptions.Bg: %w", err)
-		}
-		decoded.Bg = Value(fieldValue)
+	if fields.Complete.set {
+		decoded.Complete = &fields.Complete.value
 	}
-	rawCursor, hasCursor := object["cursor"]
-	if !hasCursor {
-		decoded.Cursor = Presence[ColorHex]{}
-	} else if isJSONNull(rawCursor) {
-		decoded.Cursor = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawCursor, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsOptions.Cursor: %w", err)
-		}
-		decoded.Cursor = Value(fieldValue)
-	}
-	rawCursorBlink, hasCursorBlink := object["cursor_blink"]
-	if !hasCursorBlink {
-		decoded.CursorBlink = Presence[bool]{}
-	} else if isJSONNull(rawCursorBlink) {
-		decoded.CursorBlink = Null[bool]()
-	} else {
-		var fieldValue bool
-		if err := json.Unmarshal(rawCursorBlink, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsOptions.CursorBlink: %w", err)
-		}
-		decoded.CursorBlink = Value(fieldValue)
-	}
-	rawCursorStyle, hasCursorStyle := object["cursor_style"]
-	if !hasCursorStyle {
-		decoded.CursorStyle = Presence[CursorStyle]{}
-	} else if isJSONNull(rawCursorStyle) {
-		decoded.CursorStyle = Null[CursorStyle]()
-	} else {
-		var fieldValue CursorStyle
-		if err := json.Unmarshal(rawCursorStyle, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsOptions.CursorStyle: %w", err)
-		}
-		decoded.CursorStyle = Value(fieldValue)
-	}
-	rawFg, hasFg := object["fg"]
-	if !hasFg {
-		decoded.Fg = Presence[ColorHex]{}
-	} else if isJSONNull(rawFg) {
-		decoded.Fg = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawFg, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsOptions.Fg: %w", err)
-		}
-		decoded.Fg = Value(fieldValue)
-	}
-	rawPalette, hasPalette := object["palette"]
-	if !hasPalette {
-		decoded.Palette = Presence[map[string]ColorHex]{}
-	} else if isJSONNull(rawPalette) {
-		decoded.Palette = Null[map[string]ColorHex]()
-	} else {
-		var fieldValue map[string]ColorHex
-		if err := json.Unmarshal(rawPalette, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsOptions.Palette: %w", err)
-		}
-		decoded.Palette = Value(fieldValue)
-	}
-	rawSelectionBg, hasSelectionBg := object["selection_bg"]
-	if !hasSelectionBg {
-		decoded.SelectionBg = Presence[ColorHex]{}
-	} else if isJSONNull(rawSelectionBg) {
-		decoded.SelectionBg = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawSelectionBg, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsOptions.SelectionBg: %w", err)
-		}
-		decoded.SelectionBg = Value(fieldValue)
-	}
-	rawSelectionFg, hasSelectionFg := object["selection_fg"]
-	if !hasSelectionFg {
-		decoded.SelectionFg = Presence[ColorHex]{}
-	} else if isJSONNull(rawSelectionFg) {
-		decoded.SelectionFg = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawSelectionFg, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetDefaultColorsOptions.SelectionFg: %w", err)
-		}
-		decoded.SelectionFg = Value(fieldValue)
-	}
+	decoded.Cursor = fields.Cursor
+	decoded.CursorBlink = fields.CursorBlink
+	decoded.CursorStyle = fields.CursorStyle
+	decoded.Fg = fields.Fg
+	decoded.Palette = fields.Palette
+	decoded.SelectionBg = fields.SelectionBg
+	decoded.SelectionFg = fields.SelectionFg
 	*value = SetDefaultColorsOptions(decoded)
 	return nil
 }
@@ -8739,6 +7892,36 @@ type SetRatioRequest struct {
 	Dir   SplitDirection `json:"dir"`
 	Pane  ID             `json:"pane"`
 	Ratio float32        `json:"ratio"`
+}
+
+func (value *SetRatioRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetRatioRequest: expected object")
+	}
+	var fields struct {
+		Dir   *SplitDirection `json:"dir"`
+		Pane  *ID             `json:"pane"`
+		Ratio *float32        `json:"ratio"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetRatioRequest: %w", err)
+	}
+	type wire SetRatioRequest
+	var decoded wire
+	if fields.Dir == nil {
+		return fmt.Errorf("decode SetRatioRequest: required field dir is missing or null")
+	}
+	decoded.Dir = *fields.Dir
+	if fields.Pane == nil {
+		return fmt.Errorf("decode SetRatioRequest: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.Ratio == nil {
+		return fmt.Errorf("decode SetRatioRequest: required field ratio is missing or null")
+	}
+	decoded.Ratio = *fields.Ratio
+	*value = SetRatioRequest(decoded)
+	return nil
 }
 
 type SetRatioResult = EmptyResult
@@ -8776,27 +7959,28 @@ func (value SetSplitRatioRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SetSplitRatioRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetSplitRatioRequest: expected object")
+	}
+	var fields struct {
+		Ratio       *float32         `json:"ratio"`
+		Split       *ID              `json:"split"`
+		Transaction Presence[uint64] `json:"transaction"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetSplitRatioRequest: %w", err)
+	}
 	type wire SetSplitRatioRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Ratio == nil {
+		return fmt.Errorf("decode SetSplitRatioRequest: required field ratio is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Ratio = *fields.Ratio
+	if fields.Split == nil {
+		return fmt.Errorf("decode SetSplitRatioRequest: required field split is missing or null")
 	}
-	rawTransaction, hasTransaction := object["transaction"]
-	if !hasTransaction {
-		decoded.Transaction = Presence[uint64]{}
-	} else if isJSONNull(rawTransaction) {
-		decoded.Transaction = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawTransaction, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetSplitRatioRequest.Transaction: %w", err)
-		}
-		decoded.Transaction = Value(fieldValue)
-	}
+	decoded.Split = *fields.Split
+	decoded.Transaction = fields.Transaction
 	*value = SetSplitRatioRequest(decoded)
 	return nil
 }
@@ -8833,27 +8017,18 @@ func (value SetSplitRatioOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SetSplitRatioOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetSplitRatioOptions: expected object")
+	}
+	var fields struct {
+		Transaction Presence[uint64] `json:"transaction"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetSplitRatioOptions: %w", err)
+	}
 	type wire SetSplitRatioOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawTransaction, hasTransaction := object["transaction"]
-	if !hasTransaction {
-		decoded.Transaction = Presence[uint64]{}
-	} else if isJSONNull(rawTransaction) {
-		decoded.Transaction = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawTransaction, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetSplitRatioOptions.Transaction: %w", err)
-		}
-		decoded.Transaction = Value(fieldValue)
-	}
+	decoded.Transaction = fields.Transaction
 	*value = SetSplitRatioOptions(decoded)
 	return nil
 }
@@ -8891,27 +8066,28 @@ func (value SetViewportPaneWidthRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SetViewportPaneWidthRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetViewportPaneWidthRequest: expected object")
+	}
+	var fields struct {
+		Pane        *ID              `json:"pane"`
+		Transaction Presence[uint64] `json:"transaction"`
+		Width       *float32         `json:"width"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetViewportPaneWidthRequest: %w", err)
+	}
 	type wire SetViewportPaneWidthRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Pane == nil {
+		return fmt.Errorf("decode SetViewportPaneWidthRequest: required field pane is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Pane = *fields.Pane
+	decoded.Transaction = fields.Transaction
+	if fields.Width == nil {
+		return fmt.Errorf("decode SetViewportPaneWidthRequest: required field width is missing or null")
 	}
-	rawTransaction, hasTransaction := object["transaction"]
-	if !hasTransaction {
-		decoded.Transaction = Presence[uint64]{}
-	} else if isJSONNull(rawTransaction) {
-		decoded.Transaction = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawTransaction, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetViewportPaneWidthRequest.Transaction: %w", err)
-		}
-		decoded.Transaction = Value(fieldValue)
-	}
+	decoded.Width = *fields.Width
 	*value = SetViewportPaneWidthRequest(decoded)
 	return nil
 }
@@ -8948,27 +8124,18 @@ func (value SetViewportPaneWidthOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SetViewportPaneWidthOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetViewportPaneWidthOptions: expected object")
+	}
+	var fields struct {
+		Transaction Presence[uint64] `json:"transaction"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetViewportPaneWidthOptions: %w", err)
+	}
 	type wire SetViewportPaneWidthOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawTransaction, hasTransaction := object["transaction"]
-	if !hasTransaction {
-		decoded.Transaction = Presence[uint64]{}
-	} else if isJSONNull(rawTransaction) {
-		decoded.Transaction = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawTransaction, &fieldValue); err != nil {
-			return fmt.Errorf("decode SetViewportPaneWidthOptions.Transaction: %w", err)
-		}
-		decoded.Transaction = Value(fieldValue)
-	}
+	decoded.Transaction = fields.Transaction
 	*value = SetViewportPaneWidthOptions(decoded)
 	return nil
 }
@@ -8976,6 +8143,26 @@ func (value *SetViewportPaneWidthOptions) UnmarshalJSON(data []byte) error {
 // SetWindowTitleRequest is the exact set-window-title wire payload.
 type SetWindowTitleRequest struct {
 	Title string `json:"title"`
+}
+
+func (value *SetWindowTitleRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetWindowTitleRequest: expected object")
+	}
+	var fields struct {
+		Title *string `json:"title"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetWindowTitleRequest: %w", err)
+	}
+	type wire SetWindowTitleRequest
+	var decoded wire
+	if fields.Title == nil {
+		return fmt.Errorf("decode SetWindowTitleRequest: required field title is missing or null")
+	}
+	decoded.Title = *fields.Title
+	*value = SetWindowTitleRequest(decoded)
+	return nil
 }
 
 type SetWindowTitleResult = EmptyResult
@@ -8986,6 +8173,31 @@ type ShutdownDaemonRequest struct {
 	PID        uint32 `json:"pid"`
 }
 
+func (value *ShutdownDaemonRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ShutdownDaemonRequest: expected object")
+	}
+	var fields struct {
+		Generation *string `json:"generation"`
+		PID        *uint32 `json:"pid"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ShutdownDaemonRequest: %w", err)
+	}
+	type wire ShutdownDaemonRequest
+	var decoded wire
+	if fields.Generation == nil {
+		return fmt.Errorf("decode ShutdownDaemonRequest: required field generation is missing or null")
+	}
+	decoded.Generation = *fields.Generation
+	if fields.PID == nil {
+		return fmt.Errorf("decode ShutdownDaemonRequest: required field pid is missing or null")
+	}
+	decoded.PID = *fields.PID
+	*value = ShutdownDaemonRequest(decoded)
+	return nil
+}
+
 // SidebarPluginRequest is the exact sidebar-plugin wire payload.
 type SidebarPluginRequest struct {
 	Cols     uint16 `json:"cols"`
@@ -8994,18 +8206,33 @@ type SidebarPluginRequest struct {
 }
 
 func (value *SidebarPluginRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SidebarPluginRequest: expected object")
+	}
+	var fields struct {
+		Cols     *uint16                   `json:"cols"`
+		Relaunch optionalNonNullJSON[bool] `json:"relaunch"`
+		Rows     *uint16                   `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SidebarPluginRequest: %w", err)
+	}
 	type wire SidebarPluginRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Cols == nil {
+		return fmt.Errorf("decode SidebarPluginRequest: required field cols is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["relaunch"]; exists && isJSONNull(raw) {
+	decoded.Cols = *fields.Cols
+	if fields.Relaunch.null {
 		return fmt.Errorf("decode SidebarPluginRequest: non-nullable field relaunch is null")
 	}
+	if fields.Relaunch.set {
+		decoded.Relaunch = &fields.Relaunch.value
+	}
+	if fields.Rows == nil {
+		return fmt.Errorf("decode SidebarPluginRequest: required field rows is missing or null")
+	}
+	decoded.Rows = *fields.Rows
 	*value = SidebarPluginRequest(decoded)
 	return nil
 }
@@ -9015,17 +8242,22 @@ type SidebarPluginOptions struct {
 }
 
 func (value *SidebarPluginOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SidebarPluginOptions: expected object")
+	}
+	var fields struct {
+		Relaunch optionalNonNullJSON[bool] `json:"relaunch"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SidebarPluginOptions: %w", err)
+	}
 	type wire SidebarPluginOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["relaunch"]; exists && isJSONNull(raw) {
+	if fields.Relaunch.null {
 		return fmt.Errorf("decode SidebarPluginOptions: non-nullable field relaunch is null")
+	}
+	if fields.Relaunch.set {
+		decoded.Relaunch = &fields.Relaunch.value
 	}
 	*value = SidebarPluginOptions(decoded)
 	return nil
@@ -9077,39 +8309,30 @@ func (value SplitRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SplitRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SplitRequest: expected object")
+	}
+	var fields struct {
+		Cols Presence[uint16] `json:"cols"`
+		Dir  *SplitDirection  `json:"dir"`
+		Pane *ID              `json:"pane"`
+		Rows Presence[uint16] `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SplitRequest: %w", err)
+	}
 	type wire SplitRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Cols = fields.Cols
+	if fields.Dir == nil {
+		return fmt.Errorf("decode SplitRequest: required field dir is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Dir = *fields.Dir
+	if fields.Pane == nil {
+		return fmt.Errorf("decode SplitRequest: required field pane is missing or null")
 	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode SplitRequest.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode SplitRequest.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Pane = *fields.Pane
+	decoded.Rows = fields.Rows
 	*value = SplitRequest(decoded)
 	return nil
 }
@@ -9159,39 +8382,20 @@ func (value SplitOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SplitOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SplitOptions: expected object")
+	}
+	var fields struct {
+		Cols Presence[uint16] `json:"cols"`
+		Rows Presence[uint16] `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SplitOptions: %w", err)
+	}
 	type wire SplitOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		decoded.Cols = Presence[uint16]{}
-	} else if isJSONNull(rawCols) {
-		decoded.Cols = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode SplitOptions.Cols: %w", err)
-		}
-		decoded.Cols = Value(fieldValue)
-	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		decoded.Rows = Presence[uint16]{}
-	} else if isJSONNull(rawRows) {
-		decoded.Rows = Null[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode SplitOptions.Rows: %w", err)
-		}
-		decoded.Rows = Value(fieldValue)
-	}
+	decoded.Cols = fields.Cols
+	decoded.Rows = fields.Rows
 	*value = SplitOptions(decoded)
 	return nil
 }
@@ -9204,12 +8408,48 @@ const (
 	SubscribeRequestTreeEventsDeltas SubscribeRequestTreeEvents = "deltas"
 )
 
+func (value SubscribeRequestTreeEvents) valid() bool {
+	switch value {
+	case SubscribeRequestTreeEventsCoarse, SubscribeRequestTreeEventsDeltas:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value SubscribeRequestTreeEvents) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "SubscribeRequestTreeEvents", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *SubscribeRequestTreeEvents) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := SubscribeRequestTreeEvents(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "SubscribeRequestTreeEvents", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type SubscribeRequest struct {
 	Surface    Presence[ID]                         `json:"-"`
 	TreeEvents Presence[SubscribeRequestTreeEvents] `json:"-"`
 }
 
 func (value SubscribeRequest) MarshalJSON() ([]byte, error) {
+	if fieldValue, ok := value.TreeEvents.Get(); ok {
+		switch fieldValue {
+		case "coarse", "deltas":
+		default:
+			return nil, fmt.Errorf("encode SubscribeRequest.TreeEvents: invalid value %v", fieldValue)
+		}
+	}
 	type wire SubscribeRequest
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -9247,39 +8487,20 @@ func (value SubscribeRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SubscribeRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SubscribeRequest: expected object")
+	}
+	var fields struct {
+		Surface    Presence[ID]                         `json:"surface"`
+		TreeEvents Presence[SubscribeRequestTreeEvents] `json:"tree_events"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SubscribeRequest: %w", err)
+	}
 	type wire SubscribeRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawSurface, hasSurface := object["surface"]
-	if !hasSurface {
-		decoded.Surface = Presence[ID]{}
-	} else if isJSONNull(rawSurface) {
-		decoded.Surface = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
-			return fmt.Errorf("decode SubscribeRequest.Surface: %w", err)
-		}
-		decoded.Surface = Value(fieldValue)
-	}
-	rawTreeEvents, hasTreeEvents := object["tree_events"]
-	if !hasTreeEvents {
-		decoded.TreeEvents = Presence[SubscribeRequestTreeEvents]{}
-	} else if isJSONNull(rawTreeEvents) {
-		decoded.TreeEvents = Null[SubscribeRequestTreeEvents]()
-	} else {
-		var fieldValue SubscribeRequestTreeEvents
-		if err := json.Unmarshal(rawTreeEvents, &fieldValue); err != nil {
-			return fmt.Errorf("decode SubscribeRequest.TreeEvents: %w", err)
-		}
-		decoded.TreeEvents = Value(fieldValue)
-	}
+	decoded.Surface = fields.Surface
+	decoded.TreeEvents = fields.TreeEvents
 	*value = SubscribeRequest(decoded)
 	return nil
 }
@@ -9331,39 +8552,25 @@ func (value SwapPaneRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SwapPaneRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SwapPaneRequest: expected object")
+	}
+	var fields struct {
+		Dir    Presence[PaneDirection] `json:"dir"`
+		Pane   *ID                     `json:"pane"`
+		Target Presence[ID]            `json:"target"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SwapPaneRequest: %w", err)
+	}
 	type wire SwapPaneRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Dir = fields.Dir
+	if fields.Pane == nil {
+		return fmt.Errorf("decode SwapPaneRequest: required field pane is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawDir, hasDir := object["dir"]
-	if !hasDir {
-		decoded.Dir = Presence[PaneDirection]{}
-	} else if isJSONNull(rawDir) {
-		decoded.Dir = Null[PaneDirection]()
-	} else {
-		var fieldValue PaneDirection
-		if err := json.Unmarshal(rawDir, &fieldValue); err != nil {
-			return fmt.Errorf("decode SwapPaneRequest.Dir: %w", err)
-		}
-		decoded.Dir = Value(fieldValue)
-	}
-	rawTarget, hasTarget := object["target"]
-	if !hasTarget {
-		decoded.Target = Presence[ID]{}
-	} else if isJSONNull(rawTarget) {
-		decoded.Target = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawTarget, &fieldValue); err != nil {
-			return fmt.Errorf("decode SwapPaneRequest.Target: %w", err)
-		}
-		decoded.Target = Value(fieldValue)
-	}
+	decoded.Pane = *fields.Pane
+	decoded.Target = fields.Target
 	*value = SwapPaneRequest(decoded)
 	return nil
 }
@@ -9413,39 +8620,20 @@ func (value SwapPaneOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SwapPaneOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SwapPaneOptions: expected object")
+	}
+	var fields struct {
+		Dir    Presence[PaneDirection] `json:"dir"`
+		Target Presence[ID]            `json:"target"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SwapPaneOptions: %w", err)
+	}
 	type wire SwapPaneOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawDir, hasDir := object["dir"]
-	if !hasDir {
-		decoded.Dir = Presence[PaneDirection]{}
-	} else if isJSONNull(rawDir) {
-		decoded.Dir = Null[PaneDirection]()
-	} else {
-		var fieldValue PaneDirection
-		if err := json.Unmarshal(rawDir, &fieldValue); err != nil {
-			return fmt.Errorf("decode SwapPaneOptions.Dir: %w", err)
-		}
-		decoded.Dir = Value(fieldValue)
-	}
-	rawTarget, hasTarget := object["target"]
-	if !hasTarget {
-		decoded.Target = Presence[ID]{}
-	} else if isJSONNull(rawTarget) {
-		decoded.Target = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawTarget, &fieldValue); err != nil {
-			return fmt.Errorf("decode SwapPaneOptions.Target: %w", err)
-		}
-		decoded.Target = Value(fieldValue)
-	}
+	decoded.Dir = fields.Dir
+	decoded.Target = fields.Target
 	*value = SwapPaneOptions(decoded)
 	return nil
 }
@@ -9456,17 +8644,22 @@ type TerminalEventsRequest struct {
 }
 
 func (value *TerminalEventsRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalEventsRequest: expected object")
+	}
+	var fields struct {
+		AfterRevision optionalNonNullJSON[uint64] `json:"after_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalEventsRequest: %w", err)
+	}
 	type wire TerminalEventsRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["after_revision"]; exists && isJSONNull(raw) {
+	if fields.AfterRevision.null {
 		return fmt.Errorf("decode TerminalEventsRequest: non-nullable field after_revision is null")
+	}
+	if fields.AfterRevision.set {
+		decoded.AfterRevision = &fields.AfterRevision.value
 	}
 	*value = TerminalEventsRequest(decoded)
 	return nil
@@ -9477,17 +8670,22 @@ type TerminalEventsOptions struct {
 }
 
 func (value *TerminalEventsOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalEventsOptions: expected object")
+	}
+	var fields struct {
+		AfterRevision optionalNonNullJSON[uint64] `json:"after_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalEventsOptions: %w", err)
+	}
 	type wire TerminalEventsOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["after_revision"]; exists && isJSONNull(raw) {
+	if fields.AfterRevision.null {
 		return fmt.Errorf("decode TerminalEventsOptions: non-nullable field after_revision is null")
+	}
+	if fields.AfterRevision.set {
+		decoded.AfterRevision = &fields.AfterRevision.value
 	}
 	*value = TerminalEventsOptions(decoded)
 	return nil
@@ -9526,30 +8724,30 @@ func (value UndoLayoutRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *UndoLayoutRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode UndoLayoutRequest: expected object")
+	}
+	var fields struct {
+		ConfirmClose optionalNonNullJSON[bool] `json:"confirm_close"`
+		Pane         *ID                       `json:"pane"`
+		Revision     Presence[uint64]          `json:"revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode UndoLayoutRequest: %w", err)
+	}
 	type wire UndoLayoutRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["confirm_close"]; exists && isJSONNull(raw) {
+	if fields.ConfirmClose.null {
 		return fmt.Errorf("decode UndoLayoutRequest: non-nullable field confirm_close is null")
 	}
-	rawRevision, hasRevision := object["revision"]
-	if !hasRevision {
-		decoded.Revision = Presence[uint64]{}
-	} else if isJSONNull(rawRevision) {
-		decoded.Revision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode UndoLayoutRequest.Revision: %w", err)
-		}
-		decoded.Revision = Value(fieldValue)
+	if fields.ConfirmClose.set {
+		decoded.ConfirmClose = &fields.ConfirmClose.value
 	}
+	if fields.Pane == nil {
+		return fmt.Errorf("decode UndoLayoutRequest: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	decoded.Revision = fields.Revision
 	*value = UndoLayoutRequest(decoded)
 	return nil
 }
@@ -9587,30 +8785,25 @@ func (value UndoLayoutOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *UndoLayoutOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode UndoLayoutOptions: expected object")
+	}
+	var fields struct {
+		ConfirmClose optionalNonNullJSON[bool] `json:"confirm_close"`
+		Revision     Presence[uint64]          `json:"revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode UndoLayoutOptions: %w", err)
+	}
 	type wire UndoLayoutOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["confirm_close"]; exists && isJSONNull(raw) {
+	if fields.ConfirmClose.null {
 		return fmt.Errorf("decode UndoLayoutOptions: non-nullable field confirm_close is null")
 	}
-	rawRevision, hasRevision := object["revision"]
-	if !hasRevision {
-		decoded.Revision = Presence[uint64]{}
-	} else if isJSONNull(rawRevision) {
-		decoded.Revision = Null[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawRevision, &fieldValue); err != nil {
-			return fmt.Errorf("decode UndoLayoutOptions.Revision: %w", err)
-		}
-		decoded.Revision = Value(fieldValue)
+	if fields.ConfirmClose.set {
+		decoded.ConfirmClose = &fields.ConfirmClose.value
 	}
+	decoded.Revision = fields.Revision
 	*value = UndoLayoutOptions(decoded)
 	return nil
 }
@@ -9620,12 +8813,62 @@ type VTStateRequest struct {
 	Surface ID `json:"surface"`
 }
 
+func (value *VTStateRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode VTStateRequest: expected object")
+	}
+	var fields struct {
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode VTStateRequest: %w", err)
+	}
+	type wire VTStateRequest
+	var decoded wire
+	if fields.Surface == nil {
+		return fmt.Errorf("decode VTStateRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = VTStateRequest(decoded)
+	return nil
+}
+
 // WaitForRequest is the exact wait-for wire payload.
 type WaitForRequest struct {
 	Pattern string `json:"pattern"`
 	Surface ID     `json:"surface"`
 	// Zero performs one immediate check.
 	TimeoutMs uint64 `json:"timeout_ms"`
+}
+
+func (value *WaitForRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode WaitForRequest: expected object")
+	}
+	var fields struct {
+		Pattern   *string `json:"pattern"`
+		Surface   *ID     `json:"surface"`
+		TimeoutMs *uint64 `json:"timeout_ms"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode WaitForRequest: %w", err)
+	}
+	type wire WaitForRequest
+	var decoded wire
+	if fields.Pattern == nil {
+		return fmt.Errorf("decode WaitForRequest: required field pattern is missing or null")
+	}
+	decoded.Pattern = *fields.Pattern
+	if fields.Surface == nil {
+		return fmt.Errorf("decode WaitForRequest: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	if fields.TimeoutMs == nil {
+		return fmt.Errorf("decode WaitForRequest: required field timeout_ms is missing or null")
+	}
+	decoded.TimeoutMs = *fields.TimeoutMs
+	*value = WaitForRequest(decoded)
+	return nil
 }
 
 // ZoomPaneRequest is the exact zoom-pane wire payload.
@@ -9637,12 +8880,48 @@ const (
 	ZoomPaneRequestModeOff    ZoomPaneRequestMode = "off"
 )
 
+func (value ZoomPaneRequestMode) valid() bool {
+	switch value {
+	case ZoomPaneRequestModeToggle, ZoomPaneRequestModeOn, ZoomPaneRequestModeOff:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value ZoomPaneRequestMode) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "ZoomPaneRequestMode", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *ZoomPaneRequestMode) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := ZoomPaneRequestMode(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "ZoomPaneRequestMode", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type ZoomPaneRequest struct {
 	Mode Presence[ZoomPaneRequestMode] `json:"-"`
 	Pane Presence[ID]                  `json:"-"`
 }
 
 func (value ZoomPaneRequest) MarshalJSON() ([]byte, error) {
+	if fieldValue, ok := value.Mode.Get(); ok {
+		switch fieldValue {
+		case "toggle", "on", "off":
+		default:
+			return nil, fmt.Errorf("encode ZoomPaneRequest.Mode: invalid value %v", fieldValue)
+		}
+	}
 	type wire ZoomPaneRequest
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -9680,39 +8959,20 @@ func (value ZoomPaneRequest) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ZoomPaneRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ZoomPaneRequest: expected object")
+	}
+	var fields struct {
+		Mode Presence[ZoomPaneRequestMode] `json:"mode"`
+		Pane Presence[ID]                  `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ZoomPaneRequest: %w", err)
+	}
 	type wire ZoomPaneRequest
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawMode, hasMode := object["mode"]
-	if !hasMode {
-		decoded.Mode = Presence[ZoomPaneRequestMode]{}
-	} else if isJSONNull(rawMode) {
-		decoded.Mode = Null[ZoomPaneRequestMode]()
-	} else {
-		var fieldValue ZoomPaneRequestMode
-		if err := json.Unmarshal(rawMode, &fieldValue); err != nil {
-			return fmt.Errorf("decode ZoomPaneRequest.Mode: %w", err)
-		}
-		decoded.Mode = Value(fieldValue)
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode ZoomPaneRequest.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
+	decoded.Mode = fields.Mode
+	decoded.Pane = fields.Pane
 	*value = ZoomPaneRequest(decoded)
 	return nil
 }
@@ -9725,12 +8985,48 @@ const (
 	ZoomPaneOptionsModeOff    ZoomPaneOptionsMode = "off"
 )
 
+func (value ZoomPaneOptionsMode) valid() bool {
+	switch value {
+	case ZoomPaneOptionsModeToggle, ZoomPaneOptionsModeOn, ZoomPaneOptionsModeOff:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value ZoomPaneOptionsMode) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "ZoomPaneOptionsMode", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *ZoomPaneOptionsMode) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := ZoomPaneOptionsMode(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "ZoomPaneOptionsMode", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type ZoomPaneOptions struct {
 	Mode Presence[ZoomPaneOptionsMode] `json:"-"`
 	Pane Presence[ID]                  `json:"-"`
 }
 
 func (value ZoomPaneOptions) MarshalJSON() ([]byte, error) {
+	if fieldValue, ok := value.Mode.Get(); ok {
+		switch fieldValue {
+		case "toggle", "on", "off":
+		default:
+			return nil, fmt.Errorf("encode ZoomPaneOptions.Mode: invalid value %v", fieldValue)
+		}
+	}
 	type wire ZoomPaneOptions
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -9768,39 +9064,20 @@ func (value ZoomPaneOptions) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ZoomPaneOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ZoomPaneOptions: expected object")
+	}
+	var fields struct {
+		Mode Presence[ZoomPaneOptionsMode] `json:"mode"`
+		Pane Presence[ID]                  `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ZoomPaneOptions: %w", err)
+	}
 	type wire ZoomPaneOptions
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawMode, hasMode := object["mode"]
-	if !hasMode {
-		decoded.Mode = Presence[ZoomPaneOptionsMode]{}
-	} else if isJSONNull(rawMode) {
-		decoded.Mode = Null[ZoomPaneOptionsMode]()
-	} else {
-		var fieldValue ZoomPaneOptionsMode
-		if err := json.Unmarshal(rawMode, &fieldValue); err != nil {
-			return fmt.Errorf("decode ZoomPaneOptions.Mode: %w", err)
-		}
-		decoded.Mode = Value(fieldValue)
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		decoded.Pane = Presence[ID]{}
-	} else if isJSONNull(rawPane) {
-		decoded.Pane = Null[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode ZoomPaneOptions.Pane: %w", err)
-		}
-		decoded.Pane = Value(fieldValue)
-	}
+	decoded.Mode = fields.Mode
+	decoded.Pane = fields.Pane
 	*value = ZoomPaneOptions(decoded)
 	return nil
 }
@@ -9992,8 +9269,13 @@ func (c *Client) CloseWorkspace(ctx context.Context, options CloseWorkspaceOptio
 }
 
 // Copy sends copy. Protocol v6; authority control.
-func (c *Client) Copy(ctx context.Context, surface ID, mode string) (CopyResult, error) {
+func (c *Client) Copy(ctx context.Context, surface ID, mode CopyRequestMode) (CopyResult, error) {
 	var result CopyResult
+	switch mode {
+	case "screen", "selection", "scrollback":
+	default:
+		return result, fmt.Errorf("%w: encode copy.mode: invalid value %v", ErrInvalidArgument, mode)
+	}
 	err := c.requestGenerated(ctx, commandMetadata["copy"], "copy", map[string]any{"surface": surface, "mode": mode}, &result)
 	return result, err
 }

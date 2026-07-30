@@ -10127,9 +10127,7346 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 	})
 }
 
+func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
+	t.Run("AgentRecord.Session", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"source\":\"detected\",\"state\":\"working\",\"surface\":1,\"updated_at_ms\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field session decoded successfully")
+		}
+	})
+	t.Run("AgentRecord.Source", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"state\":\"working\",\"surface\":1,\"updated_at_ms\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field source decoded successfully")
+		}
+	})
+	t.Run("AgentRecord.State", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"detected\",\"surface\":1,\"updated_at_ms\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field state decoded successfully")
+		}
+	})
+	t.Run("AgentRecord.Surface", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"detected\",\"state\":\"working\",\"updated_at_ms\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("AgentRecord.UpdatedAtMs", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"detected\",\"state\":\"working\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field updated_at_ms decoded successfully")
+		}
+	})
+	t.Run("AppliedPane.Pane", func(t *testing.T) {
+		var decoded AppliedPane
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("AppliedPane.Surface", func(t *testing.T) {
+		var decoded AppliedPane
+		if err := json.Unmarshal([]byte("{\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ApplyLayoutResult.Panes", func(t *testing.T) {
+		var decoded ApplyLayoutResult
+		if err := json.Unmarshal([]byte("{\"screen\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field panes decoded successfully")
+		}
+	})
+	t.Run("ApplyLayoutResult.Screen", func(t *testing.T) {
+		var decoded ApplyLayoutResult
+		if err := json.Unmarshal([]byte("{\"panes\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("BrowserFrame.Data", func(t *testing.T) {
+		var decoded BrowserFrame
+		if err := json.Unmarshal([]byte("{\"height\":1,\"seq\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field data decoded successfully")
+		}
+	})
+	t.Run("BrowserFrame.Height", func(t *testing.T) {
+		var decoded BrowserFrame
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"seq\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field height decoded successfully")
+		}
+	})
+	t.Run("BrowserFrame.Seq", func(t *testing.T) {
+		var decoded BrowserFrame
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field seq decoded successfully")
+		}
+	})
+	t.Run("BrowserFrame.Width", func(t *testing.T) {
+		var decoded BrowserFrame
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":1,\"seq\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field width decoded successfully")
+		}
+	})
+	t.Run("CellPixelFailure.Error", func(t *testing.T) {
+		var decoded CellPixelFailure
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field error decoded successfully")
+		}
+	})
+	t.Run("CellPixelFailure.Surface", func(t *testing.T) {
+		var decoded CellPixelFailure
+		if err := json.Unmarshal([]byte("{\"error\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("CellPixelResize.Cols", func(t *testing.T) {
+		var decoded CellPixelResize
+		if err := json.Unmarshal([]byte("{\"reservation_id\":1,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cols decoded successfully")
+		}
+	})
+	t.Run("CellPixelResize.ReservationID", func(t *testing.T) {
+		var decoded CellPixelResize
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field reservation_id decoded successfully")
+		}
+	})
+	t.Run("CellPixelResize.Rows", func(t *testing.T) {
+		var decoded CellPixelResize
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"reservation_id\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("CellPixelResize.Surface", func(t *testing.T) {
+		var decoded CellPixelResize
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"reservation_id\":1,\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ClientInfo.Attached", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("missing required field attached decoded successfully")
+		}
+	})
+	t.Run("ClientInfo.Client", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("missing required field client decoded successfully")
+		}
+	})
+	t.Run("ClientInfo.ConnectedSeconds", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("missing required field connected_seconds decoded successfully")
+		}
+	})
+	t.Run("ClientInfo.Kind", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("missing required field kind decoded successfully")
+		}
+	})
+	t.Run("ClientInfo.Name", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("ClientInfo.Self", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"sizes\":[],\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("missing required field self decoded successfully")
+		}
+	})
+	t.Run("ClientInfo.Sizes", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("missing required field sizes decoded successfully")
+		}
+	})
+	t.Run("ClientInfo.Transport", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field transport decoded successfully")
+		}
+	})
+	t.Run("ClientSize.Cols", func(t *testing.T) {
+		var decoded ClientSize
+		if err := json.Unmarshal([]byte("{\"rows\":null,\"size_participating\":true,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cols decoded successfully")
+		}
+	})
+	t.Run("ClientSize.Rows", func(t *testing.T) {
+		var decoded ClientSize
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"size_participating\":true,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("ClientSize.SizeParticipating", func(t *testing.T) {
+		var decoded ClientSize
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"rows\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field size_participating decoded successfully")
+		}
+	})
+	t.Run("ClientSize.Surface", func(t *testing.T) {
+		var decoded ClientSize
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"rows\":null,\"size_participating\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("CloseTerminalResult.AlreadyClosed", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"closed\":true,\"generation\":\"value\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field already_closed decoded successfully")
+		}
+	})
+	t.Run("CloseTerminalResult.Closed", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"generation\":\"value\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field closed decoded successfully")
+		}
+	})
+	t.Run("CloseTerminalResult.Generation", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":true,\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("CloseTerminalResult.RegistryID", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":true,\"generation\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("CloseTerminalResult.Surface", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":true,\"generation\":\"value\",\"registry_id\":\"value\",\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("CloseTerminalResult.TerminalID", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":true,\"generation\":\"value\",\"registry_id\":\"value\",\"surface\":null,\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("CloseTerminalResult.TerminalIncarnation", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":true,\"generation\":\"value\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_incarnation decoded successfully")
+		}
+	})
+	t.Run("CloseTerminalResult.TerminalRevision", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":true,\"generation\":\"value\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_revision decoded successfully")
+		}
+	})
+	t.Run("CopyResult.Mode", func(t *testing.T) {
+		var decoded CopyResult
+		if err := json.Unmarshal([]byte("{\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field mode decoded successfully")
+		}
+	})
+	t.Run("CopyResult.Text", func(t *testing.T) {
+		var decoded CopyResult
+		if err := json.Unmarshal([]byte("{\"mode\":\"screen\"}"), &decoded); err == nil {
+			t.Fatal("missing required field text decoded successfully")
+		}
+	})
+	t.Run("DeadPane.Dead", func(t *testing.T) {
+		var decoded DeadPane
+		if err := json.Unmarshal([]byte("{\"id\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field dead decoded successfully")
+		}
+	})
+	t.Run("DeadPane.ID", func(t *testing.T) {
+		var decoded DeadPane
+		if err := json.Unmarshal([]byte("{\"dead\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field id decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutLeaf.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutLeaf
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field type decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.A", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"b\":{\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("missing required field a decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.B", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("missing required field b decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.Dir", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"b\":{\"type\":\"leaf\"},\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("missing required field dir decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.Ratio", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"b\":{\"type\":\"leaf\"},\"dir\":\"right\",\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("missing required field ratio decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"b\":{\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field type decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutStack.Expanded", func(t *testing.T) {
+		var decoded DeclarativeLayoutStack
+		if err := json.Unmarshal([]byte("{\"panes\":[],\"type\":\"stack\"}"), &decoded); err == nil {
+			t.Fatal("missing required field expanded decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutStack.Panes", func(t *testing.T) {
+		var decoded DeclarativeLayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"type\":\"stack\"}"), &decoded); err == nil {
+			t.Fatal("missing required field panes decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutStack.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"panes\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field type decoded successfully")
+		}
+	})
+	t.Run("ExportLayoutResult.Layout", func(t *testing.T) {
+		var decoded ExportLayoutResult
+		if err := json.Unmarshal([]byte("{\"panes\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field layout decoded successfully")
+		}
+	})
+	t.Run("ExportLayoutResult.Panes", func(t *testing.T) {
+		var decoded ExportLayoutResult
+		if err := json.Unmarshal([]byte("{\"layout\":{\"pane\":1,\"type\":\"leaf\"}}"), &decoded); err == nil {
+			t.Fatal("missing required field panes decoded successfully")
+		}
+	})
+	t.Run("ExportedPane.Pane", func(t *testing.T) {
+		var decoded ExportedPane
+		if err := json.Unmarshal([]byte("{\"surfaces\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("ExportedPane.Surfaces", func(t *testing.T) {
+		var decoded ExportedPane
+		if err := json.Unmarshal([]byte("{\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surfaces decoded successfully")
+		}
+	})
+	t.Run("FocusDirectionResult.Pane", func(t *testing.T) {
+		var decoded FocusDirectionResult
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("FrontendProjection.Frontend", func(t *testing.T) {
+		var decoded FrontendProjection
+		if err := json.Unmarshal([]byte("{\"projection\":null,\"projection_revision\":1,\"schema_version\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field frontend decoded successfully")
+		}
+	})
+	t.Run("FrontendProjection.Projection", func(t *testing.T) {
+		var decoded FrontendProjection
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection_revision\":1,\"schema_version\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field projection decoded successfully")
+		}
+	})
+	t.Run("FrontendProjection.ProjectionRevision", func(t *testing.T) {
+		var decoded FrontendProjection
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"schema_version\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field projection_revision decoded successfully")
+		}
+	})
+	t.Run("FrontendProjection.SchemaVersion", func(t *testing.T) {
+		var decoded FrontendProjection
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"projection_revision\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field schema_version decoded successfully")
+		}
+	})
+	t.Run("FrontendProjection.Scope", func(t *testing.T) {
+		var decoded FrontendProjection
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"projection_revision\":1,\"schema_version\":1,\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field scope decoded successfully")
+		}
+	})
+	t.Run("FrontendProjection.SubjectKey", func(t *testing.T) {
+		var decoded FrontendProjection
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"projection_revision\":1,\"schema_version\":1,\"scope\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field subject_key decoded successfully")
+		}
+	})
+	t.Run("IDMapping.ID", func(t *testing.T) {
+		var decoded IDMapping
+		if err := json.Unmarshal([]byte("{\"kind\":\"workspace\",\"short_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field id decoded successfully")
+		}
+	})
+	t.Run("IDMapping.Kind", func(t *testing.T) {
+		var decoded IDMapping
+		if err := json.Unmarshal([]byte("{\"id\":1,\"short_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field kind decoded successfully")
+		}
+	})
+	t.Run("IDMapping.ShortID", func(t *testing.T) {
+		var decoded IDMapping
+		if err := json.Unmarshal([]byte("{\"id\":1,\"kind\":\"workspace\"}"), &decoded); err == nil {
+			t.Fatal("missing required field short_id decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.App", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field app decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.DaemonHandoff", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field daemon_handoff decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.Generation", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.PID", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field pid decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.Protocol", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field protocol decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.RegistryID", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.Session", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field session decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.TerminalRevision", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_revision decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.Version", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field version decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.WorkspaceRevision", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_revision decoded successfully")
+		}
+	})
+	t.Run("IDsResult.IDs", func(t *testing.T) {
+		var decoded IDsResult
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field ids decoded successfully")
+		}
+	})
+	t.Run("LayoutLeaf.Pane", func(t *testing.T) {
+		var decoded LayoutLeaf
+		if err := json.Unmarshal([]byte("{\"type\":\"leaf\"}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("LayoutLeaf.Type", func(t *testing.T) {
+		var decoded LayoutLeaf
+		if err := json.Unmarshal([]byte("{\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field type decoded successfully")
+		}
+	})
+	t.Run("LayoutSplit.A", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"b\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("missing required field a decoded successfully")
+		}
+	})
+	t.Run("LayoutSplit.B", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("missing required field b decoded successfully")
+		}
+	})
+	t.Run("LayoutSplit.Dir", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"b\":{\"pane\":1,\"type\":\"leaf\"},\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("missing required field dir decoded successfully")
+		}
+	})
+	t.Run("LayoutSplit.Ratio", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"b\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":\"right\",\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("missing required field ratio decoded successfully")
+		}
+	})
+	t.Run("LayoutSplit.Type", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"b\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field type decoded successfully")
+		}
+	})
+	t.Run("LayoutStack.Expanded", func(t *testing.T) {
+		var decoded LayoutStack
+		if err := json.Unmarshal([]byte("{\"panes\":[],\"type\":\"stack\"}"), &decoded); err == nil {
+			t.Fatal("missing required field expanded decoded successfully")
+		}
+	})
+	t.Run("LayoutStack.Panes", func(t *testing.T) {
+		var decoded LayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"type\":\"stack\"}"), &decoded); err == nil {
+			t.Fatal("missing required field panes decoded successfully")
+		}
+	})
+	t.Run("LayoutStack.Type", func(t *testing.T) {
+		var decoded LayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"panes\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field type decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.ClosesPanes", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"confirmation_required\":true,\"revision\":1,\"screen\":1,\"undone\":false}"), &decoded); err == nil {
+			t.Fatal("missing required field closes_panes decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.ConfirmationRequired", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"revision\":1,\"screen\":1,\"undone\":false}"), &decoded); err == nil {
+			t.Fatal("missing required field confirmation_required decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.Revision", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"confirmation_required\":true,\"screen\":1,\"undone\":false}"), &decoded); err == nil {
+			t.Fatal("missing required field revision decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.Screen", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"confirmation_required\":true,\"revision\":1,\"undone\":false}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.Undone", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"confirmation_required\":true,\"revision\":1,\"screen\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field undone decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoUndone.Revision", func(t *testing.T) {
+		var decoded LayoutUndoUndone
+		if err := json.Unmarshal([]byte("{\"screen\":1,\"undone\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field revision decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoUndone.Screen", func(t *testing.T) {
+		var decoded LayoutUndoUndone
+		if err := json.Unmarshal([]byte("{\"revision\":1,\"undone\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoUndone.Undone", func(t *testing.T) {
+		var decoded LayoutUndoUndone
+		if err := json.Unmarshal([]byte("{\"revision\":1,\"screen\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field undone decoded successfully")
+		}
+	})
+	t.Run("ListAgentsResult.Agents", func(t *testing.T) {
+		var decoded ListAgentsResult
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field agents decoded successfully")
+		}
+	})
+	t.Run("ListTerminalsResult.Generation", func(t *testing.T) {
+		var decoded ListTerminalsResult
+		if err := json.Unmarshal([]byte("{\"registry_id\":\"value\",\"terminal_revision\":1,\"terminals\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("ListTerminalsResult.RegistryID", func(t *testing.T) {
+		var decoded ListTerminalsResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"terminal_revision\":1,\"terminals\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("ListTerminalsResult.TerminalRevision", func(t *testing.T) {
+		var decoded ListTerminalsResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"registry_id\":\"value\",\"terminals\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_revision decoded successfully")
+		}
+	})
+	t.Run("ListTerminalsResult.Terminals", func(t *testing.T) {
+		var decoded ListTerminalsResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"registry_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field terminals decoded successfully")
+		}
+	})
+	t.Run("LivePane.ActiveTab", func(t *testing.T) {
+		var decoded LivePane
+		if err := json.Unmarshal([]byte("{\"id\":1,\"name\":null,\"tabs\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field active_tab decoded successfully")
+		}
+	})
+	t.Run("LivePane.ID", func(t *testing.T) {
+		var decoded LivePane
+		if err := json.Unmarshal([]byte("{\"active_tab\":1,\"name\":null,\"tabs\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field id decoded successfully")
+		}
+	})
+	t.Run("LivePane.Name", func(t *testing.T) {
+		var decoded LivePane
+		if err := json.Unmarshal([]byte("{\"active_tab\":1,\"id\":1,\"tabs\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("LivePane.Tabs", func(t *testing.T) {
+		var decoded LivePane
+		if err := json.Unmarshal([]byte("{\"active_tab\":1,\"id\":1,\"name\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field tabs decoded successfully")
+		}
+	})
+	t.Run("MintTerminalRendererResult.Endpoint", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"incarnation\":\"value\",\"rights\":1,\"terminal_id\":\"value\",\"token\":\"value\",\"ttl_ms\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field endpoint decoded successfully")
+		}
+	})
+	t.Run("MintTerminalRendererResult.Incarnation", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"endpoint\":\"value\",\"rights\":1,\"terminal_id\":\"value\",\"token\":\"value\",\"ttl_ms\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field incarnation decoded successfully")
+		}
+	})
+	t.Run("MintTerminalRendererResult.Rights", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"endpoint\":\"value\",\"incarnation\":\"value\",\"terminal_id\":\"value\",\"token\":\"value\",\"ttl_ms\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rights decoded successfully")
+		}
+	})
+	t.Run("MintTerminalRendererResult.TerminalID", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"endpoint\":\"value\",\"incarnation\":\"value\",\"rights\":1,\"token\":\"value\",\"ttl_ms\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("MintTerminalRendererResult.Token", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"endpoint\":\"value\",\"incarnation\":\"value\",\"rights\":1,\"terminal_id\":\"value\",\"ttl_ms\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field token decoded successfully")
+		}
+	})
+	t.Run("MintTerminalRendererResult.TtlMs", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"endpoint\":\"value\",\"incarnation\":\"value\",\"rights\":1,\"terminal_id\":\"value\",\"token\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field ttl_ms decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.Changed", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field changed decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.Generation", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.Lifecycle", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field lifecycle decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.Pane", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.RegistryID", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.Replayed", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field replayed decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.Screen", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.Surface", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.TerminalID", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.TerminalIncarnation", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_incarnation decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.TerminalRevision", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_revision decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.Workspace", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.WorkspaceKey", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_key decoded successfully")
+		}
+	})
+	t.Run("NotificationMarker.Level", func(t *testing.T) {
+		var decoded NotificationMarker
+		if err := json.Unmarshal([]byte("{\"notification\":1,\"unread\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field level decoded successfully")
+		}
+	})
+	t.Run("NotificationMarker.Notification", func(t *testing.T) {
+		var decoded NotificationMarker
+		if err := json.Unmarshal([]byte("{\"level\":\"info\",\"unread\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field notification decoded successfully")
+		}
+	})
+	t.Run("NotificationMarker.Unread", func(t *testing.T) {
+		var decoded NotificationMarker
+		if err := json.Unmarshal([]byte("{\"level\":\"info\",\"notification\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field unread decoded successfully")
+		}
+	})
+	t.Run("NotifyResult.Notification", func(t *testing.T) {
+		var decoded NotifyResult
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field notification decoded successfully")
+		}
+	})
+	t.Run("PaneNeighborResult.Pane", func(t *testing.T) {
+		var decoded PaneNeighborResult
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("PingResult.Ok", func(t *testing.T) {
+		var decoded PingResult
+		if err := json.Unmarshal([]byte("{\"protocol\":1,\"version\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field ok decoded successfully")
+		}
+	})
+	t.Run("PingResult.Protocol", func(t *testing.T) {
+		var decoded PingResult
+		if err := json.Unmarshal([]byte("{\"ok\":true,\"version\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field protocol decoded successfully")
+		}
+	})
+	t.Run("PingResult.Version", func(t *testing.T) {
+		var decoded PingResult
+		if err := json.Unmarshal([]byte("{\"ok\":true,\"protocol\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field version decoded successfully")
+		}
+	})
+	t.Run("ProcessInfoResult.Command", func(t *testing.T) {
+		var decoded ProcessInfoResult
+		if err := json.Unmarshal([]byte("{\"cwd\":null,\"pid\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field command decoded successfully")
+		}
+	})
+	t.Run("ProcessInfoResult.Cwd", func(t *testing.T) {
+		var decoded ProcessInfoResult
+		if err := json.Unmarshal([]byte("{\"command\":null,\"pid\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field cwd decoded successfully")
+		}
+	})
+	t.Run("ProcessInfoResult.PID", func(t *testing.T) {
+		var decoded ProcessInfoResult
+		if err := json.Unmarshal([]byte("{\"command\":null,\"cwd\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field pid decoded successfully")
+		}
+	})
+	t.Run("ProviderWorkspaceMutationResult.Key", func(t *testing.T) {
+		var decoded ProviderWorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field key decoded successfully")
+		}
+	})
+	t.Run("ProviderWorkspaceMutationResult.Workspace", func(t *testing.T) {
+		var decoded ProviderWorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"key\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("ProviderWorkspaceMutationResult.WorkspaceRevision", func(t *testing.T) {
+		var decoded ProviderWorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"key\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_revision decoded successfully")
+		}
+	})
+	t.Run("ReadScreenResult.Text", func(t *testing.T) {
+		var decoded ReadScreenResult
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field text decoded successfully")
+		}
+	})
+	t.Run("ReadScrollbackResult.Rows", func(t *testing.T) {
+		var decoded ReadScrollbackResult
+		if err := json.Unmarshal([]byte("{\"start\":1,\"total\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("ReadScrollbackResult.Start", func(t *testing.T) {
+		var decoded ReadScrollbackResult
+		if err := json.Unmarshal([]byte("{\"rows\":[],\"total\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field start decoded successfully")
+		}
+	})
+	t.Run("ReadScrollbackResult.Total", func(t *testing.T) {
+		var decoded ReadScrollbackResult
+		if err := json.Unmarshal([]byte("{\"rows\":[],\"start\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field total decoded successfully")
+		}
+	})
+	t.Run("RenderCursor.Blink", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field blink decoded successfully")
+		}
+	})
+	t.Run("RenderCursor.Color", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":true,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field color decoded successfully")
+		}
+	})
+	t.Run("RenderCursor.Style", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":true,\"color\":null,\"visible\":true,\"x\":1,\"y\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field style decoded successfully")
+		}
+	})
+	t.Run("RenderCursor.Visible", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":true,\"color\":null,\"style\":\"block\",\"x\":1,\"y\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field visible decoded successfully")
+		}
+	})
+	t.Run("RenderCursor.X", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"y\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field x decoded successfully")
+		}
+	})
+	t.Run("RenderCursor.Y", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field y decoded successfully")
+		}
+	})
+	t.Run("RenderRow.Row", func(t *testing.T) {
+		var decoded RenderRow
+		if err := json.Unmarshal([]byte("{\"runs\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field row decoded successfully")
+		}
+	})
+	t.Run("RenderRow.Runs", func(t *testing.T) {
+		var decoded RenderRow
+		if err := json.Unmarshal([]byte("{\"row\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field runs decoded successfully")
+		}
+	})
+	t.Run("RenderRun.Attrs", func(t *testing.T) {
+		var decoded RenderRun
+		if err := json.Unmarshal([]byte("{\"bg\":null,\"fg\":null,\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field attrs decoded successfully")
+		}
+	})
+	t.Run("RenderRun.Bg", func(t *testing.T) {
+		var decoded RenderRun
+		if err := json.Unmarshal([]byte("{\"attrs\":1,\"fg\":null,\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field bg decoded successfully")
+		}
+	})
+	t.Run("RenderRun.Fg", func(t *testing.T) {
+		var decoded RenderRun
+		if err := json.Unmarshal([]byte("{\"attrs\":1,\"bg\":null,\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field fg decoded successfully")
+		}
+	})
+	t.Run("RenderRun.Text", func(t *testing.T) {
+		var decoded RenderRun
+		if err := json.Unmarshal([]byte("{\"attrs\":1,\"bg\":null,\"fg\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field text decoded successfully")
+		}
+	})
+	t.Run("ReportAgentResult.Session", func(t *testing.T) {
+		var decoded ReportAgentResult
+		if err := json.Unmarshal([]byte("{\"source\":\"socket\",\"state\":\"working\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field session decoded successfully")
+		}
+	})
+	t.Run("ReportAgentResult.Source", func(t *testing.T) {
+		var decoded ReportAgentResult
+		if err := json.Unmarshal([]byte("{\"session\":null,\"state\":\"working\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field source decoded successfully")
+		}
+	})
+	t.Run("ReportAgentResult.State", func(t *testing.T) {
+		var decoded ReportAgentResult
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"socket\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field state decoded successfully")
+		}
+	})
+	t.Run("ReportAgentResult.Surface", func(t *testing.T) {
+		var decoded ReportAgentResult
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"socket\",\"state\":\"working\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ResizeSurfaceResult.Accepted", func(t *testing.T) {
+		var decoded ResizeSurfaceResult
+		if err := json.Unmarshal([]byte("{\"reservation_id\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field accepted decoded successfully")
+		}
+	})
+	t.Run("ResizeSurfaceResult.ReservationID", func(t *testing.T) {
+		var decoded ResizeSurfaceResult
+		if err := json.Unmarshal([]byte("{\"accepted\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field reservation_id decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.Exit", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field exit decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.Generation", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.LaunchSpec", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field launch_spec decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.Lifecycle", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field lifecycle decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.RegistryID", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.Surface", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.TerminalID", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.TerminalIncarnation", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_incarnation decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.TerminalRevision", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_revision decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.WorkspaceKey", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_key decoded successfully")
+		}
+	})
+	t.Run("RunResult.Pane", func(t *testing.T) {
+		var decoded RunResult
+		if err := json.Unmarshal([]byte("{\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("RunResult.Screen", func(t *testing.T) {
+		var decoded RunResult
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("RunResult.Surface", func(t *testing.T) {
+		var decoded RunResult
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"screen\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("RunResult.TerminalID", func(t *testing.T) {
+		var decoded RunResult
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"screen\":1,\"surface\":1,\"terminal_incarnation\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("RunResult.TerminalIncarnation", func(t *testing.T) {
+		var decoded RunResult
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_incarnation decoded successfully")
+		}
+	})
+	t.Run("RunResult.Workspace", func(t *testing.T) {
+		var decoded RunResult
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("Screen.Active", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field active decoded successfully")
+		}
+	})
+	t.Run("Screen.ActivePane", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active\":true,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field active_pane decoded successfully")
+		}
+	})
+	t.Run("Screen.ID", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field id decoded successfully")
+		}
+	})
+	t.Run("Screen.Layout", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"name\":null,\"panes\":[],\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field layout decoded successfully")
+		}
+	})
+	t.Run("Screen.Name", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"panes\":[],\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("Screen.Panes", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field panes decoded successfully")
+		}
+	})
+	t.Run("Screen.ZoomedPane", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field zoomed_pane decoded successfully")
+		}
+	})
+	t.Run("SetCellPixelsResult.Failures", func(t *testing.T) {
+		var decoded SetCellPixelsResult
+		if err := json.Unmarshal([]byte("{\"resizes\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field failures decoded successfully")
+		}
+	})
+	t.Run("SetCellPixelsResult.Resizes", func(t *testing.T) {
+		var decoded SetCellPixelsResult
+		if err := json.Unmarshal([]byte("{\"failures\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field resizes decoded successfully")
+		}
+	})
+	t.Run("ShutdownDaemonResult.Accepted", func(t *testing.T) {
+		var decoded ShutdownDaemonResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"pid\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field accepted decoded successfully")
+		}
+	})
+	t.Run("ShutdownDaemonResult.Generation", func(t *testing.T) {
+		var decoded ShutdownDaemonResult
+		if err := json.Unmarshal([]byte("{\"accepted\":true,\"pid\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("ShutdownDaemonResult.PID", func(t *testing.T) {
+		var decoded ShutdownDaemonResult
+		if err := json.Unmarshal([]byte("{\"accepted\":true,\"generation\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field pid decoded successfully")
+		}
+	})
+	t.Run("SidebarPluginResult.Error", func(t *testing.T) {
+		var decoded SidebarPluginResult
+		if err := json.Unmarshal([]byte("{\"retry_after_ms\":null,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field error decoded successfully")
+		}
+	})
+	t.Run("SidebarPluginResult.RetryAfterMs", func(t *testing.T) {
+		var decoded SidebarPluginResult
+		if err := json.Unmarshal([]byte("{\"error\":null,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field retry_after_ms decoded successfully")
+		}
+	})
+	t.Run("SidebarPluginResult.Surface", func(t *testing.T) {
+		var decoded SidebarPluginResult
+		if err := json.Unmarshal([]byte("{\"error\":null,\"retry_after_ms\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("Size.Cols", func(t *testing.T) {
+		var decoded Size
+		if err := json.Unmarshal([]byte("{\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cols decoded successfully")
+		}
+	})
+	t.Run("Size.Rows", func(t *testing.T) {
+		var decoded Size
+		if err := json.Unmarshal([]byte("{\"cols\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("SurfaceResult.Surface", func(t *testing.T) {
+		var decoded SurfaceResult
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("Tab.BrowserSource", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field browser_source decoded successfully")
+		}
+	})
+	t.Run("Tab.Dead", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field dead decoded successfully")
+		}
+	})
+	t.Run("Tab.Kind", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field kind decoded successfully")
+		}
+	})
+	t.Run("Tab.Name", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"size\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("Tab.Size", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field size decoded successfully")
+		}
+	})
+	t.Run("Tab.Surface", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("Tab.Title", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field title decoded successfully")
+		}
+	})
+	t.Run("TerminalColors.Bg", func(t *testing.T) {
+		var decoded TerminalColors
+		if err := json.Unmarshal([]byte("{\"fg\":null,\"selection_bg\":null,\"selection_fg\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field bg decoded successfully")
+		}
+	})
+	t.Run("TerminalColors.Fg", func(t *testing.T) {
+		var decoded TerminalColors
+		if err := json.Unmarshal([]byte("{\"bg\":null,\"selection_bg\":null,\"selection_fg\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field fg decoded successfully")
+		}
+	})
+	t.Run("TerminalColors.SelectionBg", func(t *testing.T) {
+		var decoded TerminalColors
+		if err := json.Unmarshal([]byte("{\"bg\":null,\"fg\":null,\"selection_fg\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field selection_bg decoded successfully")
+		}
+	})
+	t.Run("TerminalColors.SelectionFg", func(t *testing.T) {
+		var decoded TerminalColors
+		if err := json.Unmarshal([]byte("{\"bg\":null,\"fg\":null,\"selection_bg\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field selection_fg decoded successfully")
+		}
+	})
+	t.Run("TerminalEventsResult.Events", func(t *testing.T) {
+		var decoded TerminalEventsResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"registry_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field events decoded successfully")
+		}
+	})
+	t.Run("TerminalEventsResult.Generation", func(t *testing.T) {
+		var decoded TerminalEventsResult
+		if err := json.Unmarshal([]byte("{\"events\":[],\"registry_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("TerminalEventsResult.RegistryID", func(t *testing.T) {
+		var decoded TerminalEventsResult
+		if err := json.Unmarshal([]byte("{\"events\":[],\"generation\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("TerminalEventsResult.TerminalRevision", func(t *testing.T) {
+		var decoded TerminalEventsResult
+		if err := json.Unmarshal([]byte("{\"events\":[],\"generation\":\"value\",\"registry_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_revision decoded successfully")
+		}
+	})
+	t.Run("TerminalKeyInput.ConsumedMods", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"key\":\"unidentified\",\"macos_option_as_alt\":true,\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"utf8\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field consumed_mods decoded successfully")
+		}
+	})
+	t.Run("TerminalKeyInput.Key", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"macos_option_as_alt\":true,\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"utf8\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field key decoded successfully")
+		}
+	})
+	t.Run("TerminalKeyInput.MacosOptionAsAlt", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"key\":\"unidentified\",\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"utf8\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field macos_option_as_alt decoded successfully")
+		}
+	})
+	t.Run("TerminalKeyInput.Mods", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"key\":\"unidentified\",\"macos_option_as_alt\":true,\"utf8\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field mods decoded successfully")
+		}
+	})
+	t.Run("TerminalKeyInput.UTF8", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"key\":\"unidentified\",\"macos_option_as_alt\":true,\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true}}"), &decoded); err == nil {
+			t.Fatal("missing required field utf8 decoded successfully")
+		}
+	})
+	t.Run("TerminalModifiers.Alt", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field alt decoded successfully")
+		}
+	})
+	t.Run("TerminalModifiers.CapsLock", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"alt\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field caps_lock decoded successfully")
+		}
+	})
+	t.Run("TerminalModifiers.Control", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"alt\":true,\"caps_lock\":true,\"num_lock\":true,\"shift\":true,\"super\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field control decoded successfully")
+		}
+	})
+	t.Run("TerminalModifiers.NumLock", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"alt\":true,\"caps_lock\":true,\"control\":true,\"shift\":true,\"super\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field num_lock decoded successfully")
+		}
+	})
+	t.Run("TerminalModifiers.Shift", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"super\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field shift decoded successfully")
+		}
+	})
+	t.Run("TerminalModifiers.Super", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field super decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.Generation", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.Key", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field key decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.Lifecycle", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field lifecycle decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.Pane", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.RegistryID", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.Replayed", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field replayed decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.Screen", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.Surface", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.TerminalID", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.TerminalIncarnation", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_incarnation decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.TerminalRevision", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_revision decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.Workspace", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("TerminalRecord.Exit", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field exit decoded successfully")
+		}
+	})
+	t.Run("TerminalRecord.LaunchSpec", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"lifecycle\":\"launching\",\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field launch_spec decoded successfully")
+		}
+	})
+	t.Run("TerminalRecord.Lifecycle", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"launch_spec\":{\"value\":true},\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field lifecycle decoded successfully")
+		}
+	})
+	t.Run("TerminalRecord.TerminalID", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"terminal_incarnation\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("TerminalRecord.TerminalIncarnation", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"terminal_id\":\"value\",\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_incarnation decoded successfully")
+		}
+	})
+	t.Run("TerminalRecord.WorkspaceKey", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"terminal_id\":\"value\",\"terminal_incarnation\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_key decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryEvent.Kind", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"mutation_id\":\"value\",\"origin\":\"value\",\"result\":{\"value\":true},\"terminal_id\":\"value\",\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field kind decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryEvent.MutationID", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"origin\":\"value\",\"result\":{\"value\":true},\"terminal_id\":\"value\",\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field mutation_id decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryEvent.Origin", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"mutation_id\":\"value\",\"result\":{\"value\":true},\"terminal_id\":\"value\",\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field origin decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryEvent.Result", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"terminal_id\":\"value\",\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field result decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryEvent.TerminalID", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"result\":{\"value\":true},\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryEvent.TerminalRevision", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"result\":{\"value\":true},\"terminal_id\":\"value\",\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_revision decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryEvent.WorkspaceKey", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"result\":{\"value\":true},\"terminal_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_key decoded successfully")
+		}
+	})
+	t.Run("Tree.Workspaces", func(t *testing.T) {
+		var decoded Tree
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field workspaces decoded successfully")
+		}
+	})
+	t.Run("VTStateResult.Cols", func(t *testing.T) {
+		var decoded VTStateResult
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cols decoded successfully")
+		}
+	})
+	t.Run("VTStateResult.Data", func(t *testing.T) {
+		var decoded VTStateResult
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field data decoded successfully")
+		}
+	})
+	t.Run("VTStateResult.Rows", func(t *testing.T) {
+		var decoded VTStateResult
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"data\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("WaitForResult.ElapsedMs", func(t *testing.T) {
+		var decoded WaitForResult
+		if err := json.Unmarshal([]byte("{\"matched\":true,\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field elapsed_ms decoded successfully")
+		}
+	})
+	t.Run("WaitForResult.Matched", func(t *testing.T) {
+		var decoded WaitForResult
+		if err := json.Unmarshal([]byte("{\"elapsed_ms\":1,\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field matched decoded successfully")
+		}
+	})
+	t.Run("WaitForResult.Text", func(t *testing.T) {
+		var decoded WaitForResult
+		if err := json.Unmarshal([]byte("{\"elapsed_ms\":1,\"matched\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field text decoded successfully")
+		}
+	})
+	t.Run("Workspace.Active", func(t *testing.T) {
+		var decoded Workspace
+		if err := json.Unmarshal([]byte("{\"id\":1,\"name\":\"value\",\"screens\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field active decoded successfully")
+		}
+	})
+	t.Run("Workspace.ID", func(t *testing.T) {
+		var decoded Workspace
+		if err := json.Unmarshal([]byte("{\"active\":true,\"name\":\"value\",\"screens\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field id decoded successfully")
+		}
+	})
+	t.Run("Workspace.Name", func(t *testing.T) {
+		var decoded Workspace
+		if err := json.Unmarshal([]byte("{\"active\":true,\"id\":1,\"screens\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("Workspace.Screens", func(t *testing.T) {
+		var decoded Workspace
+		if err := json.Unmarshal([]byte("{\"active\":true,\"id\":1,\"name\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field screens decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMutationResult.Generation", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"index\":1,\"key\":\"value\",\"registry_id\":\"value\",\"replayed\":true,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMutationResult.Index", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"registry_id\":\"value\",\"replayed\":true,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMutationResult.Key", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"replayed\":true,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field key decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMutationResult.RegistryID", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"key\":\"value\",\"replayed\":true,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMutationResult.Replayed", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"key\":\"value\",\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field replayed decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMutationResult.Workspace", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"key\":\"value\",\"registry_id\":\"value\",\"replayed\":true,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMutationResult.WorkspaceRevision", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"key\":\"value\",\"registry_id\":\"value\",\"replayed\":true,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_revision decoded successfully")
+		}
+	})
+	t.Run("ZoomPaneResult.Pane", func(t *testing.T) {
+		var decoded ZoomPaneResult
+		if err := json.Unmarshal([]byte("{\"zoomed\":true,\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("ZoomPaneResult.Zoomed", func(t *testing.T) {
+		var decoded ZoomPaneResult
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field zoomed decoded successfully")
+		}
+	})
+	t.Run("ZoomPaneResult.ZoomedPane", func(t *testing.T) {
+		var decoded ZoomPaneResult
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"zoomed\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field zoomed_pane decoded successfully")
+		}
+	})
+	t.Run("ApplyLayoutRequest.Layout", func(t *testing.T) {
+		var decoded ApplyLayoutRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field layout decoded successfully")
+		}
+	})
+	t.Run("AttachSurfaceRequest.Surface", func(t *testing.T) {
+		var decoded AttachSurfaceRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserActivateRequest.Surface", func(t *testing.T) {
+		var decoded BrowserActivateRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserBackRequest.Surface", func(t *testing.T) {
+		var decoded BrowserBackRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserForwardRequest.Surface", func(t *testing.T) {
+		var decoded BrowserForwardRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserFramePresentedRequest.FrameSeq", func(t *testing.T) {
+		var decoded BrowserFramePresentedRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field frame_seq decoded successfully")
+		}
+	})
+	t.Run("BrowserFramePresentedRequest.Surface", func(t *testing.T) {
+		var decoded BrowserFramePresentedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserInsertTextRequest.Surface", func(t *testing.T) {
+		var decoded BrowserInsertTextRequest
+		if err := json.Unmarshal([]byte("{\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserInsertTextRequest.Text", func(t *testing.T) {
+		var decoded BrowserInsertTextRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field text decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyRequest.Code", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"key\":\"value\",\"kind\":\"down\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field code decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyRequest.Key", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"kind\":\"down\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field key decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyRequest.Kind", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field kind decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyRequest.Modifiers", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"kind\":\"down\",\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field modifiers decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyRequest.Surface", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"kind\":\"down\",\"modifiers\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyRequest.WindowsVirtualKeyCode", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"kind\":\"down\",\"modifiers\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field windows_virtual_key_code decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyPressRequest.Code", func(t *testing.T) {
+		var decoded BrowserKeyPressRequest
+		if err := json.Unmarshal([]byte("{\"key\":\"value\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field code decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyPressRequest.Key", func(t *testing.T) {
+		var decoded BrowserKeyPressRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field key decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyPressRequest.Modifiers", func(t *testing.T) {
+		var decoded BrowserKeyPressRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field modifiers decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyPressRequest.Surface", func(t *testing.T) {
+		var decoded BrowserKeyPressRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"modifiers\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyPressRequest.WindowsVirtualKeyCode", func(t *testing.T) {
+		var decoded BrowserKeyPressRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"modifiers\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field windows_virtual_key_code decoded successfully")
+		}
+	})
+	t.Run("BrowserMouseRequest.Kind", func(t *testing.T) {
+		var decoded BrowserMouseRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field kind decoded successfully")
+		}
+	})
+	t.Run("BrowserMouseRequest.Surface", func(t *testing.T) {
+		var decoded BrowserMouseRequest
+		if err := json.Unmarshal([]byte("{\"kind\":\"down\",\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserMouseRequest.XPx", func(t *testing.T) {
+		var decoded BrowserMouseRequest
+		if err := json.Unmarshal([]byte("{\"kind\":\"down\",\"surface\":1,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field x_px decoded successfully")
+		}
+	})
+	t.Run("BrowserMouseRequest.YPx", func(t *testing.T) {
+		var decoded BrowserMouseRequest
+		if err := json.Unmarshal([]byte("{\"kind\":\"down\",\"surface\":1,\"x_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field y_px decoded successfully")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.FrameSeq", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"kind\":\"down\",\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field frame_seq decoded successfully")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.Kind", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field kind decoded successfully")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.Surface", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"kind\":\"down\",\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.XPx", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"kind\":\"down\",\"surface\":1,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field x_px decoded successfully")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.YPx", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"kind\":\"down\",\"surface\":1,\"x_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field y_px decoded successfully")
+		}
+	})
+	t.Run("BrowserNavigateRequest.Surface", func(t *testing.T) {
+		var decoded BrowserNavigateRequest
+		if err := json.Unmarshal([]byte("{\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserNavigateRequest.URL", func(t *testing.T) {
+		var decoded BrowserNavigateRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field url decoded successfully")
+		}
+	})
+	t.Run("BrowserReloadRequest.Surface", func(t *testing.T) {
+		var decoded BrowserReloadRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserWheelRequest.DeltaYPx", func(t *testing.T) {
+		var decoded BrowserWheelRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field delta_y_px decoded successfully")
+		}
+	})
+	t.Run("BrowserWheelRequest.Surface", func(t *testing.T) {
+		var decoded BrowserWheelRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserWheelRequest.XPx", func(t *testing.T) {
+		var decoded BrowserWheelRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"surface\":1,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field x_px decoded successfully")
+		}
+	})
+	t.Run("BrowserWheelRequest.YPx", func(t *testing.T) {
+		var decoded BrowserWheelRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"surface\":1,\"x_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field y_px decoded successfully")
+		}
+	})
+	t.Run("BrowserWheelGuardedRequest.DeltaYPx", func(t *testing.T) {
+		var decoded BrowserWheelGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field delta_y_px decoded successfully")
+		}
+	})
+	t.Run("BrowserWheelGuardedRequest.FrameSeq", func(t *testing.T) {
+		var decoded BrowserWheelGuardedRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field frame_seq decoded successfully")
+		}
+	})
+	t.Run("BrowserWheelGuardedRequest.Surface", func(t *testing.T) {
+		var decoded BrowserWheelGuardedRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"frame_seq\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserWheelGuardedRequest.XPx", func(t *testing.T) {
+		var decoded BrowserWheelGuardedRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"frame_seq\":1,\"surface\":1,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field x_px decoded successfully")
+		}
+	})
+	t.Run("BrowserWheelGuardedRequest.YPx", func(t *testing.T) {
+		var decoded BrowserWheelGuardedRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"frame_seq\":1,\"surface\":1,\"x_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field y_px decoded successfully")
+		}
+	})
+	t.Run("ClearHistoryRequest.Surface", func(t *testing.T) {
+		var decoded ClearHistoryRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ClosePaneRequest.Pane", func(t *testing.T) {
+		var decoded ClosePaneRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("CloseProviderManagedWorkspaceRequest.Authority", func(t *testing.T) {
+		var decoded CloseProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"key\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field authority decoded successfully")
+		}
+	})
+	t.Run("CloseProviderManagedWorkspaceRequest.Key", func(t *testing.T) {
+		var decoded CloseProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field key decoded successfully")
+		}
+	})
+	t.Run("CloseProviderManagedWorkspaceRequest.Workspace", func(t *testing.T) {
+		var decoded CloseProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":\"value\",\"key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("CloseScreenRequest.Screen", func(t *testing.T) {
+		var decoded CloseScreenRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("CloseSurfaceRequest.Surface", func(t *testing.T) {
+		var decoded CloseSurfaceRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("CloseTerminalRequest.TerminalID", func(t *testing.T) {
+		var decoded CloseTerminalRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("CopyRequest.Mode", func(t *testing.T) {
+		var decoded CopyRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field mode decoded successfully")
+		}
+	})
+	t.Run("CopyRequest.Surface", func(t *testing.T) {
+		var decoded CopyRequest
+		if err := json.Unmarshal([]byte("{\"mode\":\"screen\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("DetachClientRequest.Client", func(t *testing.T) {
+		var decoded DetachClientRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field client decoded successfully")
+		}
+	})
+	t.Run("FocusDirectionRequest.Dir", func(t *testing.T) {
+		var decoded FocusDirectionRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field dir decoded successfully")
+		}
+	})
+	t.Run("FocusPaneRequest.Pane", func(t *testing.T) {
+		var decoded FocusPaneRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("GetFrontendProjectionRequest.Frontend", func(t *testing.T) {
+		var decoded GetFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field frontend decoded successfully")
+		}
+	})
+	t.Run("GetFrontendProjectionRequest.Scope", func(t *testing.T) {
+		var decoded GetFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field scope decoded successfully")
+		}
+	})
+	t.Run("GetFrontendProjectionRequest.SubjectKey", func(t *testing.T) {
+		var decoded GetFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"scope\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field subject_key decoded successfully")
+		}
+	})
+	t.Run("MarkWorkspacesProviderManagedRequest.Authority", func(t *testing.T) {
+		var decoded MarkWorkspacesProviderManagedRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field authority decoded successfully")
+		}
+	})
+	t.Run("MintTerminalRendererRequest.Surface", func(t *testing.T) {
+		var decoded MintTerminalRendererRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("MoveTabRequest.Index", func(t *testing.T) {
+		var decoded MoveTabRequest
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("MoveTabRequest.Pane", func(t *testing.T) {
+		var decoded MoveTabRequest
+		if err := json.Unmarshal([]byte("{\"index\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("MoveTabRequest.Surface", func(t *testing.T) {
+		var decoded MoveTabRequest
+		if err := json.Unmarshal([]byte("{\"index\":1,\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalRequest.TerminalID", func(t *testing.T) {
+		var decoded MoveTerminalRequest
+		if err := json.Unmarshal([]byte("{\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalRequest.WorkspaceKey", func(t *testing.T) {
+		var decoded MoveTerminalRequest
+		if err := json.Unmarshal([]byte("{\"terminal_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_key decoded successfully")
+		}
+	})
+	t.Run("MoveWorkspaceRequest.Index", func(t *testing.T) {
+		var decoded MoveWorkspaceRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("NewBrowserTabRequest.URL", func(t *testing.T) {
+		var decoded NewBrowserTabRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field url decoded successfully")
+		}
+	})
+	t.Run("NewPaneRequest.Pane", func(t *testing.T) {
+		var decoded NewPaneRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("NewPaneRightRequest.Pane", func(t *testing.T) {
+		var decoded NewPaneRightRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("NotifyRequest.Body", func(t *testing.T) {
+		var decoded NotifyRequest
+		if err := json.Unmarshal([]byte("{\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field body decoded successfully")
+		}
+	})
+	t.Run("NotifyRequest.Title", func(t *testing.T) {
+		var decoded NotifyRequest
+		if err := json.Unmarshal([]byte("{\"body\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field title decoded successfully")
+		}
+	})
+	t.Run("PairingResponseRequest.Approve", func(t *testing.T) {
+		var decoded PairingResponseRequest
+		if err := json.Unmarshal([]byte("{\"request\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field approve decoded successfully")
+		}
+	})
+	t.Run("PairingResponseRequest.Request", func(t *testing.T) {
+		var decoded PairingResponseRequest
+		if err := json.Unmarshal([]byte("{\"approve\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field request decoded successfully")
+		}
+	})
+	t.Run("PaneNeighborRequest.Dir", func(t *testing.T) {
+		var decoded PaneNeighborRequest
+		if err := json.Unmarshal([]byte("{\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field dir decoded successfully")
+		}
+	})
+	t.Run("PaneNeighborRequest.Pane", func(t *testing.T) {
+		var decoded PaneNeighborRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"left\"}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("ProcessInfoRequest.Surface", func(t *testing.T) {
+		var decoded ProcessInfoRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("PutFrontendProjectionRequest.Frontend", func(t *testing.T) {
+		var decoded PutFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"projection\":null,\"schema_version\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field frontend decoded successfully")
+		}
+	})
+	t.Run("PutFrontendProjectionRequest.Projection", func(t *testing.T) {
+		var decoded PutFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"schema_version\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field projection decoded successfully")
+		}
+	})
+	t.Run("PutFrontendProjectionRequest.SchemaVersion", func(t *testing.T) {
+		var decoded PutFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field schema_version decoded successfully")
+		}
+	})
+	t.Run("PutFrontendProjectionRequest.Scope", func(t *testing.T) {
+		var decoded PutFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"schema_version\":1,\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field scope decoded successfully")
+		}
+	})
+	t.Run("PutFrontendProjectionRequest.SubjectKey", func(t *testing.T) {
+		var decoded PutFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"schema_version\":1,\"scope\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field subject_key decoded successfully")
+		}
+	})
+	t.Run("ReadScreenRequest.Surface", func(t *testing.T) {
+		var decoded ReadScreenRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ReadScrollbackRequest.Count", func(t *testing.T) {
+		var decoded ReadScrollbackRequest
+		if err := json.Unmarshal([]byte("{\"start\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field count decoded successfully")
+		}
+	})
+	t.Run("ReadScrollbackRequest.Start", func(t *testing.T) {
+		var decoded ReadScrollbackRequest
+		if err := json.Unmarshal([]byte("{\"count\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field start decoded successfully")
+		}
+	})
+	t.Run("ReadScrollbackRequest.Surface", func(t *testing.T) {
+		var decoded ReadScrollbackRequest
+		if err := json.Unmarshal([]byte("{\"count\":1,\"start\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ReleaseSurfaceSizeRequest.Surface", func(t *testing.T) {
+		var decoded ReleaseSurfaceSizeRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ReloadConfigResult.Path", func(t *testing.T) {
+		var decoded ReloadConfigResult
+		if err := json.Unmarshal([]byte("{\"reloaded\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field path decoded successfully")
+		}
+	})
+	t.Run("ReloadConfigResult.Reloaded", func(t *testing.T) {
+		var decoded ReloadConfigResult
+		if err := json.Unmarshal([]byte("{\"path\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field reloaded decoded successfully")
+		}
+	})
+	t.Run("RenamePaneRequest.Name", func(t *testing.T) {
+		var decoded RenamePaneRequest
+		if err := json.Unmarshal([]byte("{\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("RenamePaneRequest.Pane", func(t *testing.T) {
+		var decoded RenamePaneRequest
+		if err := json.Unmarshal([]byte("{\"name\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("RenameProviderManagedWorkspaceRequest.Authority", func(t *testing.T) {
+		var decoded RenameProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"key\":\"value\",\"name\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field authority decoded successfully")
+		}
+	})
+	t.Run("RenameProviderManagedWorkspaceRequest.Key", func(t *testing.T) {
+		var decoded RenameProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":\"value\",\"name\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field key decoded successfully")
+		}
+	})
+	t.Run("RenameProviderManagedWorkspaceRequest.Name", func(t *testing.T) {
+		var decoded RenameProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":\"value\",\"key\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("RenameProviderManagedWorkspaceRequest.Workspace", func(t *testing.T) {
+		var decoded RenameProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":\"value\",\"key\":\"value\",\"name\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("RenameScreenRequest.Name", func(t *testing.T) {
+		var decoded RenameScreenRequest
+		if err := json.Unmarshal([]byte("{\"screen\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("RenameScreenRequest.Screen", func(t *testing.T) {
+		var decoded RenameScreenRequest
+		if err := json.Unmarshal([]byte("{\"name\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("RenameSurfaceRequest.Name", func(t *testing.T) {
+		var decoded RenameSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("RenameSurfaceRequest.Surface", func(t *testing.T) {
+		var decoded RenameSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"name\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("RenameWorkspaceRequest.Name", func(t *testing.T) {
+		var decoded RenameWorkspaceRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("ReportAgentRequest.Source", func(t *testing.T) {
+		var decoded ReportAgentRequest
+		if err := json.Unmarshal([]byte("{\"state\":\"working\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field source decoded successfully")
+		}
+	})
+	t.Run("ReportAgentRequest.State", func(t *testing.T) {
+		var decoded ReportAgentRequest
+		if err := json.Unmarshal([]byte("{\"source\":\"socket\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field state decoded successfully")
+		}
+	})
+	t.Run("ReportAgentRequest.Surface", func(t *testing.T) {
+		var decoded ReportAgentRequest
+		if err := json.Unmarshal([]byte("{\"source\":\"socket\",\"state\":\"working\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ResizeSurfaceRequest.Cols", func(t *testing.T) {
+		var decoded ResizeSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cols decoded successfully")
+		}
+	})
+	t.Run("ResizeSurfaceRequest.Rows", func(t *testing.T) {
+		var decoded ResizeSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("ResizeSurfaceRequest.Surface", func(t *testing.T) {
+		var decoded ResizeSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalRequest.TerminalID", func(t *testing.T) {
+		var decoded ResolveTerminalRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("ScrollSurfaceRequest.Delta", func(t *testing.T) {
+		var decoded ScrollSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field delta decoded successfully")
+		}
+	})
+	t.Run("ScrollSurfaceRequest.Surface", func(t *testing.T) {
+		var decoded ScrollSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"delta\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("SendRequest.Surface", func(t *testing.T) {
+		var decoded SendRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("SendKeyRequest.Keys", func(t *testing.T) {
+		var decoded SendKeyRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field keys decoded successfully")
+		}
+	})
+	t.Run("SendKeyRequest.Surface", func(t *testing.T) {
+		var decoded SendKeyRequest
+		if err := json.Unmarshal([]byte("{\"keys\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("SetCellPixelsRequest.HeightPx", func(t *testing.T) {
+		var decoded SetCellPixelsRequest
+		if err := json.Unmarshal([]byte("{\"width_px\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field height_px decoded successfully")
+		}
+	})
+	t.Run("SetCellPixelsRequest.WidthPx", func(t *testing.T) {
+		var decoded SetCellPixelsRequest
+		if err := json.Unmarshal([]byte("{\"height_px\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field width_px decoded successfully")
+		}
+	})
+	t.Run("SetClientSizingRequest.Enabled", func(t *testing.T) {
+		var decoded SetClientSizingRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field enabled decoded successfully")
+		}
+	})
+	t.Run("SetClientSizingRequest.Surface", func(t *testing.T) {
+		var decoded SetClientSizingRequest
+		if err := json.Unmarshal([]byte("{\"enabled\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("SetRatioRequest.Dir", func(t *testing.T) {
+		var decoded SetRatioRequest
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"ratio\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field dir decoded successfully")
+		}
+	})
+	t.Run("SetRatioRequest.Pane", func(t *testing.T) {
+		var decoded SetRatioRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"right\",\"ratio\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("SetRatioRequest.Ratio", func(t *testing.T) {
+		var decoded SetRatioRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"right\",\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field ratio decoded successfully")
+		}
+	})
+	t.Run("SetSplitRatioRequest.Ratio", func(t *testing.T) {
+		var decoded SetSplitRatioRequest
+		if err := json.Unmarshal([]byte("{\"split\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field ratio decoded successfully")
+		}
+	})
+	t.Run("SetSplitRatioRequest.Split", func(t *testing.T) {
+		var decoded SetSplitRatioRequest
+		if err := json.Unmarshal([]byte("{\"ratio\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field split decoded successfully")
+		}
+	})
+	t.Run("SetViewportPaneWidthRequest.Pane", func(t *testing.T) {
+		var decoded SetViewportPaneWidthRequest
+		if err := json.Unmarshal([]byte("{\"width\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("SetViewportPaneWidthRequest.Width", func(t *testing.T) {
+		var decoded SetViewportPaneWidthRequest
+		if err := json.Unmarshal([]byte("{\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field width decoded successfully")
+		}
+	})
+	t.Run("SetWindowTitleRequest.Title", func(t *testing.T) {
+		var decoded SetWindowTitleRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field title decoded successfully")
+		}
+	})
+	t.Run("ShutdownDaemonRequest.Generation", func(t *testing.T) {
+		var decoded ShutdownDaemonRequest
+		if err := json.Unmarshal([]byte("{\"pid\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("ShutdownDaemonRequest.PID", func(t *testing.T) {
+		var decoded ShutdownDaemonRequest
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field pid decoded successfully")
+		}
+	})
+	t.Run("SidebarPluginRequest.Cols", func(t *testing.T) {
+		var decoded SidebarPluginRequest
+		if err := json.Unmarshal([]byte("{\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cols decoded successfully")
+		}
+	})
+	t.Run("SidebarPluginRequest.Rows", func(t *testing.T) {
+		var decoded SidebarPluginRequest
+		if err := json.Unmarshal([]byte("{\"cols\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("SplitRequest.Dir", func(t *testing.T) {
+		var decoded SplitRequest
+		if err := json.Unmarshal([]byte("{\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field dir decoded successfully")
+		}
+	})
+	t.Run("SplitRequest.Pane", func(t *testing.T) {
+		var decoded SplitRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"right\"}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("SwapPaneRequest.Pane", func(t *testing.T) {
+		var decoded SwapPaneRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("UndoLayoutRequest.Pane", func(t *testing.T) {
+		var decoded UndoLayoutRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("VTStateRequest.Surface", func(t *testing.T) {
+		var decoded VTStateRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("WaitForRequest.Pattern", func(t *testing.T) {
+		var decoded WaitForRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1,\"timeout_ms\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field pattern decoded successfully")
+		}
+	})
+	t.Run("WaitForRequest.Surface", func(t *testing.T) {
+		var decoded WaitForRequest
+		if err := json.Unmarshal([]byte("{\"pattern\":\"value\",\"timeout_ms\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("WaitForRequest.TimeoutMs", func(t *testing.T) {
+		var decoded WaitForRequest
+		if err := json.Unmarshal([]byte("{\"pattern\":\"value\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field timeout_ms decoded successfully")
+		}
+	})
+	t.Run("BellEvent.Surface", func(t *testing.T) {
+		var decoded BellEvent
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserStateEvent.Cols", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"error\":null,\"frames_stalled\":true,\"rows\":1,\"status\":\"starting\",\"surface\":1,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field cols decoded successfully")
+		}
+	})
+	t.Run("BrowserStateEvent.Error", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"frames_stalled\":true,\"rows\":1,\"status\":\"starting\",\"surface\":1,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field error decoded successfully")
+		}
+	})
+	t.Run("BrowserStateEvent.FramesStalled", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"rows\":1,\"status\":\"starting\",\"surface\":1,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field frames_stalled decoded successfully")
+		}
+	})
+	t.Run("BrowserStateEvent.Rows", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"status\":\"starting\",\"surface\":1,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("BrowserStateEvent.Status", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"rows\":1,\"surface\":1,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field status decoded successfully")
+		}
+	})
+	t.Run("BrowserStateEvent.Surface", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"rows\":1,\"status\":\"starting\",\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("BrowserStateEvent.Title", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"rows\":1,\"status\":\"starting\",\"surface\":1,\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field title decoded successfully")
+		}
+	})
+	t.Run("BrowserStateEvent.URL", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"rows\":1,\"status\":\"starting\",\"surface\":1,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field url decoded successfully")
+		}
+	})
+	t.Run("ClientAttachedEvent.Client", func(t *testing.T) {
+		var decoded ClientAttachedEvent
+		if err := json.Unmarshal([]byte("{\"kind\":null,\"name\":null,\"transport\":\"unix\"}"), &decoded); err == nil {
+			t.Fatal("missing required field client decoded successfully")
+		}
+	})
+	t.Run("ClientAttachedEvent.Kind", func(t *testing.T) {
+		var decoded ClientAttachedEvent
+		if err := json.Unmarshal([]byte("{\"client\":1,\"name\":null,\"transport\":\"unix\"}"), &decoded); err == nil {
+			t.Fatal("missing required field kind decoded successfully")
+		}
+	})
+	t.Run("ClientAttachedEvent.Name", func(t *testing.T) {
+		var decoded ClientAttachedEvent
+		if err := json.Unmarshal([]byte("{\"client\":1,\"kind\":null,\"transport\":\"unix\"}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("ClientAttachedEvent.Transport", func(t *testing.T) {
+		var decoded ClientAttachedEvent
+		if err := json.Unmarshal([]byte("{\"client\":1,\"kind\":null,\"name\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field transport decoded successfully")
+		}
+	})
+	t.Run("ClientChangedEvent.Client", func(t *testing.T) {
+		var decoded ClientChangedEvent
+		if err := json.Unmarshal([]byte("{\"kind\":null,\"name\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field client decoded successfully")
+		}
+	})
+	t.Run("ClientChangedEvent.Kind", func(t *testing.T) {
+		var decoded ClientChangedEvent
+		if err := json.Unmarshal([]byte("{\"client\":1,\"name\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field kind decoded successfully")
+		}
+	})
+	t.Run("ClientChangedEvent.Name", func(t *testing.T) {
+		var decoded ClientChangedEvent
+		if err := json.Unmarshal([]byte("{\"client\":1,\"kind\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field name decoded successfully")
+		}
+	})
+	t.Run("ClientDetachedEvent.Client", func(t *testing.T) {
+		var decoded ClientDetachedEvent
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field client decoded successfully")
+		}
+	})
+	t.Run("ColorsChangedEvent.Bg", func(t *testing.T) {
+		var decoded ColorsChangedEvent
+		if err := json.Unmarshal([]byte("{\"fg\":null,\"selection_bg\":null,\"selection_fg\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field bg decoded successfully")
+		}
+	})
+	t.Run("ColorsChangedEvent.Fg", func(t *testing.T) {
+		var decoded ColorsChangedEvent
+		if err := json.Unmarshal([]byte("{\"bg\":null,\"selection_bg\":null,\"selection_fg\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field fg decoded successfully")
+		}
+	})
+	t.Run("ColorsChangedEvent.SelectionBg", func(t *testing.T) {
+		var decoded ColorsChangedEvent
+		if err := json.Unmarshal([]byte("{\"bg\":null,\"fg\":null,\"selection_fg\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field selection_bg decoded successfully")
+		}
+	})
+	t.Run("ColorsChangedEvent.SelectionFg", func(t *testing.T) {
+		var decoded ColorsChangedEvent
+		if err := json.Unmarshal([]byte("{\"bg\":null,\"fg\":null,\"selection_bg\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field selection_fg decoded successfully")
+		}
+	})
+	t.Run("DetachedEvent.Surface", func(t *testing.T) {
+		var decoded DetachedEvent
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("FrameEvent.Data", func(t *testing.T) {
+		var decoded FrameEvent
+		if err := json.Unmarshal([]byte("{\"height\":1,\"seq\":1,\"surface\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field data decoded successfully")
+		}
+	})
+	t.Run("FrameEvent.Height", func(t *testing.T) {
+		var decoded FrameEvent
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"seq\":1,\"surface\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field height decoded successfully")
+		}
+	})
+	t.Run("FrameEvent.Seq", func(t *testing.T) {
+		var decoded FrameEvent
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":1,\"surface\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field seq decoded successfully")
+		}
+	})
+	t.Run("FrameEvent.Surface", func(t *testing.T) {
+		var decoded FrameEvent
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":1,\"seq\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("FrameEvent.Width", func(t *testing.T) {
+		var decoded FrameEvent
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":1,\"seq\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field width decoded successfully")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.Frontend", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"mutation_id\":\"value\",\"origin\":\"value\",\"projection_revision\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field frontend decoded successfully")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.MutationID", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"origin\":\"value\",\"projection_revision\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field mutation_id decoded successfully")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.Origin", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"mutation_id\":\"value\",\"projection_revision\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field origin decoded successfully")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.ProjectionRevision", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field projection_revision decoded successfully")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.Scope", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"projection_revision\":1,\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field scope decoded successfully")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.SubjectKey", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"projection_revision\":1,\"scope\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field subject_key decoded successfully")
+		}
+	})
+	t.Run("LayoutChangedEvent.Screen", func(t *testing.T) {
+		var decoded LayoutChangedEvent
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("NotificationEvent.Body", func(t *testing.T) {
+		var decoded NotificationEvent
+		if err := json.Unmarshal([]byte("{\"level\":\"info\",\"notification\":1,\"surface\":null,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field body decoded successfully")
+		}
+	})
+	t.Run("NotificationEvent.Level", func(t *testing.T) {
+		var decoded NotificationEvent
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"notification\":1,\"surface\":null,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field level decoded successfully")
+		}
+	})
+	t.Run("NotificationEvent.Notification", func(t *testing.T) {
+		var decoded NotificationEvent
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"level\":\"info\",\"surface\":null,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field notification decoded successfully")
+		}
+	})
+	t.Run("NotificationEvent.Surface", func(t *testing.T) {
+		var decoded NotificationEvent
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"level\":\"info\",\"notification\":1,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("NotificationEvent.Title", func(t *testing.T) {
+		var decoded NotificationEvent
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"level\":\"info\",\"notification\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field title decoded successfully")
+		}
+	})
+	t.Run("OutputEvent.Data", func(t *testing.T) {
+		var decoded OutputEvent
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field data decoded successfully")
+		}
+	})
+	t.Run("OutputEvent.Surface", func(t *testing.T) {
+		var decoded OutputEvent
+		if err := json.Unmarshal([]byte("{\"data\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("OverflowEvent.Error", func(t *testing.T) {
+		var decoded OverflowEvent
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field error decoded successfully")
+		}
+	})
+	t.Run("PairingRequestedEvent.Code", func(t *testing.T) {
+		var decoded PairingRequestedEvent
+		if err := json.Unmarshal([]byte("{\"expires_in\":1,\"peer\":\"value\",\"request\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field code decoded successfully")
+		}
+	})
+	t.Run("PairingRequestedEvent.ExpiresIn", func(t *testing.T) {
+		var decoded PairingRequestedEvent
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"peer\":\"value\",\"request\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field expires_in decoded successfully")
+		}
+	})
+	t.Run("PairingRequestedEvent.Peer", func(t *testing.T) {
+		var decoded PairingRequestedEvent
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"expires_in\":1,\"request\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field peer decoded successfully")
+		}
+	})
+	t.Run("PairingRequestedEvent.Request", func(t *testing.T) {
+		var decoded PairingRequestedEvent
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"expires_in\":1,\"peer\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field request decoded successfully")
+		}
+	})
+	t.Run("PairingResolvedEvent.Request", func(t *testing.T) {
+		var decoded PairingResolvedEvent
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field request decoded successfully")
+		}
+	})
+	t.Run("PaneAddedEvent.Entity", func(t *testing.T) {
+		var decoded PaneAddedEvent
+		if err := json.Unmarshal([]byte("{\"index\":1,\"pane\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("PaneAddedEvent.Index", func(t *testing.T) {
+		var decoded PaneAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"pane\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("PaneAddedEvent.Pane", func(t *testing.T) {
+		var decoded PaneAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("PaneAddedEvent.Screen", func(t *testing.T) {
+		var decoded PaneAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"pane\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("PaneAddedEvent.Workspace", func(t *testing.T) {
+		var decoded PaneAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"pane\":1,\"screen\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("PaneClosedEvent.Entity", func(t *testing.T) {
+		var decoded PaneClosedEvent
+		if err := json.Unmarshal([]byte("{\"index\":1,\"pane\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("PaneClosedEvent.Index", func(t *testing.T) {
+		var decoded PaneClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"pane\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("PaneClosedEvent.Pane", func(t *testing.T) {
+		var decoded PaneClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("PaneClosedEvent.Screen", func(t *testing.T) {
+		var decoded PaneClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"pane\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("PaneClosedEvent.Workspace", func(t *testing.T) {
+		var decoded PaneClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"pane\":1,\"screen\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("RenderDeltaEvent.Cursor", func(t *testing.T) {
+		var decoded RenderDeltaEvent
+		if err := json.Unmarshal([]byte("{\"full\":true,\"rows\":[],\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cursor decoded successfully")
+		}
+	})
+	t.Run("RenderDeltaEvent.Full", func(t *testing.T) {
+		var decoded RenderDeltaEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"rows\":[],\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field full decoded successfully")
+		}
+	})
+	t.Run("RenderDeltaEvent.Rows", func(t *testing.T) {
+		var decoded RenderDeltaEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"full\":true,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("RenderDeltaEvent.Surface", func(t *testing.T) {
+		var decoded RenderDeltaEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"full\":true,\"rows\":[]}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("RenderStateEvent.Cursor", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"default_bg\":\"value\",\"default_fg\":\"value\",\"rows\":[],\"scrollback_rows\":1,\"size\":{\"cols\":1,\"rows\":1},\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cursor decoded successfully")
+		}
+	})
+	t.Run("RenderStateEvent.DefaultBg", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_fg\":\"value\",\"rows\":[],\"scrollback_rows\":1,\"size\":{\"cols\":1,\"rows\":1},\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field default_bg decoded successfully")
+		}
+	})
+	t.Run("RenderStateEvent.DefaultFg", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_bg\":\"value\",\"rows\":[],\"scrollback_rows\":1,\"size\":{\"cols\":1,\"rows\":1},\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field default_fg decoded successfully")
+		}
+	})
+	t.Run("RenderStateEvent.Rows", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_bg\":\"value\",\"default_fg\":\"value\",\"scrollback_rows\":1,\"size\":{\"cols\":1,\"rows\":1},\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("RenderStateEvent.ScrollbackRows", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_bg\":\"value\",\"default_fg\":\"value\",\"rows\":[],\"size\":{\"cols\":1,\"rows\":1},\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field scrollback_rows decoded successfully")
+		}
+	})
+	t.Run("RenderStateEvent.Size", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_bg\":\"value\",\"default_fg\":\"value\",\"rows\":[],\"scrollback_rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field size decoded successfully")
+		}
+	})
+	t.Run("RenderStateEvent.Surface", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_bg\":\"value\",\"default_fg\":\"value\",\"rows\":[],\"scrollback_rows\":1,\"size\":{\"cols\":1,\"rows\":1}}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ResizedEvent.Cols", func(t *testing.T) {
+		var decoded ResizedEvent
+		if err := json.Unmarshal([]byte("{\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cols decoded successfully")
+		}
+	})
+	t.Run("ResizedEvent.Rows", func(t *testing.T) {
+		var decoded ResizedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("ResizedEvent.Surface", func(t *testing.T) {
+		var decoded ResizedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("ScreenAddedEvent.Entity", func(t *testing.T) {
+		var decoded ScreenAddedEvent
+		if err := json.Unmarshal([]byte("{\"index\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("ScreenAddedEvent.Index", func(t *testing.T) {
+		var decoded ScreenAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("ScreenAddedEvent.Screen", func(t *testing.T) {
+		var decoded ScreenAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"index\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("ScreenAddedEvent.Workspace", func(t *testing.T) {
+		var decoded ScreenAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"index\":1,\"screen\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("ScreenClosedEvent.Entity", func(t *testing.T) {
+		var decoded ScreenClosedEvent
+		if err := json.Unmarshal([]byte("{\"index\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("ScreenClosedEvent.Index", func(t *testing.T) {
+		var decoded ScreenClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("ScreenClosedEvent.Screen", func(t *testing.T) {
+		var decoded ScreenClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"index\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("ScreenClosedEvent.Workspace", func(t *testing.T) {
+		var decoded ScreenClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"index\":1,\"screen\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("ScreenRenamedEvent.Entity", func(t *testing.T) {
+		var decoded ScreenRenamedEvent
+		if err := json.Unmarshal([]byte("{\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("ScreenRenamedEvent.Screen", func(t *testing.T) {
+		var decoded ScreenRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("ScreenRenamedEvent.Workspace", func(t *testing.T) {
+		var decoded ScreenRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"screen\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("ScrollChangedEvent.AtBottom", func(t *testing.T) {
+		var decoded ScrollChangedEvent
+		if err := json.Unmarshal([]byte("{\"offset\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field at_bottom decoded successfully")
+		}
+	})
+	t.Run("ScrollChangedEvent.Offset", func(t *testing.T) {
+		var decoded ScrollChangedEvent
+		if err := json.Unmarshal([]byte("{\"at_bottom\":true,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field offset decoded successfully")
+		}
+	})
+	t.Run("ScrollChangedEvent.Surface", func(t *testing.T) {
+		var decoded ScrollChangedEvent
+		if err := json.Unmarshal([]byte("{\"at_bottom\":true,\"offset\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("StatusEvent.Message", func(t *testing.T) {
+		var decoded StatusEvent
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field message decoded successfully")
+		}
+	})
+	t.Run("SurfaceExitedEvent.Surface", func(t *testing.T) {
+		var decoded SurfaceExitedEvent
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("SurfaceOutputEvent.Surface", func(t *testing.T) {
+		var decoded SurfaceOutputEvent
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("SurfaceResizeFailedEvent.Cols", func(t *testing.T) {
+		var decoded SurfaceResizeFailedEvent
+		if err := json.Unmarshal([]byte("{\"error\":\"value\",\"reservation_id\":null,\"retry_after_ms\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cols decoded successfully")
+		}
+	})
+	t.Run("SurfaceResizeFailedEvent.Error", func(t *testing.T) {
+		var decoded SurfaceResizeFailedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"reservation_id\":null,\"retry_after_ms\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field error decoded successfully")
+		}
+	})
+	t.Run("SurfaceResizeFailedEvent.ReservationID", func(t *testing.T) {
+		var decoded SurfaceResizeFailedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":\"value\",\"retry_after_ms\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field reservation_id decoded successfully")
+		}
+	})
+	t.Run("SurfaceResizeFailedEvent.RetryAfterMs", func(t *testing.T) {
+		var decoded SurfaceResizeFailedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":\"value\",\"reservation_id\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field retry_after_ms decoded successfully")
+		}
+	})
+	t.Run("SurfaceResizeFailedEvent.Rows", func(t *testing.T) {
+		var decoded SurfaceResizeFailedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":\"value\",\"reservation_id\":null,\"retry_after_ms\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("SurfaceResizeFailedEvent.Surface", func(t *testing.T) {
+		var decoded SurfaceResizeFailedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":\"value\",\"reservation_id\":null,\"retry_after_ms\":null,\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("SurfaceResizedEvent.Cols", func(t *testing.T) {
+		var decoded SurfaceResizedEvent
+		if err := json.Unmarshal([]byte("{\"reservation_id\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cols decoded successfully")
+		}
+	})
+	t.Run("SurfaceResizedEvent.ReservationID", func(t *testing.T) {
+		var decoded SurfaceResizedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field reservation_id decoded successfully")
+		}
+	})
+	t.Run("SurfaceResizedEvent.Rows", func(t *testing.T) {
+		var decoded SurfaceResizedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"reservation_id\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("SurfaceResizedEvent.Surface", func(t *testing.T) {
+		var decoded SurfaceResizedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"reservation_id\":null,\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("TabAddedEvent.Entity", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"index\":1,\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("TabAddedEvent.Index", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("TabAddedEvent.Pane", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("TabAddedEvent.Screen", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("TabAddedEvent.Surface", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("TabAddedEvent.Workspace", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"screen\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("TabClosedEvent.Entity", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"index\":1,\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("TabClosedEvent.Index", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("TabClosedEvent.Pane", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("TabClosedEvent.Screen", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("TabClosedEvent.Surface", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("TabClosedEvent.Workspace", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"screen\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("TabRenamedEvent.Entity", func(t *testing.T) {
+		var decoded TabRenamedEvent
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("TabRenamedEvent.Pane", func(t *testing.T) {
+		var decoded TabRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("TabRenamedEvent.Screen", func(t *testing.T) {
+		var decoded TabRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"pane\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field screen decoded successfully")
+		}
+	})
+	t.Run("TabRenamedEvent.Surface", func(t *testing.T) {
+		var decoded TabRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"pane\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("TabRenamedEvent.Workspace", func(t *testing.T) {
+		var decoded TabRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"pane\":1,\"screen\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryChangedEvent.Generation", func(t *testing.T) {
+		var decoded TerminalRegistryChangedEvent
+		if err := json.Unmarshal([]byte("{\"refetch\":\"terminal-events-or-list-terminals\",\"registry_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryChangedEvent.Refetch", func(t *testing.T) {
+		var decoded TerminalRegistryChangedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"registry_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field refetch decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryChangedEvent.RegistryID", func(t *testing.T) {
+		var decoded TerminalRegistryChangedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"refetch\":\"terminal-events-or-list-terminals\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryChangedEvent.TerminalRevision", func(t *testing.T) {
+		var decoded TerminalRegistryChangedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"refetch\":\"terminal-events-or-list-terminals\",\"registry_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_revision decoded successfully")
+		}
+	})
+	t.Run("TitleChangedEvent.Surface", func(t *testing.T) {
+		var decoded TitleChangedEvent
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("VTStateEvent.Cols", func(t *testing.T) {
+		var decoded VTStateEvent
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field cols decoded successfully")
+		}
+	})
+	t.Run("VTStateEvent.Data", func(t *testing.T) {
+		var decoded VTStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field data decoded successfully")
+		}
+	})
+	t.Run("VTStateEvent.Rows", func(t *testing.T) {
+		var decoded VTStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"data\":\"value\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field rows decoded successfully")
+		}
+	})
+	t.Run("VTStateEvent.Surface", func(t *testing.T) {
+		var decoded VTStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"data\":\"value\",\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("WindowTitleRequestedEvent.Title", func(t *testing.T) {
+		var decoded WindowTitleRequestedEvent
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field title decoded successfully")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.Entity", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.Generation", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.Index", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.RegistryID", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.Workspace", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.WorkspaceRevision", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_revision decoded successfully")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.Entity", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.Generation", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.Index", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.RegistryID", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.Workspace", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.WorkspaceRevision", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_revision decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.Entity", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.Generation", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.Index", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field index decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.RegistryID", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.Workspace", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.WorkspaceRevision", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_revision decoded successfully")
+		}
+	})
+	t.Run("WorkspaceRenamedEvent.Entity", func(t *testing.T) {
+		var decoded WorkspaceRenamedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field entity decoded successfully")
+		}
+	})
+	t.Run("WorkspaceRenamedEvent.Generation", func(t *testing.T) {
+		var decoded WorkspaceRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field generation decoded successfully")
+		}
+	})
+	t.Run("WorkspaceRenamedEvent.RegistryID", func(t *testing.T) {
+		var decoded WorkspaceRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field registry_id decoded successfully")
+		}
+	})
+	t.Run("WorkspaceRenamedEvent.Workspace", func(t *testing.T) {
+		var decoded WorkspaceRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"registry_id\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace decoded successfully")
+		}
+	})
+	t.Run("WorkspaceRenamedEvent.WorkspaceRevision", func(t *testing.T) {
+		var decoded WorkspaceRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"registry_id\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("missing required field workspace_revision decoded successfully")
+		}
+	})
+}
+
+func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
+	t.Run("AgentRecord.Source", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":null,\"state\":\"working\",\"surface\":1,\"updated_at_ms\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field source accepted null")
+		}
+	})
+	t.Run("AgentRecord.State", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"detected\",\"state\":null,\"surface\":1,\"updated_at_ms\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field state accepted null")
+		}
+	})
+	t.Run("AgentRecord.Surface", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"detected\",\"state\":\"working\",\"surface\":null,\"updated_at_ms\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("AgentRecord.UpdatedAtMs", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"detected\",\"state\":\"working\",\"surface\":1,\"updated_at_ms\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field updated_at_ms accepted null")
+		}
+	})
+	t.Run("AppliedPane.Pane", func(t *testing.T) {
+		var decoded AppliedPane
+		if err := json.Unmarshal([]byte("{\"pane\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("AppliedPane.Surface", func(t *testing.T) {
+		var decoded AppliedPane
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("ApplyLayoutResult.Panes", func(t *testing.T) {
+		var decoded ApplyLayoutResult
+		if err := json.Unmarshal([]byte("{\"panes\":null,\"screen\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field panes accepted null")
+		}
+	})
+	t.Run("ApplyLayoutResult.Screen", func(t *testing.T) {
+		var decoded ApplyLayoutResult
+		if err := json.Unmarshal([]byte("{\"panes\":[],\"screen\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("BrowserFrame.Data", func(t *testing.T) {
+		var decoded BrowserFrame
+		if err := json.Unmarshal([]byte("{\"data\":null,\"height\":1,\"seq\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field data accepted null")
+		}
+	})
+	t.Run("BrowserFrame.Height", func(t *testing.T) {
+		var decoded BrowserFrame
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":null,\"seq\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field height accepted null")
+		}
+	})
+	t.Run("BrowserFrame.Seq", func(t *testing.T) {
+		var decoded BrowserFrame
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":1,\"seq\":null,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field seq accepted null")
+		}
+	})
+	t.Run("BrowserFrame.Width", func(t *testing.T) {
+		var decoded BrowserFrame
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":1,\"seq\":1,\"width\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field width accepted null")
+		}
+	})
+	t.Run("CellPixelFailure.Error", func(t *testing.T) {
+		var decoded CellPixelFailure
+		if err := json.Unmarshal([]byte("{\"error\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field error accepted null")
+		}
+	})
+	t.Run("CellPixelFailure.Surface", func(t *testing.T) {
+		var decoded CellPixelFailure
+		if err := json.Unmarshal([]byte("{\"error\":\"value\",\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("CellPixelResize.Cols", func(t *testing.T) {
+		var decoded CellPixelResize
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"reservation_id\":1,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cols accepted null")
+		}
+	})
+	t.Run("CellPixelResize.ReservationID", func(t *testing.T) {
+		var decoded CellPixelResize
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"reservation_id\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field reservation_id accepted null")
+		}
+	})
+	t.Run("CellPixelResize.Rows", func(t *testing.T) {
+		var decoded CellPixelResize
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"reservation_id\":1,\"rows\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("CellPixelResize.Surface", func(t *testing.T) {
+		var decoded CellPixelResize
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"reservation_id\":1,\"rows\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("ClientInfo.Attached", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":null,\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field attached accepted null")
+		}
+	})
+	t.Run("ClientInfo.Client", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":null,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field client accepted null")
+		}
+	})
+	t.Run("ClientInfo.ConnectedSeconds", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":null,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field connected_seconds accepted null")
+		}
+	})
+	t.Run("ClientInfo.Self", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":null,\"sizes\":[],\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field self accepted null")
+		}
+	})
+	t.Run("ClientInfo.Sizes", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":null,\"transport\":\"local\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field sizes accepted null")
+		}
+	})
+	t.Run("ClientInfo.Transport", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field transport accepted null")
+		}
+	})
+	t.Run("ClientSize.SizeParticipating", func(t *testing.T) {
+		var decoded ClientSize
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"rows\":null,\"size_participating\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field size_participating accepted null")
+		}
+	})
+	t.Run("ClientSize.Surface", func(t *testing.T) {
+		var decoded ClientSize
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"rows\":null,\"size_participating\":true,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("CloseTerminalResult.AlreadyClosed", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":null,\"closed\":true,\"generation\":\"value\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field already_closed accepted null")
+		}
+	})
+	t.Run("CloseTerminalResult.Closed", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":null,\"generation\":\"value\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field closed accepted null")
+		}
+	})
+	t.Run("CloseTerminalResult.Generation", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":true,\"generation\":null,\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("CloseTerminalResult.RegistryID", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":true,\"generation\":\"value\",\"registry_id\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("CloseTerminalResult.TerminalID", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":true,\"generation\":\"value\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("CloseTerminalResult.TerminalRevision", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":true,\"generation\":\"value\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_revision accepted null")
+		}
+	})
+	t.Run("CopyResult.Mode", func(t *testing.T) {
+		var decoded CopyResult
+		if err := json.Unmarshal([]byte("{\"mode\":null,\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field mode accepted null")
+		}
+	})
+	t.Run("CopyResult.Text", func(t *testing.T) {
+		var decoded CopyResult
+		if err := json.Unmarshal([]byte("{\"mode\":\"screen\",\"text\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field text accepted null")
+		}
+	})
+	t.Run("DeadPane.Dead", func(t *testing.T) {
+		var decoded DeadPane
+		if err := json.Unmarshal([]byte("{\"dead\":null,\"id\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field dead accepted null")
+		}
+	})
+	t.Run("DeadPane.ID", func(t *testing.T) {
+		var decoded DeadPane
+		if err := json.Unmarshal([]byte("{\"dead\":true,\"id\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field id accepted null")
+		}
+	})
+	t.Run("DeclarativeLayoutLeaf.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutLeaf
+		if err := json.Unmarshal([]byte("{\"type\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field type accepted null")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.A", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":null,\"b\":{\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field a accepted null")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.B", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"b\":null,\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field b accepted null")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.Dir", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"b\":{\"type\":\"leaf\"},\"dir\":null,\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field dir accepted null")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.Ratio", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"b\":{\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":null,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field ratio accepted null")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"b\":{\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field type accepted null")
+		}
+	})
+	t.Run("DeclarativeLayoutStack.Expanded", func(t *testing.T) {
+		var decoded DeclarativeLayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":null,\"panes\":[],\"type\":\"stack\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field expanded accepted null")
+		}
+	})
+	t.Run("DeclarativeLayoutStack.Panes", func(t *testing.T) {
+		var decoded DeclarativeLayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"panes\":null,\"type\":\"stack\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field panes accepted null")
+		}
+	})
+	t.Run("DeclarativeLayoutStack.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"panes\":[],\"type\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field type accepted null")
+		}
+	})
+	t.Run("ExportLayoutResult.Layout", func(t *testing.T) {
+		var decoded ExportLayoutResult
+		if err := json.Unmarshal([]byte("{\"layout\":null,\"panes\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field layout accepted null")
+		}
+	})
+	t.Run("ExportLayoutResult.Panes", func(t *testing.T) {
+		var decoded ExportLayoutResult
+		if err := json.Unmarshal([]byte("{\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"panes\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field panes accepted null")
+		}
+	})
+	t.Run("ExportedPane.Pane", func(t *testing.T) {
+		var decoded ExportedPane
+		if err := json.Unmarshal([]byte("{\"pane\":null,\"surfaces\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("ExportedPane.Surfaces", func(t *testing.T) {
+		var decoded ExportedPane
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"surfaces\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surfaces accepted null")
+		}
+	})
+	t.Run("FocusDirectionResult.Pane", func(t *testing.T) {
+		var decoded FocusDirectionResult
+		if err := json.Unmarshal([]byte("{\"pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("FrontendProjection.Frontend", func(t *testing.T) {
+		var decoded FrontendProjection
+		if err := json.Unmarshal([]byte("{\"frontend\":null,\"projection\":null,\"projection_revision\":1,\"schema_version\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field frontend accepted null")
+		}
+	})
+	t.Run("FrontendProjection.ProjectionRevision", func(t *testing.T) {
+		var decoded FrontendProjection
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"projection_revision\":null,\"schema_version\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field projection_revision accepted null")
+		}
+	})
+	t.Run("FrontendProjection.SchemaVersion", func(t *testing.T) {
+		var decoded FrontendProjection
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"projection_revision\":1,\"schema_version\":null,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field schema_version accepted null")
+		}
+	})
+	t.Run("FrontendProjection.Scope", func(t *testing.T) {
+		var decoded FrontendProjection
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"projection_revision\":1,\"schema_version\":1,\"scope\":null,\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field scope accepted null")
+		}
+	})
+	t.Run("FrontendProjection.SubjectKey", func(t *testing.T) {
+		var decoded FrontendProjection
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"projection_revision\":1,\"schema_version\":1,\"scope\":\"value\",\"subject_key\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field subject_key accepted null")
+		}
+	})
+	t.Run("IDMapping.ID", func(t *testing.T) {
+		var decoded IDMapping
+		if err := json.Unmarshal([]byte("{\"id\":null,\"kind\":\"workspace\",\"short_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field id accepted null")
+		}
+	})
+	t.Run("IDMapping.Kind", func(t *testing.T) {
+		var decoded IDMapping
+		if err := json.Unmarshal([]byte("{\"id\":1,\"kind\":null,\"short_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field kind accepted null")
+		}
+	})
+	t.Run("IDMapping.ShortID", func(t *testing.T) {
+		var decoded IDMapping
+		if err := json.Unmarshal([]byte("{\"id\":1,\"kind\":\"workspace\",\"short_id\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field short_id accepted null")
+		}
+	})
+	t.Run("IdentifyResult.App", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":null,\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field app accepted null")
+		}
+	})
+	t.Run("IdentifyResult.DaemonHandoff", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":null,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field daemon_handoff accepted null")
+		}
+	})
+	t.Run("IdentifyResult.Generation", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":null,\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("IdentifyResult.PID", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":null,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pid accepted null")
+		}
+	})
+	t.Run("IdentifyResult.Protocol", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":null,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field protocol accepted null")
+		}
+	})
+	t.Run("IdentifyResult.RegistryID", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":null,\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("IdentifyResult.Session", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":null,\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field session accepted null")
+		}
+	})
+	t.Run("IdentifyResult.TerminalRevision", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":null,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_revision accepted null")
+		}
+	})
+	t.Run("IdentifyResult.Version", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":null,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field version accepted null")
+		}
+	})
+	t.Run("IdentifyResult.WorkspaceRevision", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_revision accepted null")
+		}
+	})
+	t.Run("IDsResult.IDs", func(t *testing.T) {
+		var decoded IDsResult
+		if err := json.Unmarshal([]byte("{\"ids\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field ids accepted null")
+		}
+	})
+	t.Run("LayoutLeaf.Pane", func(t *testing.T) {
+		var decoded LayoutLeaf
+		if err := json.Unmarshal([]byte("{\"pane\":null,\"type\":\"leaf\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("LayoutLeaf.Type", func(t *testing.T) {
+		var decoded LayoutLeaf
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"type\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field type accepted null")
+		}
+	})
+	t.Run("LayoutSplit.A", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":null,\"b\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field a accepted null")
+		}
+	})
+	t.Run("LayoutSplit.B", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"b\":null,\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field b accepted null")
+		}
+	})
+	t.Run("LayoutSplit.Dir", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"b\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":null,\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field dir accepted null")
+		}
+	})
+	t.Run("LayoutSplit.Ratio", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"b\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":null,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field ratio accepted null")
+		}
+	})
+	t.Run("LayoutSplit.Type", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"b\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field type accepted null")
+		}
+	})
+	t.Run("LayoutStack.Expanded", func(t *testing.T) {
+		var decoded LayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":null,\"panes\":[],\"type\":\"stack\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field expanded accepted null")
+		}
+	})
+	t.Run("LayoutStack.Panes", func(t *testing.T) {
+		var decoded LayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"panes\":null,\"type\":\"stack\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field panes accepted null")
+		}
+	})
+	t.Run("LayoutStack.Type", func(t *testing.T) {
+		var decoded LayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"panes\":[],\"type\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field type accepted null")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.ClosesPanes", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":null,\"confirmation_required\":true,\"revision\":1,\"screen\":1,\"undone\":false}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field closes_panes accepted null")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.ConfirmationRequired", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"confirmation_required\":null,\"revision\":1,\"screen\":1,\"undone\":false}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field confirmation_required accepted null")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.Revision", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"confirmation_required\":true,\"revision\":null,\"screen\":1,\"undone\":false}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field revision accepted null")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.Screen", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"confirmation_required\":true,\"revision\":1,\"screen\":null,\"undone\":false}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.Undone", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"confirmation_required\":true,\"revision\":1,\"screen\":1,\"undone\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field undone accepted null")
+		}
+	})
+	t.Run("LayoutUndoUndone.Revision", func(t *testing.T) {
+		var decoded LayoutUndoUndone
+		if err := json.Unmarshal([]byte("{\"revision\":null,\"screen\":1,\"undone\":true}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field revision accepted null")
+		}
+	})
+	t.Run("LayoutUndoUndone.Screen", func(t *testing.T) {
+		var decoded LayoutUndoUndone
+		if err := json.Unmarshal([]byte("{\"revision\":1,\"screen\":null,\"undone\":true}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("LayoutUndoUndone.Undone", func(t *testing.T) {
+		var decoded LayoutUndoUndone
+		if err := json.Unmarshal([]byte("{\"revision\":1,\"screen\":1,\"undone\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field undone accepted null")
+		}
+	})
+	t.Run("ListAgentsResult.Agents", func(t *testing.T) {
+		var decoded ListAgentsResult
+		if err := json.Unmarshal([]byte("{\"agents\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field agents accepted null")
+		}
+	})
+	t.Run("ListTerminalsResult.Generation", func(t *testing.T) {
+		var decoded ListTerminalsResult
+		if err := json.Unmarshal([]byte("{\"generation\":null,\"registry_id\":\"value\",\"terminal_revision\":1,\"terminals\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("ListTerminalsResult.RegistryID", func(t *testing.T) {
+		var decoded ListTerminalsResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"registry_id\":null,\"terminal_revision\":1,\"terminals\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("ListTerminalsResult.TerminalRevision", func(t *testing.T) {
+		var decoded ListTerminalsResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"registry_id\":\"value\",\"terminal_revision\":null,\"terminals\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_revision accepted null")
+		}
+	})
+	t.Run("ListTerminalsResult.Terminals", func(t *testing.T) {
+		var decoded ListTerminalsResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"registry_id\":\"value\",\"terminal_revision\":1,\"terminals\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminals accepted null")
+		}
+	})
+	t.Run("LivePane.ActiveTab", func(t *testing.T) {
+		var decoded LivePane
+		if err := json.Unmarshal([]byte("{\"active_tab\":null,\"id\":1,\"name\":null,\"tabs\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field active_tab accepted null")
+		}
+	})
+	t.Run("LivePane.ID", func(t *testing.T) {
+		var decoded LivePane
+		if err := json.Unmarshal([]byte("{\"active_tab\":1,\"id\":null,\"name\":null,\"tabs\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field id accepted null")
+		}
+	})
+	t.Run("LivePane.Tabs", func(t *testing.T) {
+		var decoded LivePane
+		if err := json.Unmarshal([]byte("{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field tabs accepted null")
+		}
+	})
+	t.Run("MintTerminalRendererResult.Endpoint", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"endpoint\":null,\"incarnation\":\"value\",\"rights\":1,\"terminal_id\":\"value\",\"token\":\"value\",\"ttl_ms\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field endpoint accepted null")
+		}
+	})
+	t.Run("MintTerminalRendererResult.Incarnation", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"endpoint\":\"value\",\"incarnation\":null,\"rights\":1,\"terminal_id\":\"value\",\"token\":\"value\",\"ttl_ms\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field incarnation accepted null")
+		}
+	})
+	t.Run("MintTerminalRendererResult.Rights", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"endpoint\":\"value\",\"incarnation\":\"value\",\"rights\":null,\"terminal_id\":\"value\",\"token\":\"value\",\"ttl_ms\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rights accepted null")
+		}
+	})
+	t.Run("MintTerminalRendererResult.TerminalID", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"endpoint\":\"value\",\"incarnation\":\"value\",\"rights\":1,\"terminal_id\":null,\"token\":\"value\",\"ttl_ms\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("MintTerminalRendererResult.Token", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"endpoint\":\"value\",\"incarnation\":\"value\",\"rights\":1,\"terminal_id\":\"value\",\"token\":null,\"ttl_ms\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field token accepted null")
+		}
+	})
+	t.Run("MintTerminalRendererResult.TtlMs", func(t *testing.T) {
+		var decoded MintTerminalRendererResult
+		if err := json.Unmarshal([]byte("{\"endpoint\":\"value\",\"incarnation\":\"value\",\"rights\":1,\"terminal_id\":\"value\",\"token\":\"value\",\"ttl_ms\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field ttl_ms accepted null")
+		}
+	})
+	t.Run("MoveTerminalResult.Changed", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":null,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field changed accepted null")
+		}
+	})
+	t.Run("MoveTerminalResult.Generation", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":null,\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("MoveTerminalResult.Lifecycle", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":null,\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field lifecycle accepted null")
+		}
+	})
+	t.Run("MoveTerminalResult.RegistryID", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":null,\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("MoveTerminalResult.Replayed", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":null,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field replayed accepted null")
+		}
+	})
+	t.Run("MoveTerminalResult.TerminalID", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("MoveTerminalResult.TerminalRevision", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":null,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_revision accepted null")
+		}
+	})
+	t.Run("MoveTerminalResult.WorkspaceKey", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_key accepted null")
+		}
+	})
+	t.Run("NotificationMarker.Level", func(t *testing.T) {
+		var decoded NotificationMarker
+		if err := json.Unmarshal([]byte("{\"level\":null,\"notification\":1,\"unread\":true}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field level accepted null")
+		}
+	})
+	t.Run("NotificationMarker.Notification", func(t *testing.T) {
+		var decoded NotificationMarker
+		if err := json.Unmarshal([]byte("{\"level\":\"info\",\"notification\":null,\"unread\":true}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field notification accepted null")
+		}
+	})
+	t.Run("NotificationMarker.Unread", func(t *testing.T) {
+		var decoded NotificationMarker
+		if err := json.Unmarshal([]byte("{\"level\":\"info\",\"notification\":1,\"unread\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field unread accepted null")
+		}
+	})
+	t.Run("NotifyResult.Notification", func(t *testing.T) {
+		var decoded NotifyResult
+		if err := json.Unmarshal([]byte("{\"notification\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field notification accepted null")
+		}
+	})
+	t.Run("PingResult.Ok", func(t *testing.T) {
+		var decoded PingResult
+		if err := json.Unmarshal([]byte("{\"ok\":null,\"protocol\":1,\"version\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field ok accepted null")
+		}
+	})
+	t.Run("PingResult.Protocol", func(t *testing.T) {
+		var decoded PingResult
+		if err := json.Unmarshal([]byte("{\"ok\":true,\"protocol\":null,\"version\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field protocol accepted null")
+		}
+	})
+	t.Run("PingResult.Version", func(t *testing.T) {
+		var decoded PingResult
+		if err := json.Unmarshal([]byte("{\"ok\":true,\"protocol\":1,\"version\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field version accepted null")
+		}
+	})
+	t.Run("ProviderWorkspaceMutationResult.Key", func(t *testing.T) {
+		var decoded ProviderWorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"key\":null,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field key accepted null")
+		}
+	})
+	t.Run("ProviderWorkspaceMutationResult.Workspace", func(t *testing.T) {
+		var decoded ProviderWorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"key\":\"value\",\"workspace\":null,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("ProviderWorkspaceMutationResult.WorkspaceRevision", func(t *testing.T) {
+		var decoded ProviderWorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"key\":\"value\",\"workspace\":1,\"workspace_revision\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_revision accepted null")
+		}
+	})
+	t.Run("ReadScreenResult.Text", func(t *testing.T) {
+		var decoded ReadScreenResult
+		if err := json.Unmarshal([]byte("{\"text\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field text accepted null")
+		}
+	})
+	t.Run("ReadScrollbackResult.Rows", func(t *testing.T) {
+		var decoded ReadScrollbackResult
+		if err := json.Unmarshal([]byte("{\"rows\":null,\"start\":1,\"total\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("ReadScrollbackResult.Start", func(t *testing.T) {
+		var decoded ReadScrollbackResult
+		if err := json.Unmarshal([]byte("{\"rows\":[],\"start\":null,\"total\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field start accepted null")
+		}
+	})
+	t.Run("ReadScrollbackResult.Total", func(t *testing.T) {
+		var decoded ReadScrollbackResult
+		if err := json.Unmarshal([]byte("{\"rows\":[],\"start\":1,\"total\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field total accepted null")
+		}
+	})
+	t.Run("RenderCursor.Blink", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":null,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field blink accepted null")
+		}
+	})
+	t.Run("RenderCursor.Style", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":true,\"color\":null,\"style\":null,\"visible\":true,\"x\":1,\"y\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field style accepted null")
+		}
+	})
+	t.Run("RenderCursor.Visible", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":null,\"x\":1,\"y\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field visible accepted null")
+		}
+	})
+	t.Run("RenderCursor.X", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":null,\"y\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field x accepted null")
+		}
+	})
+	t.Run("RenderCursor.Y", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field y accepted null")
+		}
+	})
+	t.Run("RenderRow.Row", func(t *testing.T) {
+		var decoded RenderRow
+		if err := json.Unmarshal([]byte("{\"row\":null,\"runs\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field row accepted null")
+		}
+	})
+	t.Run("RenderRow.Runs", func(t *testing.T) {
+		var decoded RenderRow
+		if err := json.Unmarshal([]byte("{\"row\":1,\"runs\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field runs accepted null")
+		}
+	})
+	t.Run("RenderRun.Attrs", func(t *testing.T) {
+		var decoded RenderRun
+		if err := json.Unmarshal([]byte("{\"attrs\":null,\"bg\":null,\"fg\":null,\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field attrs accepted null")
+		}
+	})
+	t.Run("RenderRun.Text", func(t *testing.T) {
+		var decoded RenderRun
+		if err := json.Unmarshal([]byte("{\"attrs\":1,\"bg\":null,\"fg\":null,\"text\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field text accepted null")
+		}
+	})
+	t.Run("ReportAgentResult.Source", func(t *testing.T) {
+		var decoded ReportAgentResult
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":null,\"state\":\"working\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field source accepted null")
+		}
+	})
+	t.Run("ReportAgentResult.State", func(t *testing.T) {
+		var decoded ReportAgentResult
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"socket\",\"state\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field state accepted null")
+		}
+	})
+	t.Run("ReportAgentResult.Surface", func(t *testing.T) {
+		var decoded ReportAgentResult
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"socket\",\"state\":\"working\",\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("ResizeSurfaceResult.Accepted", func(t *testing.T) {
+		var decoded ResizeSurfaceResult
+		if err := json.Unmarshal([]byte("{\"accepted\":null,\"reservation_id\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field accepted accepted null")
+		}
+	})
+	t.Run("ResolveTerminalResult.Generation", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":null,\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("ResolveTerminalResult.LaunchSpec", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":null,\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field launch_spec accepted null")
+		}
+	})
+	t.Run("ResolveTerminalResult.Lifecycle", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":null,\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field lifecycle accepted null")
+		}
+	})
+	t.Run("ResolveTerminalResult.RegistryID", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("ResolveTerminalResult.TerminalID", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("ResolveTerminalResult.TerminalRevision", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_revision accepted null")
+		}
+	})
+	t.Run("ResolveTerminalResult.WorkspaceKey", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_key accepted null")
+		}
+	})
+	t.Run("RunResult.Pane", func(t *testing.T) {
+		var decoded RunResult
+		if err := json.Unmarshal([]byte("{\"pane\":null,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("RunResult.Screen", func(t *testing.T) {
+		var decoded RunResult
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"screen\":null,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("RunResult.Surface", func(t *testing.T) {
+		var decoded RunResult
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"screen\":1,\"surface\":null,\"terminal_id\":null,\"terminal_incarnation\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("RunResult.Workspace", func(t *testing.T) {
+		var decoded RunResult
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("Screen.Active", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active\":null,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field active accepted null")
+		}
+	})
+	t.Run("Screen.ActivePane", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":null,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field active_pane accepted null")
+		}
+	})
+	t.Run("Screen.ID", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":null,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field id accepted null")
+		}
+	})
+	t.Run("Screen.Layout", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":null,\"name\":null,\"panes\":[],\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field layout accepted null")
+		}
+	})
+	t.Run("Screen.Panes", func(t *testing.T) {
+		var decoded Screen
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":null,\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field panes accepted null")
+		}
+	})
+	t.Run("SetCellPixelsResult.Failures", func(t *testing.T) {
+		var decoded SetCellPixelsResult
+		if err := json.Unmarshal([]byte("{\"failures\":null,\"resizes\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field failures accepted null")
+		}
+	})
+	t.Run("SetCellPixelsResult.Resizes", func(t *testing.T) {
+		var decoded SetCellPixelsResult
+		if err := json.Unmarshal([]byte("{\"failures\":[],\"resizes\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field resizes accepted null")
+		}
+	})
+	t.Run("ShutdownDaemonResult.Accepted", func(t *testing.T) {
+		var decoded ShutdownDaemonResult
+		if err := json.Unmarshal([]byte("{\"accepted\":null,\"generation\":\"value\",\"pid\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field accepted accepted null")
+		}
+	})
+	t.Run("ShutdownDaemonResult.Generation", func(t *testing.T) {
+		var decoded ShutdownDaemonResult
+		if err := json.Unmarshal([]byte("{\"accepted\":true,\"generation\":null,\"pid\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("ShutdownDaemonResult.PID", func(t *testing.T) {
+		var decoded ShutdownDaemonResult
+		if err := json.Unmarshal([]byte("{\"accepted\":true,\"generation\":\"value\",\"pid\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pid accepted null")
+		}
+	})
+	t.Run("Size.Cols", func(t *testing.T) {
+		var decoded Size
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cols accepted null")
+		}
+	})
+	t.Run("Size.Rows", func(t *testing.T) {
+		var decoded Size
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("SurfaceResult.Surface", func(t *testing.T) {
+		var decoded SurfaceResult
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("Tab.Dead", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":null,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field dead accepted null")
+		}
+	})
+	t.Run("Tab.Kind", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":null,\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field kind accepted null")
+		}
+	})
+	t.Run("Tab.Surface", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":null,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("Tab.Title", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field title accepted null")
+		}
+	})
+	t.Run("TerminalEventsResult.Events", func(t *testing.T) {
+		var decoded TerminalEventsResult
+		if err := json.Unmarshal([]byte("{\"events\":null,\"generation\":\"value\",\"registry_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field events accepted null")
+		}
+	})
+	t.Run("TerminalEventsResult.Generation", func(t *testing.T) {
+		var decoded TerminalEventsResult
+		if err := json.Unmarshal([]byte("{\"events\":[],\"generation\":null,\"registry_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("TerminalEventsResult.RegistryID", func(t *testing.T) {
+		var decoded TerminalEventsResult
+		if err := json.Unmarshal([]byte("{\"events\":[],\"generation\":\"value\",\"registry_id\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("TerminalEventsResult.TerminalRevision", func(t *testing.T) {
+		var decoded TerminalEventsResult
+		if err := json.Unmarshal([]byte("{\"events\":[],\"generation\":\"value\",\"registry_id\":\"value\",\"terminal_revision\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_revision accepted null")
+		}
+	})
+	t.Run("TerminalKeyInput.ConsumedMods", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":null,\"key\":\"unidentified\",\"macos_option_as_alt\":true,\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"utf8\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field consumed_mods accepted null")
+		}
+	})
+	t.Run("TerminalKeyInput.Key", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"key\":null,\"macos_option_as_alt\":true,\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"utf8\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field key accepted null")
+		}
+	})
+	t.Run("TerminalKeyInput.MacosOptionAsAlt", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"key\":\"unidentified\",\"macos_option_as_alt\":null,\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"utf8\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field macos_option_as_alt accepted null")
+		}
+	})
+	t.Run("TerminalKeyInput.Mods", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"key\":\"unidentified\",\"macos_option_as_alt\":true,\"mods\":null,\"utf8\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field mods accepted null")
+		}
+	})
+	t.Run("TerminalKeyInput.UTF8", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"key\":\"unidentified\",\"macos_option_as_alt\":true,\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"utf8\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field utf8 accepted null")
+		}
+	})
+	t.Run("TerminalModifiers.Alt", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"alt\":null,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field alt accepted null")
+		}
+	})
+	t.Run("TerminalModifiers.CapsLock", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"alt\":true,\"caps_lock\":null,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field caps_lock accepted null")
+		}
+	})
+	t.Run("TerminalModifiers.Control", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"alt\":true,\"caps_lock\":true,\"control\":null,\"num_lock\":true,\"shift\":true,\"super\":true}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field control accepted null")
+		}
+	})
+	t.Run("TerminalModifiers.NumLock", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":null,\"shift\":true,\"super\":true}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field num_lock accepted null")
+		}
+	})
+	t.Run("TerminalModifiers.Shift", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":null,\"super\":true}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field shift accepted null")
+		}
+	})
+	t.Run("TerminalModifiers.Super", func(t *testing.T) {
+		var decoded TerminalModifiers
+		if err := json.Unmarshal([]byte("{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field super accepted null")
+		}
+	})
+	t.Run("TerminalPlacement.Generation", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":null,\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("TerminalPlacement.Key", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":null,\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field key accepted null")
+		}
+	})
+	t.Run("TerminalPlacement.Pane", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("TerminalPlacement.RegistryID", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":null,\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("TerminalPlacement.Replayed", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":null,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field replayed accepted null")
+		}
+	})
+	t.Run("TerminalPlacement.Screen", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("TerminalPlacement.Surface", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":null,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("TerminalPlacement.TerminalRevision", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_revision accepted null")
+		}
+	})
+	t.Run("TerminalPlacement.Workspace", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("TerminalRecord.LaunchSpec", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"launch_spec\":null,\"lifecycle\":\"launching\",\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field launch_spec accepted null")
+		}
+	})
+	t.Run("TerminalRecord.Lifecycle", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"launch_spec\":{\"value\":true},\"lifecycle\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field lifecycle accepted null")
+		}
+	})
+	t.Run("TerminalRecord.TerminalID", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"terminal_id\":null,\"terminal_incarnation\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("TerminalRecord.WorkspaceKey", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"workspace_key\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_key accepted null")
+		}
+	})
+	t.Run("TerminalRegistryEvent.Kind", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":null,\"mutation_id\":\"value\",\"origin\":\"value\",\"result\":{\"value\":true},\"terminal_id\":\"value\",\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field kind accepted null")
+		}
+	})
+	t.Run("TerminalRegistryEvent.MutationID", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"mutation_id\":null,\"origin\":\"value\",\"result\":{\"value\":true},\"terminal_id\":\"value\",\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field mutation_id accepted null")
+		}
+	})
+	t.Run("TerminalRegistryEvent.Origin", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"mutation_id\":\"value\",\"origin\":null,\"result\":{\"value\":true},\"terminal_id\":\"value\",\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field origin accepted null")
+		}
+	})
+	t.Run("TerminalRegistryEvent.Result", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"result\":null,\"terminal_id\":\"value\",\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field result accepted null")
+		}
+	})
+	t.Run("TerminalRegistryEvent.TerminalID", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"result\":{\"value\":true},\"terminal_id\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("TerminalRegistryEvent.TerminalRevision", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"result\":{\"value\":true},\"terminal_id\":\"value\",\"terminal_revision\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_revision accepted null")
+		}
+	})
+	t.Run("TerminalRegistryEvent.WorkspaceKey", func(t *testing.T) {
+		var decoded TerminalRegistryEvent
+		if err := json.Unmarshal([]byte("{\"kind\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"result\":{\"value\":true},\"terminal_id\":\"value\",\"terminal_revision\":1,\"workspace_key\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_key accepted null")
+		}
+	})
+	t.Run("Tree.Workspaces", func(t *testing.T) {
+		var decoded Tree
+		if err := json.Unmarshal([]byte("{\"workspaces\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspaces accepted null")
+		}
+	})
+	t.Run("VTStateResult.Cols", func(t *testing.T) {
+		var decoded VTStateResult
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"data\":\"value\",\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cols accepted null")
+		}
+	})
+	t.Run("VTStateResult.Data", func(t *testing.T) {
+		var decoded VTStateResult
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"data\":null,\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field data accepted null")
+		}
+	})
+	t.Run("VTStateResult.Rows", func(t *testing.T) {
+		var decoded VTStateResult
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"data\":\"value\",\"rows\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("WaitForResult.ElapsedMs", func(t *testing.T) {
+		var decoded WaitForResult
+		if err := json.Unmarshal([]byte("{\"elapsed_ms\":null,\"matched\":true,\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field elapsed_ms accepted null")
+		}
+	})
+	t.Run("WaitForResult.Matched", func(t *testing.T) {
+		var decoded WaitForResult
+		if err := json.Unmarshal([]byte("{\"elapsed_ms\":1,\"matched\":null,\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field matched accepted null")
+		}
+	})
+	t.Run("WaitForResult.Text", func(t *testing.T) {
+		var decoded WaitForResult
+		if err := json.Unmarshal([]byte("{\"elapsed_ms\":1,\"matched\":true,\"text\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field text accepted null")
+		}
+	})
+	t.Run("Workspace.Active", func(t *testing.T) {
+		var decoded Workspace
+		if err := json.Unmarshal([]byte("{\"active\":null,\"id\":1,\"name\":\"value\",\"screens\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field active accepted null")
+		}
+	})
+	t.Run("Workspace.ID", func(t *testing.T) {
+		var decoded Workspace
+		if err := json.Unmarshal([]byte("{\"active\":true,\"id\":null,\"name\":\"value\",\"screens\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field id accepted null")
+		}
+	})
+	t.Run("Workspace.Name", func(t *testing.T) {
+		var decoded Workspace
+		if err := json.Unmarshal([]byte("{\"active\":true,\"id\":1,\"name\":null,\"screens\":[]}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field name accepted null")
+		}
+	})
+	t.Run("Workspace.Screens", func(t *testing.T) {
+		var decoded Workspace
+		if err := json.Unmarshal([]byte("{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screens accepted null")
+		}
+	})
+	t.Run("WorkspaceMutationResult.Generation", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":null,\"index\":1,\"key\":\"value\",\"registry_id\":\"value\",\"replayed\":true,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("WorkspaceMutationResult.Index", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":null,\"key\":\"value\",\"registry_id\":\"value\",\"replayed\":true,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("WorkspaceMutationResult.Key", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"key\":null,\"registry_id\":\"value\",\"replayed\":true,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field key accepted null")
+		}
+	})
+	t.Run("WorkspaceMutationResult.RegistryID", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"key\":\"value\",\"registry_id\":null,\"replayed\":true,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("WorkspaceMutationResult.Replayed", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"key\":\"value\",\"registry_id\":\"value\",\"replayed\":null,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field replayed accepted null")
+		}
+	})
+	t.Run("WorkspaceMutationResult.Workspace", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"key\":\"value\",\"registry_id\":\"value\",\"replayed\":true,\"workspace\":null,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("WorkspaceMutationResult.WorkspaceRevision", func(t *testing.T) {
+		var decoded WorkspaceMutationResult
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"index\":1,\"key\":\"value\",\"registry_id\":\"value\",\"replayed\":true,\"workspace\":1,\"workspace_revision\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_revision accepted null")
+		}
+	})
+	t.Run("ZoomPaneResult.Pane", func(t *testing.T) {
+		var decoded ZoomPaneResult
+		if err := json.Unmarshal([]byte("{\"pane\":null,\"zoomed\":true,\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("ZoomPaneResult.Zoomed", func(t *testing.T) {
+		var decoded ZoomPaneResult
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"zoomed\":null,\"zoomed_pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field zoomed accepted null")
+		}
+	})
+	t.Run("ApplyLayoutRequest.Layout", func(t *testing.T) {
+		var decoded ApplyLayoutRequest
+		if err := json.Unmarshal([]byte("{\"layout\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field layout accepted null")
+		}
+	})
+	t.Run("AttachSurfaceRequest.Surface", func(t *testing.T) {
+		var decoded AttachSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserActivateRequest.Surface", func(t *testing.T) {
+		var decoded BrowserActivateRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserBackRequest.Surface", func(t *testing.T) {
+		var decoded BrowserBackRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserForwardRequest.Surface", func(t *testing.T) {
+		var decoded BrowserForwardRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserFramePresentedRequest.FrameSeq", func(t *testing.T) {
+		var decoded BrowserFramePresentedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field frame_seq accepted null")
+		}
+	})
+	t.Run("BrowserFramePresentedRequest.Surface", func(t *testing.T) {
+		var decoded BrowserFramePresentedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserInsertTextRequest.Surface", func(t *testing.T) {
+		var decoded BrowserInsertTextRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null,\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserInsertTextRequest.Text", func(t *testing.T) {
+		var decoded BrowserInsertTextRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1,\"text\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field text accepted null")
+		}
+	})
+	t.Run("BrowserKeyRequest.Code", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":null,\"key\":\"value\",\"kind\":\"down\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field code accepted null")
+		}
+	})
+	t.Run("BrowserKeyRequest.Key", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":null,\"kind\":\"down\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field key accepted null")
+		}
+	})
+	t.Run("BrowserKeyRequest.Kind", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"kind\":null,\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field kind accepted null")
+		}
+	})
+	t.Run("BrowserKeyRequest.Modifiers", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"kind\":\"down\",\"modifiers\":null,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field modifiers accepted null")
+		}
+	})
+	t.Run("BrowserKeyRequest.Surface", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"kind\":\"down\",\"modifiers\":1,\"surface\":null,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserKeyRequest.WindowsVirtualKeyCode", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"kind\":\"down\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field windows_virtual_key_code accepted null")
+		}
+	})
+	t.Run("BrowserKeyPressRequest.Code", func(t *testing.T) {
+		var decoded BrowserKeyPressRequest
+		if err := json.Unmarshal([]byte("{\"code\":null,\"key\":\"value\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field code accepted null")
+		}
+	})
+	t.Run("BrowserKeyPressRequest.Key", func(t *testing.T) {
+		var decoded BrowserKeyPressRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":null,\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field key accepted null")
+		}
+	})
+	t.Run("BrowserKeyPressRequest.Modifiers", func(t *testing.T) {
+		var decoded BrowserKeyPressRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"modifiers\":null,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field modifiers accepted null")
+		}
+	})
+	t.Run("BrowserKeyPressRequest.Surface", func(t *testing.T) {
+		var decoded BrowserKeyPressRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"modifiers\":1,\"surface\":null,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserKeyPressRequest.WindowsVirtualKeyCode", func(t *testing.T) {
+		var decoded BrowserKeyPressRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field windows_virtual_key_code accepted null")
+		}
+	})
+	t.Run("BrowserMouseRequest.Kind", func(t *testing.T) {
+		var decoded BrowserMouseRequest
+		if err := json.Unmarshal([]byte("{\"kind\":null,\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field kind accepted null")
+		}
+	})
+	t.Run("BrowserMouseRequest.Surface", func(t *testing.T) {
+		var decoded BrowserMouseRequest
+		if err := json.Unmarshal([]byte("{\"kind\":\"down\",\"surface\":null,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserMouseRequest.XPx", func(t *testing.T) {
+		var decoded BrowserMouseRequest
+		if err := json.Unmarshal([]byte("{\"kind\":\"down\",\"surface\":1,\"x_px\":null,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field x_px accepted null")
+		}
+	})
+	t.Run("BrowserMouseRequest.YPx", func(t *testing.T) {
+		var decoded BrowserMouseRequest
+		if err := json.Unmarshal([]byte("{\"kind\":\"down\",\"surface\":1,\"x_px\":1.5,\"y_px\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field y_px accepted null")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.FrameSeq", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":null,\"kind\":\"down\",\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field frame_seq accepted null")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.Kind", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"kind\":null,\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field kind accepted null")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.Surface", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"kind\":\"down\",\"surface\":null,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.XPx", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"kind\":\"down\",\"surface\":1,\"x_px\":null,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field x_px accepted null")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.YPx", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"kind\":\"down\",\"surface\":1,\"x_px\":1.5,\"y_px\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field y_px accepted null")
+		}
+	})
+	t.Run("BrowserNavigateRequest.Surface", func(t *testing.T) {
+		var decoded BrowserNavigateRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null,\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserNavigateRequest.URL", func(t *testing.T) {
+		var decoded BrowserNavigateRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1,\"url\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field url accepted null")
+		}
+	})
+	t.Run("BrowserReloadRequest.Surface", func(t *testing.T) {
+		var decoded BrowserReloadRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserWheelRequest.DeltaYPx", func(t *testing.T) {
+		var decoded BrowserWheelRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":null,\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field delta_y_px accepted null")
+		}
+	})
+	t.Run("BrowserWheelRequest.Surface", func(t *testing.T) {
+		var decoded BrowserWheelRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"surface\":null,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserWheelRequest.XPx", func(t *testing.T) {
+		var decoded BrowserWheelRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"surface\":1,\"x_px\":null,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field x_px accepted null")
+		}
+	})
+	t.Run("BrowserWheelRequest.YPx", func(t *testing.T) {
+		var decoded BrowserWheelRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"surface\":1,\"x_px\":1.5,\"y_px\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field y_px accepted null")
+		}
+	})
+	t.Run("BrowserWheelGuardedRequest.DeltaYPx", func(t *testing.T) {
+		var decoded BrowserWheelGuardedRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":null,\"frame_seq\":1,\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field delta_y_px accepted null")
+		}
+	})
+	t.Run("BrowserWheelGuardedRequest.FrameSeq", func(t *testing.T) {
+		var decoded BrowserWheelGuardedRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"frame_seq\":null,\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field frame_seq accepted null")
+		}
+	})
+	t.Run("BrowserWheelGuardedRequest.Surface", func(t *testing.T) {
+		var decoded BrowserWheelGuardedRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"frame_seq\":1,\"surface\":null,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserWheelGuardedRequest.XPx", func(t *testing.T) {
+		var decoded BrowserWheelGuardedRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"frame_seq\":1,\"surface\":1,\"x_px\":null,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field x_px accepted null")
+		}
+	})
+	t.Run("BrowserWheelGuardedRequest.YPx", func(t *testing.T) {
+		var decoded BrowserWheelGuardedRequest
+		if err := json.Unmarshal([]byte("{\"delta_y_px\":1.5,\"frame_seq\":1,\"surface\":1,\"x_px\":1.5,\"y_px\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field y_px accepted null")
+		}
+	})
+	t.Run("ClearHistoryRequest.Surface", func(t *testing.T) {
+		var decoded ClearHistoryRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("ClosePaneRequest.Pane", func(t *testing.T) {
+		var decoded ClosePaneRequest
+		if err := json.Unmarshal([]byte("{\"pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("CloseProviderManagedWorkspaceRequest.Authority", func(t *testing.T) {
+		var decoded CloseProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":null,\"key\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field authority accepted null")
+		}
+	})
+	t.Run("CloseProviderManagedWorkspaceRequest.Key", func(t *testing.T) {
+		var decoded CloseProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":\"value\",\"key\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field key accepted null")
+		}
+	})
+	t.Run("CloseProviderManagedWorkspaceRequest.Workspace", func(t *testing.T) {
+		var decoded CloseProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":\"value\",\"key\":\"value\",\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("CloseScreenRequest.Screen", func(t *testing.T) {
+		var decoded CloseScreenRequest
+		if err := json.Unmarshal([]byte("{\"screen\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("CloseSurfaceRequest.Surface", func(t *testing.T) {
+		var decoded CloseSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("CloseTerminalRequest.TerminalID", func(t *testing.T) {
+		var decoded CloseTerminalRequest
+		if err := json.Unmarshal([]byte("{\"terminal_id\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("CopyRequest.Mode", func(t *testing.T) {
+		var decoded CopyRequest
+		if err := json.Unmarshal([]byte("{\"mode\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field mode accepted null")
+		}
+	})
+	t.Run("CopyRequest.Surface", func(t *testing.T) {
+		var decoded CopyRequest
+		if err := json.Unmarshal([]byte("{\"mode\":\"screen\",\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("DetachClientRequest.Client", func(t *testing.T) {
+		var decoded DetachClientRequest
+		if err := json.Unmarshal([]byte("{\"client\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field client accepted null")
+		}
+	})
+	t.Run("FocusDirectionRequest.Dir", func(t *testing.T) {
+		var decoded FocusDirectionRequest
+		if err := json.Unmarshal([]byte("{\"dir\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field dir accepted null")
+		}
+	})
+	t.Run("FocusPaneRequest.Pane", func(t *testing.T) {
+		var decoded FocusPaneRequest
+		if err := json.Unmarshal([]byte("{\"pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("GetFrontendProjectionRequest.Frontend", func(t *testing.T) {
+		var decoded GetFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":null,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field frontend accepted null")
+		}
+	})
+	t.Run("GetFrontendProjectionRequest.Scope", func(t *testing.T) {
+		var decoded GetFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"scope\":null,\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field scope accepted null")
+		}
+	})
+	t.Run("GetFrontendProjectionRequest.SubjectKey", func(t *testing.T) {
+		var decoded GetFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"scope\":\"value\",\"subject_key\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field subject_key accepted null")
+		}
+	})
+	t.Run("MarkWorkspacesProviderManagedRequest.Authority", func(t *testing.T) {
+		var decoded MarkWorkspacesProviderManagedRequest
+		if err := json.Unmarshal([]byte("{\"authority\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field authority accepted null")
+		}
+	})
+	t.Run("MintTerminalRendererRequest.Surface", func(t *testing.T) {
+		var decoded MintTerminalRendererRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("MoveTabRequest.Index", func(t *testing.T) {
+		var decoded MoveTabRequest
+		if err := json.Unmarshal([]byte("{\"index\":null,\"pane\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("MoveTabRequest.Pane", func(t *testing.T) {
+		var decoded MoveTabRequest
+		if err := json.Unmarshal([]byte("{\"index\":1,\"pane\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("MoveTabRequest.Surface", func(t *testing.T) {
+		var decoded MoveTabRequest
+		if err := json.Unmarshal([]byte("{\"index\":1,\"pane\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("MoveTerminalRequest.TerminalID", func(t *testing.T) {
+		var decoded MoveTerminalRequest
+		if err := json.Unmarshal([]byte("{\"terminal_id\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("MoveTerminalRequest.WorkspaceKey", func(t *testing.T) {
+		var decoded MoveTerminalRequest
+		if err := json.Unmarshal([]byte("{\"terminal_id\":\"value\",\"workspace_key\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_key accepted null")
+		}
+	})
+	t.Run("MoveWorkspaceRequest.Index", func(t *testing.T) {
+		var decoded MoveWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"index\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("NewBrowserTabRequest.URL", func(t *testing.T) {
+		var decoded NewBrowserTabRequest
+		if err := json.Unmarshal([]byte("{\"url\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field url accepted null")
+		}
+	})
+	t.Run("NewPaneRequest.Pane", func(t *testing.T) {
+		var decoded NewPaneRequest
+		if err := json.Unmarshal([]byte("{\"pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("NewPaneRightRequest.Pane", func(t *testing.T) {
+		var decoded NewPaneRightRequest
+		if err := json.Unmarshal([]byte("{\"pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("NotifyRequest.Body", func(t *testing.T) {
+		var decoded NotifyRequest
+		if err := json.Unmarshal([]byte("{\"body\":null,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field body accepted null")
+		}
+	})
+	t.Run("NotifyRequest.Title", func(t *testing.T) {
+		var decoded NotifyRequest
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"title\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field title accepted null")
+		}
+	})
+	t.Run("PairingResponseRequest.Approve", func(t *testing.T) {
+		var decoded PairingResponseRequest
+		if err := json.Unmarshal([]byte("{\"approve\":null,\"request\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field approve accepted null")
+		}
+	})
+	t.Run("PairingResponseRequest.Request", func(t *testing.T) {
+		var decoded PairingResponseRequest
+		if err := json.Unmarshal([]byte("{\"approve\":true,\"request\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field request accepted null")
+		}
+	})
+	t.Run("PaneNeighborRequest.Dir", func(t *testing.T) {
+		var decoded PaneNeighborRequest
+		if err := json.Unmarshal([]byte("{\"dir\":null,\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field dir accepted null")
+		}
+	})
+	t.Run("PaneNeighborRequest.Pane", func(t *testing.T) {
+		var decoded PaneNeighborRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"left\",\"pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("ProcessInfoRequest.Surface", func(t *testing.T) {
+		var decoded ProcessInfoRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("PutFrontendProjectionRequest.Frontend", func(t *testing.T) {
+		var decoded PutFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":null,\"projection\":null,\"schema_version\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field frontend accepted null")
+		}
+	})
+	t.Run("PutFrontendProjectionRequest.SchemaVersion", func(t *testing.T) {
+		var decoded PutFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"schema_version\":null,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field schema_version accepted null")
+		}
+	})
+	t.Run("PutFrontendProjectionRequest.Scope", func(t *testing.T) {
+		var decoded PutFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"schema_version\":1,\"scope\":null,\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field scope accepted null")
+		}
+	})
+	t.Run("PutFrontendProjectionRequest.SubjectKey", func(t *testing.T) {
+		var decoded PutFrontendProjectionRequest
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"projection\":null,\"schema_version\":1,\"scope\":\"value\",\"subject_key\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field subject_key accepted null")
+		}
+	})
+	t.Run("ReadScreenRequest.Surface", func(t *testing.T) {
+		var decoded ReadScreenRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("ReadScrollbackRequest.Count", func(t *testing.T) {
+		var decoded ReadScrollbackRequest
+		if err := json.Unmarshal([]byte("{\"count\":null,\"start\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field count accepted null")
+		}
+	})
+	t.Run("ReadScrollbackRequest.Start", func(t *testing.T) {
+		var decoded ReadScrollbackRequest
+		if err := json.Unmarshal([]byte("{\"count\":1,\"start\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field start accepted null")
+		}
+	})
+	t.Run("ReadScrollbackRequest.Surface", func(t *testing.T) {
+		var decoded ReadScrollbackRequest
+		if err := json.Unmarshal([]byte("{\"count\":1,\"start\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("ReleaseSurfaceSizeRequest.Surface", func(t *testing.T) {
+		var decoded ReleaseSurfaceSizeRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("ReloadConfigResult.Reloaded", func(t *testing.T) {
+		var decoded ReloadConfigResult
+		if err := json.Unmarshal([]byte("{\"path\":null,\"reloaded\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field reloaded accepted null")
+		}
+	})
+	t.Run("RenamePaneRequest.Name", func(t *testing.T) {
+		var decoded RenamePaneRequest
+		if err := json.Unmarshal([]byte("{\"name\":null,\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field name accepted null")
+		}
+	})
+	t.Run("RenamePaneRequest.Pane", func(t *testing.T) {
+		var decoded RenamePaneRequest
+		if err := json.Unmarshal([]byte("{\"name\":\"value\",\"pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("RenameProviderManagedWorkspaceRequest.Authority", func(t *testing.T) {
+		var decoded RenameProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":null,\"key\":\"value\",\"name\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field authority accepted null")
+		}
+	})
+	t.Run("RenameProviderManagedWorkspaceRequest.Key", func(t *testing.T) {
+		var decoded RenameProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":\"value\",\"key\":null,\"name\":\"value\",\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field key accepted null")
+		}
+	})
+	t.Run("RenameProviderManagedWorkspaceRequest.Name", func(t *testing.T) {
+		var decoded RenameProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":\"value\",\"key\":\"value\",\"name\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field name accepted null")
+		}
+	})
+	t.Run("RenameProviderManagedWorkspaceRequest.Workspace", func(t *testing.T) {
+		var decoded RenameProviderManagedWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"authority\":\"value\",\"key\":\"value\",\"name\":\"value\",\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("RenameScreenRequest.Name", func(t *testing.T) {
+		var decoded RenameScreenRequest
+		if err := json.Unmarshal([]byte("{\"name\":null,\"screen\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field name accepted null")
+		}
+	})
+	t.Run("RenameScreenRequest.Screen", func(t *testing.T) {
+		var decoded RenameScreenRequest
+		if err := json.Unmarshal([]byte("{\"name\":\"value\",\"screen\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("RenameSurfaceRequest.Name", func(t *testing.T) {
+		var decoded RenameSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"name\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field name accepted null")
+		}
+	})
+	t.Run("RenameSurfaceRequest.Surface", func(t *testing.T) {
+		var decoded RenameSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"name\":\"value\",\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("RenameWorkspaceRequest.Name", func(t *testing.T) {
+		var decoded RenameWorkspaceRequest
+		if err := json.Unmarshal([]byte("{\"name\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field name accepted null")
+		}
+	})
+	t.Run("ReportAgentRequest.Source", func(t *testing.T) {
+		var decoded ReportAgentRequest
+		if err := json.Unmarshal([]byte("{\"source\":null,\"state\":\"working\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field source accepted null")
+		}
+	})
+	t.Run("ReportAgentRequest.State", func(t *testing.T) {
+		var decoded ReportAgentRequest
+		if err := json.Unmarshal([]byte("{\"source\":\"socket\",\"state\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field state accepted null")
+		}
+	})
+	t.Run("ReportAgentRequest.Surface", func(t *testing.T) {
+		var decoded ReportAgentRequest
+		if err := json.Unmarshal([]byte("{\"source\":\"socket\",\"state\":\"working\",\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("ResizeSurfaceRequest.Cols", func(t *testing.T) {
+		var decoded ResizeSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cols accepted null")
+		}
+	})
+	t.Run("ResizeSurfaceRequest.Rows", func(t *testing.T) {
+		var decoded ResizeSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("ResizeSurfaceRequest.Surface", func(t *testing.T) {
+		var decoded ResizeSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("ResolveTerminalRequest.TerminalID", func(t *testing.T) {
+		var decoded ResolveTerminalRequest
+		if err := json.Unmarshal([]byte("{\"terminal_id\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("ScrollSurfaceRequest.Delta", func(t *testing.T) {
+		var decoded ScrollSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"delta\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field delta accepted null")
+		}
+	})
+	t.Run("ScrollSurfaceRequest.Surface", func(t *testing.T) {
+		var decoded ScrollSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"delta\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("SendRequest.Surface", func(t *testing.T) {
+		var decoded SendRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("SendKeyRequest.Keys", func(t *testing.T) {
+		var decoded SendKeyRequest
+		if err := json.Unmarshal([]byte("{\"keys\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field keys accepted null")
+		}
+	})
+	t.Run("SendKeyRequest.Surface", func(t *testing.T) {
+		var decoded SendKeyRequest
+		if err := json.Unmarshal([]byte("{\"keys\":[],\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("SetCellPixelsRequest.HeightPx", func(t *testing.T) {
+		var decoded SetCellPixelsRequest
+		if err := json.Unmarshal([]byte("{\"height_px\":null,\"width_px\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field height_px accepted null")
+		}
+	})
+	t.Run("SetCellPixelsRequest.WidthPx", func(t *testing.T) {
+		var decoded SetCellPixelsRequest
+		if err := json.Unmarshal([]byte("{\"height_px\":1,\"width_px\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field width_px accepted null")
+		}
+	})
+	t.Run("SetClientSizingRequest.Enabled", func(t *testing.T) {
+		var decoded SetClientSizingRequest
+		if err := json.Unmarshal([]byte("{\"enabled\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field enabled accepted null")
+		}
+	})
+	t.Run("SetClientSizingRequest.Surface", func(t *testing.T) {
+		var decoded SetClientSizingRequest
+		if err := json.Unmarshal([]byte("{\"enabled\":true,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("SetRatioRequest.Dir", func(t *testing.T) {
+		var decoded SetRatioRequest
+		if err := json.Unmarshal([]byte("{\"dir\":null,\"pane\":1,\"ratio\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field dir accepted null")
+		}
+	})
+	t.Run("SetRatioRequest.Pane", func(t *testing.T) {
+		var decoded SetRatioRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"right\",\"pane\":null,\"ratio\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("SetRatioRequest.Ratio", func(t *testing.T) {
+		var decoded SetRatioRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"right\",\"pane\":1,\"ratio\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field ratio accepted null")
+		}
+	})
+	t.Run("SetSplitRatioRequest.Ratio", func(t *testing.T) {
+		var decoded SetSplitRatioRequest
+		if err := json.Unmarshal([]byte("{\"ratio\":null,\"split\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field ratio accepted null")
+		}
+	})
+	t.Run("SetSplitRatioRequest.Split", func(t *testing.T) {
+		var decoded SetSplitRatioRequest
+		if err := json.Unmarshal([]byte("{\"ratio\":1.5,\"split\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field split accepted null")
+		}
+	})
+	t.Run("SetViewportPaneWidthRequest.Pane", func(t *testing.T) {
+		var decoded SetViewportPaneWidthRequest
+		if err := json.Unmarshal([]byte("{\"pane\":null,\"width\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("SetViewportPaneWidthRequest.Width", func(t *testing.T) {
+		var decoded SetViewportPaneWidthRequest
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"width\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field width accepted null")
+		}
+	})
+	t.Run("SetWindowTitleRequest.Title", func(t *testing.T) {
+		var decoded SetWindowTitleRequest
+		if err := json.Unmarshal([]byte("{\"title\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field title accepted null")
+		}
+	})
+	t.Run("ShutdownDaemonRequest.Generation", func(t *testing.T) {
+		var decoded ShutdownDaemonRequest
+		if err := json.Unmarshal([]byte("{\"generation\":null,\"pid\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("ShutdownDaemonRequest.PID", func(t *testing.T) {
+		var decoded ShutdownDaemonRequest
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"pid\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pid accepted null")
+		}
+	})
+	t.Run("SidebarPluginRequest.Cols", func(t *testing.T) {
+		var decoded SidebarPluginRequest
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"rows\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cols accepted null")
+		}
+	})
+	t.Run("SidebarPluginRequest.Rows", func(t *testing.T) {
+		var decoded SidebarPluginRequest
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("SplitRequest.Dir", func(t *testing.T) {
+		var decoded SplitRequest
+		if err := json.Unmarshal([]byte("{\"dir\":null,\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field dir accepted null")
+		}
+	})
+	t.Run("SplitRequest.Pane", func(t *testing.T) {
+		var decoded SplitRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"right\",\"pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("SwapPaneRequest.Pane", func(t *testing.T) {
+		var decoded SwapPaneRequest
+		if err := json.Unmarshal([]byte("{\"pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("UndoLayoutRequest.Pane", func(t *testing.T) {
+		var decoded UndoLayoutRequest
+		if err := json.Unmarshal([]byte("{\"pane\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("VTStateRequest.Surface", func(t *testing.T) {
+		var decoded VTStateRequest
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("WaitForRequest.Pattern", func(t *testing.T) {
+		var decoded WaitForRequest
+		if err := json.Unmarshal([]byte("{\"pattern\":null,\"surface\":1,\"timeout_ms\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pattern accepted null")
+		}
+	})
+	t.Run("WaitForRequest.Surface", func(t *testing.T) {
+		var decoded WaitForRequest
+		if err := json.Unmarshal([]byte("{\"pattern\":\"value\",\"surface\":null,\"timeout_ms\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("WaitForRequest.TimeoutMs", func(t *testing.T) {
+		var decoded WaitForRequest
+		if err := json.Unmarshal([]byte("{\"pattern\":\"value\",\"surface\":1,\"timeout_ms\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field timeout_ms accepted null")
+		}
+	})
+	t.Run("BellEvent.Surface", func(t *testing.T) {
+		var decoded BellEvent
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserStateEvent.Cols", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"error\":null,\"frames_stalled\":true,\"rows\":1,\"status\":\"starting\",\"surface\":1,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cols accepted null")
+		}
+	})
+	t.Run("BrowserStateEvent.FramesStalled", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":null,\"rows\":1,\"status\":\"starting\",\"surface\":1,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field frames_stalled accepted null")
+		}
+	})
+	t.Run("BrowserStateEvent.Rows", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"rows\":null,\"status\":\"starting\",\"surface\":1,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("BrowserStateEvent.Status", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"rows\":1,\"status\":null,\"surface\":1,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field status accepted null")
+		}
+	})
+	t.Run("BrowserStateEvent.Surface", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"rows\":1,\"status\":\"starting\",\"surface\":null,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("BrowserStateEvent.Title", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"rows\":1,\"status\":\"starting\",\"surface\":1,\"title\":null,\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field title accepted null")
+		}
+	})
+	t.Run("BrowserStateEvent.URL", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"rows\":1,\"status\":\"starting\",\"surface\":1,\"title\":\"value\",\"url\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field url accepted null")
+		}
+	})
+	t.Run("ClientAttachedEvent.Client", func(t *testing.T) {
+		var decoded ClientAttachedEvent
+		if err := json.Unmarshal([]byte("{\"client\":null,\"kind\":null,\"name\":null,\"transport\":\"unix\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field client accepted null")
+		}
+	})
+	t.Run("ClientAttachedEvent.Transport", func(t *testing.T) {
+		var decoded ClientAttachedEvent
+		if err := json.Unmarshal([]byte("{\"client\":1,\"kind\":null,\"name\":null,\"transport\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field transport accepted null")
+		}
+	})
+	t.Run("ClientChangedEvent.Client", func(t *testing.T) {
+		var decoded ClientChangedEvent
+		if err := json.Unmarshal([]byte("{\"client\":null,\"kind\":null,\"name\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field client accepted null")
+		}
+	})
+	t.Run("ClientDetachedEvent.Client", func(t *testing.T) {
+		var decoded ClientDetachedEvent
+		if err := json.Unmarshal([]byte("{\"client\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field client accepted null")
+		}
+	})
+	t.Run("DetachedEvent.Surface", func(t *testing.T) {
+		var decoded DetachedEvent
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("FrameEvent.Data", func(t *testing.T) {
+		var decoded FrameEvent
+		if err := json.Unmarshal([]byte("{\"data\":null,\"height\":1,\"seq\":1,\"surface\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field data accepted null")
+		}
+	})
+	t.Run("FrameEvent.Height", func(t *testing.T) {
+		var decoded FrameEvent
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":null,\"seq\":1,\"surface\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field height accepted null")
+		}
+	})
+	t.Run("FrameEvent.Seq", func(t *testing.T) {
+		var decoded FrameEvent
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":1,\"seq\":null,\"surface\":1,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field seq accepted null")
+		}
+	})
+	t.Run("FrameEvent.Surface", func(t *testing.T) {
+		var decoded FrameEvent
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":1,\"seq\":1,\"surface\":null,\"width\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("FrameEvent.Width", func(t *testing.T) {
+		var decoded FrameEvent
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"height\":1,\"seq\":1,\"surface\":1,\"width\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field width accepted null")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.Frontend", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"frontend\":null,\"mutation_id\":\"value\",\"origin\":\"value\",\"projection_revision\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field frontend accepted null")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.MutationID", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"mutation_id\":null,\"origin\":\"value\",\"projection_revision\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field mutation_id accepted null")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.Origin", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"mutation_id\":\"value\",\"origin\":null,\"projection_revision\":1,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field origin accepted null")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.ProjectionRevision", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"projection_revision\":null,\"scope\":\"value\",\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field projection_revision accepted null")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.Scope", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"projection_revision\":1,\"scope\":null,\"subject_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field scope accepted null")
+		}
+	})
+	t.Run("FrontendProjectionChangedEvent.SubjectKey", func(t *testing.T) {
+		var decoded FrontendProjectionChangedEvent
+		if err := json.Unmarshal([]byte("{\"frontend\":\"value\",\"mutation_id\":\"value\",\"origin\":\"value\",\"projection_revision\":1,\"scope\":\"value\",\"subject_key\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field subject_key accepted null")
+		}
+	})
+	t.Run("LayoutChangedEvent.Screen", func(t *testing.T) {
+		var decoded LayoutChangedEvent
+		if err := json.Unmarshal([]byte("{\"screen\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("NotificationEvent.Body", func(t *testing.T) {
+		var decoded NotificationEvent
+		if err := json.Unmarshal([]byte("{\"body\":null,\"level\":\"info\",\"notification\":1,\"surface\":null,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field body accepted null")
+		}
+	})
+	t.Run("NotificationEvent.Level", func(t *testing.T) {
+		var decoded NotificationEvent
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"level\":null,\"notification\":1,\"surface\":null,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field level accepted null")
+		}
+	})
+	t.Run("NotificationEvent.Notification", func(t *testing.T) {
+		var decoded NotificationEvent
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"level\":\"info\",\"notification\":null,\"surface\":null,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field notification accepted null")
+		}
+	})
+	t.Run("NotificationEvent.Title", func(t *testing.T) {
+		var decoded NotificationEvent
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"level\":\"info\",\"notification\":1,\"surface\":null,\"title\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field title accepted null")
+		}
+	})
+	t.Run("OutputEvent.Data", func(t *testing.T) {
+		var decoded OutputEvent
+		if err := json.Unmarshal([]byte("{\"data\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field data accepted null")
+		}
+	})
+	t.Run("OutputEvent.Surface", func(t *testing.T) {
+		var decoded OutputEvent
+		if err := json.Unmarshal([]byte("{\"data\":\"value\",\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("OverflowEvent.Error", func(t *testing.T) {
+		var decoded OverflowEvent
+		if err := json.Unmarshal([]byte("{\"error\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field error accepted null")
+		}
+	})
+	t.Run("PairingRequestedEvent.Code", func(t *testing.T) {
+		var decoded PairingRequestedEvent
+		if err := json.Unmarshal([]byte("{\"code\":null,\"expires_in\":1,\"peer\":\"value\",\"request\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field code accepted null")
+		}
+	})
+	t.Run("PairingRequestedEvent.ExpiresIn", func(t *testing.T) {
+		var decoded PairingRequestedEvent
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"expires_in\":null,\"peer\":\"value\",\"request\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field expires_in accepted null")
+		}
+	})
+	t.Run("PairingRequestedEvent.Peer", func(t *testing.T) {
+		var decoded PairingRequestedEvent
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"expires_in\":1,\"peer\":null,\"request\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field peer accepted null")
+		}
+	})
+	t.Run("PairingRequestedEvent.Request", func(t *testing.T) {
+		var decoded PairingRequestedEvent
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"expires_in\":1,\"peer\":\"value\",\"request\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field request accepted null")
+		}
+	})
+	t.Run("PairingResolvedEvent.Request", func(t *testing.T) {
+		var decoded PairingResolvedEvent
+		if err := json.Unmarshal([]byte("{\"request\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field request accepted null")
+		}
+	})
+	t.Run("PaneAddedEvent.Entity", func(t *testing.T) {
+		var decoded PaneAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"index\":1,\"pane\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("PaneAddedEvent.Index", func(t *testing.T) {
+		var decoded PaneAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":null,\"pane\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("PaneAddedEvent.Pane", func(t *testing.T) {
+		var decoded PaneAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"pane\":null,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("PaneAddedEvent.Screen", func(t *testing.T) {
+		var decoded PaneAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"pane\":1,\"screen\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("PaneAddedEvent.Workspace", func(t *testing.T) {
+		var decoded PaneAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"pane\":1,\"screen\":1,\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("PaneClosedEvent.Entity", func(t *testing.T) {
+		var decoded PaneClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"index\":1,\"pane\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("PaneClosedEvent.Index", func(t *testing.T) {
+		var decoded PaneClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":null,\"pane\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("PaneClosedEvent.Pane", func(t *testing.T) {
+		var decoded PaneClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"pane\":null,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("PaneClosedEvent.Screen", func(t *testing.T) {
+		var decoded PaneClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"pane\":1,\"screen\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("PaneClosedEvent.Workspace", func(t *testing.T) {
+		var decoded PaneClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active_tab\":1,\"id\":1,\"name\":null,\"tabs\":[]},\"index\":1,\"pane\":1,\"screen\":1,\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("RenderDeltaEvent.Cursor", func(t *testing.T) {
+		var decoded RenderDeltaEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":null,\"full\":true,\"rows\":[],\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cursor accepted null")
+		}
+	})
+	t.Run("RenderDeltaEvent.Full", func(t *testing.T) {
+		var decoded RenderDeltaEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"full\":null,\"rows\":[],\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field full accepted null")
+		}
+	})
+	t.Run("RenderDeltaEvent.Rows", func(t *testing.T) {
+		var decoded RenderDeltaEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"full\":true,\"rows\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("RenderDeltaEvent.Surface", func(t *testing.T) {
+		var decoded RenderDeltaEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"full\":true,\"rows\":[],\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("RenderStateEvent.Cursor", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":null,\"default_bg\":\"value\",\"default_fg\":\"value\",\"rows\":[],\"scrollback_rows\":1,\"size\":{\"cols\":1,\"rows\":1},\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cursor accepted null")
+		}
+	})
+	t.Run("RenderStateEvent.DefaultBg", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_bg\":null,\"default_fg\":\"value\",\"rows\":[],\"scrollback_rows\":1,\"size\":{\"cols\":1,\"rows\":1},\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field default_bg accepted null")
+		}
+	})
+	t.Run("RenderStateEvent.DefaultFg", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_bg\":\"value\",\"default_fg\":null,\"rows\":[],\"scrollback_rows\":1,\"size\":{\"cols\":1,\"rows\":1},\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field default_fg accepted null")
+		}
+	})
+	t.Run("RenderStateEvent.Rows", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_bg\":\"value\",\"default_fg\":\"value\",\"rows\":null,\"scrollback_rows\":1,\"size\":{\"cols\":1,\"rows\":1},\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("RenderStateEvent.ScrollbackRows", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_bg\":\"value\",\"default_fg\":\"value\",\"rows\":[],\"scrollback_rows\":null,\"size\":{\"cols\":1,\"rows\":1},\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field scrollback_rows accepted null")
+		}
+	})
+	t.Run("RenderStateEvent.Size", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_bg\":\"value\",\"default_fg\":\"value\",\"rows\":[],\"scrollback_rows\":1,\"size\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field size accepted null")
+		}
+	})
+	t.Run("RenderStateEvent.Surface", func(t *testing.T) {
+		var decoded RenderStateEvent
+		if err := json.Unmarshal([]byte("{\"cursor\":{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1},\"default_bg\":\"value\",\"default_fg\":\"value\",\"rows\":[],\"scrollback_rows\":1,\"size\":{\"cols\":1,\"rows\":1},\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("ResizedEvent.Cols", func(t *testing.T) {
+		var decoded ResizedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cols accepted null")
+		}
+	})
+	t.Run("ResizedEvent.Rows", func(t *testing.T) {
+		var decoded ResizedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("ResizedEvent.Surface", func(t *testing.T) {
+		var decoded ResizedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"rows\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("ScreenAddedEvent.Entity", func(t *testing.T) {
+		var decoded ScreenAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"index\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("ScreenAddedEvent.Index", func(t *testing.T) {
+		var decoded ScreenAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"index\":null,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("ScreenAddedEvent.Screen", func(t *testing.T) {
+		var decoded ScreenAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"index\":1,\"screen\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("ScreenAddedEvent.Workspace", func(t *testing.T) {
+		var decoded ScreenAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"index\":1,\"screen\":1,\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("ScreenClosedEvent.Entity", func(t *testing.T) {
+		var decoded ScreenClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"index\":1,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("ScreenClosedEvent.Index", func(t *testing.T) {
+		var decoded ScreenClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"index\":null,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("ScreenClosedEvent.Screen", func(t *testing.T) {
+		var decoded ScreenClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"index\":1,\"screen\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("ScreenClosedEvent.Workspace", func(t *testing.T) {
+		var decoded ScreenClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"index\":1,\"screen\":1,\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("ScreenRenamedEvent.Entity", func(t *testing.T) {
+		var decoded ScreenRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"screen\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("ScreenRenamedEvent.Screen", func(t *testing.T) {
+		var decoded ScreenRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"screen\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("ScreenRenamedEvent.Workspace", func(t *testing.T) {
+		var decoded ScreenRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"screen\":1,\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("ScrollChangedEvent.AtBottom", func(t *testing.T) {
+		var decoded ScrollChangedEvent
+		if err := json.Unmarshal([]byte("{\"at_bottom\":null,\"offset\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field at_bottom accepted null")
+		}
+	})
+	t.Run("ScrollChangedEvent.Offset", func(t *testing.T) {
+		var decoded ScrollChangedEvent
+		if err := json.Unmarshal([]byte("{\"at_bottom\":true,\"offset\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field offset accepted null")
+		}
+	})
+	t.Run("ScrollChangedEvent.Surface", func(t *testing.T) {
+		var decoded ScrollChangedEvent
+		if err := json.Unmarshal([]byte("{\"at_bottom\":true,\"offset\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("StatusEvent.Message", func(t *testing.T) {
+		var decoded StatusEvent
+		if err := json.Unmarshal([]byte("{\"message\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field message accepted null")
+		}
+	})
+	t.Run("SurfaceExitedEvent.Surface", func(t *testing.T) {
+		var decoded SurfaceExitedEvent
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("SurfaceOutputEvent.Surface", func(t *testing.T) {
+		var decoded SurfaceOutputEvent
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("SurfaceResizeFailedEvent.Cols", func(t *testing.T) {
+		var decoded SurfaceResizeFailedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"error\":\"value\",\"reservation_id\":null,\"retry_after_ms\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cols accepted null")
+		}
+	})
+	t.Run("SurfaceResizeFailedEvent.Error", func(t *testing.T) {
+		var decoded SurfaceResizeFailedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"reservation_id\":null,\"retry_after_ms\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field error accepted null")
+		}
+	})
+	t.Run("SurfaceResizeFailedEvent.Rows", func(t *testing.T) {
+		var decoded SurfaceResizeFailedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":\"value\",\"reservation_id\":null,\"retry_after_ms\":null,\"rows\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("SurfaceResizeFailedEvent.Surface", func(t *testing.T) {
+		var decoded SurfaceResizeFailedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":\"value\",\"reservation_id\":null,\"retry_after_ms\":null,\"rows\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("SurfaceResizedEvent.Cols", func(t *testing.T) {
+		var decoded SurfaceResizedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"reservation_id\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cols accepted null")
+		}
+	})
+	t.Run("SurfaceResizedEvent.Rows", func(t *testing.T) {
+		var decoded SurfaceResizedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"reservation_id\":null,\"rows\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("SurfaceResizedEvent.Surface", func(t *testing.T) {
+		var decoded SurfaceResizedEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"reservation_id\":null,\"rows\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("TabAddedEvent.Entity", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"index\":1,\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("TabAddedEvent.Index", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":null,\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("TabAddedEvent.Pane", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":null,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("TabAddedEvent.Screen", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"screen\":null,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("TabAddedEvent.Surface", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"screen\":1,\"surface\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("TabAddedEvent.Workspace", func(t *testing.T) {
+		var decoded TabAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("TabClosedEvent.Entity", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"index\":1,\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("TabClosedEvent.Index", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":null,\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("TabClosedEvent.Pane", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":null,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("TabClosedEvent.Screen", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"screen\":null,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("TabClosedEvent.Surface", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"screen\":1,\"surface\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("TabClosedEvent.Workspace", func(t *testing.T) {
+		var decoded TabClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"index\":1,\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("TabRenamedEvent.Entity", func(t *testing.T) {
+		var decoded TabRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("TabRenamedEvent.Pane", func(t *testing.T) {
+		var decoded TabRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"pane\":null,\"screen\":1,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("TabRenamedEvent.Screen", func(t *testing.T) {
+		var decoded TabRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"pane\":1,\"screen\":null,\"surface\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field screen accepted null")
+		}
+	})
+	t.Run("TabRenamedEvent.Surface", func(t *testing.T) {
+		var decoded TabRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"pane\":1,\"screen\":1,\"surface\":null,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("TabRenamedEvent.Workspace", func(t *testing.T) {
+		var decoded TabRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"},\"pane\":1,\"screen\":1,\"surface\":1,\"workspace\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("TerminalRegistryChangedEvent.Generation", func(t *testing.T) {
+		var decoded TerminalRegistryChangedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":null,\"refetch\":\"terminal-events-or-list-terminals\",\"registry_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("TerminalRegistryChangedEvent.Refetch", func(t *testing.T) {
+		var decoded TerminalRegistryChangedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"refetch\":null,\"registry_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field refetch accepted null")
+		}
+	})
+	t.Run("TerminalRegistryChangedEvent.RegistryID", func(t *testing.T) {
+		var decoded TerminalRegistryChangedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"refetch\":\"terminal-events-or-list-terminals\",\"registry_id\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("TerminalRegistryChangedEvent.TerminalRevision", func(t *testing.T) {
+		var decoded TerminalRegistryChangedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"refetch\":\"terminal-events-or-list-terminals\",\"registry_id\":\"value\",\"terminal_revision\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_revision accepted null")
+		}
+	})
+	t.Run("TitleChangedEvent.Surface", func(t *testing.T) {
+		var decoded TitleChangedEvent
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("VTStateEvent.Cols", func(t *testing.T) {
+		var decoded VTStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":null,\"data\":\"value\",\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field cols accepted null")
+		}
+	})
+	t.Run("VTStateEvent.Data", func(t *testing.T) {
+		var decoded VTStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"data\":null,\"rows\":1,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field data accepted null")
+		}
+	})
+	t.Run("VTStateEvent.Rows", func(t *testing.T) {
+		var decoded VTStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"data\":\"value\",\"rows\":null,\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field rows accepted null")
+		}
+	})
+	t.Run("VTStateEvent.Surface", func(t *testing.T) {
+		var decoded VTStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"data\":\"value\",\"rows\":1,\"surface\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("WindowTitleRequestedEvent.Title", func(t *testing.T) {
+		var decoded WindowTitleRequestedEvent
+		if err := json.Unmarshal([]byte("{\"title\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field title accepted null")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.Entity", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.Generation", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":null,\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.Index", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":null,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.RegistryID", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":null,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.Workspace", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":null,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("WorkspaceAddedEvent.WorkspaceRevision", func(t *testing.T) {
+		var decoded WorkspaceAddedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_revision accepted null")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.Entity", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.Generation", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":null,\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.Index", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":null,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.RegistryID", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":null,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.Workspace", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":null,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("WorkspaceClosedEvent.WorkspaceRevision", func(t *testing.T) {
+		var decoded WorkspaceClosedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_revision accepted null")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.Entity", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.Generation", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":null,\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.Index", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":null,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field index accepted null")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.RegistryID", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":null,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.Workspace", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":null,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("WorkspaceMovedEvent.WorkspaceRevision", func(t *testing.T) {
+		var decoded WorkspaceMovedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"index\":1,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_revision accepted null")
+		}
+	})
+	t.Run("WorkspaceRenamedEvent.Entity", func(t *testing.T) {
+		var decoded WorkspaceRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":null,\"generation\":\"value\",\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field entity accepted null")
+		}
+	})
+	t.Run("WorkspaceRenamedEvent.Generation", func(t *testing.T) {
+		var decoded WorkspaceRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":null,\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field generation accepted null")
+		}
+	})
+	t.Run("WorkspaceRenamedEvent.RegistryID", func(t *testing.T) {
+		var decoded WorkspaceRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"registry_id\":null,\"workspace\":1,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field registry_id accepted null")
+		}
+	})
+	t.Run("WorkspaceRenamedEvent.Workspace", func(t *testing.T) {
+		var decoded WorkspaceRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"registry_id\":\"value\",\"workspace\":null,\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace accepted null")
+		}
+	})
+	t.Run("WorkspaceRenamedEvent.WorkspaceRevision", func(t *testing.T) {
+		var decoded WorkspaceRenamedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"id\":1,\"name\":\"value\",\"screens\":[]},\"generation\":\"value\",\"registry_id\":\"value\",\"workspace\":1,\"workspace_revision\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field workspace_revision accepted null")
+		}
+	})
+}
+
+func TestGeneratedConstrainedFieldsRejectUnknownValues(t *testing.T) {
+	t.Run("AgentRecord.Source", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"__cmux_invalid__\",\"state\":\"working\",\"surface\":1,\"updated_at_ms\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field source decoded successfully")
+		}
+	})
+	t.Run("AgentRecord.State", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"detected\",\"state\":\"__cmux_invalid__\",\"surface\":1,\"updated_at_ms\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field state decoded successfully")
+		}
+	})
+	t.Run("ClientInfo.Transport", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field transport decoded successfully")
+		}
+	})
+	t.Run("CloseTerminalResult.Closed", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":false,\"generation\":\"value\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field closed decoded successfully")
+		}
+	})
+	t.Run("CopyResult.Mode", func(t *testing.T) {
+		var decoded CopyResult
+		if err := json.Unmarshal([]byte("{\"mode\":\"__cmux_invalid__\",\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field mode decoded successfully")
+		}
+	})
+	t.Run("DeadPane.Dead", func(t *testing.T) {
+		var decoded DeadPane
+		if err := json.Unmarshal([]byte("{\"dead\":false,\"id\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field dead decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutLeaf.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutLeaf
+		if err := json.Unmarshal([]byte("{\"type\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field type decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.Dir", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"b\":{\"type\":\"leaf\"},\"dir\":\"__cmux_invalid__\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field dir decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"b\":{\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field type decoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutStack.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"panes\":[],\"type\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field type decoded successfully")
+		}
+	})
+	t.Run("IDMapping.Kind", func(t *testing.T) {
+		var decoded IDMapping
+		if err := json.Unmarshal([]byte("{\"id\":1,\"kind\":\"__cmux_invalid__\",\"short_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field kind decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.App", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"__cmux_invalid__\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field app decoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.DaemonHandoff", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":2,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field daemon_handoff decoded successfully")
+		}
+	})
+	t.Run("LayoutLeaf.Type", func(t *testing.T) {
+		var decoded LayoutLeaf
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"type\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field type decoded successfully")
+		}
+	})
+	t.Run("LayoutSplit.Dir", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"b\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":\"__cmux_invalid__\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field dir decoded successfully")
+		}
+	})
+	t.Run("LayoutSplit.Type", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"b\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field type decoded successfully")
+		}
+	})
+	t.Run("LayoutStack.Type", func(t *testing.T) {
+		var decoded LayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"panes\":[],\"type\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field type decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.ConfirmationRequired", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"confirmation_required\":false,\"revision\":1,\"screen\":1,\"undone\":false}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field confirmation_required decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.Undone", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"confirmation_required\":true,\"revision\":1,\"screen\":1,\"undone\":true}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field undone decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoUndone.ConfirmationRequired", func(t *testing.T) {
+		var decoded LayoutUndoUndone
+		if err := json.Unmarshal([]byte("{\"revision\":1,\"screen\":1,\"undone\":true,\"confirmation_required\":true}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field confirmation_required decoded successfully")
+		}
+	})
+	t.Run("LayoutUndoUndone.Undone", func(t *testing.T) {
+		var decoded LayoutUndoUndone
+		if err := json.Unmarshal([]byte("{\"revision\":1,\"screen\":1,\"undone\":false}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field undone decoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.Lifecycle", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"__cmux_invalid__\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field lifecycle decoded successfully")
+		}
+	})
+	t.Run("NotificationMarker.Level", func(t *testing.T) {
+		var decoded NotificationMarker
+		if err := json.Unmarshal([]byte("{\"level\":\"__cmux_invalid__\",\"notification\":1,\"unread\":true}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field level decoded successfully")
+		}
+	})
+	t.Run("PingResult.Ok", func(t *testing.T) {
+		var decoded PingResult
+		if err := json.Unmarshal([]byte("{\"ok\":false,\"protocol\":1,\"version\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field ok decoded successfully")
+		}
+	})
+	t.Run("RenderCursor.Style", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":true,\"color\":null,\"style\":\"__cmux_invalid__\",\"visible\":true,\"x\":1,\"y\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field style decoded successfully")
+		}
+	})
+	t.Run("RenderRun.Underline", func(t *testing.T) {
+		var decoded RenderRun
+		if err := json.Unmarshal([]byte("{\"attrs\":1,\"bg\":null,\"fg\":null,\"text\":\"value\",\"underline\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field underline decoded successfully")
+		}
+	})
+	t.Run("ReportAgentResult.Source", func(t *testing.T) {
+		var decoded ReportAgentResult
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"__cmux_invalid__\",\"state\":\"working\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field source decoded successfully")
+		}
+	})
+	t.Run("ReportAgentResult.State", func(t *testing.T) {
+		var decoded ReportAgentResult
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"socket\",\"state\":\"__cmux_invalid__\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field state decoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.Lifecycle", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"__cmux_invalid__\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field lifecycle decoded successfully")
+		}
+	})
+	t.Run("ShutdownDaemonResult.Accepted", func(t *testing.T) {
+		var decoded ShutdownDaemonResult
+		if err := json.Unmarshal([]byte("{\"accepted\":false,\"generation\":\"value\",\"pid\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field accepted decoded successfully")
+		}
+	})
+	t.Run("Tab.BrowserSource", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":\"__cmux_invalid__\",\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field browser_source decoded successfully")
+		}
+	})
+	t.Run("Tab.BrowserStatus", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\",\"browser_status\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field browser_status decoded successfully")
+		}
+	})
+	t.Run("Tab.Kind", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"__cmux_invalid__\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field kind decoded successfully")
+		}
+	})
+	t.Run("TerminalColors.CursorStyle", func(t *testing.T) {
+		var decoded TerminalColors
+		if err := json.Unmarshal([]byte("{\"bg\":null,\"fg\":null,\"selection_bg\":null,\"selection_fg\":null,\"cursor_style\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field cursor_style decoded successfully")
+		}
+	})
+	t.Run("TerminalKeyInput.Action", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"key\":\"unidentified\",\"macos_option_as_alt\":true,\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"utf8\":\"value\",\"action\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field action decoded successfully")
+		}
+	})
+	t.Run("TerminalKeyInput.Key", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"key\":\"__cmux_invalid__\",\"macos_option_as_alt\":true,\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"utf8\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field key decoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.Lifecycle", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":\"__cmux_invalid__\",\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field lifecycle decoded successfully")
+		}
+	})
+	t.Run("TerminalRecord.Lifecycle", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"launch_spec\":{\"value\":true},\"lifecycle\":\"__cmux_invalid__\",\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"workspace_key\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field lifecycle decoded successfully")
+		}
+	})
+	t.Run("WaitForResult.Matched", func(t *testing.T) {
+		var decoded WaitForResult
+		if err := json.Unmarshal([]byte("{\"elapsed_ms\":1,\"matched\":false,\"text\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field matched decoded successfully")
+		}
+	})
+	t.Run("AttachSurfaceRequest.Mode", func(t *testing.T) {
+		var decoded AttachSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1,\"mode\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field mode decoded successfully")
+		}
+	})
+	t.Run("BrowserKeyRequest.Kind", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"kind\":\"__cmux_invalid__\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field kind decoded successfully")
+		}
+	})
+	t.Run("BrowserMouseRequest.Kind", func(t *testing.T) {
+		var decoded BrowserMouseRequest
+		if err := json.Unmarshal([]byte("{\"kind\":\"__cmux_invalid__\",\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field kind decoded successfully")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.Kind", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"kind\":\"__cmux_invalid__\",\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field kind decoded successfully")
+		}
+	})
+	t.Run("CopyRequest.Mode", func(t *testing.T) {
+		var decoded CopyRequest
+		if err := json.Unmarshal([]byte("{\"mode\":\"__cmux_invalid__\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field mode decoded successfully")
+		}
+	})
+	t.Run("FocusDirectionRequest.Dir", func(t *testing.T) {
+		var decoded FocusDirectionRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field dir decoded successfully")
+		}
+	})
+	t.Run("IDsRequest.Kind", func(t *testing.T) {
+		var decoded IDsRequest
+		if err := json.Unmarshal([]byte("{\"kind\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field kind decoded successfully")
+		}
+	})
+	t.Run("IDsOptions.Kind", func(t *testing.T) {
+		var decoded IDsOptions
+		if err := json.Unmarshal([]byte("{\"kind\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field kind decoded successfully")
+		}
+	})
+	t.Run("ListAgentsRequest.State", func(t *testing.T) {
+		var decoded ListAgentsRequest
+		if err := json.Unmarshal([]byte("{\"state\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field state decoded successfully")
+		}
+	})
+	t.Run("ListAgentsOptions.State", func(t *testing.T) {
+		var decoded ListAgentsOptions
+		if err := json.Unmarshal([]byte("{\"state\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field state decoded successfully")
+		}
+	})
+	t.Run("NotifyRequest.Level", func(t *testing.T) {
+		var decoded NotifyRequest
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"title\":\"value\",\"level\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field level decoded successfully")
+		}
+	})
+	t.Run("NotifyOptions.Level", func(t *testing.T) {
+		var decoded NotifyOptions
+		if err := json.Unmarshal([]byte("{\"level\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field level decoded successfully")
+		}
+	})
+	t.Run("PaneNeighborRequest.Dir", func(t *testing.T) {
+		var decoded PaneNeighborRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"__cmux_invalid__\",\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field dir decoded successfully")
+		}
+	})
+	t.Run("ReloadConfigResult.Reloaded", func(t *testing.T) {
+		var decoded ReloadConfigResult
+		if err := json.Unmarshal([]byte("{\"path\":null,\"reloaded\":false}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field reloaded decoded successfully")
+		}
+	})
+	t.Run("ReportAgentRequest.Source", func(t *testing.T) {
+		var decoded ReportAgentRequest
+		if err := json.Unmarshal([]byte("{\"source\":\"__cmux_invalid__\",\"state\":\"working\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field source decoded successfully")
+		}
+	})
+	t.Run("ReportAgentRequest.State", func(t *testing.T) {
+		var decoded ReportAgentRequest
+		if err := json.Unmarshal([]byte("{\"source\":\"socket\",\"state\":\"__cmux_invalid__\",\"surface\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field state decoded successfully")
+		}
+	})
+	t.Run("SetDefaultColorsRequest.CursorStyle", func(t *testing.T) {
+		var decoded SetDefaultColorsRequest
+		if err := json.Unmarshal([]byte("{\"cursor_style\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field cursor_style decoded successfully")
+		}
+	})
+	t.Run("SetDefaultColorsOptions.CursorStyle", func(t *testing.T) {
+		var decoded SetDefaultColorsOptions
+		if err := json.Unmarshal([]byte("{\"cursor_style\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field cursor_style decoded successfully")
+		}
+	})
+	t.Run("SetRatioRequest.Dir", func(t *testing.T) {
+		var decoded SetRatioRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"__cmux_invalid__\",\"pane\":1,\"ratio\":1.5}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field dir decoded successfully")
+		}
+	})
+	t.Run("SplitRequest.Dir", func(t *testing.T) {
+		var decoded SplitRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"__cmux_invalid__\",\"pane\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field dir decoded successfully")
+		}
+	})
+	t.Run("SubscribeRequest.TreeEvents", func(t *testing.T) {
+		var decoded SubscribeRequest
+		if err := json.Unmarshal([]byte("{\"tree_events\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field tree_events decoded successfully")
+		}
+	})
+	t.Run("SwapPaneRequest.Dir", func(t *testing.T) {
+		var decoded SwapPaneRequest
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"dir\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field dir decoded successfully")
+		}
+	})
+	t.Run("SwapPaneOptions.Dir", func(t *testing.T) {
+		var decoded SwapPaneOptions
+		if err := json.Unmarshal([]byte("{\"dir\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field dir decoded successfully")
+		}
+	})
+	t.Run("ZoomPaneRequest.Mode", func(t *testing.T) {
+		var decoded ZoomPaneRequest
+		if err := json.Unmarshal([]byte("{\"mode\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field mode decoded successfully")
+		}
+	})
+	t.Run("ZoomPaneOptions.Mode", func(t *testing.T) {
+		var decoded ZoomPaneOptions
+		if err := json.Unmarshal([]byte("{\"mode\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field mode decoded successfully")
+		}
+	})
+	t.Run("BrowserStateEvent.Status", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"rows\":1,\"status\":\"__cmux_invalid__\",\"surface\":1,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field status decoded successfully")
+		}
+	})
+	t.Run("ClientAttachedEvent.Transport", func(t *testing.T) {
+		var decoded ClientAttachedEvent
+		if err := json.Unmarshal([]byte("{\"client\":1,\"kind\":null,\"name\":null,\"transport\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field transport decoded successfully")
+		}
+	})
+	t.Run("ColorsChangedEvent.CursorStyle", func(t *testing.T) {
+		var decoded ColorsChangedEvent
+		if err := json.Unmarshal([]byte("{\"bg\":null,\"fg\":null,\"selection_bg\":null,\"selection_fg\":null,\"cursor_style\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field cursor_style decoded successfully")
+		}
+	})
+	t.Run("NotificationEvent.Level", func(t *testing.T) {
+		var decoded NotificationEvent
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"level\":\"__cmux_invalid__\",\"notification\":1,\"surface\":null,\"title\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field level decoded successfully")
+		}
+	})
+	t.Run("OverflowEvent.Scope", func(t *testing.T) {
+		var decoded OverflowEvent
+		if err := json.Unmarshal([]byte("{\"error\":\"value\",\"scope\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field scope decoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryChangedEvent.Refetch", func(t *testing.T) {
+		var decoded TerminalRegistryChangedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"refetch\":\"__cmux_invalid__\",\"registry_id\":\"value\",\"terminal_revision\":1}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field refetch decoded successfully")
+		}
+	})
+}
+
+func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
+	t.Run("AgentRecord.Source", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"detected\",\"state\":\"working\",\"surface\":1,\"updated_at_ms\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Source = AgentSource("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field source encoded successfully")
+		}
+	})
+	t.Run("AgentRecord.State", func(t *testing.T) {
+		var decoded AgentRecord
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"detected\",\"state\":\"working\",\"surface\":1,\"updated_at_ms\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.State = AgentState("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field state encoded successfully")
+		}
+	})
+	t.Run("ClientInfo.Transport", func(t *testing.T) {
+		var decoded ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Transport = ClientTransport("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field transport encoded successfully")
+		}
+	})
+	t.Run("CloseTerminalResult.Closed", func(t *testing.T) {
+		var decoded CloseTerminalResult
+		if err := json.Unmarshal([]byte("{\"already_closed\":true,\"closed\":true,\"generation\":\"value\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Closed = bool(false)
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field closed encoded successfully")
+		}
+	})
+	t.Run("CopyResult.Mode", func(t *testing.T) {
+		var decoded CopyResult
+		if err := json.Unmarshal([]byte("{\"mode\":\"screen\",\"text\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Mode = CopyResultMode("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field mode encoded successfully")
+		}
+	})
+	t.Run("DeadPane.Dead", func(t *testing.T) {
+		var decoded DeadPane
+		if err := json.Unmarshal([]byte("{\"dead\":true,\"id\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Dead = bool(false)
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field dead encoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutLeaf.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutLeaf
+		if err := json.Unmarshal([]byte("{\"type\":\"leaf\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Type = DeclarativeLayoutLeafType("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field type encoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.Dir", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"b\":{\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Dir = SplitDirection("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field dir encoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutSplit.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"type\":\"leaf\"},\"b\":{\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Type = DeclarativeLayoutSplitType("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field type encoded successfully")
+		}
+	})
+	t.Run("DeclarativeLayoutStack.Type", func(t *testing.T) {
+		var decoded DeclarativeLayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"panes\":[],\"type\":\"stack\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Type = DeclarativeLayoutStackType("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field type encoded successfully")
+		}
+	})
+	t.Run("IDMapping.Kind", func(t *testing.T) {
+		var decoded IDMapping
+		if err := json.Unmarshal([]byte("{\"id\":1,\"kind\":\"workspace\",\"short_id\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Kind = IDMappingKind("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field kind encoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.App", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.App = IdentifyResultApp("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field app encoded successfully")
+		}
+	})
+	t.Run("IdentifyResult.DaemonHandoff", func(t *testing.T) {
+		var decoded IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.DaemonHandoff = IdentifyResultDaemonHandoff(2)
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field daemon_handoff encoded successfully")
+		}
+	})
+	t.Run("LayoutLeaf.Type", func(t *testing.T) {
+		var decoded LayoutLeaf
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"type\":\"leaf\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Type = LayoutLeafType("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field type encoded successfully")
+		}
+	})
+	t.Run("LayoutSplit.Dir", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"b\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Dir = SplitDirection("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field dir encoded successfully")
+		}
+	})
+	t.Run("LayoutSplit.Type", func(t *testing.T) {
+		var decoded LayoutSplit
+		if err := json.Unmarshal([]byte("{\"a\":{\"pane\":1,\"type\":\"leaf\"},\"b\":{\"pane\":1,\"type\":\"leaf\"},\"dir\":\"right\",\"ratio\":1.5,\"type\":\"split\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Type = LayoutSplitType("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field type encoded successfully")
+		}
+	})
+	t.Run("LayoutStack.Type", func(t *testing.T) {
+		var decoded LayoutStack
+		if err := json.Unmarshal([]byte("{\"expanded\":1,\"panes\":[],\"type\":\"stack\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Type = LayoutStackType("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field type encoded successfully")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.ConfirmationRequired", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"confirmation_required\":true,\"revision\":1,\"screen\":1,\"undone\":false}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.ConfirmationRequired = bool(false)
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field confirmation_required encoded successfully")
+		}
+	})
+	t.Run("LayoutUndoConfirmationRequired.Undone", func(t *testing.T) {
+		var decoded LayoutUndoConfirmationRequired
+		if err := json.Unmarshal([]byte("{\"closes_panes\":[],\"confirmation_required\":true,\"revision\":1,\"screen\":1,\"undone\":false}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Undone = bool(true)
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field undone encoded successfully")
+		}
+	})
+	t.Run("LayoutUndoUndone.ConfirmationRequired", func(t *testing.T) {
+		var decoded LayoutUndoUndone
+		if err := json.Unmarshal([]byte("{\"revision\":1,\"screen\":1,\"undone\":true}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		invalidValue := bool(true)
+		decoded.ConfirmationRequired = &invalidValue
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field confirmation_required encoded successfully")
+		}
+	})
+	t.Run("LayoutUndoUndone.Undone", func(t *testing.T) {
+		var decoded LayoutUndoUndone
+		if err := json.Unmarshal([]byte("{\"revision\":1,\"screen\":1,\"undone\":true}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Undone = bool(false)
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field undone encoded successfully")
+		}
+	})
+	t.Run("MoveTerminalResult.Lifecycle", func(t *testing.T) {
+		var decoded MoveTerminalResult
+		if err := json.Unmarshal([]byte("{\"changed\":true,\"generation\":\"value\",\"lifecycle\":\"launching\",\"pane\":null,\"registry_id\":\"value\",\"replayed\":true,\"screen\":null,\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":null,\"workspace_key\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Lifecycle = TerminalLifecycle("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field lifecycle encoded successfully")
+		}
+	})
+	t.Run("NotificationMarker.Level", func(t *testing.T) {
+		var decoded NotificationMarker
+		if err := json.Unmarshal([]byte("{\"level\":\"info\",\"notification\":1,\"unread\":true}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Level = NotificationLevel("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field level encoded successfully")
+		}
+	})
+	t.Run("PingResult.Ok", func(t *testing.T) {
+		var decoded PingResult
+		if err := json.Unmarshal([]byte("{\"ok\":true,\"protocol\":1,\"version\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Ok = bool(false)
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field ok encoded successfully")
+		}
+	})
+	t.Run("RenderCursor.Style", func(t *testing.T) {
+		var decoded RenderCursor
+		if err := json.Unmarshal([]byte("{\"blink\":true,\"color\":null,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Style = CursorStyle("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field style encoded successfully")
+		}
+	})
+	t.Run("RenderRun.Underline", func(t *testing.T) {
+		var decoded RenderRun
+		if err := json.Unmarshal([]byte("{\"attrs\":1,\"bg\":null,\"fg\":null,\"text\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		invalidValue := RenderUnderline("__cmux_invalid__")
+		decoded.Underline = &invalidValue
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field underline encoded successfully")
+		}
+	})
+	t.Run("ReportAgentResult.Source", func(t *testing.T) {
+		var decoded ReportAgentResult
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"socket\",\"state\":\"working\",\"surface\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Source = AgentReportSource("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field source encoded successfully")
+		}
+	})
+	t.Run("ReportAgentResult.State", func(t *testing.T) {
+		var decoded ReportAgentResult
+		if err := json.Unmarshal([]byte("{\"session\":null,\"source\":\"socket\",\"state\":\"working\",\"surface\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.State = AgentState("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field state encoded successfully")
+		}
+	})
+	t.Run("ResolveTerminalResult.Lifecycle", func(t *testing.T) {
+		var decoded ResolveTerminalResult
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"generation\":\"value\",\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"registry_id\":\"value\",\"surface\":null,\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace_key\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Lifecycle = TerminalLifecycle("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field lifecycle encoded successfully")
+		}
+	})
+	t.Run("ShutdownDaemonResult.Accepted", func(t *testing.T) {
+		var decoded ShutdownDaemonResult
+		if err := json.Unmarshal([]byte("{\"accepted\":true,\"generation\":\"value\",\"pid\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Accepted = bool(false)
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field accepted encoded successfully")
+		}
+	})
+	t.Run("Tab.BrowserSource", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.BrowserSource = RequiredValue(TabBrowserSource("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field browser_source encoded successfully")
+		}
+	})
+	t.Run("Tab.BrowserStatus", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.BrowserStatus = Value(TabBrowserStatus("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field browser_status encoded successfully")
+		}
+	})
+	t.Run("Tab.Kind", func(t *testing.T) {
+		var decoded Tab
+		if err := json.Unmarshal([]byte("{\"browser_source\":null,\"dead\":true,\"kind\":\"pty\",\"name\":null,\"size\":null,\"surface\":1,\"title\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Kind = TabKind("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field kind encoded successfully")
+		}
+	})
+	t.Run("TerminalColors.CursorStyle", func(t *testing.T) {
+		var decoded TerminalColors
+		if err := json.Unmarshal([]byte("{\"bg\":null,\"fg\":null,\"selection_bg\":null,\"selection_fg\":null}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.CursorStyle = Value(CursorStyle("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field cursor_style encoded successfully")
+		}
+	})
+	t.Run("TerminalKeyInput.Action", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"key\":\"unidentified\",\"macos_option_as_alt\":true,\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"utf8\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Action = Value(TerminalKeyAction("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field action encoded successfully")
+		}
+	})
+	t.Run("TerminalKeyInput.Key", func(t *testing.T) {
+		var decoded TerminalKeyInput
+		if err := json.Unmarshal([]byte("{\"consumed_mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"key\":\"unidentified\",\"macos_option_as_alt\":true,\"mods\":{\"alt\":true,\"caps_lock\":true,\"control\":true,\"num_lock\":true,\"shift\":true,\"super\":true},\"utf8\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Key = TerminalKey("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field key encoded successfully")
+		}
+	})
+	t.Run("TerminalPlacement.Lifecycle", func(t *testing.T) {
+		var decoded TerminalPlacement
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"key\":\"value\",\"lifecycle\":null,\"pane\":1,\"registry_id\":\"value\",\"replayed\":true,\"screen\":1,\"surface\":1,\"terminal_id\":null,\"terminal_incarnation\":null,\"terminal_revision\":1,\"workspace\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Lifecycle = RequiredValue(TerminalPlacementLifecycle("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field lifecycle encoded successfully")
+		}
+	})
+	t.Run("TerminalRecord.Lifecycle", func(t *testing.T) {
+		var decoded TerminalRecord
+		if err := json.Unmarshal([]byte("{\"exit\":null,\"launch_spec\":{\"value\":true},\"lifecycle\":\"launching\",\"terminal_id\":\"value\",\"terminal_incarnation\":null,\"workspace_key\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Lifecycle = TerminalLifecycle("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field lifecycle encoded successfully")
+		}
+	})
+	t.Run("WaitForResult.Matched", func(t *testing.T) {
+		var decoded WaitForResult
+		if err := json.Unmarshal([]byte("{\"elapsed_ms\":1,\"matched\":true,\"text\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Matched = bool(false)
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field matched encoded successfully")
+		}
+	})
+	t.Run("AttachSurfaceRequest.Mode", func(t *testing.T) {
+		var decoded AttachSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Mode = Value(AttachSurfaceRequestMode("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field mode encoded successfully")
+		}
+	})
+	t.Run("BrowserKeyRequest.Kind", func(t *testing.T) {
+		var decoded BrowserKeyRequest
+		if err := json.Unmarshal([]byte("{\"code\":\"value\",\"key\":\"value\",\"kind\":\"down\",\"modifiers\":1,\"surface\":1,\"windows_virtual_key_code\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Kind = BrowserKeyRequestKind("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field kind encoded successfully")
+		}
+	})
+	t.Run("BrowserMouseRequest.Kind", func(t *testing.T) {
+		var decoded BrowserMouseRequest
+		if err := json.Unmarshal([]byte("{\"kind\":\"down\",\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Kind = BrowserMouseRequestKind("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field kind encoded successfully")
+		}
+	})
+	t.Run("BrowserMouseGuardedRequest.Kind", func(t *testing.T) {
+		var decoded BrowserMouseGuardedRequest
+		if err := json.Unmarshal([]byte("{\"frame_seq\":1,\"kind\":\"down\",\"surface\":1,\"x_px\":1.5,\"y_px\":1.5}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Kind = BrowserMouseGuardedRequestKind("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field kind encoded successfully")
+		}
+	})
+	t.Run("CopyRequest.Mode", func(t *testing.T) {
+		var decoded CopyRequest
+		if err := json.Unmarshal([]byte("{\"mode\":\"screen\",\"surface\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Mode = CopyRequestMode("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field mode encoded successfully")
+		}
+	})
+	t.Run("FocusDirectionRequest.Dir", func(t *testing.T) {
+		var decoded FocusDirectionRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"left\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Dir = PaneDirection("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field dir encoded successfully")
+		}
+	})
+	t.Run("IDsRequest.Kind", func(t *testing.T) {
+		var decoded IDsRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Kind = Value(IDsRequestKind("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field kind encoded successfully")
+		}
+	})
+	t.Run("IDsOptions.Kind", func(t *testing.T) {
+		var decoded IDsOptions
+		if err := json.Unmarshal([]byte("{}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Kind = Value(IDsOptionsKind("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field kind encoded successfully")
+		}
+	})
+	t.Run("ListAgentsRequest.State", func(t *testing.T) {
+		var decoded ListAgentsRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.State = Value(AgentState("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field state encoded successfully")
+		}
+	})
+	t.Run("ListAgentsOptions.State", func(t *testing.T) {
+		var decoded ListAgentsOptions
+		if err := json.Unmarshal([]byte("{}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.State = Value(AgentState("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field state encoded successfully")
+		}
+	})
+	t.Run("NotifyRequest.Level", func(t *testing.T) {
+		var decoded NotifyRequest
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"title\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Level = Value(NotificationLevel("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field level encoded successfully")
+		}
+	})
+	t.Run("NotifyOptions.Level", func(t *testing.T) {
+		var decoded NotifyOptions
+		if err := json.Unmarshal([]byte("{}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Level = Value(NotificationLevel("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field level encoded successfully")
+		}
+	})
+	t.Run("PaneNeighborRequest.Dir", func(t *testing.T) {
+		var decoded PaneNeighborRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"left\",\"pane\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Dir = PaneDirection("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field dir encoded successfully")
+		}
+	})
+	t.Run("ReloadConfigResult.Reloaded", func(t *testing.T) {
+		var decoded ReloadConfigResult
+		if err := json.Unmarshal([]byte("{\"path\":null,\"reloaded\":true}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Reloaded = bool(false)
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field reloaded encoded successfully")
+		}
+	})
+	t.Run("ReportAgentRequest.Source", func(t *testing.T) {
+		var decoded ReportAgentRequest
+		if err := json.Unmarshal([]byte("{\"source\":\"socket\",\"state\":\"working\",\"surface\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Source = AgentReportSource("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field source encoded successfully")
+		}
+	})
+	t.Run("ReportAgentRequest.State", func(t *testing.T) {
+		var decoded ReportAgentRequest
+		if err := json.Unmarshal([]byte("{\"source\":\"socket\",\"state\":\"working\",\"surface\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.State = AgentState("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field state encoded successfully")
+		}
+	})
+	t.Run("SetDefaultColorsRequest.CursorStyle", func(t *testing.T) {
+		var decoded SetDefaultColorsRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.CursorStyle = Value(CursorStyle("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field cursor_style encoded successfully")
+		}
+	})
+	t.Run("SetDefaultColorsOptions.CursorStyle", func(t *testing.T) {
+		var decoded SetDefaultColorsOptions
+		if err := json.Unmarshal([]byte("{}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.CursorStyle = Value(CursorStyle("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field cursor_style encoded successfully")
+		}
+	})
+	t.Run("SetRatioRequest.Dir", func(t *testing.T) {
+		var decoded SetRatioRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"right\",\"pane\":1,\"ratio\":1.5}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Dir = SplitDirection("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field dir encoded successfully")
+		}
+	})
+	t.Run("SplitRequest.Dir", func(t *testing.T) {
+		var decoded SplitRequest
+		if err := json.Unmarshal([]byte("{\"dir\":\"right\",\"pane\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Dir = SplitDirection("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field dir encoded successfully")
+		}
+	})
+	t.Run("SubscribeRequest.TreeEvents", func(t *testing.T) {
+		var decoded SubscribeRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.TreeEvents = Value(SubscribeRequestTreeEvents("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field tree_events encoded successfully")
+		}
+	})
+	t.Run("SwapPaneRequest.Dir", func(t *testing.T) {
+		var decoded SwapPaneRequest
+		if err := json.Unmarshal([]byte("{\"pane\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Dir = Value(PaneDirection("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field dir encoded successfully")
+		}
+	})
+	t.Run("SwapPaneOptions.Dir", func(t *testing.T) {
+		var decoded SwapPaneOptions
+		if err := json.Unmarshal([]byte("{}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Dir = Value(PaneDirection("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field dir encoded successfully")
+		}
+	})
+	t.Run("ZoomPaneRequest.Mode", func(t *testing.T) {
+		var decoded ZoomPaneRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Mode = Value(ZoomPaneRequestMode("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field mode encoded successfully")
+		}
+	})
+	t.Run("ZoomPaneOptions.Mode", func(t *testing.T) {
+		var decoded ZoomPaneOptions
+		if err := json.Unmarshal([]byte("{}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Mode = Value(ZoomPaneOptionsMode("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field mode encoded successfully")
+		}
+	})
+	t.Run("BrowserStateEvent.Status", func(t *testing.T) {
+		var decoded BrowserStateEvent
+		if err := json.Unmarshal([]byte("{\"cols\":1,\"error\":null,\"frames_stalled\":true,\"rows\":1,\"status\":\"starting\",\"surface\":1,\"title\":\"value\",\"url\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Status = BrowserStateEventStatus("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field status encoded successfully")
+		}
+	})
+	t.Run("ClientAttachedEvent.Transport", func(t *testing.T) {
+		var decoded ClientAttachedEvent
+		if err := json.Unmarshal([]byte("{\"client\":1,\"kind\":null,\"name\":null,\"transport\":\"unix\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Transport = ClientAttachedEventTransport("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field transport encoded successfully")
+		}
+	})
+	t.Run("ColorsChangedEvent.CursorStyle", func(t *testing.T) {
+		var decoded ColorsChangedEvent
+		if err := json.Unmarshal([]byte("{\"bg\":null,\"fg\":null,\"selection_bg\":null,\"selection_fg\":null}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.CursorStyle = Value(CursorStyle("__cmux_invalid__"))
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field cursor_style encoded successfully")
+		}
+	})
+	t.Run("NotificationEvent.Level", func(t *testing.T) {
+		var decoded NotificationEvent
+		if err := json.Unmarshal([]byte("{\"body\":\"value\",\"level\":\"info\",\"notification\":1,\"surface\":null,\"title\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Level = NotificationLevel("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field level encoded successfully")
+		}
+	})
+	t.Run("OverflowEvent.Scope", func(t *testing.T) {
+		var decoded OverflowEvent
+		if err := json.Unmarshal([]byte("{\"error\":\"value\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		invalidValue := OverflowEventScope("__cmux_invalid__")
+		decoded.Scope = &invalidValue
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field scope encoded successfully")
+		}
+	})
+	t.Run("TerminalRegistryChangedEvent.Refetch", func(t *testing.T) {
+		var decoded TerminalRegistryChangedEvent
+		if err := json.Unmarshal([]byte("{\"generation\":\"value\",\"refetch\":\"terminal-events-or-list-terminals\",\"registry_id\":\"value\",\"terminal_revision\":1}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Refetch = TerminalRegistryChangedEventRefetch("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field refetch encoded successfully")
+		}
+	})
+}
+
 const (
 	generatedFieldShapeCount               = 406
 	generatedOptionalNullableFieldCount    = 287
 	generatedRequiredNullableFieldCount    = 61
 	generatedOptionalNonnullableFieldCount = 58
+	generatedRequiredFieldCount            = 547
+	generatedRequiredNonnullableFieldCount = 486
+	generatedConstrainedFieldCount         = 70
+	generatedEncodedConstrainedFieldCount  = 70
 )

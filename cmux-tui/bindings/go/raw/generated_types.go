@@ -111,6 +111,26 @@ func (value *RequiredNullable[T]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type optionalNonNullJSON[T any] struct {
+	set   bool
+	null  bool
+	value T
+}
+
+func (value *optionalNonNullJSON[T]) UnmarshalJSON(data []byte) error {
+	value.set = true
+	if isJSONNull(data) {
+		value.null = true
+		return nil
+	}
+	return json.Unmarshal(data, &value.value)
+}
+
+func isJSONObject(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	return len(trimmed) > 0 && trimmed[0] == '{'
+}
+
 func isJSONNull(data []byte) bool {
 	return bytes.Equal(bytes.TrimSpace(data), []byte("null"))
 }
@@ -150,28 +170,41 @@ func (value AgentRecord) MarshalJSON() ([]byte, error) {
 }
 
 func (value *AgentRecord) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode AgentRecord: expected object")
+	}
+	var fields struct {
+		Session     RequiredNullable[string] `json:"session"`
+		Source      *AgentSource             `json:"source"`
+		State       *AgentState              `json:"state"`
+		Surface     *ID                      `json:"surface"`
+		UpdatedAtMs *uint64                  `json:"updated_at_ms"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode AgentRecord: %w", err)
+	}
 	type wire AgentRecord
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if !fields.Session.IsSet() {
+		return fmt.Errorf("decode AgentRecord: required field session is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Session = fields.Session
+	if fields.Source == nil {
+		return fmt.Errorf("decode AgentRecord: required field source is missing or null")
 	}
-	rawSession, hasSession := object["session"]
-	if !hasSession {
-		return fmt.Errorf("decode AgentRecord: required nullable field session is missing")
+	decoded.Source = *fields.Source
+	if fields.State == nil {
+		return fmt.Errorf("decode AgentRecord: required field state is missing or null")
 	}
-	if isJSONNull(rawSession) {
-		decoded.Session = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawSession, &fieldValue); err != nil {
-			return fmt.Errorf("decode AgentRecord.Session: %w", err)
-		}
-		decoded.Session = RequiredValue(fieldValue)
+	decoded.State = *fields.State
+	if fields.Surface == nil {
+		return fmt.Errorf("decode AgentRecord: required field surface is missing or null")
 	}
+	decoded.Surface = *fields.Surface
+	if fields.UpdatedAtMs == nil {
+		return fmt.Errorf("decode AgentRecord: required field updated_at_ms is missing or null")
+	}
+	decoded.UpdatedAtMs = *fields.UpdatedAtMs
 	*value = AgentRecord(decoded)
 	return nil
 }
@@ -183,6 +216,35 @@ const (
 	AgentReportSourceHook   AgentReportSource = "hook"
 )
 
+func (value AgentReportSource) valid() bool {
+	switch value {
+	case AgentReportSourceSocket, AgentReportSourceHook:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value AgentReportSource) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "AgentReportSource", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *AgentReportSource) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := AgentReportSource(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "AgentReportSource", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type AgentSource string
 
 const (
@@ -190,6 +252,35 @@ const (
 	AgentSourceSocket   AgentSource = "socket"
 	AgentSourceHook     AgentSource = "hook"
 )
+
+func (value AgentSource) valid() bool {
+	switch value {
+	case AgentSourceDetected, AgentSourceSocket, AgentSourceHook:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value AgentSource) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "AgentSource", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *AgentSource) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := AgentSource(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "AgentSource", decoded)
+	}
+	*value = candidate
+	return nil
+}
 
 type AgentState string
 
@@ -201,14 +292,93 @@ const (
 	AgentStateUnknown AgentState = "unknown"
 )
 
+func (value AgentState) valid() bool {
+	switch value {
+	case AgentStateWorking, AgentStateBlocked, AgentStateIdle, AgentStateDone, AgentStateUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value AgentState) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "AgentState", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *AgentState) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := AgentState(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "AgentState", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type AppliedPane struct {
 	Pane    ID `json:"pane"`
 	Surface ID `json:"surface"`
 }
 
+func (value *AppliedPane) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode AppliedPane: expected object")
+	}
+	var fields struct {
+		Pane    *ID `json:"pane"`
+		Surface *ID `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode AppliedPane: %w", err)
+	}
+	type wire AppliedPane
+	var decoded wire
+	if fields.Pane == nil {
+		return fmt.Errorf("decode AppliedPane: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.Surface == nil {
+		return fmt.Errorf("decode AppliedPane: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = AppliedPane(decoded)
+	return nil
+}
+
 type ApplyLayoutResult struct {
 	Panes  []AppliedPane `json:"panes"`
 	Screen ID            `json:"screen"`
+}
+
+func (value *ApplyLayoutResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ApplyLayoutResult: expected object")
+	}
+	var fields struct {
+		Panes  *[]AppliedPane `json:"panes"`
+		Screen *ID            `json:"screen"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ApplyLayoutResult: %w", err)
+	}
+	type wire ApplyLayoutResult
+	var decoded wire
+	if fields.Panes == nil {
+		return fmt.Errorf("decode ApplyLayoutResult: required field panes is missing or null")
+	}
+	decoded.Panes = *fields.Panes
+	if fields.Screen == nil {
+		return fmt.Errorf("decode ApplyLayoutResult: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	*value = ApplyLayoutResult(decoded)
+	return nil
 }
 
 type Base64 = string
@@ -220,9 +390,69 @@ type BrowserFrame struct {
 	Width  uint32 `json:"width"`
 }
 
+func (value *BrowserFrame) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode BrowserFrame: expected object")
+	}
+	var fields struct {
+		Data   *Base64 `json:"data"`
+		Height *uint32 `json:"height"`
+		Seq    *uint64 `json:"seq"`
+		Width  *uint32 `json:"width"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode BrowserFrame: %w", err)
+	}
+	type wire BrowserFrame
+	var decoded wire
+	if fields.Data == nil {
+		return fmt.Errorf("decode BrowserFrame: required field data is missing or null")
+	}
+	decoded.Data = *fields.Data
+	if fields.Height == nil {
+		return fmt.Errorf("decode BrowserFrame: required field height is missing or null")
+	}
+	decoded.Height = *fields.Height
+	if fields.Seq == nil {
+		return fmt.Errorf("decode BrowserFrame: required field seq is missing or null")
+	}
+	decoded.Seq = *fields.Seq
+	if fields.Width == nil {
+		return fmt.Errorf("decode BrowserFrame: required field width is missing or null")
+	}
+	decoded.Width = *fields.Width
+	*value = BrowserFrame(decoded)
+	return nil
+}
+
 type CellPixelFailure struct {
 	Error   string `json:"error"`
 	Surface ID     `json:"surface"`
+}
+
+func (value *CellPixelFailure) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CellPixelFailure: expected object")
+	}
+	var fields struct {
+		Error   *string `json:"error"`
+		Surface *ID     `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CellPixelFailure: %w", err)
+	}
+	type wire CellPixelFailure
+	var decoded wire
+	if fields.Error == nil {
+		return fmt.Errorf("decode CellPixelFailure: required field error is missing or null")
+	}
+	decoded.Error = *fields.Error
+	if fields.Surface == nil {
+		return fmt.Errorf("decode CellPixelFailure: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = CellPixelFailure(decoded)
+	return nil
 }
 
 type CellPixelResize struct {
@@ -230,6 +460,41 @@ type CellPixelResize struct {
 	ReservationID uint64 `json:"reservation_id"`
 	Rows          uint16 `json:"rows"`
 	Surface       ID     `json:"surface"`
+}
+
+func (value *CellPixelResize) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CellPixelResize: expected object")
+	}
+	var fields struct {
+		Cols          *uint16 `json:"cols"`
+		ReservationID *uint64 `json:"reservation_id"`
+		Rows          *uint16 `json:"rows"`
+		Surface       *ID     `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CellPixelResize: %w", err)
+	}
+	type wire CellPixelResize
+	var decoded wire
+	if fields.Cols == nil {
+		return fmt.Errorf("decode CellPixelResize: required field cols is missing or null")
+	}
+	decoded.Cols = *fields.Cols
+	if fields.ReservationID == nil {
+		return fmt.Errorf("decode CellPixelResize: required field reservation_id is missing or null")
+	}
+	decoded.ReservationID = *fields.ReservationID
+	if fields.Rows == nil {
+		return fmt.Errorf("decode CellPixelResize: required field rows is missing or null")
+	}
+	decoded.Rows = *fields.Rows
+	if fields.Surface == nil {
+		return fmt.Errorf("decode CellPixelResize: required field surface is missing or null")
+	}
+	decoded.Surface = *fields.Surface
+	*value = CellPixelResize(decoded)
+	return nil
 }
 
 type ClientInfo struct {
@@ -283,41 +548,56 @@ func (value ClientInfo) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ClientInfo) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClientInfo: expected object")
+	}
+	var fields struct {
+		Attached         *[]ID                    `json:"attached"`
+		Client           *uint64                  `json:"client"`
+		ConnectedSeconds *uint64                  `json:"connected_seconds"`
+		Kind             RequiredNullable[string] `json:"kind"`
+		Name             RequiredNullable[string] `json:"name"`
+		Self             *bool                    `json:"self"`
+		Sizes            *[]ClientSize            `json:"sizes"`
+		Transport        *ClientTransport         `json:"transport"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClientInfo: %w", err)
+	}
 	type wire ClientInfo
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Attached == nil {
+		return fmt.Errorf("decode ClientInfo: required field attached is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Attached = *fields.Attached
+	if fields.Client == nil {
+		return fmt.Errorf("decode ClientInfo: required field client is missing or null")
 	}
-	rawKind, hasKind := object["kind"]
-	if !hasKind {
-		return fmt.Errorf("decode ClientInfo: required nullable field kind is missing")
+	decoded.Client = *fields.Client
+	if fields.ConnectedSeconds == nil {
+		return fmt.Errorf("decode ClientInfo: required field connected_seconds is missing or null")
 	}
-	if isJSONNull(rawKind) {
-		decoded.Kind = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawKind, &fieldValue); err != nil {
-			return fmt.Errorf("decode ClientInfo.Kind: %w", err)
-		}
-		decoded.Kind = RequiredValue(fieldValue)
+	decoded.ConnectedSeconds = *fields.ConnectedSeconds
+	if !fields.Kind.IsSet() {
+		return fmt.Errorf("decode ClientInfo: required field kind is missing")
 	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		return fmt.Errorf("decode ClientInfo: required nullable field name is missing")
+	decoded.Kind = fields.Kind
+	if !fields.Name.IsSet() {
+		return fmt.Errorf("decode ClientInfo: required field name is missing")
 	}
-	if isJSONNull(rawName) {
-		decoded.Name = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode ClientInfo.Name: %w", err)
-		}
-		decoded.Name = RequiredValue(fieldValue)
+	decoded.Name = fields.Name
+	if fields.Self == nil {
+		return fmt.Errorf("decode ClientInfo: required field self is missing or null")
 	}
+	decoded.Self = *fields.Self
+	if fields.Sizes == nil {
+		return fmt.Errorf("decode ClientInfo: required field sizes is missing or null")
+	}
+	decoded.Sizes = *fields.Sizes
+	if fields.Transport == nil {
+		return fmt.Errorf("decode ClientInfo: required field transport is missing or null")
+	}
+	decoded.Transport = *fields.Transport
 	*value = ClientInfo(decoded)
 	return nil
 }
@@ -369,41 +649,36 @@ func (value ClientSize) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ClientSize) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClientSize: expected object")
+	}
+	var fields struct {
+		Cols              RequiredNullable[uint16] `json:"cols"`
+		Rows              RequiredNullable[uint16] `json:"rows"`
+		SizeParticipating *bool                    `json:"size_participating"`
+		Surface           *ID                      `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClientSize: %w", err)
+	}
 	type wire ClientSize
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if !fields.Cols.IsSet() {
+		return fmt.Errorf("decode ClientSize: required field cols is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Cols = fields.Cols
+	if !fields.Rows.IsSet() {
+		return fmt.Errorf("decode ClientSize: required field rows is missing")
 	}
-	rawCols, hasCols := object["cols"]
-	if !hasCols {
-		return fmt.Errorf("decode ClientSize: required nullable field cols is missing")
+	decoded.Rows = fields.Rows
+	if fields.SizeParticipating == nil {
+		return fmt.Errorf("decode ClientSize: required field size_participating is missing or null")
 	}
-	if isJSONNull(rawCols) {
-		decoded.Cols = RequiredNull[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawCols, &fieldValue); err != nil {
-			return fmt.Errorf("decode ClientSize.Cols: %w", err)
-		}
-		decoded.Cols = RequiredValue(fieldValue)
+	decoded.SizeParticipating = *fields.SizeParticipating
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ClientSize: required field surface is missing or null")
 	}
-	rawRows, hasRows := object["rows"]
-	if !hasRows {
-		return fmt.Errorf("decode ClientSize: required nullable field rows is missing")
-	}
-	if isJSONNull(rawRows) {
-		decoded.Rows = RequiredNull[uint16]()
-	} else {
-		var fieldValue uint16
-		if err := json.Unmarshal(rawRows, &fieldValue); err != nil {
-			return fmt.Errorf("decode ClientSize.Rows: %w", err)
-		}
-		decoded.Rows = RequiredValue(fieldValue)
-	}
+	decoded.Surface = *fields.Surface
 	*value = ClientSize(decoded)
 	return nil
 }
@@ -415,6 +690,35 @@ const (
 	ClientTransportUnix  ClientTransport = "unix"
 	ClientTransportWS    ClientTransport = "ws"
 )
+
+func (value ClientTransport) valid() bool {
+	switch value {
+	case ClientTransportLocal, ClientTransportUnix, ClientTransportWS:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value ClientTransport) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "ClientTransport", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *ClientTransport) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := ClientTransport(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "ClientTransport", decoded)
+	}
+	*value = candidate
+	return nil
+}
 
 type CloseTerminalResult struct {
 	AlreadyClosed       bool                     `json:"already_closed"`
@@ -428,6 +732,11 @@ type CloseTerminalResult struct {
 }
 
 func (value CloseTerminalResult) MarshalJSON() ([]byte, error) {
+	switch value.Closed {
+	case true:
+	default:
+		return nil, fmt.Errorf("encode CloseTerminalResult.Closed: invalid value %v", value.Closed)
+	}
 	type wire CloseTerminalResult
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -467,50 +776,147 @@ func (value CloseTerminalResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *CloseTerminalResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CloseTerminalResult: expected object")
+	}
+	var fields struct {
+		AlreadyClosed       *bool                    `json:"already_closed"`
+		Closed              *bool                    `json:"closed"`
+		Generation          *string                  `json:"generation"`
+		RegistryID          *string                  `json:"registry_id"`
+		Surface             RequiredNullable[ID]     `json:"surface"`
+		TerminalID          *string                  `json:"terminal_id"`
+		TerminalIncarnation RequiredNullable[string] `json:"terminal_incarnation"`
+		TerminalRevision    *uint64                  `json:"terminal_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CloseTerminalResult: %w", err)
+	}
 	type wire CloseTerminalResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.AlreadyClosed == nil {
+		return fmt.Errorf("decode CloseTerminalResult: required field already_closed is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.AlreadyClosed = *fields.AlreadyClosed
+	if fields.Closed == nil {
+		return fmt.Errorf("decode CloseTerminalResult: required field closed is missing or null")
 	}
-	rawSurface, hasSurface := object["surface"]
-	if !hasSurface {
-		return fmt.Errorf("decode CloseTerminalResult: required nullable field surface is missing")
+	decoded.Closed = *fields.Closed
+	switch decoded.Closed {
+	case true:
+	default:
+		return fmt.Errorf("decode CloseTerminalResult.Closed: invalid value %v", decoded.Closed)
 	}
-	if isJSONNull(rawSurface) {
-		decoded.Surface = RequiredNull[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalResult.Surface: %w", err)
-		}
-		decoded.Surface = RequiredValue(fieldValue)
+	if fields.Generation == nil {
+		return fmt.Errorf("decode CloseTerminalResult: required field generation is missing or null")
 	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		return fmt.Errorf("decode CloseTerminalResult: required nullable field terminal_incarnation is missing")
+	decoded.Generation = *fields.Generation
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode CloseTerminalResult: required field registry_id is missing or null")
 	}
-	if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode CloseTerminalResult.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = RequiredValue(fieldValue)
+	decoded.RegistryID = *fields.RegistryID
+	if !fields.Surface.IsSet() {
+		return fmt.Errorf("decode CloseTerminalResult: required field surface is missing")
 	}
+	decoded.Surface = fields.Surface
+	if fields.TerminalID == nil {
+		return fmt.Errorf("decode CloseTerminalResult: required field terminal_id is missing or null")
+	}
+	decoded.TerminalID = *fields.TerminalID
+	if !fields.TerminalIncarnation.IsSet() {
+		return fmt.Errorf("decode CloseTerminalResult: required field terminal_incarnation is missing")
+	}
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
+	if fields.TerminalRevision == nil {
+		return fmt.Errorf("decode CloseTerminalResult: required field terminal_revision is missing or null")
+	}
+	decoded.TerminalRevision = *fields.TerminalRevision
 	*value = CloseTerminalResult(decoded)
 	return nil
 }
 
 type ColorHex = string
 
+type CopyResultMode string
+
+const (
+	CopyResultModeScreen     CopyResultMode = "screen"
+	CopyResultModeSelection  CopyResultMode = "selection"
+	CopyResultModeScrollback CopyResultMode = "scrollback"
+)
+
+func (value CopyResultMode) valid() bool {
+	switch value {
+	case CopyResultModeScreen, CopyResultModeSelection, CopyResultModeScrollback:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value CopyResultMode) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "CopyResultMode", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *CopyResultMode) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := CopyResultMode(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "CopyResultMode", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type CopyResult struct {
-	Mode string `json:"mode"`
-	Text string `json:"text"`
+	Mode CopyResultMode `json:"mode"`
+	Text string         `json:"text"`
+}
+
+func (value CopyResult) MarshalJSON() ([]byte, error) {
+	switch value.Mode {
+	case "screen", "selection", "scrollback":
+	default:
+		return nil, fmt.Errorf("encode CopyResult.Mode: invalid value %v", value.Mode)
+	}
+	type wire CopyResult
+	return json.Marshal(wire(value))
+}
+
+func (value *CopyResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode CopyResult: expected object")
+	}
+	var fields struct {
+		Mode *CopyResultMode `json:"mode"`
+		Text *string         `json:"text"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode CopyResult: %w", err)
+	}
+	type wire CopyResult
+	var decoded wire
+	if fields.Mode == nil {
+		return fmt.Errorf("decode CopyResult: required field mode is missing or null")
+	}
+	decoded.Mode = *fields.Mode
+	switch decoded.Mode {
+	case "screen", "selection", "scrollback":
+	default:
+		return fmt.Errorf("decode CopyResult.Mode: invalid value %v", decoded.Mode)
+	}
+	if fields.Text == nil {
+		return fmt.Errorf("decode CopyResult: required field text is missing or null")
+	}
+	decoded.Text = *fields.Text
+	*value = CopyResult(decoded)
+	return nil
 }
 
 type CursorStyle string
@@ -521,18 +927,127 @@ const (
 	CursorStyleBar       CursorStyle = "bar"
 )
 
+func (value CursorStyle) valid() bool {
+	switch value {
+	case CursorStyleBlock, CursorStyleUnderline, CursorStyleBar:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value CursorStyle) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "CursorStyle", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *CursorStyle) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := CursorStyle(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "CursorStyle", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type DeadPane struct {
 	Dead bool `json:"dead"`
 	ID   ID   `json:"id"`
 }
 
+func (value DeadPane) MarshalJSON() ([]byte, error) {
+	switch value.Dead {
+	case true:
+	default:
+		return nil, fmt.Errorf("encode DeadPane.Dead: invalid value %v", value.Dead)
+	}
+	type wire DeadPane
+	return json.Marshal(wire(value))
+}
+
+func (value *DeadPane) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode DeadPane: expected object")
+	}
+	var fields struct {
+		Dead *bool `json:"dead"`
+		ID   *ID   `json:"id"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode DeadPane: %w", err)
+	}
+	type wire DeadPane
+	var decoded wire
+	if fields.Dead == nil {
+		return fmt.Errorf("decode DeadPane: required field dead is missing or null")
+	}
+	decoded.Dead = *fields.Dead
+	switch decoded.Dead {
+	case true:
+	default:
+		return fmt.Errorf("decode DeadPane.Dead: invalid value %v", decoded.Dead)
+	}
+	if fields.ID == nil {
+		return fmt.Errorf("decode DeadPane: required field id is missing or null")
+	}
+	decoded.ID = *fields.ID
+	*value = DeadPane(decoded)
+	return nil
+}
+
+type DeclarativeLayoutLeafType string
+
+const (
+	DeclarativeLayoutLeafTypeLeaf DeclarativeLayoutLeafType = "leaf"
+)
+
+func (value DeclarativeLayoutLeafType) valid() bool {
+	switch value {
+	case DeclarativeLayoutLeafTypeLeaf:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value DeclarativeLayoutLeafType) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "DeclarativeLayoutLeafType", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *DeclarativeLayoutLeafType) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := DeclarativeLayoutLeafType(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "DeclarativeLayoutLeafType", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type DeclarativeLayoutLeaf struct {
-	Command Presence[[]string] `json:"-"`
-	Cwd     Presence[string]   `json:"-"`
-	Type    string             `json:"type"`
+	Command Presence[[]string]        `json:"-"`
+	Cwd     Presence[string]          `json:"-"`
+	Type    DeclarativeLayoutLeafType `json:"type"`
 }
 
 func (value DeclarativeLayoutLeaf) MarshalJSON() ([]byte, error) {
+	switch value.Type {
+	case "leaf":
+	default:
+		return nil, fmt.Errorf("encode DeclarativeLayoutLeaf.Type: invalid value %v", value.Type)
+	}
 	type wire DeclarativeLayoutLeaf
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -570,55 +1085,216 @@ func (value DeclarativeLayoutLeaf) MarshalJSON() ([]byte, error) {
 }
 
 func (value *DeclarativeLayoutLeaf) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode DeclarativeLayoutLeaf: expected object")
+	}
+	var fields struct {
+		Command Presence[[]string]         `json:"command"`
+		Cwd     Presence[string]           `json:"cwd"`
+		Type    *DeclarativeLayoutLeafType `json:"type"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode DeclarativeLayoutLeaf: %w", err)
+	}
 	type wire DeclarativeLayoutLeaf
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.Command = fields.Command
+	decoded.Cwd = fields.Cwd
+	if fields.Type == nil {
+		return fmt.Errorf("decode DeclarativeLayoutLeaf: required field type is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawCommand, hasCommand := object["command"]
-	if !hasCommand {
-		decoded.Command = Presence[[]string]{}
-	} else if isJSONNull(rawCommand) {
-		decoded.Command = Null[[]string]()
-	} else {
-		var fieldValue []string
-		if err := json.Unmarshal(rawCommand, &fieldValue); err != nil {
-			return fmt.Errorf("decode DeclarativeLayoutLeaf.Command: %w", err)
-		}
-		decoded.Command = Value(fieldValue)
-	}
-	rawCwd, hasCwd := object["cwd"]
-	if !hasCwd {
-		decoded.Cwd = Presence[string]{}
-	} else if isJSONNull(rawCwd) {
-		decoded.Cwd = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
-			return fmt.Errorf("decode DeclarativeLayoutLeaf.Cwd: %w", err)
-		}
-		decoded.Cwd = Value(fieldValue)
+	decoded.Type = *fields.Type
+	switch decoded.Type {
+	case "leaf":
+	default:
+		return fmt.Errorf("decode DeclarativeLayoutLeaf.Type: invalid value %v", decoded.Type)
 	}
 	*value = DeclarativeLayoutLeaf(decoded)
 	return nil
 }
 
+type DeclarativeLayoutSplitType string
+
+const (
+	DeclarativeLayoutSplitTypeSplit DeclarativeLayoutSplitType = "split"
+)
+
+func (value DeclarativeLayoutSplitType) valid() bool {
+	switch value {
+	case DeclarativeLayoutSplitTypeSplit:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value DeclarativeLayoutSplitType) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "DeclarativeLayoutSplitType", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *DeclarativeLayoutSplitType) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := DeclarativeLayoutSplitType(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "DeclarativeLayoutSplitType", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type DeclarativeLayoutSplit struct {
-	A     DeclarativeLayout `json:"a"`
-	B     DeclarativeLayout `json:"b"`
-	Dir   SplitDirection    `json:"dir"`
-	Ratio float32           `json:"ratio"`
-	Type  string            `json:"type"`
+	A     DeclarativeLayout          `json:"a"`
+	B     DeclarativeLayout          `json:"b"`
+	Dir   SplitDirection             `json:"dir"`
+	Ratio float32                    `json:"ratio"`
+	Type  DeclarativeLayoutSplitType `json:"type"`
+}
+
+func (value DeclarativeLayoutSplit) MarshalJSON() ([]byte, error) {
+	switch value.Type {
+	case "split":
+	default:
+		return nil, fmt.Errorf("encode DeclarativeLayoutSplit.Type: invalid value %v", value.Type)
+	}
+	type wire DeclarativeLayoutSplit
+	return json.Marshal(wire(value))
+}
+
+func (value *DeclarativeLayoutSplit) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode DeclarativeLayoutSplit: expected object")
+	}
+	var fields struct {
+		A     *DeclarativeLayout          `json:"a"`
+		B     *DeclarativeLayout          `json:"b"`
+		Dir   *SplitDirection             `json:"dir"`
+		Ratio *float32                    `json:"ratio"`
+		Type  *DeclarativeLayoutSplitType `json:"type"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode DeclarativeLayoutSplit: %w", err)
+	}
+	type wire DeclarativeLayoutSplit
+	var decoded wire
+	if fields.A == nil {
+		return fmt.Errorf("decode DeclarativeLayoutSplit: required field a is missing or null")
+	}
+	decoded.A = *fields.A
+	if fields.B == nil {
+		return fmt.Errorf("decode DeclarativeLayoutSplit: required field b is missing or null")
+	}
+	decoded.B = *fields.B
+	if fields.Dir == nil {
+		return fmt.Errorf("decode DeclarativeLayoutSplit: required field dir is missing or null")
+	}
+	decoded.Dir = *fields.Dir
+	if fields.Ratio == nil {
+		return fmt.Errorf("decode DeclarativeLayoutSplit: required field ratio is missing or null")
+	}
+	decoded.Ratio = *fields.Ratio
+	if fields.Type == nil {
+		return fmt.Errorf("decode DeclarativeLayoutSplit: required field type is missing or null")
+	}
+	decoded.Type = *fields.Type
+	switch decoded.Type {
+	case "split":
+	default:
+		return fmt.Errorf("decode DeclarativeLayoutSplit.Type: invalid value %v", decoded.Type)
+	}
+	*value = DeclarativeLayoutSplit(decoded)
+	return nil
+}
+
+type DeclarativeLayoutStackType string
+
+const (
+	DeclarativeLayoutStackTypeStack DeclarativeLayoutStackType = "stack"
+)
+
+func (value DeclarativeLayoutStackType) valid() bool {
+	switch value {
+	case DeclarativeLayoutStackTypeStack:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value DeclarativeLayoutStackType) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "DeclarativeLayoutStackType", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *DeclarativeLayoutStackType) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := DeclarativeLayoutStackType(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "DeclarativeLayoutStackType", decoded)
+	}
+	*value = candidate
+	return nil
 }
 
 type DeclarativeLayoutStack struct {
-	Expanded ID     `json:"expanded"`
-	Panes    []ID   `json:"panes"`
-	Type     string `json:"type"`
+	Expanded ID                         `json:"expanded"`
+	Panes    []ID                       `json:"panes"`
+	Type     DeclarativeLayoutStackType `json:"type"`
+}
+
+func (value DeclarativeLayoutStack) MarshalJSON() ([]byte, error) {
+	switch value.Type {
+	case "stack":
+	default:
+		return nil, fmt.Errorf("encode DeclarativeLayoutStack.Type: invalid value %v", value.Type)
+	}
+	type wire DeclarativeLayoutStack
+	return json.Marshal(wire(value))
+}
+
+func (value *DeclarativeLayoutStack) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode DeclarativeLayoutStack: expected object")
+	}
+	var fields struct {
+		Expanded *ID                         `json:"expanded"`
+		Panes    *[]ID                       `json:"panes"`
+		Type     *DeclarativeLayoutStackType `json:"type"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode DeclarativeLayoutStack: %w", err)
+	}
+	type wire DeclarativeLayoutStack
+	var decoded wire
+	if fields.Expanded == nil {
+		return fmt.Errorf("decode DeclarativeLayoutStack: required field expanded is missing or null")
+	}
+	decoded.Expanded = *fields.Expanded
+	if fields.Panes == nil {
+		return fmt.Errorf("decode DeclarativeLayoutStack: required field panes is missing or null")
+	}
+	decoded.Panes = *fields.Panes
+	if fields.Type == nil {
+		return fmt.Errorf("decode DeclarativeLayoutStack: required field type is missing or null")
+	}
+	decoded.Type = *fields.Type
+	switch decoded.Type {
+	case "stack":
+	default:
+		return fmt.Errorf("decode DeclarativeLayoutStack.Type: invalid value %v", decoded.Type)
+	}
+	*value = DeclarativeLayoutStack(decoded)
+	return nil
 }
 
 type DeclarativeLayout struct {
@@ -628,15 +1304,24 @@ type DeclarativeLayout struct {
 }
 
 func (value *DeclarativeLayout) UnmarshalJSON(data []byte) error {
-	var tag struct {
-		Tag string `json:"type"`
-	}
-	if err := decodeJSON(data, &tag); err != nil {
+	var fields map[string]json.RawMessage
+	if err := decodeJSON(data, &fields); err != nil {
 		return err
 	}
-	value.Tag = tag.Tag
+	rawTag, hasTag := fields["type"]
+	if !hasTag {
+		return fmt.Errorf("decode DeclarativeLayout: required field type is missing")
+	}
+	if isJSONNull(rawTag) {
+		return fmt.Errorf("decode DeclarativeLayout: non-nullable field type is null")
+	}
+	var decodedTag string
+	if err := decodeJSON(rawTag, &decodedTag); err != nil {
+		return fmt.Errorf("decode DeclarativeLayout.Type: %w", err)
+	}
+	value.Tag = decodedTag
 	value.Raw = append(value.Raw[:0], data...)
-	switch tag.Tag {
+	switch decodedTag {
 	case "leaf":
 		var decoded DeclarativeLayoutLeaf
 		if err := decodeJSON(data, &decoded); err != nil {
@@ -685,6 +1370,7 @@ func (value DeclarativeLayout) MarshalJSON() ([]byte, error) {
 }
 
 func NewDeclarativeLayoutLeaf(value DeclarativeLayoutLeaf) DeclarativeLayout {
+	value.Type = DeclarativeLayoutLeafTypeLeaf
 	return DeclarativeLayout{Tag: "leaf", Value: value}
 }
 
@@ -694,6 +1380,7 @@ func (value DeclarativeLayout) AsLeaf() (DeclarativeLayoutLeaf, bool) {
 }
 
 func NewDeclarativeLayoutSplit(value DeclarativeLayoutSplit) DeclarativeLayout {
+	value.Type = DeclarativeLayoutSplitTypeSplit
 	return DeclarativeLayout{Tag: "split", Value: value}
 }
 
@@ -703,6 +1390,7 @@ func (value DeclarativeLayout) AsSplit() (DeclarativeLayoutSplit, bool) {
 }
 
 func NewDeclarativeLayoutStack(value DeclarativeLayoutStack) DeclarativeLayout {
+	value.Type = DeclarativeLayoutStackTypeStack
 	return DeclarativeLayout{Tag: "stack", Value: value}
 }
 
@@ -714,9 +1402,49 @@ func (value DeclarativeLayout) AsStack() (DeclarativeLayoutStack, bool) {
 type EmptyResult struct {
 }
 
+func (value *EmptyResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode EmptyResult: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode EmptyResult: %w", err)
+	}
+	type wire EmptyResult
+	var decoded wire
+	*value = EmptyResult(decoded)
+	return nil
+}
+
 type ExportLayoutResult struct {
 	Layout Layout         `json:"layout"`
 	Panes  []ExportedPane `json:"panes"`
+}
+
+func (value *ExportLayoutResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ExportLayoutResult: expected object")
+	}
+	var fields struct {
+		Layout *Layout         `json:"layout"`
+		Panes  *[]ExportedPane `json:"panes"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ExportLayoutResult: %w", err)
+	}
+	type wire ExportLayoutResult
+	var decoded wire
+	if fields.Layout == nil {
+		return fmt.Errorf("decode ExportLayoutResult: required field layout is missing or null")
+	}
+	decoded.Layout = *fields.Layout
+	if fields.Panes == nil {
+		return fmt.Errorf("decode ExportLayoutResult: required field panes is missing or null")
+	}
+	decoded.Panes = *fields.Panes
+	*value = ExportLayoutResult(decoded)
+	return nil
 }
 
 type ExportedPane struct {
@@ -724,8 +1452,53 @@ type ExportedPane struct {
 	Surfaces []ID `json:"surfaces"`
 }
 
+func (value *ExportedPane) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ExportedPane: expected object")
+	}
+	var fields struct {
+		Pane     *ID   `json:"pane"`
+		Surfaces *[]ID `json:"surfaces"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ExportedPane: %w", err)
+	}
+	type wire ExportedPane
+	var decoded wire
+	if fields.Pane == nil {
+		return fmt.Errorf("decode ExportedPane: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.Surfaces == nil {
+		return fmt.Errorf("decode ExportedPane: required field surfaces is missing or null")
+	}
+	decoded.Surfaces = *fields.Surfaces
+	*value = ExportedPane(decoded)
+	return nil
+}
+
 type FocusDirectionResult struct {
 	Pane ID `json:"pane"`
+}
+
+func (value *FocusDirectionResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FocusDirectionResult: expected object")
+	}
+	var fields struct {
+		Pane *ID `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FocusDirectionResult: %w", err)
+	}
+	type wire FocusDirectionResult
+	var decoded wire
+	if fields.Pane == nil {
+		return fmt.Errorf("decode FocusDirectionResult: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	*value = FocusDirectionResult(decoded)
+	return nil
 }
 
 type FrontendProjection struct {
@@ -765,60 +1538,245 @@ func (value FrontendProjection) MarshalJSON() ([]byte, error) {
 }
 
 func (value *FrontendProjection) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FrontendProjection: expected object")
+	}
+	var fields struct {
+		Frontend           *string                     `json:"frontend"`
+		Projection         RequiredNullable[JSONValue] `json:"projection"`
+		ProjectionRevision *uint64                     `json:"projection_revision"`
+		Replayed           optionalNonNullJSON[bool]   `json:"replayed"`
+		SchemaVersion      *uint32                     `json:"schema_version"`
+		Scope              *string                     `json:"scope"`
+		SubjectKey         *string                     `json:"subject_key"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FrontendProjection: %w", err)
+	}
 	type wire FrontendProjection
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Frontend == nil {
+		return fmt.Errorf("decode FrontendProjection: required field frontend is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Frontend = *fields.Frontend
+	if !fields.Projection.IsSet() {
+		return fmt.Errorf("decode FrontendProjection: required field projection is missing")
 	}
-	if raw, exists := object["replayed"]; exists && isJSONNull(raw) {
+	decoded.Projection = fields.Projection
+	if fields.ProjectionRevision == nil {
+		return fmt.Errorf("decode FrontendProjection: required field projection_revision is missing or null")
+	}
+	decoded.ProjectionRevision = *fields.ProjectionRevision
+	if fields.Replayed.null {
 		return fmt.Errorf("decode FrontendProjection: non-nullable field replayed is null")
 	}
-	rawProjection, hasProjection := object["projection"]
-	if !hasProjection {
-		return fmt.Errorf("decode FrontendProjection: required nullable field projection is missing")
+	if fields.Replayed.set {
+		decoded.Replayed = &fields.Replayed.value
 	}
-	if isJSONNull(rawProjection) {
-		decoded.Projection = RequiredNull[JSONValue]()
-	} else {
-		var fieldValue JSONValue
-		if err := json.Unmarshal(rawProjection, &fieldValue); err != nil {
-			return fmt.Errorf("decode FrontendProjection.Projection: %w", err)
-		}
-		decoded.Projection = RequiredValue(fieldValue)
+	if fields.SchemaVersion == nil {
+		return fmt.Errorf("decode FrontendProjection: required field schema_version is missing or null")
 	}
+	decoded.SchemaVersion = *fields.SchemaVersion
+	if fields.Scope == nil {
+		return fmt.Errorf("decode FrontendProjection: required field scope is missing or null")
+	}
+	decoded.Scope = *fields.Scope
+	if fields.SubjectKey == nil {
+		return fmt.Errorf("decode FrontendProjection: required field subject_key is missing or null")
+	}
+	decoded.SubjectKey = *fields.SubjectKey
 	*value = FrontendProjection(decoded)
 	return nil
 }
 
 type ID = uint64
 
+type IDMappingKind string
+
+const (
+	IDMappingKindWorkspace IDMappingKind = "workspace"
+	IDMappingKindScreen    IDMappingKind = "screen"
+	IDMappingKindPane      IDMappingKind = "pane"
+	IDMappingKindSurface   IDMappingKind = "surface"
+)
+
+func (value IDMappingKind) valid() bool {
+	switch value {
+	case IDMappingKindWorkspace, IDMappingKindScreen, IDMappingKindPane, IDMappingKindSurface:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value IDMappingKind) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "IDMappingKind", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *IDMappingKind) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := IDMappingKind(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "IDMappingKind", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type IDMapping struct {
-	ID      ID     `json:"id"`
-	Kind    string `json:"kind"`
-	ShortID string `json:"short_id"`
+	ID      ID            `json:"id"`
+	Kind    IDMappingKind `json:"kind"`
+	ShortID string        `json:"short_id"`
+}
+
+func (value IDMapping) MarshalJSON() ([]byte, error) {
+	switch value.Kind {
+	case "workspace", "screen", "pane", "surface":
+	default:
+		return nil, fmt.Errorf("encode IDMapping.Kind: invalid value %v", value.Kind)
+	}
+	type wire IDMapping
+	return json.Marshal(wire(value))
+}
+
+func (value *IDMapping) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode IDMapping: expected object")
+	}
+	var fields struct {
+		ID      *ID            `json:"id"`
+		Kind    *IDMappingKind `json:"kind"`
+		ShortID *string        `json:"short_id"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode IDMapping: %w", err)
+	}
+	type wire IDMapping
+	var decoded wire
+	if fields.ID == nil {
+		return fmt.Errorf("decode IDMapping: required field id is missing or null")
+	}
+	decoded.ID = *fields.ID
+	if fields.Kind == nil {
+		return fmt.Errorf("decode IDMapping: required field kind is missing or null")
+	}
+	decoded.Kind = *fields.Kind
+	switch decoded.Kind {
+	case "workspace", "screen", "pane", "surface":
+	default:
+		return fmt.Errorf("decode IDMapping.Kind: invalid value %v", decoded.Kind)
+	}
+	if fields.ShortID == nil {
+		return fmt.Errorf("decode IDMapping: required field short_id is missing or null")
+	}
+	decoded.ShortID = *fields.ShortID
+	*value = IDMapping(decoded)
+	return nil
+}
+
+type IdentifyResultApp string
+
+const (
+	IdentifyResultAppCmuxTUI IdentifyResultApp = "cmux-tui"
+)
+
+func (value IdentifyResultApp) valid() bool {
+	switch value {
+	case IdentifyResultAppCmuxTUI:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value IdentifyResultApp) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "IdentifyResultApp", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *IdentifyResultApp) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := IdentifyResultApp(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "IdentifyResultApp", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
+type IdentifyResultDaemonHandoff int64
+
+const (
+	IdentifyResultDaemonHandoffN1 IdentifyResultDaemonHandoff = 1
+)
+
+func (value IdentifyResultDaemonHandoff) valid() bool {
+	switch value {
+	case IdentifyResultDaemonHandoffN1:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value IdentifyResultDaemonHandoff) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "IdentifyResultDaemonHandoff", value)
+	}
+	return json.Marshal(int64(value))
+}
+
+func (value *IdentifyResultDaemonHandoff) UnmarshalJSON(data []byte) error {
+	var decoded int64
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := IdentifyResultDaemonHandoff(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "IdentifyResultDaemonHandoff", decoded)
+	}
+	*value = candidate
+	return nil
 }
 
 type IdentifyResult struct {
-	App               string           `json:"app"`
-	BuildCommit       Presence[string] `json:"-"`
-	Capabilities      *[]string        `json:"capabilities,omitempty"`
-	DaemonHandoff     int64            `json:"daemon_handoff"`
-	Generation        string           `json:"generation"`
-	GhosttyCommit     Presence[string] `json:"-"`
-	PID               uint32           `json:"pid"`
-	Protocol          uint32           `json:"protocol"`
-	RegistryID        string           `json:"registry_id"`
-	Session           string           `json:"session"`
-	TerminalRevision  uint64           `json:"terminal_revision"`
-	Version           string           `json:"version"`
-	WorkspaceRevision uint64           `json:"workspace_revision"`
+	App               IdentifyResultApp           `json:"app"`
+	BuildCommit       Presence[string]            `json:"-"`
+	Capabilities      *[]string                   `json:"capabilities,omitempty"`
+	DaemonHandoff     IdentifyResultDaemonHandoff `json:"daemon_handoff"`
+	Generation        string                      `json:"generation"`
+	GhosttyCommit     Presence[string]            `json:"-"`
+	PID               uint32                      `json:"pid"`
+	Protocol          uint32                      `json:"protocol"`
+	RegistryID        string                      `json:"registry_id"`
+	Session           string                      `json:"session"`
+	TerminalRevision  uint64                      `json:"terminal_revision"`
+	Version           string                      `json:"version"`
+	WorkspaceRevision uint64                      `json:"workspace_revision"`
 }
 
 func (value IdentifyResult) MarshalJSON() ([]byte, error) {
+	switch value.App {
+	case "cmux-tui":
+	default:
+		return nil, fmt.Errorf("encode IdentifyResult.App: invalid value %v", value.App)
+	}
+	switch value.DaemonHandoff {
+	case 1:
+	default:
+		return nil, fmt.Errorf("encode IdentifyResult.DaemonHandoff: invalid value %v", value.DaemonHandoff)
+	}
 	type wire IdentifyResult
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -856,42 +1814,87 @@ func (value IdentifyResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *IdentifyResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode IdentifyResult: expected object")
+	}
+	var fields struct {
+		App               *IdentifyResultApp            `json:"app"`
+		BuildCommit       Presence[string]              `json:"build_commit"`
+		Capabilities      optionalNonNullJSON[[]string] `json:"capabilities"`
+		DaemonHandoff     *IdentifyResultDaemonHandoff  `json:"daemon_handoff"`
+		Generation        *string                       `json:"generation"`
+		GhosttyCommit     Presence[string]              `json:"ghostty_commit"`
+		PID               *uint32                       `json:"pid"`
+		Protocol          *uint32                       `json:"protocol"`
+		RegistryID        *string                       `json:"registry_id"`
+		Session           *string                       `json:"session"`
+		TerminalRevision  *uint64                       `json:"terminal_revision"`
+		Version           *string                       `json:"version"`
+		WorkspaceRevision *uint64                       `json:"workspace_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode IdentifyResult: %w", err)
+	}
 	type wire IdentifyResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.App == nil {
+		return fmt.Errorf("decode IdentifyResult: required field app is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.App = *fields.App
+	switch decoded.App {
+	case "cmux-tui":
+	default:
+		return fmt.Errorf("decode IdentifyResult.App: invalid value %v", decoded.App)
 	}
-	if raw, exists := object["capabilities"]; exists && isJSONNull(raw) {
+	decoded.BuildCommit = fields.BuildCommit
+	if fields.Capabilities.null {
 		return fmt.Errorf("decode IdentifyResult: non-nullable field capabilities is null")
 	}
-	rawBuildCommit, hasBuildCommit := object["build_commit"]
-	if !hasBuildCommit {
-		decoded.BuildCommit = Presence[string]{}
-	} else if isJSONNull(rawBuildCommit) {
-		decoded.BuildCommit = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawBuildCommit, &fieldValue); err != nil {
-			return fmt.Errorf("decode IdentifyResult.BuildCommit: %w", err)
-		}
-		decoded.BuildCommit = Value(fieldValue)
+	if fields.Capabilities.set {
+		decoded.Capabilities = &fields.Capabilities.value
 	}
-	rawGhosttyCommit, hasGhosttyCommit := object["ghostty_commit"]
-	if !hasGhosttyCommit {
-		decoded.GhosttyCommit = Presence[string]{}
-	} else if isJSONNull(rawGhosttyCommit) {
-		decoded.GhosttyCommit = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawGhosttyCommit, &fieldValue); err != nil {
-			return fmt.Errorf("decode IdentifyResult.GhosttyCommit: %w", err)
-		}
-		decoded.GhosttyCommit = Value(fieldValue)
+	if fields.DaemonHandoff == nil {
+		return fmt.Errorf("decode IdentifyResult: required field daemon_handoff is missing or null")
 	}
+	decoded.DaemonHandoff = *fields.DaemonHandoff
+	switch decoded.DaemonHandoff {
+	case 1:
+	default:
+		return fmt.Errorf("decode IdentifyResult.DaemonHandoff: invalid value %v", decoded.DaemonHandoff)
+	}
+	if fields.Generation == nil {
+		return fmt.Errorf("decode IdentifyResult: required field generation is missing or null")
+	}
+	decoded.Generation = *fields.Generation
+	decoded.GhosttyCommit = fields.GhosttyCommit
+	if fields.PID == nil {
+		return fmt.Errorf("decode IdentifyResult: required field pid is missing or null")
+	}
+	decoded.PID = *fields.PID
+	if fields.Protocol == nil {
+		return fmt.Errorf("decode IdentifyResult: required field protocol is missing or null")
+	}
+	decoded.Protocol = *fields.Protocol
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode IdentifyResult: required field registry_id is missing or null")
+	}
+	decoded.RegistryID = *fields.RegistryID
+	if fields.Session == nil {
+		return fmt.Errorf("decode IdentifyResult: required field session is missing or null")
+	}
+	decoded.Session = *fields.Session
+	if fields.TerminalRevision == nil {
+		return fmt.Errorf("decode IdentifyResult: required field terminal_revision is missing or null")
+	}
+	decoded.TerminalRevision = *fields.TerminalRevision
+	if fields.Version == nil {
+		return fmt.Errorf("decode IdentifyResult: required field version is missing or null")
+	}
+	decoded.Version = *fields.Version
+	if fields.WorkspaceRevision == nil {
+		return fmt.Errorf("decode IdentifyResult: required field workspace_revision is missing or null")
+	}
+	decoded.WorkspaceRevision = *fields.WorkspaceRevision
 	*value = IdentifyResult(decoded)
 	return nil
 }
@@ -900,11 +1903,141 @@ type IDsResult struct {
 	IDs []IDMapping `json:"ids"`
 }
 
+func (value *IDsResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode IDsResult: expected object")
+	}
+	var fields struct {
+		IDs *[]IDMapping `json:"ids"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode IDsResult: %w", err)
+	}
+	type wire IDsResult
+	var decoded wire
+	if fields.IDs == nil {
+		return fmt.Errorf("decode IDsResult: required field ids is missing or null")
+	}
+	decoded.IDs = *fields.IDs
+	*value = IDsResult(decoded)
+	return nil
+}
+
 type JSONValue = json.RawMessage
 
+type LayoutLeafType string
+
+const (
+	LayoutLeafTypeLeaf LayoutLeafType = "leaf"
+)
+
+func (value LayoutLeafType) valid() bool {
+	switch value {
+	case LayoutLeafTypeLeaf:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value LayoutLeafType) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "LayoutLeafType", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *LayoutLeafType) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := LayoutLeafType(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "LayoutLeafType", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type LayoutLeaf struct {
-	Pane ID     `json:"pane"`
-	Type string `json:"type"`
+	Pane ID             `json:"pane"`
+	Type LayoutLeafType `json:"type"`
+}
+
+func (value LayoutLeaf) MarshalJSON() ([]byte, error) {
+	switch value.Type {
+	case "leaf":
+	default:
+		return nil, fmt.Errorf("encode LayoutLeaf.Type: invalid value %v", value.Type)
+	}
+	type wire LayoutLeaf
+	return json.Marshal(wire(value))
+}
+
+func (value *LayoutLeaf) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode LayoutLeaf: expected object")
+	}
+	var fields struct {
+		Pane *ID             `json:"pane"`
+		Type *LayoutLeafType `json:"type"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode LayoutLeaf: %w", err)
+	}
+	type wire LayoutLeaf
+	var decoded wire
+	if fields.Pane == nil {
+		return fmt.Errorf("decode LayoutLeaf: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.Type == nil {
+		return fmt.Errorf("decode LayoutLeaf: required field type is missing or null")
+	}
+	decoded.Type = *fields.Type
+	switch decoded.Type {
+	case "leaf":
+	default:
+		return fmt.Errorf("decode LayoutLeaf.Type: invalid value %v", decoded.Type)
+	}
+	*value = LayoutLeaf(decoded)
+	return nil
+}
+
+type LayoutSplitType string
+
+const (
+	LayoutSplitTypeSplit LayoutSplitType = "split"
+)
+
+func (value LayoutSplitType) valid() bool {
+	switch value {
+	case LayoutSplitTypeSplit:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value LayoutSplitType) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "LayoutSplitType", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *LayoutSplitType) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := LayoutSplitType(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "LayoutSplitType", decoded)
+	}
+	*value = candidate
+	return nil
 }
 
 type LayoutSplit struct {
@@ -913,31 +2046,156 @@ type LayoutSplit struct {
 	Dir   SplitDirection `json:"dir"`
 	Ratio float32        `json:"ratio"`
 	// Stable for the lifetime of this split node.
-	Split *ID    `json:"split,omitempty"`
-	Type  string `json:"type"`
+	Split *ID             `json:"split,omitempty"`
+	Type  LayoutSplitType `json:"type"`
+}
+
+func (value LayoutSplit) MarshalJSON() ([]byte, error) {
+	switch value.Type {
+	case "split":
+	default:
+		return nil, fmt.Errorf("encode LayoutSplit.Type: invalid value %v", value.Type)
+	}
+	type wire LayoutSplit
+	return json.Marshal(wire(value))
 }
 
 func (value *LayoutSplit) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode LayoutSplit: expected object")
+	}
+	var fields struct {
+		A     *Layout                 `json:"a"`
+		B     *Layout                 `json:"b"`
+		Dir   *SplitDirection         `json:"dir"`
+		Ratio *float32                `json:"ratio"`
+		Split optionalNonNullJSON[ID] `json:"split"`
+		Type  *LayoutSplitType        `json:"type"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode LayoutSplit: %w", err)
+	}
 	type wire LayoutSplit
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.A == nil {
+		return fmt.Errorf("decode LayoutSplit: required field a is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.A = *fields.A
+	if fields.B == nil {
+		return fmt.Errorf("decode LayoutSplit: required field b is missing or null")
 	}
-	if raw, exists := object["split"]; exists && isJSONNull(raw) {
+	decoded.B = *fields.B
+	if fields.Dir == nil {
+		return fmt.Errorf("decode LayoutSplit: required field dir is missing or null")
+	}
+	decoded.Dir = *fields.Dir
+	if fields.Ratio == nil {
+		return fmt.Errorf("decode LayoutSplit: required field ratio is missing or null")
+	}
+	decoded.Ratio = *fields.Ratio
+	if fields.Split.null {
 		return fmt.Errorf("decode LayoutSplit: non-nullable field split is null")
+	}
+	if fields.Split.set {
+		decoded.Split = &fields.Split.value
+	}
+	if fields.Type == nil {
+		return fmt.Errorf("decode LayoutSplit: required field type is missing or null")
+	}
+	decoded.Type = *fields.Type
+	switch decoded.Type {
+	case "split":
+	default:
+		return fmt.Errorf("decode LayoutSplit.Type: invalid value %v", decoded.Type)
 	}
 	*value = LayoutSplit(decoded)
 	return nil
 }
 
+type LayoutStackType string
+
+const (
+	LayoutStackTypeStack LayoutStackType = "stack"
+)
+
+func (value LayoutStackType) valid() bool {
+	switch value {
+	case LayoutStackTypeStack:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value LayoutStackType) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "LayoutStackType", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *LayoutStackType) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := LayoutStackType(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "LayoutStackType", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type LayoutStack struct {
-	Expanded ID     `json:"expanded"`
-	Panes    []ID   `json:"panes"`
-	Type     string `json:"type"`
+	Expanded ID              `json:"expanded"`
+	Panes    []ID            `json:"panes"`
+	Type     LayoutStackType `json:"type"`
+}
+
+func (value LayoutStack) MarshalJSON() ([]byte, error) {
+	switch value.Type {
+	case "stack":
+	default:
+		return nil, fmt.Errorf("encode LayoutStack.Type: invalid value %v", value.Type)
+	}
+	type wire LayoutStack
+	return json.Marshal(wire(value))
+}
+
+func (value *LayoutStack) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode LayoutStack: expected object")
+	}
+	var fields struct {
+		Expanded *ID              `json:"expanded"`
+		Panes    *[]ID            `json:"panes"`
+		Type     *LayoutStackType `json:"type"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode LayoutStack: %w", err)
+	}
+	type wire LayoutStack
+	var decoded wire
+	if fields.Expanded == nil {
+		return fmt.Errorf("decode LayoutStack: required field expanded is missing or null")
+	}
+	decoded.Expanded = *fields.Expanded
+	if fields.Panes == nil {
+		return fmt.Errorf("decode LayoutStack: required field panes is missing or null")
+	}
+	decoded.Panes = *fields.Panes
+	if fields.Type == nil {
+		return fmt.Errorf("decode LayoutStack: required field type is missing or null")
+	}
+	decoded.Type = *fields.Type
+	switch decoded.Type {
+	case "stack":
+	default:
+		return fmt.Errorf("decode LayoutStack.Type: invalid value %v", decoded.Type)
+	}
+	*value = LayoutStack(decoded)
+	return nil
 }
 
 type Layout struct {
@@ -947,15 +2205,24 @@ type Layout struct {
 }
 
 func (value *Layout) UnmarshalJSON(data []byte) error {
-	var tag struct {
-		Tag string `json:"type"`
-	}
-	if err := decodeJSON(data, &tag); err != nil {
+	var fields map[string]json.RawMessage
+	if err := decodeJSON(data, &fields); err != nil {
 		return err
 	}
-	value.Tag = tag.Tag
+	rawTag, hasTag := fields["type"]
+	if !hasTag {
+		return fmt.Errorf("decode Layout: required field type is missing")
+	}
+	if isJSONNull(rawTag) {
+		return fmt.Errorf("decode Layout: non-nullable field type is null")
+	}
+	var decodedTag string
+	if err := decodeJSON(rawTag, &decodedTag); err != nil {
+		return fmt.Errorf("decode Layout.Type: %w", err)
+	}
+	value.Tag = decodedTag
 	value.Raw = append(value.Raw[:0], data...)
-	switch tag.Tag {
+	switch decodedTag {
 	case "leaf":
 		var decoded LayoutLeaf
 		if err := decodeJSON(data, &decoded); err != nil {
@@ -1004,6 +2271,7 @@ func (value Layout) MarshalJSON() ([]byte, error) {
 }
 
 func NewLayoutLeaf(value LayoutLeaf) Layout {
+	value.Type = LayoutLeafTypeLeaf
 	return Layout{Tag: "leaf", Value: value}
 }
 
@@ -1013,6 +2281,7 @@ func (value Layout) AsLeaf() (LayoutLeaf, bool) {
 }
 
 func NewLayoutSplit(value LayoutSplit) Layout {
+	value.Type = LayoutSplitTypeSplit
 	return Layout{Tag: "split", Value: value}
 }
 
@@ -1022,6 +2291,7 @@ func (value Layout) AsSplit() (LayoutSplit, bool) {
 }
 
 func NewLayoutStack(value LayoutStack) Layout {
+	value.Type = LayoutStackTypeStack
 	return Layout{Tag: "stack", Value: value}
 }
 
@@ -1036,6 +2306,71 @@ type LayoutUndoConfirmationRequired struct {
 	Revision             uint64 `json:"revision"`
 	Screen               ID     `json:"screen"`
 	Undone               bool   `json:"undone"`
+}
+
+func (value LayoutUndoConfirmationRequired) MarshalJSON() ([]byte, error) {
+	switch value.ConfirmationRequired {
+	case true:
+	default:
+		return nil, fmt.Errorf("encode LayoutUndoConfirmationRequired.ConfirmationRequired: invalid value %v", value.ConfirmationRequired)
+	}
+	switch value.Undone {
+	case false:
+	default:
+		return nil, fmt.Errorf("encode LayoutUndoConfirmationRequired.Undone: invalid value %v", value.Undone)
+	}
+	type wire LayoutUndoConfirmationRequired
+	return json.Marshal(wire(value))
+}
+
+func (value *LayoutUndoConfirmationRequired) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode LayoutUndoConfirmationRequired: expected object")
+	}
+	var fields struct {
+		ClosesPanes          *[]ID   `json:"closes_panes"`
+		ConfirmationRequired *bool   `json:"confirmation_required"`
+		Revision             *uint64 `json:"revision"`
+		Screen               *ID     `json:"screen"`
+		Undone               *bool   `json:"undone"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode LayoutUndoConfirmationRequired: %w", err)
+	}
+	type wire LayoutUndoConfirmationRequired
+	var decoded wire
+	if fields.ClosesPanes == nil {
+		return fmt.Errorf("decode LayoutUndoConfirmationRequired: required field closes_panes is missing or null")
+	}
+	decoded.ClosesPanes = *fields.ClosesPanes
+	if fields.ConfirmationRequired == nil {
+		return fmt.Errorf("decode LayoutUndoConfirmationRequired: required field confirmation_required is missing or null")
+	}
+	decoded.ConfirmationRequired = *fields.ConfirmationRequired
+	switch decoded.ConfirmationRequired {
+	case true:
+	default:
+		return fmt.Errorf("decode LayoutUndoConfirmationRequired.ConfirmationRequired: invalid value %v", decoded.ConfirmationRequired)
+	}
+	if fields.Revision == nil {
+		return fmt.Errorf("decode LayoutUndoConfirmationRequired: required field revision is missing or null")
+	}
+	decoded.Revision = *fields.Revision
+	if fields.Screen == nil {
+		return fmt.Errorf("decode LayoutUndoConfirmationRequired: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	if fields.Undone == nil {
+		return fmt.Errorf("decode LayoutUndoConfirmationRequired: required field undone is missing or null")
+	}
+	decoded.Undone = *fields.Undone
+	switch decoded.Undone {
+	case false:
+	default:
+		return fmt.Errorf("decode LayoutUndoConfirmationRequired.Undone: invalid value %v", decoded.Undone)
+	}
+	*value = LayoutUndoConfirmationRequired(decoded)
+	return nil
 }
 
 type LayoutUndoResult struct {
@@ -1096,18 +2431,65 @@ type LayoutUndoUndone struct {
 	Undone               bool   `json:"undone"`
 }
 
+func (value LayoutUndoUndone) MarshalJSON() ([]byte, error) {
+	if value.ConfirmationRequired != nil {
+		switch *value.ConfirmationRequired {
+		case false:
+		default:
+			return nil, fmt.Errorf("encode LayoutUndoUndone.ConfirmationRequired: invalid value %v", *value.ConfirmationRequired)
+		}
+	}
+	switch value.Undone {
+	case true:
+	default:
+		return nil, fmt.Errorf("encode LayoutUndoUndone.Undone: invalid value %v", value.Undone)
+	}
+	type wire LayoutUndoUndone
+	return json.Marshal(wire(value))
+}
+
 func (value *LayoutUndoUndone) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode LayoutUndoUndone: expected object")
+	}
+	var fields struct {
+		ConfirmationRequired optionalNonNullJSON[bool] `json:"confirmation_required"`
+		Revision             *uint64                   `json:"revision"`
+		Screen               *ID                       `json:"screen"`
+		Undone               *bool                     `json:"undone"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode LayoutUndoUndone: %w", err)
+	}
 	type wire LayoutUndoUndone
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["confirmation_required"]; exists && isJSONNull(raw) {
+	if fields.ConfirmationRequired.null {
 		return fmt.Errorf("decode LayoutUndoUndone: non-nullable field confirmation_required is null")
+	}
+	if fields.ConfirmationRequired.set {
+		decoded.ConfirmationRequired = &fields.ConfirmationRequired.value
+		switch *decoded.ConfirmationRequired {
+		case false:
+		default:
+			return fmt.Errorf("decode LayoutUndoUndone.ConfirmationRequired: invalid value %v", *decoded.ConfirmationRequired)
+		}
+	}
+	if fields.Revision == nil {
+		return fmt.Errorf("decode LayoutUndoUndone: required field revision is missing or null")
+	}
+	decoded.Revision = *fields.Revision
+	if fields.Screen == nil {
+		return fmt.Errorf("decode LayoutUndoUndone: required field screen is missing or null")
+	}
+	decoded.Screen = *fields.Screen
+	if fields.Undone == nil {
+		return fmt.Errorf("decode LayoutUndoUndone: required field undone is missing or null")
+	}
+	decoded.Undone = *fields.Undone
+	switch decoded.Undone {
+	case true:
+	default:
+		return fmt.Errorf("decode LayoutUndoUndone.Undone: invalid value %v", decoded.Undone)
 	}
 	*value = LayoutUndoUndone(decoded)
 	return nil
@@ -1117,11 +2499,66 @@ type ListAgentsResult struct {
 	Agents []AgentRecord `json:"agents"`
 }
 
+func (value *ListAgentsResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ListAgentsResult: expected object")
+	}
+	var fields struct {
+		Agents *[]AgentRecord `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ListAgentsResult: %w", err)
+	}
+	type wire ListAgentsResult
+	var decoded wire
+	if fields.Agents == nil {
+		return fmt.Errorf("decode ListAgentsResult: required field agents is missing or null")
+	}
+	decoded.Agents = *fields.Agents
+	*value = ListAgentsResult(decoded)
+	return nil
+}
+
 type ListTerminalsResult struct {
 	Generation       string           `json:"generation"`
 	RegistryID       string           `json:"registry_id"`
 	TerminalRevision uint64           `json:"terminal_revision"`
 	Terminals        []TerminalRecord `json:"terminals"`
+}
+
+func (value *ListTerminalsResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ListTerminalsResult: expected object")
+	}
+	var fields struct {
+		Generation       *string           `json:"generation"`
+		RegistryID       *string           `json:"registry_id"`
+		TerminalRevision *uint64           `json:"terminal_revision"`
+		Terminals        *[]TerminalRecord `json:"terminals"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ListTerminalsResult: %w", err)
+	}
+	type wire ListTerminalsResult
+	var decoded wire
+	if fields.Generation == nil {
+		return fmt.Errorf("decode ListTerminalsResult: required field generation is missing or null")
+	}
+	decoded.Generation = *fields.Generation
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode ListTerminalsResult: required field registry_id is missing or null")
+	}
+	decoded.RegistryID = *fields.RegistryID
+	if fields.TerminalRevision == nil {
+		return fmt.Errorf("decode ListTerminalsResult: required field terminal_revision is missing or null")
+	}
+	decoded.TerminalRevision = *fields.TerminalRevision
+	if fields.Terminals == nil {
+		return fmt.Errorf("decode ListTerminalsResult: required field terminals is missing or null")
+	}
+	decoded.Terminals = *fields.Terminals
+	*value = ListTerminalsResult(decoded)
+	return nil
 }
 
 type LivePane struct {
@@ -1160,34 +2597,50 @@ func (value LivePane) MarshalJSON() ([]byte, error) {
 }
 
 func (value *LivePane) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode LivePane: expected object")
+	}
+	var fields struct {
+		ActiveTab *uint64                     `json:"active_tab"`
+		FocusedAt optionalNonNullJSON[uint64] `json:"focused_at"`
+		ID        *ID                         `json:"id"`
+		Name      RequiredNullable[string]    `json:"name"`
+		ShortID   optionalNonNullJSON[string] `json:"short_id"`
+		Tabs      *[]Tab                      `json:"tabs"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode LivePane: %w", err)
+	}
 	type wire LivePane
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.ActiveTab == nil {
+		return fmt.Errorf("decode LivePane: required field active_tab is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["focused_at"]; exists && isJSONNull(raw) {
+	decoded.ActiveTab = *fields.ActiveTab
+	if fields.FocusedAt.null {
 		return fmt.Errorf("decode LivePane: non-nullable field focused_at is null")
 	}
-	if raw, exists := object["short_id"]; exists && isJSONNull(raw) {
+	if fields.FocusedAt.set {
+		decoded.FocusedAt = &fields.FocusedAt.value
+	}
+	if fields.ID == nil {
+		return fmt.Errorf("decode LivePane: required field id is missing or null")
+	}
+	decoded.ID = *fields.ID
+	if !fields.Name.IsSet() {
+		return fmt.Errorf("decode LivePane: required field name is missing")
+	}
+	decoded.Name = fields.Name
+	if fields.ShortID.null {
 		return fmt.Errorf("decode LivePane: non-nullable field short_id is null")
 	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		return fmt.Errorf("decode LivePane: required nullable field name is missing")
+	if fields.ShortID.set {
+		decoded.ShortID = &fields.ShortID.value
 	}
-	if isJSONNull(rawName) {
-		decoded.Name = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode LivePane.Name: %w", err)
-		}
-		decoded.Name = RequiredValue(fieldValue)
+	if fields.Tabs == nil {
+		return fmt.Errorf("decode LivePane: required field tabs is missing or null")
 	}
+	decoded.Tabs = *fields.Tabs
 	*value = LivePane(decoded)
 	return nil
 }
@@ -1199,6 +2652,51 @@ type MintTerminalRendererResult struct {
 	TerminalID  string `json:"terminal_id"`
 	Token       string `json:"token"`
 	TtlMs       uint64 `json:"ttl_ms"`
+}
+
+func (value *MintTerminalRendererResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode MintTerminalRendererResult: expected object")
+	}
+	var fields struct {
+		Endpoint    *string `json:"endpoint"`
+		Incarnation *string `json:"incarnation"`
+		Rights      *uint32 `json:"rights"`
+		TerminalID  *string `json:"terminal_id"`
+		Token       *string `json:"token"`
+		TtlMs       *uint64 `json:"ttl_ms"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode MintTerminalRendererResult: %w", err)
+	}
+	type wire MintTerminalRendererResult
+	var decoded wire
+	if fields.Endpoint == nil {
+		return fmt.Errorf("decode MintTerminalRendererResult: required field endpoint is missing or null")
+	}
+	decoded.Endpoint = *fields.Endpoint
+	if fields.Incarnation == nil {
+		return fmt.Errorf("decode MintTerminalRendererResult: required field incarnation is missing or null")
+	}
+	decoded.Incarnation = *fields.Incarnation
+	if fields.Rights == nil {
+		return fmt.Errorf("decode MintTerminalRendererResult: required field rights is missing or null")
+	}
+	decoded.Rights = *fields.Rights
+	if fields.TerminalID == nil {
+		return fmt.Errorf("decode MintTerminalRendererResult: required field terminal_id is missing or null")
+	}
+	decoded.TerminalID = *fields.TerminalID
+	if fields.Token == nil {
+		return fmt.Errorf("decode MintTerminalRendererResult: required field token is missing or null")
+	}
+	decoded.Token = *fields.Token
+	if fields.TtlMs == nil {
+		return fmt.Errorf("decode MintTerminalRendererResult: required field ttl_ms is missing or null")
+	}
+	decoded.TtlMs = *fields.TtlMs
+	*value = MintTerminalRendererResult(decoded)
+	return nil
 }
 
 type MoveTerminalResult struct {
@@ -1296,80 +2794,81 @@ func (value MoveTerminalResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *MoveTerminalResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode MoveTerminalResult: expected object")
+	}
+	var fields struct {
+		Changed             *bool                    `json:"changed"`
+		Generation          *string                  `json:"generation"`
+		Lifecycle           *TerminalLifecycle       `json:"lifecycle"`
+		Pane                RequiredNullable[ID]     `json:"pane"`
+		RegistryID          *string                  `json:"registry_id"`
+		Replayed            *bool                    `json:"replayed"`
+		Screen              RequiredNullable[ID]     `json:"screen"`
+		Surface             RequiredNullable[ID]     `json:"surface"`
+		TerminalID          *string                  `json:"terminal_id"`
+		TerminalIncarnation RequiredNullable[string] `json:"terminal_incarnation"`
+		TerminalRevision    *uint64                  `json:"terminal_revision"`
+		Workspace           RequiredNullable[ID]     `json:"workspace"`
+		WorkspaceKey        *string                  `json:"workspace_key"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode MoveTerminalResult: %w", err)
+	}
 	type wire MoveTerminalResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Changed == nil {
+		return fmt.Errorf("decode MoveTerminalResult: required field changed is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Changed = *fields.Changed
+	if fields.Generation == nil {
+		return fmt.Errorf("decode MoveTerminalResult: required field generation is missing or null")
 	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		return fmt.Errorf("decode MoveTerminalResult: required nullable field pane is missing")
+	decoded.Generation = *fields.Generation
+	if fields.Lifecycle == nil {
+		return fmt.Errorf("decode MoveTerminalResult: required field lifecycle is missing or null")
 	}
-	if isJSONNull(rawPane) {
-		decoded.Pane = RequiredNull[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalResult.Pane: %w", err)
-		}
-		decoded.Pane = RequiredValue(fieldValue)
+	decoded.Lifecycle = *fields.Lifecycle
+	if !fields.Pane.IsSet() {
+		return fmt.Errorf("decode MoveTerminalResult: required field pane is missing")
 	}
-	rawScreen, hasScreen := object["screen"]
-	if !hasScreen {
-		return fmt.Errorf("decode MoveTerminalResult: required nullable field screen is missing")
+	decoded.Pane = fields.Pane
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode MoveTerminalResult: required field registry_id is missing or null")
 	}
-	if isJSONNull(rawScreen) {
-		decoded.Screen = RequiredNull[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawScreen, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalResult.Screen: %w", err)
-		}
-		decoded.Screen = RequiredValue(fieldValue)
+	decoded.RegistryID = *fields.RegistryID
+	if fields.Replayed == nil {
+		return fmt.Errorf("decode MoveTerminalResult: required field replayed is missing or null")
 	}
-	rawSurface, hasSurface := object["surface"]
-	if !hasSurface {
-		return fmt.Errorf("decode MoveTerminalResult: required nullable field surface is missing")
+	decoded.Replayed = *fields.Replayed
+	if !fields.Screen.IsSet() {
+		return fmt.Errorf("decode MoveTerminalResult: required field screen is missing")
 	}
-	if isJSONNull(rawSurface) {
-		decoded.Surface = RequiredNull[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalResult.Surface: %w", err)
-		}
-		decoded.Surface = RequiredValue(fieldValue)
+	decoded.Screen = fields.Screen
+	if !fields.Surface.IsSet() {
+		return fmt.Errorf("decode MoveTerminalResult: required field surface is missing")
 	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		return fmt.Errorf("decode MoveTerminalResult: required nullable field terminal_incarnation is missing")
+	decoded.Surface = fields.Surface
+	if fields.TerminalID == nil {
+		return fmt.Errorf("decode MoveTerminalResult: required field terminal_id is missing or null")
 	}
-	if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalResult.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = RequiredValue(fieldValue)
+	decoded.TerminalID = *fields.TerminalID
+	if !fields.TerminalIncarnation.IsSet() {
+		return fmt.Errorf("decode MoveTerminalResult: required field terminal_incarnation is missing")
 	}
-	rawWorkspace, hasWorkspace := object["workspace"]
-	if !hasWorkspace {
-		return fmt.Errorf("decode MoveTerminalResult: required nullable field workspace is missing")
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
+	if fields.TerminalRevision == nil {
+		return fmt.Errorf("decode MoveTerminalResult: required field terminal_revision is missing or null")
 	}
-	if isJSONNull(rawWorkspace) {
-		decoded.Workspace = RequiredNull[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawWorkspace, &fieldValue); err != nil {
-			return fmt.Errorf("decode MoveTerminalResult.Workspace: %w", err)
-		}
-		decoded.Workspace = RequiredValue(fieldValue)
+	decoded.TerminalRevision = *fields.TerminalRevision
+	if !fields.Workspace.IsSet() {
+		return fmt.Errorf("decode MoveTerminalResult: required field workspace is missing")
 	}
+	decoded.Workspace = fields.Workspace
+	if fields.WorkspaceKey == nil {
+		return fmt.Errorf("decode MoveTerminalResult: required field workspace_key is missing or null")
+	}
+	decoded.WorkspaceKey = *fields.WorkspaceKey
 	*value = MoveTerminalResult(decoded)
 	return nil
 }
@@ -1382,14 +2881,93 @@ const (
 	NotificationLevelError   NotificationLevel = "error"
 )
 
+func (value NotificationLevel) valid() bool {
+	switch value {
+	case NotificationLevelInfo, NotificationLevelWarning, NotificationLevelError:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value NotificationLevel) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "NotificationLevel", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *NotificationLevel) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := NotificationLevel(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "NotificationLevel", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type NotificationMarker struct {
 	Level        NotificationLevel `json:"level"`
 	Notification ID                `json:"notification"`
 	Unread       bool              `json:"unread"`
 }
 
+func (value *NotificationMarker) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NotificationMarker: expected object")
+	}
+	var fields struct {
+		Level        *NotificationLevel `json:"level"`
+		Notification *ID                `json:"notification"`
+		Unread       *bool              `json:"unread"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NotificationMarker: %w", err)
+	}
+	type wire NotificationMarker
+	var decoded wire
+	if fields.Level == nil {
+		return fmt.Errorf("decode NotificationMarker: required field level is missing or null")
+	}
+	decoded.Level = *fields.Level
+	if fields.Notification == nil {
+		return fmt.Errorf("decode NotificationMarker: required field notification is missing or null")
+	}
+	decoded.Notification = *fields.Notification
+	if fields.Unread == nil {
+		return fmt.Errorf("decode NotificationMarker: required field unread is missing or null")
+	}
+	decoded.Unread = *fields.Unread
+	*value = NotificationMarker(decoded)
+	return nil
+}
+
 type NotifyResult struct {
 	Notification ID `json:"notification"`
+}
+
+func (value *NotifyResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode NotifyResult: expected object")
+	}
+	var fields struct {
+		Notification *ID `json:"notification"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode NotifyResult: %w", err)
+	}
+	type wire NotifyResult
+	var decoded wire
+	if fields.Notification == nil {
+		return fmt.Errorf("decode NotifyResult: required field notification is missing or null")
+	}
+	decoded.Notification = *fields.Notification
+	*value = NotifyResult(decoded)
+	return nil
 }
 
 type Pane struct {
@@ -1448,6 +3026,35 @@ const (
 	PaneDirectionDown  PaneDirection = "down"
 )
 
+func (value PaneDirection) valid() bool {
+	switch value {
+	case PaneDirectionLeft, PaneDirectionRight, PaneDirectionUp, PaneDirectionDown:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value PaneDirection) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "PaneDirection", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *PaneDirection) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := PaneDirection(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "PaneDirection", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type PaneNeighborResult struct {
 	Pane RequiredNullable[ID] `json:"-"`
 }
@@ -1479,28 +3086,21 @@ func (value PaneNeighborResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *PaneNeighborResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PaneNeighborResult: expected object")
+	}
+	var fields struct {
+		Pane RequiredNullable[ID] `json:"pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PaneNeighborResult: %w", err)
+	}
 	type wire PaneNeighborResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if !fields.Pane.IsSet() {
+		return fmt.Errorf("decode PaneNeighborResult: required field pane is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawPane, hasPane := object["pane"]
-	if !hasPane {
-		return fmt.Errorf("decode PaneNeighborResult: required nullable field pane is missing")
-	}
-	if isJSONNull(rawPane) {
-		decoded.Pane = RequiredNull[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode PaneNeighborResult.Pane: %w", err)
-		}
-		decoded.Pane = RequiredValue(fieldValue)
-	}
+	decoded.Pane = fields.Pane
 	*value = PaneNeighborResult(decoded)
 	return nil
 }
@@ -1514,6 +3114,11 @@ type PingResult struct {
 }
 
 func (value PingResult) MarshalJSON() ([]byte, error) {
+	switch value.Ok {
+	case true:
+	default:
+		return nil, fmt.Errorf("encode PingResult.Ok: invalid value %v", value.Ok)
+	}
 	type wire PingResult
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -1551,39 +3156,40 @@ func (value PingResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *PingResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PingResult: expected object")
+	}
+	var fields struct {
+		BuildCommit   Presence[string] `json:"build_commit"`
+		GhosttyCommit Presence[string] `json:"ghostty_commit"`
+		Ok            *bool            `json:"ok"`
+		Protocol      *uint32          `json:"protocol"`
+		Version       *string          `json:"version"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PingResult: %w", err)
+	}
 	type wire PingResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.BuildCommit = fields.BuildCommit
+	decoded.GhosttyCommit = fields.GhosttyCommit
+	if fields.Ok == nil {
+		return fmt.Errorf("decode PingResult: required field ok is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Ok = *fields.Ok
+	switch decoded.Ok {
+	case true:
+	default:
+		return fmt.Errorf("decode PingResult.Ok: invalid value %v", decoded.Ok)
 	}
-	rawBuildCommit, hasBuildCommit := object["build_commit"]
-	if !hasBuildCommit {
-		decoded.BuildCommit = Presence[string]{}
-	} else if isJSONNull(rawBuildCommit) {
-		decoded.BuildCommit = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawBuildCommit, &fieldValue); err != nil {
-			return fmt.Errorf("decode PingResult.BuildCommit: %w", err)
-		}
-		decoded.BuildCommit = Value(fieldValue)
+	if fields.Protocol == nil {
+		return fmt.Errorf("decode PingResult: required field protocol is missing or null")
 	}
-	rawGhosttyCommit, hasGhosttyCommit := object["ghostty_commit"]
-	if !hasGhosttyCommit {
-		decoded.GhosttyCommit = Presence[string]{}
-	} else if isJSONNull(rawGhosttyCommit) {
-		decoded.GhosttyCommit = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawGhosttyCommit, &fieldValue); err != nil {
-			return fmt.Errorf("decode PingResult.GhosttyCommit: %w", err)
-		}
-		decoded.GhosttyCommit = Value(fieldValue)
+	decoded.Protocol = *fields.Protocol
+	if fields.Version == nil {
+		return fmt.Errorf("decode PingResult: required field version is missing or null")
 	}
+	decoded.Version = *fields.Version
 	*value = PingResult(decoded)
 	return nil
 }
@@ -1647,54 +3253,31 @@ func (value ProcessInfoResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ProcessInfoResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ProcessInfoResult: expected object")
+	}
+	var fields struct {
+		Command RequiredNullable[string] `json:"command"`
+		Cwd     RequiredNullable[string] `json:"cwd"`
+		PID     RequiredNullable[uint32] `json:"pid"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ProcessInfoResult: %w", err)
+	}
 	type wire ProcessInfoResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if !fields.Command.IsSet() {
+		return fmt.Errorf("decode ProcessInfoResult: required field command is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Command = fields.Command
+	if !fields.Cwd.IsSet() {
+		return fmt.Errorf("decode ProcessInfoResult: required field cwd is missing")
 	}
-	rawCommand, hasCommand := object["command"]
-	if !hasCommand {
-		return fmt.Errorf("decode ProcessInfoResult: required nullable field command is missing")
+	decoded.Cwd = fields.Cwd
+	if !fields.PID.IsSet() {
+		return fmt.Errorf("decode ProcessInfoResult: required field pid is missing")
 	}
-	if isJSONNull(rawCommand) {
-		decoded.Command = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCommand, &fieldValue); err != nil {
-			return fmt.Errorf("decode ProcessInfoResult.Command: %w", err)
-		}
-		decoded.Command = RequiredValue(fieldValue)
-	}
-	rawCwd, hasCwd := object["cwd"]
-	if !hasCwd {
-		return fmt.Errorf("decode ProcessInfoResult: required nullable field cwd is missing")
-	}
-	if isJSONNull(rawCwd) {
-		decoded.Cwd = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawCwd, &fieldValue); err != nil {
-			return fmt.Errorf("decode ProcessInfoResult.Cwd: %w", err)
-		}
-		decoded.Cwd = RequiredValue(fieldValue)
-	}
-	rawPID, hasPID := object["pid"]
-	if !hasPID {
-		return fmt.Errorf("decode ProcessInfoResult: required nullable field pid is missing")
-	}
-	if isJSONNull(rawPID) {
-		decoded.PID = RequiredNull[uint32]()
-	} else {
-		var fieldValue uint32
-		if err := json.Unmarshal(rawPID, &fieldValue); err != nil {
-			return fmt.Errorf("decode ProcessInfoResult.PID: %w", err)
-		}
-		decoded.PID = RequiredValue(fieldValue)
-	}
+	decoded.PID = fields.PID
 	*value = ProcessInfoResult(decoded)
 	return nil
 }
@@ -1705,14 +3288,94 @@ type ProviderWorkspaceMutationResult struct {
 	WorkspaceRevision uint64 `json:"workspace_revision"`
 }
 
+func (value *ProviderWorkspaceMutationResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ProviderWorkspaceMutationResult: expected object")
+	}
+	var fields struct {
+		Key               *string `json:"key"`
+		Workspace         *ID     `json:"workspace"`
+		WorkspaceRevision *uint64 `json:"workspace_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ProviderWorkspaceMutationResult: %w", err)
+	}
+	type wire ProviderWorkspaceMutationResult
+	var decoded wire
+	if fields.Key == nil {
+		return fmt.Errorf("decode ProviderWorkspaceMutationResult: required field key is missing or null")
+	}
+	decoded.Key = *fields.Key
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode ProviderWorkspaceMutationResult: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	if fields.WorkspaceRevision == nil {
+		return fmt.Errorf("decode ProviderWorkspaceMutationResult: required field workspace_revision is missing or null")
+	}
+	decoded.WorkspaceRevision = *fields.WorkspaceRevision
+	*value = ProviderWorkspaceMutationResult(decoded)
+	return nil
+}
+
 type ReadScreenResult struct {
 	Text string `json:"text"`
+}
+
+func (value *ReadScreenResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ReadScreenResult: expected object")
+	}
+	var fields struct {
+		Text *string `json:"text"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ReadScreenResult: %w", err)
+	}
+	type wire ReadScreenResult
+	var decoded wire
+	if fields.Text == nil {
+		return fmt.Errorf("decode ReadScreenResult: required field text is missing or null")
+	}
+	decoded.Text = *fields.Text
+	*value = ReadScreenResult(decoded)
+	return nil
 }
 
 type ReadScrollbackResult struct {
 	Rows  []RenderRow `json:"rows"`
 	Start uint32      `json:"start"`
 	Total uint32      `json:"total"`
+}
+
+func (value *ReadScrollbackResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ReadScrollbackResult: expected object")
+	}
+	var fields struct {
+		Rows  *[]RenderRow `json:"rows"`
+		Start *uint32      `json:"start"`
+		Total *uint32      `json:"total"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ReadScrollbackResult: %w", err)
+	}
+	type wire ReadScrollbackResult
+	var decoded wire
+	if fields.Rows == nil {
+		return fmt.Errorf("decode ReadScrollbackResult: required field rows is missing or null")
+	}
+	decoded.Rows = *fields.Rows
+	if fields.Start == nil {
+		return fmt.Errorf("decode ReadScrollbackResult: required field start is missing or null")
+	}
+	decoded.Start = *fields.Start
+	if fields.Total == nil {
+		return fmt.Errorf("decode ReadScrollbackResult: required field total is missing or null")
+	}
+	decoded.Total = *fields.Total
+	*value = ReadScrollbackResult(decoded)
+	return nil
 }
 
 type RenderCursor struct {
@@ -1751,28 +3414,46 @@ func (value RenderCursor) MarshalJSON() ([]byte, error) {
 }
 
 func (value *RenderCursor) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RenderCursor: expected object")
+	}
+	var fields struct {
+		Blink   *bool                      `json:"blink"`
+		Color   RequiredNullable[ColorHex] `json:"color"`
+		Style   *CursorStyle               `json:"style"`
+		Visible *bool                      `json:"visible"`
+		X       *uint16                    `json:"x"`
+		Y       *uint16                    `json:"y"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RenderCursor: %w", err)
+	}
 	type wire RenderCursor
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Blink == nil {
+		return fmt.Errorf("decode RenderCursor: required field blink is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Blink = *fields.Blink
+	if !fields.Color.IsSet() {
+		return fmt.Errorf("decode RenderCursor: required field color is missing")
 	}
-	rawColor, hasColor := object["color"]
-	if !hasColor {
-		return fmt.Errorf("decode RenderCursor: required nullable field color is missing")
+	decoded.Color = fields.Color
+	if fields.Style == nil {
+		return fmt.Errorf("decode RenderCursor: required field style is missing or null")
 	}
-	if isJSONNull(rawColor) {
-		decoded.Color = RequiredNull[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawColor, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenderCursor.Color: %w", err)
-		}
-		decoded.Color = RequiredValue(fieldValue)
+	decoded.Style = *fields.Style
+	if fields.Visible == nil {
+		return fmt.Errorf("decode RenderCursor: required field visible is missing or null")
 	}
+	decoded.Visible = *fields.Visible
+	if fields.X == nil {
+		return fmt.Errorf("decode RenderCursor: required field x is missing or null")
+	}
+	decoded.X = *fields.X
+	if fields.Y == nil {
+		return fmt.Errorf("decode RenderCursor: required field y is missing or null")
+	}
+	decoded.Y = *fields.Y
 	*value = RenderCursor(decoded)
 	return nil
 }
@@ -1780,6 +3461,31 @@ func (value *RenderCursor) UnmarshalJSON(data []byte) error {
 type RenderRow struct {
 	Row  uint32      `json:"row"`
 	Runs []RenderRun `json:"runs"`
+}
+
+func (value *RenderRow) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RenderRow: expected object")
+	}
+	var fields struct {
+		Row  *uint32      `json:"row"`
+		Runs *[]RenderRun `json:"runs"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RenderRow: %w", err)
+	}
+	type wire RenderRow
+	var decoded wire
+	if fields.Row == nil {
+		return fmt.Errorf("decode RenderRow: required field row is missing or null")
+	}
+	decoded.Row = *fields.Row
+	if fields.Runs == nil {
+		return fmt.Errorf("decode RenderRow: required field runs is missing or null")
+	}
+	decoded.Runs = *fields.Runs
+	*value = RenderRow(decoded)
+	return nil
 }
 
 type RenderRun struct {
@@ -1831,46 +3537,49 @@ func (value RenderRun) MarshalJSON() ([]byte, error) {
 }
 
 func (value *RenderRun) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RenderRun: expected object")
+	}
+	var fields struct {
+		Attrs     *uint32                              `json:"attrs"`
+		Bg        RequiredNullable[ColorHex]           `json:"bg"`
+		Fg        RequiredNullable[ColorHex]           `json:"fg"`
+		Text      *string                              `json:"text"`
+		Underline optionalNonNullJSON[RenderUnderline] `json:"underline"`
+		WidthHint optionalNonNullJSON[uint16]          `json:"width_hint"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RenderRun: %w", err)
+	}
 	type wire RenderRun
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Attrs == nil {
+		return fmt.Errorf("decode RenderRun: required field attrs is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Attrs = *fields.Attrs
+	if !fields.Bg.IsSet() {
+		return fmt.Errorf("decode RenderRun: required field bg is missing")
 	}
-	if raw, exists := object["underline"]; exists && isJSONNull(raw) {
+	decoded.Bg = fields.Bg
+	if !fields.Fg.IsSet() {
+		return fmt.Errorf("decode RenderRun: required field fg is missing")
+	}
+	decoded.Fg = fields.Fg
+	if fields.Text == nil {
+		return fmt.Errorf("decode RenderRun: required field text is missing or null")
+	}
+	decoded.Text = *fields.Text
+	if fields.Underline.null {
 		return fmt.Errorf("decode RenderRun: non-nullable field underline is null")
 	}
-	if raw, exists := object["width_hint"]; exists && isJSONNull(raw) {
+	if fields.Underline.set {
+		decoded.Underline = &fields.Underline.value
+	}
+	if fields.WidthHint.null {
 		return fmt.Errorf("decode RenderRun: non-nullable field width_hint is null")
 	}
-	rawBg, hasBg := object["bg"]
-	if !hasBg {
-		return fmt.Errorf("decode RenderRun: required nullable field bg is missing")
-	}
-	if isJSONNull(rawBg) {
-		decoded.Bg = RequiredNull[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawBg, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenderRun.Bg: %w", err)
-		}
-		decoded.Bg = RequiredValue(fieldValue)
-	}
-	rawFg, hasFg := object["fg"]
-	if !hasFg {
-		return fmt.Errorf("decode RenderRun: required nullable field fg is missing")
-	}
-	if isJSONNull(rawFg) {
-		decoded.Fg = RequiredNull[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawFg, &fieldValue); err != nil {
-			return fmt.Errorf("decode RenderRun.Fg: %w", err)
-		}
-		decoded.Fg = RequiredValue(fieldValue)
+	if fields.WidthHint.set {
+		decoded.WidthHint = &fields.WidthHint.value
 	}
 	*value = RenderRun(decoded)
 	return nil
@@ -1885,6 +3594,35 @@ const (
 	RenderUnderlineDotted RenderUnderline = "dotted"
 	RenderUnderlineDashed RenderUnderline = "dashed"
 )
+
+func (value RenderUnderline) valid() bool {
+	switch value {
+	case RenderUnderlineSingle, RenderUnderlineDouble, RenderUnderlineCurly, RenderUnderlineDotted, RenderUnderlineDashed:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value RenderUnderline) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "RenderUnderline", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *RenderUnderline) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := RenderUnderline(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "RenderUnderline", decoded)
+	}
+	*value = candidate
+	return nil
+}
 
 type ReportAgentResult struct {
 	Session RequiredNullable[string] `json:"-"`
@@ -1920,28 +3658,36 @@ func (value ReportAgentResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ReportAgentResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ReportAgentResult: expected object")
+	}
+	var fields struct {
+		Session RequiredNullable[string] `json:"session"`
+		Source  *AgentReportSource       `json:"source"`
+		State   *AgentState              `json:"state"`
+		Surface *ID                      `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ReportAgentResult: %w", err)
+	}
 	type wire ReportAgentResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if !fields.Session.IsSet() {
+		return fmt.Errorf("decode ReportAgentResult: required field session is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Session = fields.Session
+	if fields.Source == nil {
+		return fmt.Errorf("decode ReportAgentResult: required field source is missing or null")
 	}
-	rawSession, hasSession := object["session"]
-	if !hasSession {
-		return fmt.Errorf("decode ReportAgentResult: required nullable field session is missing")
+	decoded.Source = *fields.Source
+	if fields.State == nil {
+		return fmt.Errorf("decode ReportAgentResult: required field state is missing or null")
 	}
-	if isJSONNull(rawSession) {
-		decoded.Session = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawSession, &fieldValue); err != nil {
-			return fmt.Errorf("decode ReportAgentResult.Session: %w", err)
-		}
-		decoded.Session = RequiredValue(fieldValue)
+	decoded.State = *fields.State
+	if fields.Surface == nil {
+		return fmt.Errorf("decode ReportAgentResult: required field surface is missing or null")
 	}
+	decoded.Surface = *fields.Surface
 	*value = ReportAgentResult(decoded)
 	return nil
 }
@@ -1978,28 +3724,26 @@ func (value ResizeSurfaceResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ResizeSurfaceResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ResizeSurfaceResult: expected object")
+	}
+	var fields struct {
+		Accepted      *bool                    `json:"accepted"`
+		ReservationID RequiredNullable[uint64] `json:"reservation_id"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ResizeSurfaceResult: %w", err)
+	}
 	type wire ResizeSurfaceResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Accepted == nil {
+		return fmt.Errorf("decode ResizeSurfaceResult: required field accepted is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Accepted = *fields.Accepted
+	if !fields.ReservationID.IsSet() {
+		return fmt.Errorf("decode ResizeSurfaceResult: required field reservation_id is missing")
 	}
-	rawReservationID, hasReservationID := object["reservation_id"]
-	if !hasReservationID {
-		return fmt.Errorf("decode ResizeSurfaceResult: required nullable field reservation_id is missing")
-	}
-	if isJSONNull(rawReservationID) {
-		decoded.ReservationID = RequiredNull[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawReservationID, &fieldValue); err != nil {
-			return fmt.Errorf("decode ResizeSurfaceResult.ReservationID: %w", err)
-		}
-		decoded.ReservationID = RequiredValue(fieldValue)
-	}
+	decoded.ReservationID = fields.ReservationID
 	*value = ResizeSurfaceResult(decoded)
 	return nil
 }
@@ -2070,54 +3814,66 @@ func (value ResolveTerminalResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ResolveTerminalResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ResolveTerminalResult: expected object")
+	}
+	var fields struct {
+		Exit                RequiredNullable[JSONValue] `json:"exit"`
+		Generation          *string                     `json:"generation"`
+		LaunchSpec          *JSONValue                  `json:"launch_spec"`
+		Lifecycle           *TerminalLifecycle          `json:"lifecycle"`
+		RegistryID          *string                     `json:"registry_id"`
+		Surface             RequiredNullable[ID]        `json:"surface"`
+		TerminalID          *string                     `json:"terminal_id"`
+		TerminalIncarnation RequiredNullable[string]    `json:"terminal_incarnation"`
+		TerminalRevision    *uint64                     `json:"terminal_revision"`
+		WorkspaceKey        *string                     `json:"workspace_key"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ResolveTerminalResult: %w", err)
+	}
 	type wire ResolveTerminalResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if !fields.Exit.IsSet() {
+		return fmt.Errorf("decode ResolveTerminalResult: required field exit is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Exit = fields.Exit
+	if fields.Generation == nil {
+		return fmt.Errorf("decode ResolveTerminalResult: required field generation is missing or null")
 	}
-	rawExit, hasExit := object["exit"]
-	if !hasExit {
-		return fmt.Errorf("decode ResolveTerminalResult: required nullable field exit is missing")
+	decoded.Generation = *fields.Generation
+	if fields.LaunchSpec == nil {
+		return fmt.Errorf("decode ResolveTerminalResult: required field launch_spec is missing or null")
 	}
-	if isJSONNull(rawExit) {
-		decoded.Exit = RequiredNull[JSONValue]()
-	} else {
-		var fieldValue JSONValue
-		if err := json.Unmarshal(rawExit, &fieldValue); err != nil {
-			return fmt.Errorf("decode ResolveTerminalResult.Exit: %w", err)
-		}
-		decoded.Exit = RequiredValue(fieldValue)
+	decoded.LaunchSpec = *fields.LaunchSpec
+	if fields.Lifecycle == nil {
+		return fmt.Errorf("decode ResolveTerminalResult: required field lifecycle is missing or null")
 	}
-	rawSurface, hasSurface := object["surface"]
-	if !hasSurface {
-		return fmt.Errorf("decode ResolveTerminalResult: required nullable field surface is missing")
+	decoded.Lifecycle = *fields.Lifecycle
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode ResolveTerminalResult: required field registry_id is missing or null")
 	}
-	if isJSONNull(rawSurface) {
-		decoded.Surface = RequiredNull[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
-			return fmt.Errorf("decode ResolveTerminalResult.Surface: %w", err)
-		}
-		decoded.Surface = RequiredValue(fieldValue)
+	decoded.RegistryID = *fields.RegistryID
+	if !fields.Surface.IsSet() {
+		return fmt.Errorf("decode ResolveTerminalResult: required field surface is missing")
 	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		return fmt.Errorf("decode ResolveTerminalResult: required nullable field terminal_incarnation is missing")
+	decoded.Surface = fields.Surface
+	if fields.TerminalID == nil {
+		return fmt.Errorf("decode ResolveTerminalResult: required field terminal_id is missing or null")
 	}
-	if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode ResolveTerminalResult.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = RequiredValue(fieldValue)
+	decoded.TerminalID = *fields.TerminalID
+	if !fields.TerminalIncarnation.IsSet() {
+		return fmt.Errorf("decode ResolveTerminalResult: required field terminal_incarnation is missing")
 	}
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
+	if fields.TerminalRevision == nil {
+		return fmt.Errorf("decode ResolveTerminalResult: required field terminal_revision is missing or null")
+	}
+	decoded.TerminalRevision = *fields.TerminalRevision
+	if fields.WorkspaceKey == nil {
+		return fmt.Errorf("decode ResolveTerminalResult: required field workspace_key is missing or null")
+	}
+	decoded.WorkspaceKey = *fields.WorkspaceKey
 	*value = ResolveTerminalResult(decoded)
 	return nil
 }
@@ -2171,41 +3927,46 @@ func (value RunResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *RunResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RunResult: expected object")
+	}
+	var fields struct {
+		Pane                *ID                      `json:"pane"`
+		Screen              *ID                      `json:"screen"`
+		Surface             *ID                      `json:"surface"`
+		TerminalID          RequiredNullable[string] `json:"terminal_id"`
+		TerminalIncarnation RequiredNullable[string] `json:"terminal_incarnation"`
+		Workspace           *ID                      `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RunResult: %w", err)
+	}
 	type wire RunResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Pane == nil {
+		return fmt.Errorf("decode RunResult: required field pane is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Pane = *fields.Pane
+	if fields.Screen == nil {
+		return fmt.Errorf("decode RunResult: required field screen is missing or null")
 	}
-	rawTerminalID, hasTerminalID := object["terminal_id"]
-	if !hasTerminalID {
-		return fmt.Errorf("decode RunResult: required nullable field terminal_id is missing")
+	decoded.Screen = *fields.Screen
+	if fields.Surface == nil {
+		return fmt.Errorf("decode RunResult: required field surface is missing or null")
 	}
-	if isJSONNull(rawTerminalID) {
-		decoded.TerminalID = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalID, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunResult.TerminalID: %w", err)
-		}
-		decoded.TerminalID = RequiredValue(fieldValue)
+	decoded.Surface = *fields.Surface
+	if !fields.TerminalID.IsSet() {
+		return fmt.Errorf("decode RunResult: required field terminal_id is missing")
 	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		return fmt.Errorf("decode RunResult: required nullable field terminal_incarnation is missing")
+	decoded.TerminalID = fields.TerminalID
+	if !fields.TerminalIncarnation.IsSet() {
+		return fmt.Errorf("decode RunResult: required field terminal_incarnation is missing")
 	}
-	if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode RunResult.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = RequiredValue(fieldValue)
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode RunResult: required field workspace is missing or null")
 	}
+	decoded.Workspace = *fields.Workspace
 	*value = RunResult(decoded)
 	return nil
 }
@@ -2261,44 +4022,58 @@ func (value Screen) MarshalJSON() ([]byte, error) {
 }
 
 func (value *Screen) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode Screen: expected object")
+	}
+	var fields struct {
+		Active     *bool                       `json:"active"`
+		ActivePane *ID                         `json:"active_pane"`
+		ID         *ID                         `json:"id"`
+		Layout     *Layout                     `json:"layout"`
+		Name       RequiredNullable[string]    `json:"name"`
+		Panes      *[]Pane                     `json:"panes"`
+		ShortID    optionalNonNullJSON[string] `json:"short_id"`
+		ZoomedPane RequiredNullable[ID]        `json:"zoomed_pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode Screen: %w", err)
+	}
 	type wire Screen
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Active == nil {
+		return fmt.Errorf("decode Screen: required field active is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Active = *fields.Active
+	if fields.ActivePane == nil {
+		return fmt.Errorf("decode Screen: required field active_pane is missing or null")
 	}
-	if raw, exists := object["short_id"]; exists && isJSONNull(raw) {
+	decoded.ActivePane = *fields.ActivePane
+	if fields.ID == nil {
+		return fmt.Errorf("decode Screen: required field id is missing or null")
+	}
+	decoded.ID = *fields.ID
+	if fields.Layout == nil {
+		return fmt.Errorf("decode Screen: required field layout is missing or null")
+	}
+	decoded.Layout = *fields.Layout
+	if !fields.Name.IsSet() {
+		return fmt.Errorf("decode Screen: required field name is missing")
+	}
+	decoded.Name = fields.Name
+	if fields.Panes == nil {
+		return fmt.Errorf("decode Screen: required field panes is missing or null")
+	}
+	decoded.Panes = *fields.Panes
+	if fields.ShortID.null {
 		return fmt.Errorf("decode Screen: non-nullable field short_id is null")
 	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		return fmt.Errorf("decode Screen: required nullable field name is missing")
+	if fields.ShortID.set {
+		decoded.ShortID = &fields.ShortID.value
 	}
-	if isJSONNull(rawName) {
-		decoded.Name = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode Screen.Name: %w", err)
-		}
-		decoded.Name = RequiredValue(fieldValue)
+	if !fields.ZoomedPane.IsSet() {
+		return fmt.Errorf("decode Screen: required field zoomed_pane is missing")
 	}
-	rawZoomedPane, hasZoomedPane := object["zoomed_pane"]
-	if !hasZoomedPane {
-		return fmt.Errorf("decode Screen: required nullable field zoomed_pane is missing")
-	}
-	if isJSONNull(rawZoomedPane) {
-		decoded.ZoomedPane = RequiredNull[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawZoomedPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode Screen.ZoomedPane: %w", err)
-		}
-		decoded.ZoomedPane = RequiredValue(fieldValue)
-	}
+	decoded.ZoomedPane = fields.ZoomedPane
 	*value = Screen(decoded)
 	return nil
 }
@@ -2308,10 +4083,80 @@ type SetCellPixelsResult struct {
 	Resizes  []CellPixelResize  `json:"resizes"`
 }
 
+func (value *SetCellPixelsResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetCellPixelsResult: expected object")
+	}
+	var fields struct {
+		Failures *[]CellPixelFailure `json:"failures"`
+		Resizes  *[]CellPixelResize  `json:"resizes"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetCellPixelsResult: %w", err)
+	}
+	type wire SetCellPixelsResult
+	var decoded wire
+	if fields.Failures == nil {
+		return fmt.Errorf("decode SetCellPixelsResult: required field failures is missing or null")
+	}
+	decoded.Failures = *fields.Failures
+	if fields.Resizes == nil {
+		return fmt.Errorf("decode SetCellPixelsResult: required field resizes is missing or null")
+	}
+	decoded.Resizes = *fields.Resizes
+	*value = SetCellPixelsResult(decoded)
+	return nil
+}
+
 type ShutdownDaemonResult struct {
 	Accepted   bool   `json:"accepted"`
 	Generation string `json:"generation"`
 	PID        uint32 `json:"pid"`
+}
+
+func (value ShutdownDaemonResult) MarshalJSON() ([]byte, error) {
+	switch value.Accepted {
+	case true:
+	default:
+		return nil, fmt.Errorf("encode ShutdownDaemonResult.Accepted: invalid value %v", value.Accepted)
+	}
+	type wire ShutdownDaemonResult
+	return json.Marshal(wire(value))
+}
+
+func (value *ShutdownDaemonResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ShutdownDaemonResult: expected object")
+	}
+	var fields struct {
+		Accepted   *bool   `json:"accepted"`
+		Generation *string `json:"generation"`
+		PID        *uint32 `json:"pid"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ShutdownDaemonResult: %w", err)
+	}
+	type wire ShutdownDaemonResult
+	var decoded wire
+	if fields.Accepted == nil {
+		return fmt.Errorf("decode ShutdownDaemonResult: required field accepted is missing or null")
+	}
+	decoded.Accepted = *fields.Accepted
+	switch decoded.Accepted {
+	case true:
+	default:
+		return fmt.Errorf("decode ShutdownDaemonResult.Accepted: invalid value %v", decoded.Accepted)
+	}
+	if fields.Generation == nil {
+		return fmt.Errorf("decode ShutdownDaemonResult: required field generation is missing or null")
+	}
+	decoded.Generation = *fields.Generation
+	if fields.PID == nil {
+		return fmt.Errorf("decode ShutdownDaemonResult: required field pid is missing or null")
+	}
+	decoded.PID = *fields.PID
+	*value = ShutdownDaemonResult(decoded)
+	return nil
 }
 
 type SidebarPluginResult struct {
@@ -2373,54 +4218,31 @@ func (value SidebarPluginResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SidebarPluginResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SidebarPluginResult: expected object")
+	}
+	var fields struct {
+		Error        RequiredNullable[string] `json:"error"`
+		RetryAfterMs RequiredNullable[uint64] `json:"retry_after_ms"`
+		Surface      RequiredNullable[ID]     `json:"surface"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SidebarPluginResult: %w", err)
+	}
 	type wire SidebarPluginResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if !fields.Error.IsSet() {
+		return fmt.Errorf("decode SidebarPluginResult: required field error is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Error = fields.Error
+	if !fields.RetryAfterMs.IsSet() {
+		return fmt.Errorf("decode SidebarPluginResult: required field retry_after_ms is missing")
 	}
-	rawError, hasError := object["error"]
-	if !hasError {
-		return fmt.Errorf("decode SidebarPluginResult: required nullable field error is missing")
+	decoded.RetryAfterMs = fields.RetryAfterMs
+	if !fields.Surface.IsSet() {
+		return fmt.Errorf("decode SidebarPluginResult: required field surface is missing")
 	}
-	if isJSONNull(rawError) {
-		decoded.Error = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawError, &fieldValue); err != nil {
-			return fmt.Errorf("decode SidebarPluginResult.Error: %w", err)
-		}
-		decoded.Error = RequiredValue(fieldValue)
-	}
-	rawRetryAfterMs, hasRetryAfterMs := object["retry_after_ms"]
-	if !hasRetryAfterMs {
-		return fmt.Errorf("decode SidebarPluginResult: required nullable field retry_after_ms is missing")
-	}
-	if isJSONNull(rawRetryAfterMs) {
-		decoded.RetryAfterMs = RequiredNull[uint64]()
-	} else {
-		var fieldValue uint64
-		if err := json.Unmarshal(rawRetryAfterMs, &fieldValue); err != nil {
-			return fmt.Errorf("decode SidebarPluginResult.RetryAfterMs: %w", err)
-		}
-		decoded.RetryAfterMs = RequiredValue(fieldValue)
-	}
-	rawSurface, hasSurface := object["surface"]
-	if !hasSurface {
-		return fmt.Errorf("decode SidebarPluginResult: required nullable field surface is missing")
-	}
-	if isJSONNull(rawSurface) {
-		decoded.Surface = RequiredNull[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawSurface, &fieldValue); err != nil {
-			return fmt.Errorf("decode SidebarPluginResult.Surface: %w", err)
-		}
-		decoded.Surface = RequiredValue(fieldValue)
-	}
+	decoded.Surface = fields.Surface
 	*value = SidebarPluginResult(decoded)
 	return nil
 }
@@ -2430,12 +4252,66 @@ type Size struct {
 	Rows uint16 `json:"rows"`
 }
 
+func (value *Size) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode Size: expected object")
+	}
+	var fields struct {
+		Cols *uint16 `json:"cols"`
+		Rows *uint16 `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode Size: %w", err)
+	}
+	type wire Size
+	var decoded wire
+	if fields.Cols == nil {
+		return fmt.Errorf("decode Size: required field cols is missing or null")
+	}
+	decoded.Cols = *fields.Cols
+	if fields.Rows == nil {
+		return fmt.Errorf("decode Size: required field rows is missing or null")
+	}
+	decoded.Rows = *fields.Rows
+	*value = Size(decoded)
+	return nil
+}
+
 type SplitDirection string
 
 const (
 	SplitDirectionRight SplitDirection = "right"
 	SplitDirectionDown  SplitDirection = "down"
 )
+
+func (value SplitDirection) valid() bool {
+	switch value {
+	case SplitDirectionRight, SplitDirectionDown:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value SplitDirection) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "SplitDirection", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *SplitDirection) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := SplitDirection(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "SplitDirection", decoded)
+	}
+	*value = candidate
+	return nil
+}
 
 type SurfaceResult struct {
 	Surface             ID               `json:"surface"`
@@ -2481,39 +4357,25 @@ func (value SurfaceResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *SurfaceResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SurfaceResult: expected object")
+	}
+	var fields struct {
+		Surface             *ID              `json:"surface"`
+		TerminalID          Presence[string] `json:"terminal_id"`
+		TerminalIncarnation Presence[string] `json:"terminal_incarnation"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SurfaceResult: %w", err)
+	}
 	type wire SurfaceResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Surface == nil {
+		return fmt.Errorf("decode SurfaceResult: required field surface is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	rawTerminalID, hasTerminalID := object["terminal_id"]
-	if !hasTerminalID {
-		decoded.TerminalID = Presence[string]{}
-	} else if isJSONNull(rawTerminalID) {
-		decoded.TerminalID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalID, &fieldValue); err != nil {
-			return fmt.Errorf("decode SurfaceResult.TerminalID: %w", err)
-		}
-		decoded.TerminalID = Value(fieldValue)
-	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		decoded.TerminalIncarnation = Presence[string]{}
-	} else if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode SurfaceResult.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = Value(fieldValue)
-	}
+	decoded.Surface = *fields.Surface
+	decoded.TerminalID = fields.TerminalID
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
 	*value = SurfaceResult(decoded)
 	return nil
 }
@@ -2525,6 +4387,35 @@ const (
 	TabBrowserSourceLaunched TabBrowserSource = "launched"
 )
 
+func (value TabBrowserSource) valid() bool {
+	switch value {
+	case TabBrowserSourceExternal, TabBrowserSourceLaunched:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value TabBrowserSource) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TabBrowserSource", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *TabBrowserSource) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := TabBrowserSource(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TabBrowserSource", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type TabBrowserStatus string
 
 const (
@@ -2533,13 +4424,78 @@ const (
 	TabBrowserStatusFailed   TabBrowserStatus = "failed"
 )
 
+func (value TabBrowserStatus) valid() bool {
+	switch value {
+	case TabBrowserStatusStarting, TabBrowserStatusLive, TabBrowserStatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value TabBrowserStatus) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TabBrowserStatus", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *TabBrowserStatus) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := TabBrowserStatus(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TabBrowserStatus", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
+type TabKind string
+
+const (
+	TabKindPTY     TabKind = "pty"
+	TabKindBrowser TabKind = "browser"
+)
+
+func (value TabKind) valid() bool {
+	switch value {
+	case TabKindPTY, TabKindBrowser:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value TabKind) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TabKind", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *TabKind) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := TabKind(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TabKind", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type Tab struct {
 	BrowserError                    Presence[string]                   `json:"-"`
 	BrowserFramesStalled            Presence[bool]                     `json:"-"`
 	BrowserSource                   RequiredNullable[TabBrowserSource] `json:"-"`
 	BrowserStatus                   Presence[TabBrowserStatus]         `json:"-"`
 	Dead                            bool                               `json:"dead"`
-	Kind                            string                             `json:"kind"`
+	Kind                            TabKind                            `json:"kind"`
 	Name                            RequiredNullable[string]           `json:"-"`
 	Notification                    Presence[NotificationMarker]       `json:"-"`
 	ShortID                         *string                            `json:"short_id,omitempty"`
@@ -2553,6 +4509,25 @@ type Tab struct {
 }
 
 func (value Tab) MarshalJSON() ([]byte, error) {
+	if fieldValue, ok := value.BrowserSource.Get(); ok {
+		switch fieldValue {
+		case "external", "launched":
+		default:
+			return nil, fmt.Errorf("encode Tab.BrowserSource: invalid value %v", fieldValue)
+		}
+	}
+	if fieldValue, ok := value.BrowserStatus.Get(); ok {
+		switch fieldValue {
+		case "starting", "live", "failed":
+		default:
+			return nil, fmt.Errorf("encode Tab.BrowserStatus: invalid value %v", fieldValue)
+		}
+	}
+	switch value.Kind {
+	case "pty", "browser":
+	default:
+		return nil, fmt.Errorf("encode Tab.Kind: invalid value %v", value.Kind)
+	}
 	type wire Tab
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -2689,144 +4664,84 @@ func (value Tab) MarshalJSON() ([]byte, error) {
 }
 
 func (value *Tab) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode Tab: expected object")
+	}
+	var fields struct {
+		BrowserError                    Presence[string]                   `json:"browser_error"`
+		BrowserFramesStalled            Presence[bool]                     `json:"browser_frames_stalled"`
+		BrowserSource                   RequiredNullable[TabBrowserSource] `json:"browser_source"`
+		BrowserStatus                   Presence[TabBrowserStatus]         `json:"browser_status"`
+		Dead                            *bool                              `json:"dead"`
+		Kind                            *TabKind                           `json:"kind"`
+		Name                            RequiredNullable[string]           `json:"name"`
+		Notification                    Presence[NotificationMarker]       `json:"notification"`
+		ShortID                         optionalNonNullJSON[string]        `json:"short_id"`
+		Size                            RequiredNullable[Size]             `json:"size"`
+		SupportsClearHistoryKeyFallback optionalNonNullJSON[bool]          `json:"supports_clear_history_key_fallback"`
+		Surface                         *ID                                `json:"surface"`
+		TerminalID                      Presence[string]                   `json:"terminal_id"`
+		TerminalIncarnation             Presence[string]                   `json:"terminal_incarnation"`
+		TerminalResourceID              Presence[string]                   `json:"terminal_resource_id"`
+		Title                           *string                            `json:"title"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode Tab: %w", err)
+	}
 	type wire Tab
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	decoded.BrowserError = fields.BrowserError
+	decoded.BrowserFramesStalled = fields.BrowserFramesStalled
+	if !fields.BrowserSource.IsSet() {
+		return fmt.Errorf("decode Tab: required field browser_source is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.BrowserSource = fields.BrowserSource
+	decoded.BrowserStatus = fields.BrowserStatus
+	if fields.Dead == nil {
+		return fmt.Errorf("decode Tab: required field dead is missing or null")
 	}
-	if raw, exists := object["short_id"]; exists && isJSONNull(raw) {
+	decoded.Dead = *fields.Dead
+	if fields.Kind == nil {
+		return fmt.Errorf("decode Tab: required field kind is missing or null")
+	}
+	decoded.Kind = *fields.Kind
+	switch decoded.Kind {
+	case "pty", "browser":
+	default:
+		return fmt.Errorf("decode Tab.Kind: invalid value %v", decoded.Kind)
+	}
+	if !fields.Name.IsSet() {
+		return fmt.Errorf("decode Tab: required field name is missing")
+	}
+	decoded.Name = fields.Name
+	decoded.Notification = fields.Notification
+	if fields.ShortID.null {
 		return fmt.Errorf("decode Tab: non-nullable field short_id is null")
 	}
-	if raw, exists := object["supports_clear_history_key_fallback"]; exists && isJSONNull(raw) {
+	if fields.ShortID.set {
+		decoded.ShortID = &fields.ShortID.value
+	}
+	if !fields.Size.IsSet() {
+		return fmt.Errorf("decode Tab: required field size is missing")
+	}
+	decoded.Size = fields.Size
+	if fields.SupportsClearHistoryKeyFallback.null {
 		return fmt.Errorf("decode Tab: non-nullable field supports_clear_history_key_fallback is null")
 	}
-	rawBrowserError, hasBrowserError := object["browser_error"]
-	if !hasBrowserError {
-		decoded.BrowserError = Presence[string]{}
-	} else if isJSONNull(rawBrowserError) {
-		decoded.BrowserError = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawBrowserError, &fieldValue); err != nil {
-			return fmt.Errorf("decode Tab.BrowserError: %w", err)
-		}
-		decoded.BrowserError = Value(fieldValue)
+	if fields.SupportsClearHistoryKeyFallback.set {
+		decoded.SupportsClearHistoryKeyFallback = &fields.SupportsClearHistoryKeyFallback.value
 	}
-	rawBrowserFramesStalled, hasBrowserFramesStalled := object["browser_frames_stalled"]
-	if !hasBrowserFramesStalled {
-		decoded.BrowserFramesStalled = Presence[bool]{}
-	} else if isJSONNull(rawBrowserFramesStalled) {
-		decoded.BrowserFramesStalled = Null[bool]()
-	} else {
-		var fieldValue bool
-		if err := json.Unmarshal(rawBrowserFramesStalled, &fieldValue); err != nil {
-			return fmt.Errorf("decode Tab.BrowserFramesStalled: %w", err)
-		}
-		decoded.BrowserFramesStalled = Value(fieldValue)
+	if fields.Surface == nil {
+		return fmt.Errorf("decode Tab: required field surface is missing or null")
 	}
-	rawBrowserSource, hasBrowserSource := object["browser_source"]
-	if !hasBrowserSource {
-		return fmt.Errorf("decode Tab: required nullable field browser_source is missing")
+	decoded.Surface = *fields.Surface
+	decoded.TerminalID = fields.TerminalID
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
+	decoded.TerminalResourceID = fields.TerminalResourceID
+	if fields.Title == nil {
+		return fmt.Errorf("decode Tab: required field title is missing or null")
 	}
-	if isJSONNull(rawBrowserSource) {
-		decoded.BrowserSource = RequiredNull[TabBrowserSource]()
-	} else {
-		var fieldValue TabBrowserSource
-		if err := json.Unmarshal(rawBrowserSource, &fieldValue); err != nil {
-			return fmt.Errorf("decode Tab.BrowserSource: %w", err)
-		}
-		decoded.BrowserSource = RequiredValue(fieldValue)
-	}
-	rawBrowserStatus, hasBrowserStatus := object["browser_status"]
-	if !hasBrowserStatus {
-		decoded.BrowserStatus = Presence[TabBrowserStatus]{}
-	} else if isJSONNull(rawBrowserStatus) {
-		decoded.BrowserStatus = Null[TabBrowserStatus]()
-	} else {
-		var fieldValue TabBrowserStatus
-		if err := json.Unmarshal(rawBrowserStatus, &fieldValue); err != nil {
-			return fmt.Errorf("decode Tab.BrowserStatus: %w", err)
-		}
-		decoded.BrowserStatus = Value(fieldValue)
-	}
-	rawName, hasName := object["name"]
-	if !hasName {
-		return fmt.Errorf("decode Tab: required nullable field name is missing")
-	}
-	if isJSONNull(rawName) {
-		decoded.Name = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawName, &fieldValue); err != nil {
-			return fmt.Errorf("decode Tab.Name: %w", err)
-		}
-		decoded.Name = RequiredValue(fieldValue)
-	}
-	rawNotification, hasNotification := object["notification"]
-	if !hasNotification {
-		decoded.Notification = Presence[NotificationMarker]{}
-	} else if isJSONNull(rawNotification) {
-		decoded.Notification = Null[NotificationMarker]()
-	} else {
-		var fieldValue NotificationMarker
-		if err := json.Unmarshal(rawNotification, &fieldValue); err != nil {
-			return fmt.Errorf("decode Tab.Notification: %w", err)
-		}
-		decoded.Notification = Value(fieldValue)
-	}
-	rawSize, hasSize := object["size"]
-	if !hasSize {
-		return fmt.Errorf("decode Tab: required nullable field size is missing")
-	}
-	if isJSONNull(rawSize) {
-		decoded.Size = RequiredNull[Size]()
-	} else {
-		var fieldValue Size
-		if err := json.Unmarshal(rawSize, &fieldValue); err != nil {
-			return fmt.Errorf("decode Tab.Size: %w", err)
-		}
-		decoded.Size = RequiredValue(fieldValue)
-	}
-	rawTerminalID, hasTerminalID := object["terminal_id"]
-	if !hasTerminalID {
-		decoded.TerminalID = Presence[string]{}
-	} else if isJSONNull(rawTerminalID) {
-		decoded.TerminalID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalID, &fieldValue); err != nil {
-			return fmt.Errorf("decode Tab.TerminalID: %w", err)
-		}
-		decoded.TerminalID = Value(fieldValue)
-	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		decoded.TerminalIncarnation = Presence[string]{}
-	} else if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode Tab.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = Value(fieldValue)
-	}
-	rawTerminalResourceID, hasTerminalResourceID := object["terminal_resource_id"]
-	if !hasTerminalResourceID {
-		decoded.TerminalResourceID = Presence[string]{}
-	} else if isJSONNull(rawTerminalResourceID) {
-		decoded.TerminalResourceID = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalResourceID, &fieldValue); err != nil {
-			return fmt.Errorf("decode Tab.TerminalResourceID: %w", err)
-		}
-		decoded.TerminalResourceID = Value(fieldValue)
-	}
+	decoded.Title = *fields.Title
 	*value = Tab(decoded)
 	return nil
 }
@@ -2944,106 +4859,49 @@ func (value TerminalColors) MarshalJSON() ([]byte, error) {
 }
 
 func (value *TerminalColors) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalColors: expected object")
+	}
+	var fields struct {
+		Bg          RequiredNullable[ColorHex]               `json:"bg"`
+		Cursor      Presence[ColorHex]                       `json:"cursor"`
+		CursorBlink Presence[bool]                           `json:"cursor_blink"`
+		CursorStyle Presence[CursorStyle]                    `json:"cursor_style"`
+		Fg          RequiredNullable[ColorHex]               `json:"fg"`
+		Palette     optionalNonNullJSON[map[string]ColorHex] `json:"palette"`
+		SelectionBg RequiredNullable[ColorHex]               `json:"selection_bg"`
+		SelectionFg RequiredNullable[ColorHex]               `json:"selection_fg"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalColors: %w", err)
+	}
 	type wire TerminalColors
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if !fields.Bg.IsSet() {
+		return fmt.Errorf("decode TerminalColors: required field bg is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Bg = fields.Bg
+	decoded.Cursor = fields.Cursor
+	decoded.CursorBlink = fields.CursorBlink
+	decoded.CursorStyle = fields.CursorStyle
+	if !fields.Fg.IsSet() {
+		return fmt.Errorf("decode TerminalColors: required field fg is missing")
 	}
-	if raw, exists := object["palette"]; exists && isJSONNull(raw) {
+	decoded.Fg = fields.Fg
+	if fields.Palette.null {
 		return fmt.Errorf("decode TerminalColors: non-nullable field palette is null")
 	}
-	rawBg, hasBg := object["bg"]
-	if !hasBg {
-		return fmt.Errorf("decode TerminalColors: required nullable field bg is missing")
+	if fields.Palette.set {
+		decoded.Palette = &fields.Palette.value
 	}
-	if isJSONNull(rawBg) {
-		decoded.Bg = RequiredNull[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawBg, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalColors.Bg: %w", err)
-		}
-		decoded.Bg = RequiredValue(fieldValue)
+	if !fields.SelectionBg.IsSet() {
+		return fmt.Errorf("decode TerminalColors: required field selection_bg is missing")
 	}
-	rawCursor, hasCursor := object["cursor"]
-	if !hasCursor {
-		decoded.Cursor = Presence[ColorHex]{}
-	} else if isJSONNull(rawCursor) {
-		decoded.Cursor = Null[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawCursor, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalColors.Cursor: %w", err)
-		}
-		decoded.Cursor = Value(fieldValue)
+	decoded.SelectionBg = fields.SelectionBg
+	if !fields.SelectionFg.IsSet() {
+		return fmt.Errorf("decode TerminalColors: required field selection_fg is missing")
 	}
-	rawCursorBlink, hasCursorBlink := object["cursor_blink"]
-	if !hasCursorBlink {
-		decoded.CursorBlink = Presence[bool]{}
-	} else if isJSONNull(rawCursorBlink) {
-		decoded.CursorBlink = Null[bool]()
-	} else {
-		var fieldValue bool
-		if err := json.Unmarshal(rawCursorBlink, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalColors.CursorBlink: %w", err)
-		}
-		decoded.CursorBlink = Value(fieldValue)
-	}
-	rawCursorStyle, hasCursorStyle := object["cursor_style"]
-	if !hasCursorStyle {
-		decoded.CursorStyle = Presence[CursorStyle]{}
-	} else if isJSONNull(rawCursorStyle) {
-		decoded.CursorStyle = Null[CursorStyle]()
-	} else {
-		var fieldValue CursorStyle
-		if err := json.Unmarshal(rawCursorStyle, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalColors.CursorStyle: %w", err)
-		}
-		decoded.CursorStyle = Value(fieldValue)
-	}
-	rawFg, hasFg := object["fg"]
-	if !hasFg {
-		return fmt.Errorf("decode TerminalColors: required nullable field fg is missing")
-	}
-	if isJSONNull(rawFg) {
-		decoded.Fg = RequiredNull[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawFg, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalColors.Fg: %w", err)
-		}
-		decoded.Fg = RequiredValue(fieldValue)
-	}
-	rawSelectionBg, hasSelectionBg := object["selection_bg"]
-	if !hasSelectionBg {
-		return fmt.Errorf("decode TerminalColors: required nullable field selection_bg is missing")
-	}
-	if isJSONNull(rawSelectionBg) {
-		decoded.SelectionBg = RequiredNull[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawSelectionBg, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalColors.SelectionBg: %w", err)
-		}
-		decoded.SelectionBg = RequiredValue(fieldValue)
-	}
-	rawSelectionFg, hasSelectionFg := object["selection_fg"]
-	if !hasSelectionFg {
-		return fmt.Errorf("decode TerminalColors: required nullable field selection_fg is missing")
-	}
-	if isJSONNull(rawSelectionFg) {
-		decoded.SelectionFg = RequiredNull[ColorHex]()
-	} else {
-		var fieldValue ColorHex
-		if err := json.Unmarshal(rawSelectionFg, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalColors.SelectionFg: %w", err)
-		}
-		decoded.SelectionFg = RequiredValue(fieldValue)
-	}
+	decoded.SelectionFg = fields.SelectionFg
 	*value = TerminalColors(decoded)
 	return nil
 }
@@ -3053,6 +4911,41 @@ type TerminalEventsResult struct {
 	Generation       string                  `json:"generation"`
 	RegistryID       string                  `json:"registry_id"`
 	TerminalRevision uint64                  `json:"terminal_revision"`
+}
+
+func (value *TerminalEventsResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalEventsResult: expected object")
+	}
+	var fields struct {
+		Events           *[]TerminalRegistryEvent `json:"events"`
+		Generation       *string                  `json:"generation"`
+		RegistryID       *string                  `json:"registry_id"`
+		TerminalRevision *uint64                  `json:"terminal_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalEventsResult: %w", err)
+	}
+	type wire TerminalEventsResult
+	var decoded wire
+	if fields.Events == nil {
+		return fmt.Errorf("decode TerminalEventsResult: required field events is missing or null")
+	}
+	decoded.Events = *fields.Events
+	if fields.Generation == nil {
+		return fmt.Errorf("decode TerminalEventsResult: required field generation is missing or null")
+	}
+	decoded.Generation = *fields.Generation
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode TerminalEventsResult: required field registry_id is missing or null")
+	}
+	decoded.RegistryID = *fields.RegistryID
+	if fields.TerminalRevision == nil {
+		return fmt.Errorf("decode TerminalEventsResult: required field terminal_revision is missing or null")
+	}
+	decoded.TerminalRevision = *fields.TerminalRevision
+	*value = TerminalEventsResult(decoded)
+	return nil
 }
 
 type TerminalKey string
@@ -3173,6 +5066,35 @@ const (
 	TerminalKeyF20             TerminalKey = "f20"
 )
 
+func (value TerminalKey) valid() bool {
+	switch value {
+	case TerminalKeyUnidentified, TerminalKeyBackquote, TerminalKeyBackslash, TerminalKeyBracketLeft, TerminalKeyBracketRight, TerminalKeyComma, TerminalKeyDigit0, TerminalKeyDigit1, TerminalKeyDigit2, TerminalKeyDigit3, TerminalKeyDigit4, TerminalKeyDigit5, TerminalKeyDigit6, TerminalKeyDigit7, TerminalKeyDigit8, TerminalKeyDigit9, TerminalKeyEqual, TerminalKeyA, TerminalKeyB, TerminalKeyC, TerminalKeyD, TerminalKeyE, TerminalKeyF, TerminalKeyG, TerminalKeyH, TerminalKeyI, TerminalKeyJ, TerminalKeyK, TerminalKeyL, TerminalKeyM, TerminalKeyN, TerminalKeyO, TerminalKeyP, TerminalKeyQ, TerminalKeyR, TerminalKeyS, TerminalKeyT, TerminalKeyU, TerminalKeyV, TerminalKeyW, TerminalKeyX, TerminalKeyY, TerminalKeyZ, TerminalKeyMinus, TerminalKeyPeriod, TerminalKeyQuote, TerminalKeySemicolon, TerminalKeySlash, TerminalKeyBackspace, TerminalKeyEnter, TerminalKeySpace, TerminalKeyTab, TerminalKeyDelete, TerminalKeyEnd, TerminalKeyHome, TerminalKeyInsert, TerminalKeyPageDown, TerminalKeyPageUp, TerminalKeyArrowDown, TerminalKeyArrowLeft, TerminalKeyArrowRight, TerminalKeyArrowUp, TerminalKeyNumpad0, TerminalKeyNumpad1, TerminalKeyNumpad2, TerminalKeyNumpad3, TerminalKeyNumpad4, TerminalKeyNumpad5, TerminalKeyNumpad6, TerminalKeyNumpad7, TerminalKeyNumpad8, TerminalKeyNumpad9, TerminalKeyNumpadAdd, TerminalKeyNumpadBackspace, TerminalKeyNumpadComma, TerminalKeyNumpadDecimal, TerminalKeyNumpadDivide, TerminalKeyNumpadEnter, TerminalKeyNumpadEqual, TerminalKeyNumpadMultiply, TerminalKeyNumpadSubtract, TerminalKeyNumpadUp, TerminalKeyNumpadDown, TerminalKeyNumpadRight, TerminalKeyNumpadLeft, TerminalKeyNumpadBegin, TerminalKeyNumpadHome, TerminalKeyNumpadEnd, TerminalKeyNumpadInsert, TerminalKeyNumpadDelete, TerminalKeyNumpadPageUp, TerminalKeyNumpadPageDown, TerminalKeyEscape, TerminalKeyF1, TerminalKeyF2, TerminalKeyF3, TerminalKeyF4, TerminalKeyF5, TerminalKeyF6, TerminalKeyF7, TerminalKeyF8, TerminalKeyF9, TerminalKeyF10, TerminalKeyF11, TerminalKeyF12, TerminalKeyF13, TerminalKeyF14, TerminalKeyF15, TerminalKeyF16, TerminalKeyF17, TerminalKeyF18, TerminalKeyF19, TerminalKeyF20:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value TerminalKey) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TerminalKey", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *TerminalKey) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := TerminalKey(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TerminalKey", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type TerminalKeyAction string
 
 const (
@@ -3180,6 +5102,35 @@ const (
 	TerminalKeyActionRelease TerminalKeyAction = "release"
 	TerminalKeyActionRepeat  TerminalKeyAction = "repeat"
 )
+
+func (value TerminalKeyAction) valid() bool {
+	switch value {
+	case TerminalKeyActionPress, TerminalKeyActionRelease, TerminalKeyActionRepeat:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value TerminalKeyAction) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TerminalKeyAction", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *TerminalKeyAction) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := TerminalKeyAction(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TerminalKeyAction", decoded)
+	}
+	*value = candidate
+	return nil
+}
 
 type TerminalKeyInput struct {
 	Action              Presence[TerminalKeyAction] `json:"-"`
@@ -3256,66 +5207,56 @@ func (value TerminalKeyInput) MarshalJSON() ([]byte, error) {
 }
 
 func (value *TerminalKeyInput) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalKeyInput: expected object")
+	}
+	var fields struct {
+		Action              Presence[TerminalKeyAction] `json:"action"`
+		BaseLayoutCodepoint Presence[string]            `json:"base_layout_codepoint"`
+		Composing           optionalNonNullJSON[bool]   `json:"composing"`
+		ConsumedMods        *TerminalModifiers          `json:"consumed_mods"`
+		Key                 *TerminalKey                `json:"key"`
+		MacosOptionAsAlt    *bool                       `json:"macos_option_as_alt"`
+		Mods                *TerminalModifiers          `json:"mods"`
+		ShiftedCodepoint    Presence[string]            `json:"shifted_codepoint"`
+		UnshiftedCodepoint  Presence[string]            `json:"unshifted_codepoint"`
+		UTF8                *string                     `json:"utf8"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalKeyInput: %w", err)
+	}
 	type wire TerminalKeyInput
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["composing"]; exists && isJSONNull(raw) {
+	decoded.Action = fields.Action
+	decoded.BaseLayoutCodepoint = fields.BaseLayoutCodepoint
+	if fields.Composing.null {
 		return fmt.Errorf("decode TerminalKeyInput: non-nullable field composing is null")
 	}
-	rawAction, hasAction := object["action"]
-	if !hasAction {
-		decoded.Action = Presence[TerminalKeyAction]{}
-	} else if isJSONNull(rawAction) {
-		decoded.Action = Null[TerminalKeyAction]()
-	} else {
-		var fieldValue TerminalKeyAction
-		if err := json.Unmarshal(rawAction, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalKeyInput.Action: %w", err)
-		}
-		decoded.Action = Value(fieldValue)
+	if fields.Composing.set {
+		decoded.Composing = &fields.Composing.value
 	}
-	rawBaseLayoutCodepoint, hasBaseLayoutCodepoint := object["base_layout_codepoint"]
-	if !hasBaseLayoutCodepoint {
-		decoded.BaseLayoutCodepoint = Presence[string]{}
-	} else if isJSONNull(rawBaseLayoutCodepoint) {
-		decoded.BaseLayoutCodepoint = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawBaseLayoutCodepoint, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalKeyInput.BaseLayoutCodepoint: %w", err)
-		}
-		decoded.BaseLayoutCodepoint = Value(fieldValue)
+	if fields.ConsumedMods == nil {
+		return fmt.Errorf("decode TerminalKeyInput: required field consumed_mods is missing or null")
 	}
-	rawShiftedCodepoint, hasShiftedCodepoint := object["shifted_codepoint"]
-	if !hasShiftedCodepoint {
-		decoded.ShiftedCodepoint = Presence[string]{}
-	} else if isJSONNull(rawShiftedCodepoint) {
-		decoded.ShiftedCodepoint = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawShiftedCodepoint, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalKeyInput.ShiftedCodepoint: %w", err)
-		}
-		decoded.ShiftedCodepoint = Value(fieldValue)
+	decoded.ConsumedMods = *fields.ConsumedMods
+	if fields.Key == nil {
+		return fmt.Errorf("decode TerminalKeyInput: required field key is missing or null")
 	}
-	rawUnshiftedCodepoint, hasUnshiftedCodepoint := object["unshifted_codepoint"]
-	if !hasUnshiftedCodepoint {
-		decoded.UnshiftedCodepoint = Presence[string]{}
-	} else if isJSONNull(rawUnshiftedCodepoint) {
-		decoded.UnshiftedCodepoint = Null[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawUnshiftedCodepoint, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalKeyInput.UnshiftedCodepoint: %w", err)
-		}
-		decoded.UnshiftedCodepoint = Value(fieldValue)
+	decoded.Key = *fields.Key
+	if fields.MacosOptionAsAlt == nil {
+		return fmt.Errorf("decode TerminalKeyInput: required field macos_option_as_alt is missing or null")
 	}
+	decoded.MacosOptionAsAlt = *fields.MacosOptionAsAlt
+	if fields.Mods == nil {
+		return fmt.Errorf("decode TerminalKeyInput: required field mods is missing or null")
+	}
+	decoded.Mods = *fields.Mods
+	decoded.ShiftedCodepoint = fields.ShiftedCodepoint
+	decoded.UnshiftedCodepoint = fields.UnshiftedCodepoint
+	if fields.UTF8 == nil {
+		return fmt.Errorf("decode TerminalKeyInput: required field utf8 is missing or null")
+	}
+	decoded.UTF8 = *fields.UTF8
 	*value = TerminalKeyInput(decoded)
 	return nil
 }
@@ -3330,6 +5271,35 @@ const (
 	TerminalLifecycleTombstoned TerminalLifecycle = "tombstoned"
 )
 
+func (value TerminalLifecycle) valid() bool {
+	switch value {
+	case TerminalLifecycleLaunching, TerminalLifecycleAdopting, TerminalLifecycleRunning, TerminalLifecycleExited, TerminalLifecycleTombstoned:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value TerminalLifecycle) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TerminalLifecycle", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *TerminalLifecycle) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := TerminalLifecycle(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TerminalLifecycle", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type TerminalModifiers struct {
 	Alt      bool `json:"alt"`
 	CapsLock bool `json:"caps_lock"`
@@ -3339,13 +5309,69 @@ type TerminalModifiers struct {
 	Super    bool `json:"super"`
 }
 
+func (value *TerminalModifiers) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalModifiers: expected object")
+	}
+	var fields struct {
+		Alt      *bool `json:"alt"`
+		CapsLock *bool `json:"caps_lock"`
+		Control  *bool `json:"control"`
+		NumLock  *bool `json:"num_lock"`
+		Shift    *bool `json:"shift"`
+		Super    *bool `json:"super"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalModifiers: %w", err)
+	}
+	type wire TerminalModifiers
+	var decoded wire
+	if fields.Alt == nil {
+		return fmt.Errorf("decode TerminalModifiers: required field alt is missing or null")
+	}
+	decoded.Alt = *fields.Alt
+	if fields.CapsLock == nil {
+		return fmt.Errorf("decode TerminalModifiers: required field caps_lock is missing or null")
+	}
+	decoded.CapsLock = *fields.CapsLock
+	if fields.Control == nil {
+		return fmt.Errorf("decode TerminalModifiers: required field control is missing or null")
+	}
+	decoded.Control = *fields.Control
+	if fields.NumLock == nil {
+		return fmt.Errorf("decode TerminalModifiers: required field num_lock is missing or null")
+	}
+	decoded.NumLock = *fields.NumLock
+	if fields.Shift == nil {
+		return fmt.Errorf("decode TerminalModifiers: required field shift is missing or null")
+	}
+	decoded.Shift = *fields.Shift
+	if fields.Super == nil {
+		return fmt.Errorf("decode TerminalModifiers: required field super is missing or null")
+	}
+	decoded.Super = *fields.Super
+	*value = TerminalModifiers(decoded)
+	return nil
+}
+
 type TerminalPlacementLifecycle string
 
-const TerminalPlacementLifecycleRunning TerminalPlacementLifecycle = "running"
+const (
+	TerminalPlacementLifecycleRunning TerminalPlacementLifecycle = "running"
+)
+
+func (value TerminalPlacementLifecycle) valid() bool {
+	switch value {
+	case TerminalPlacementLifecycleRunning:
+		return true
+	default:
+		return false
+	}
+}
 
 func (value TerminalPlacementLifecycle) MarshalJSON() ([]byte, error) {
-	if value != TerminalPlacementLifecycleRunning {
-		return nil, fmt.Errorf("%s must equal %v", "TerminalPlacementLifecycle", TerminalPlacementLifecycleRunning)
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TerminalPlacementLifecycle", value)
 	}
 	return json.Marshal(string(value))
 }
@@ -3355,10 +5381,11 @@ func (value *TerminalPlacementLifecycle) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	if decoded != string(TerminalPlacementLifecycleRunning) {
-		return fmt.Errorf("%s must equal %v", "TerminalPlacementLifecycle", TerminalPlacementLifecycleRunning)
+	candidate := TerminalPlacementLifecycle(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TerminalPlacementLifecycle", decoded)
 	}
-	*value = TerminalPlacementLifecycle(decoded)
+	*value = candidate
 	return nil
 }
 
@@ -3378,6 +5405,13 @@ type TerminalPlacement struct {
 }
 
 func (value TerminalPlacement) MarshalJSON() ([]byte, error) {
+	if fieldValue, ok := value.Lifecycle.Get(); ok {
+		switch fieldValue {
+		case "running":
+		default:
+			return nil, fmt.Errorf("encode TerminalPlacement.Lifecycle: invalid value %v", fieldValue)
+		}
+	}
 	type wire TerminalPlacement
 	encoded, err := json.Marshal(wire(value))
 	if err != nil {
@@ -3430,54 +5464,76 @@ func (value TerminalPlacement) MarshalJSON() ([]byte, error) {
 }
 
 func (value *TerminalPlacement) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalPlacement: expected object")
+	}
+	var fields struct {
+		Generation          *string                                      `json:"generation"`
+		Key                 *string                                      `json:"key"`
+		Lifecycle           RequiredNullable[TerminalPlacementLifecycle] `json:"lifecycle"`
+		Pane                *ID                                          `json:"pane"`
+		RegistryID          *string                                      `json:"registry_id"`
+		Replayed            *bool                                        `json:"replayed"`
+		Screen              *ID                                          `json:"screen"`
+		Surface             *ID                                          `json:"surface"`
+		TerminalID          RequiredNullable[string]                     `json:"terminal_id"`
+		TerminalIncarnation RequiredNullable[string]                     `json:"terminal_incarnation"`
+		TerminalRevision    *uint64                                      `json:"terminal_revision"`
+		Workspace           *ID                                          `json:"workspace"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalPlacement: %w", err)
+	}
 	type wire TerminalPlacement
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Generation == nil {
+		return fmt.Errorf("decode TerminalPlacement: required field generation is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Generation = *fields.Generation
+	if fields.Key == nil {
+		return fmt.Errorf("decode TerminalPlacement: required field key is missing or null")
 	}
-	rawLifecycle, hasLifecycle := object["lifecycle"]
-	if !hasLifecycle {
-		return fmt.Errorf("decode TerminalPlacement: required nullable field lifecycle is missing")
+	decoded.Key = *fields.Key
+	if !fields.Lifecycle.IsSet() {
+		return fmt.Errorf("decode TerminalPlacement: required field lifecycle is missing")
 	}
-	if isJSONNull(rawLifecycle) {
-		decoded.Lifecycle = RequiredNull[TerminalPlacementLifecycle]()
-	} else {
-		var fieldValue TerminalPlacementLifecycle
-		if err := json.Unmarshal(rawLifecycle, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalPlacement.Lifecycle: %w", err)
-		}
-		decoded.Lifecycle = RequiredValue(fieldValue)
+	decoded.Lifecycle = fields.Lifecycle
+	if fields.Pane == nil {
+		return fmt.Errorf("decode TerminalPlacement: required field pane is missing or null")
 	}
-	rawTerminalID, hasTerminalID := object["terminal_id"]
-	if !hasTerminalID {
-		return fmt.Errorf("decode TerminalPlacement: required nullable field terminal_id is missing")
+	decoded.Pane = *fields.Pane
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode TerminalPlacement: required field registry_id is missing or null")
 	}
-	if isJSONNull(rawTerminalID) {
-		decoded.TerminalID = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalID, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalPlacement.TerminalID: %w", err)
-		}
-		decoded.TerminalID = RequiredValue(fieldValue)
+	decoded.RegistryID = *fields.RegistryID
+	if fields.Replayed == nil {
+		return fmt.Errorf("decode TerminalPlacement: required field replayed is missing or null")
 	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		return fmt.Errorf("decode TerminalPlacement: required nullable field terminal_incarnation is missing")
+	decoded.Replayed = *fields.Replayed
+	if fields.Screen == nil {
+		return fmt.Errorf("decode TerminalPlacement: required field screen is missing or null")
 	}
-	if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalPlacement.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = RequiredValue(fieldValue)
+	decoded.Screen = *fields.Screen
+	if fields.Surface == nil {
+		return fmt.Errorf("decode TerminalPlacement: required field surface is missing or null")
 	}
+	decoded.Surface = *fields.Surface
+	if !fields.TerminalID.IsSet() {
+		return fmt.Errorf("decode TerminalPlacement: required field terminal_id is missing")
+	}
+	decoded.TerminalID = fields.TerminalID
+	if !fields.TerminalIncarnation.IsSet() {
+		return fmt.Errorf("decode TerminalPlacement: required field terminal_incarnation is missing")
+	}
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
+	if fields.TerminalRevision == nil {
+		return fmt.Errorf("decode TerminalPlacement: required field terminal_revision is missing or null")
+	}
+	decoded.TerminalRevision = *fields.TerminalRevision
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode TerminalPlacement: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
 	*value = TerminalPlacement(decoded)
 	return nil
 }
@@ -3531,41 +5587,46 @@ func (value TerminalRecord) MarshalJSON() ([]byte, error) {
 }
 
 func (value *TerminalRecord) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalRecord: expected object")
+	}
+	var fields struct {
+		Exit                RequiredNullable[JSONValue] `json:"exit"`
+		LaunchSpec          *JSONValue                  `json:"launch_spec"`
+		Lifecycle           *TerminalLifecycle          `json:"lifecycle"`
+		TerminalID          *string                     `json:"terminal_id"`
+		TerminalIncarnation RequiredNullable[string]    `json:"terminal_incarnation"`
+		WorkspaceKey        *string                     `json:"workspace_key"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalRecord: %w", err)
+	}
 	type wire TerminalRecord
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if !fields.Exit.IsSet() {
+		return fmt.Errorf("decode TerminalRecord: required field exit is missing")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Exit = fields.Exit
+	if fields.LaunchSpec == nil {
+		return fmt.Errorf("decode TerminalRecord: required field launch_spec is missing or null")
 	}
-	rawExit, hasExit := object["exit"]
-	if !hasExit {
-		return fmt.Errorf("decode TerminalRecord: required nullable field exit is missing")
+	decoded.LaunchSpec = *fields.LaunchSpec
+	if fields.Lifecycle == nil {
+		return fmt.Errorf("decode TerminalRecord: required field lifecycle is missing or null")
 	}
-	if isJSONNull(rawExit) {
-		decoded.Exit = RequiredNull[JSONValue]()
-	} else {
-		var fieldValue JSONValue
-		if err := json.Unmarshal(rawExit, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalRecord.Exit: %w", err)
-		}
-		decoded.Exit = RequiredValue(fieldValue)
+	decoded.Lifecycle = *fields.Lifecycle
+	if fields.TerminalID == nil {
+		return fmt.Errorf("decode TerminalRecord: required field terminal_id is missing or null")
 	}
-	rawTerminalIncarnation, hasTerminalIncarnation := object["terminal_incarnation"]
-	if !hasTerminalIncarnation {
-		return fmt.Errorf("decode TerminalRecord: required nullable field terminal_incarnation is missing")
+	decoded.TerminalID = *fields.TerminalID
+	if !fields.TerminalIncarnation.IsSet() {
+		return fmt.Errorf("decode TerminalRecord: required field terminal_incarnation is missing")
 	}
-	if isJSONNull(rawTerminalIncarnation) {
-		decoded.TerminalIncarnation = RequiredNull[string]()
-	} else {
-		var fieldValue string
-		if err := json.Unmarshal(rawTerminalIncarnation, &fieldValue); err != nil {
-			return fmt.Errorf("decode TerminalRecord.TerminalIncarnation: %w", err)
-		}
-		decoded.TerminalIncarnation = RequiredValue(fieldValue)
+	decoded.TerminalIncarnation = fields.TerminalIncarnation
+	if fields.WorkspaceKey == nil {
+		return fmt.Errorf("decode TerminalRecord: required field workspace_key is missing or null")
 	}
+	decoded.WorkspaceKey = *fields.WorkspaceKey
 	*value = TerminalRecord(decoded)
 	return nil
 }
@@ -3580,6 +5641,56 @@ type TerminalRegistryEvent struct {
 	WorkspaceKey     string    `json:"workspace_key"`
 }
 
+func (value *TerminalRegistryEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TerminalRegistryEvent: expected object")
+	}
+	var fields struct {
+		Kind             *string    `json:"kind"`
+		MutationID       *string    `json:"mutation_id"`
+		Origin           *string    `json:"origin"`
+		Result           *JSONValue `json:"result"`
+		TerminalID       *string    `json:"terminal_id"`
+		TerminalRevision *uint64    `json:"terminal_revision"`
+		WorkspaceKey     *string    `json:"workspace_key"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TerminalRegistryEvent: %w", err)
+	}
+	type wire TerminalRegistryEvent
+	var decoded wire
+	if fields.Kind == nil {
+		return fmt.Errorf("decode TerminalRegistryEvent: required field kind is missing or null")
+	}
+	decoded.Kind = *fields.Kind
+	if fields.MutationID == nil {
+		return fmt.Errorf("decode TerminalRegistryEvent: required field mutation_id is missing or null")
+	}
+	decoded.MutationID = *fields.MutationID
+	if fields.Origin == nil {
+		return fmt.Errorf("decode TerminalRegistryEvent: required field origin is missing or null")
+	}
+	decoded.Origin = *fields.Origin
+	if fields.Result == nil {
+		return fmt.Errorf("decode TerminalRegistryEvent: required field result is missing or null")
+	}
+	decoded.Result = *fields.Result
+	if fields.TerminalID == nil {
+		return fmt.Errorf("decode TerminalRegistryEvent: required field terminal_id is missing or null")
+	}
+	decoded.TerminalID = *fields.TerminalID
+	if fields.TerminalRevision == nil {
+		return fmt.Errorf("decode TerminalRegistryEvent: required field terminal_revision is missing or null")
+	}
+	decoded.TerminalRevision = *fields.TerminalRevision
+	if fields.WorkspaceKey == nil {
+		return fmt.Errorf("decode TerminalRegistryEvent: required field workspace_key is missing or null")
+	}
+	decoded.WorkspaceKey = *fields.WorkspaceKey
+	*value = TerminalRegistryEvent(decoded)
+	return nil
+}
+
 type Tree struct {
 	Generation        *string     `json:"generation,omitempty"`
 	PaneRevision      *uint64     `json:"pane_revision,omitempty"`
@@ -3590,30 +5701,56 @@ type Tree struct {
 }
 
 func (value *Tree) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode Tree: expected object")
+	}
+	var fields struct {
+		Generation        optionalNonNullJSON[string] `json:"generation"`
+		PaneRevision      optionalNonNullJSON[uint64] `json:"pane_revision"`
+		RegistryID        optionalNonNullJSON[string] `json:"registry_id"`
+		TerminalRevision  optionalNonNullJSON[uint64] `json:"terminal_revision"`
+		WorkspaceRevision optionalNonNullJSON[uint64] `json:"workspace_revision"`
+		Workspaces        *[]Workspace                `json:"workspaces"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode Tree: %w", err)
+	}
 	type wire Tree
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["generation"]; exists && isJSONNull(raw) {
+	if fields.Generation.null {
 		return fmt.Errorf("decode Tree: non-nullable field generation is null")
 	}
-	if raw, exists := object["pane_revision"]; exists && isJSONNull(raw) {
+	if fields.Generation.set {
+		decoded.Generation = &fields.Generation.value
+	}
+	if fields.PaneRevision.null {
 		return fmt.Errorf("decode Tree: non-nullable field pane_revision is null")
 	}
-	if raw, exists := object["registry_id"]; exists && isJSONNull(raw) {
+	if fields.PaneRevision.set {
+		decoded.PaneRevision = &fields.PaneRevision.value
+	}
+	if fields.RegistryID.null {
 		return fmt.Errorf("decode Tree: non-nullable field registry_id is null")
 	}
-	if raw, exists := object["terminal_revision"]; exists && isJSONNull(raw) {
+	if fields.RegistryID.set {
+		decoded.RegistryID = &fields.RegistryID.value
+	}
+	if fields.TerminalRevision.null {
 		return fmt.Errorf("decode Tree: non-nullable field terminal_revision is null")
 	}
-	if raw, exists := object["workspace_revision"]; exists && isJSONNull(raw) {
+	if fields.TerminalRevision.set {
+		decoded.TerminalRevision = &fields.TerminalRevision.value
+	}
+	if fields.WorkspaceRevision.null {
 		return fmt.Errorf("decode Tree: non-nullable field workspace_revision is null")
 	}
+	if fields.WorkspaceRevision.set {
+		decoded.WorkspaceRevision = &fields.WorkspaceRevision.value
+	}
+	if fields.Workspaces == nil {
+		return fmt.Errorf("decode Tree: required field workspaces is missing or null")
+	}
+	decoded.Workspaces = *fields.Workspaces
 	*value = Tree(decoded)
 	return nil
 }
@@ -3624,10 +5761,85 @@ type VTStateResult struct {
 	Rows uint16 `json:"rows"`
 }
 
+func (value *VTStateResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode VTStateResult: expected object")
+	}
+	var fields struct {
+		Cols *uint16 `json:"cols"`
+		Data *Base64 `json:"data"`
+		Rows *uint16 `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode VTStateResult: %w", err)
+	}
+	type wire VTStateResult
+	var decoded wire
+	if fields.Cols == nil {
+		return fmt.Errorf("decode VTStateResult: required field cols is missing or null")
+	}
+	decoded.Cols = *fields.Cols
+	if fields.Data == nil {
+		return fmt.Errorf("decode VTStateResult: required field data is missing or null")
+	}
+	decoded.Data = *fields.Data
+	if fields.Rows == nil {
+		return fmt.Errorf("decode VTStateResult: required field rows is missing or null")
+	}
+	decoded.Rows = *fields.Rows
+	*value = VTStateResult(decoded)
+	return nil
+}
+
 type WaitForResult struct {
 	ElapsedMs uint64 `json:"elapsed_ms"`
 	Matched   bool   `json:"matched"`
 	Text      string `json:"text"`
+}
+
+func (value WaitForResult) MarshalJSON() ([]byte, error) {
+	switch value.Matched {
+	case true:
+	default:
+		return nil, fmt.Errorf("encode WaitForResult.Matched: invalid value %v", value.Matched)
+	}
+	type wire WaitForResult
+	return json.Marshal(wire(value))
+}
+
+func (value *WaitForResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode WaitForResult: expected object")
+	}
+	var fields struct {
+		ElapsedMs *uint64 `json:"elapsed_ms"`
+		Matched   *bool   `json:"matched"`
+		Text      *string `json:"text"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode WaitForResult: %w", err)
+	}
+	type wire WaitForResult
+	var decoded wire
+	if fields.ElapsedMs == nil {
+		return fmt.Errorf("decode WaitForResult: required field elapsed_ms is missing or null")
+	}
+	decoded.ElapsedMs = *fields.ElapsedMs
+	if fields.Matched == nil {
+		return fmt.Errorf("decode WaitForResult: required field matched is missing or null")
+	}
+	decoded.Matched = *fields.Matched
+	switch decoded.Matched {
+	case true:
+	default:
+		return fmt.Errorf("decode WaitForResult.Matched: invalid value %v", decoded.Matched)
+	}
+	if fields.Text == nil {
+		return fmt.Errorf("decode WaitForResult: required field text is missing or null")
+	}
+	decoded.Text = *fields.Text
+	*value = WaitForResult(decoded)
+	return nil
 }
 
 type Workspace struct {
@@ -3640,20 +5852,49 @@ type Workspace struct {
 }
 
 func (value *Workspace) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode Workspace: expected object")
+	}
+	var fields struct {
+		Active  *bool                       `json:"active"`
+		ID      *ID                         `json:"id"`
+		Key     optionalNonNullJSON[string] `json:"key"`
+		Name    *string                     `json:"name"`
+		Screens *[]Screen                   `json:"screens"`
+		ShortID optionalNonNullJSON[string] `json:"short_id"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode Workspace: %w", err)
+	}
 	type wire Workspace
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Active == nil {
+		return fmt.Errorf("decode Workspace: required field active is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Active = *fields.Active
+	if fields.ID == nil {
+		return fmt.Errorf("decode Workspace: required field id is missing or null")
 	}
-	if raw, exists := object["key"]; exists && isJSONNull(raw) {
+	decoded.ID = *fields.ID
+	if fields.Key.null {
 		return fmt.Errorf("decode Workspace: non-nullable field key is null")
 	}
-	if raw, exists := object["short_id"]; exists && isJSONNull(raw) {
+	if fields.Key.set {
+		decoded.Key = &fields.Key.value
+	}
+	if fields.Name == nil {
+		return fmt.Errorf("decode Workspace: required field name is missing or null")
+	}
+	decoded.Name = *fields.Name
+	if fields.Screens == nil {
+		return fmt.Errorf("decode Workspace: required field screens is missing or null")
+	}
+	decoded.Screens = *fields.Screens
+	if fields.ShortID.null {
 		return fmt.Errorf("decode Workspace: non-nullable field short_id is null")
+	}
+	if fields.ShortID.set {
+		decoded.ShortID = &fields.ShortID.value
 	}
 	*value = Workspace(decoded)
 	return nil
@@ -3671,18 +5912,58 @@ type WorkspaceMutationResult struct {
 }
 
 func (value *WorkspaceMutationResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode WorkspaceMutationResult: expected object")
+	}
+	var fields struct {
+		Changed           optionalNonNullJSON[bool] `json:"changed"`
+		Generation        *string                   `json:"generation"`
+		Index             *uint64                   `json:"index"`
+		Key               *string                   `json:"key"`
+		RegistryID        *string                   `json:"registry_id"`
+		Replayed          *bool                     `json:"replayed"`
+		Workspace         *ID                       `json:"workspace"`
+		WorkspaceRevision *uint64                   `json:"workspace_revision"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode WorkspaceMutationResult: %w", err)
+	}
 	type wire WorkspaceMutationResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if raw, exists := object["changed"]; exists && isJSONNull(raw) {
+	if fields.Changed.null {
 		return fmt.Errorf("decode WorkspaceMutationResult: non-nullable field changed is null")
 	}
+	if fields.Changed.set {
+		decoded.Changed = &fields.Changed.value
+	}
+	if fields.Generation == nil {
+		return fmt.Errorf("decode WorkspaceMutationResult: required field generation is missing or null")
+	}
+	decoded.Generation = *fields.Generation
+	if fields.Index == nil {
+		return fmt.Errorf("decode WorkspaceMutationResult: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.Key == nil {
+		return fmt.Errorf("decode WorkspaceMutationResult: required field key is missing or null")
+	}
+	decoded.Key = *fields.Key
+	if fields.RegistryID == nil {
+		return fmt.Errorf("decode WorkspaceMutationResult: required field registry_id is missing or null")
+	}
+	decoded.RegistryID = *fields.RegistryID
+	if fields.Replayed == nil {
+		return fmt.Errorf("decode WorkspaceMutationResult: required field replayed is missing or null")
+	}
+	decoded.Replayed = *fields.Replayed
+	if fields.Workspace == nil {
+		return fmt.Errorf("decode WorkspaceMutationResult: required field workspace is missing or null")
+	}
+	decoded.Workspace = *fields.Workspace
+	if fields.WorkspaceRevision == nil {
+		return fmt.Errorf("decode WorkspaceMutationResult: required field workspace_revision is missing or null")
+	}
+	decoded.WorkspaceRevision = *fields.WorkspaceRevision
 	*value = WorkspaceMutationResult(decoded)
 	return nil
 }
@@ -3720,28 +6001,31 @@ func (value ZoomPaneResult) MarshalJSON() ([]byte, error) {
 }
 
 func (value *ZoomPaneResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ZoomPaneResult: expected object")
+	}
+	var fields struct {
+		Pane       *ID                  `json:"pane"`
+		Zoomed     *bool                `json:"zoomed"`
+		ZoomedPane RequiredNullable[ID] `json:"zoomed_pane"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ZoomPaneResult: %w", err)
+	}
 	type wire ZoomPaneResult
 	var decoded wire
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
+	if fields.Pane == nil {
+		return fmt.Errorf("decode ZoomPaneResult: required field pane is missing or null")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
+	decoded.Pane = *fields.Pane
+	if fields.Zoomed == nil {
+		return fmt.Errorf("decode ZoomPaneResult: required field zoomed is missing or null")
 	}
-	rawZoomedPane, hasZoomedPane := object["zoomed_pane"]
-	if !hasZoomedPane {
-		return fmt.Errorf("decode ZoomPaneResult: required nullable field zoomed_pane is missing")
+	decoded.Zoomed = *fields.Zoomed
+	if !fields.ZoomedPane.IsSet() {
+		return fmt.Errorf("decode ZoomPaneResult: required field zoomed_pane is missing")
 	}
-	if isJSONNull(rawZoomedPane) {
-		decoded.ZoomedPane = RequiredNull[ID]()
-	} else {
-		var fieldValue ID
-		if err := json.Unmarshal(rawZoomedPane, &fieldValue); err != nil {
-			return fmt.Errorf("decode ZoomPaneResult.ZoomedPane: %w", err)
-		}
-		decoded.ZoomedPane = RequiredValue(fieldValue)
-	}
+	decoded.ZoomedPane = fields.ZoomedPane
 	*value = ZoomPaneResult(decoded)
 	return nil
 }
