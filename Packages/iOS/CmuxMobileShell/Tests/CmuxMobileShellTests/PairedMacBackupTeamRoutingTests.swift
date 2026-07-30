@@ -1133,8 +1133,249 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
         #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
     }
 
+    /// One tagged instance's revival must not retire the DEVICE-WIDE
+    /// tombstone: the wildcard forget revoked every tag's binding, and a stale
+    /// tag that exists only in another team's backup still needs suppression
+    /// and deletion. Per-record revival classification already lets the
+    /// revived tag through; retiring the whole intent would let the OTHER
+    /// tag's dead record restore.
+    @Test func taggedRevivalKeepsTheDeviceWideTombstoneForOtherTags() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 900)
+        )
+        // Team-shown holds a REVIVED tagged instance (server write after the
+        // forget); team-other holds a STALE tagged record (server write before
+        // the forget) the wildcard's device-wide intent must still delete.
+        let backup = FakeBackup(
+            recordsByTeam: [
+                "team-shown": [
+                    PairedMacBackupRecord(
+                        macDeviceID: "mac-a",
+                        displayName: "Desk Mac (alpha)",
+                        routes: [try Self.route("100.82.214.112")],
+                        createdAt: 900_000,
+                        lastSeenAt: 2_000_000,
+                        isActive: false,
+                        instanceTag: "alpha",
+                        serverUpdatedAtMs: 2_000_000
+                    ),
+                ],
+                "team-other": [
+                    PairedMacBackupRecord(
+                        macDeviceID: "mac-a",
+                        displayName: "Desk Mac (beta)",
+                        routes: [try Self.route("100.82.214.113")],
+                        createdAt: 500_000,
+                        lastSeenAt: 500_000,
+                        isActive: false,
+                        instanceTag: "beta",
+                        serverUpdatedAtMs: 500_000
+                    ),
+                ],
+            ],
+            failNextFetches: 99
+        )
+        final class TeamBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var stored: String?
+            var value: String? {
+                get { lock.withLock { stored } }
+                set { lock.withLock { stored = newValue } }
+            }
+        }
+        let team = TeamBox()
+        team.value = "team-shown"
+        let store = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { team.value },
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: store,
+            personalIrohForget: BackupRoutingForget(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { team.value },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await composite.loadPairedMacs()
+        await composite.hideMac(macDeviceID: "mac-a")
+        let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+        // Offline wildcard forget: the device-wide intent parks.
+        #expect(await composite.forgetHiddenComputer(hidden))
+        await backup.setFailNextFetches(0)
+
+        // Team-shown's restore sees the alpha REVIVAL — the intent must not
+        // retire wholesale.
+        await store.refreshFromBackup(stackUserID: "user-1")
+        // Team-other's later restore must still DELETE the stale beta record.
+        team.value = "team-other"
+        await store.refreshFromBackup(stackUserID: "user-1")
+
+        let betaDeleted = await backup.uploadedOps().contains {
+            switch $0 {
+            case .deleteInstance(let macDeviceID, let instanceTag):
+                return macDeviceID == "mac-a" && instanceTag == "beta"
+            default: return false
+            }
+        }
+        #expect(betaDeleted)
+    }
+
+    /// The account-wide parked record must preserve each row's LOCAL team so
+    /// crash recovery can replay the exact delete offline. A record parked
+    /// with a nil local team replays only against nil-team rows; if the app
+    /// dies after parking but before the routed per-row intent lands, a
+    /// concrete-team row survives every offline launch.
+    @Test func parkedRecordReplaysAConcreteTeamRowOffline() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // A TEAM-A row whose local delete fails transiently (the crash-window
+        // proxy: the parked record is durable, the local delete never landed).
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        let failing = FailOnceStore(inner: base)
+        let pending = InMemoryPairedMacPendingDeleteStore()
+        let store = BackingUpPairedMacStore(
+            inner: failing,
+            backup: FakeBackup(failNextFetches: 99),
+            teamIDProvider: { "team-a" },
+            pendingDeleteStore: pending
+        )
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: store,
+            personalIrohForget: BackupRoutingForget(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await composite.loadPairedMacs()
+        await composite.hideMac(macDeviceID: "mac-a")
+        let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+        // The forget FAILS on the local delete; the parked record survives.
+        #expect(!(await composite.forgetHiddenComputer(hidden)))
+
+        // The next OFFLINE read must finish the local delete from the outbox
+        // alone — the parked record carries the row's exact team scope.
+        _ = try await store.loadAll(stackUserID: "user-1", teamID: nil)
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
+    }
+}
+
+/// Fails the FIRST exact-scope delete only, modeling the crash/transient
+/// window between the durable outbox write and the local delete.
+private final class FailOnceStore: MobilePairedMacStoring, @unchecked Sendable {
+    struct TransientError: Error {}
+    let inner: any MobilePairedMacStoring
+    private let lock = NSLock()
+    private var failed = false
+
+    init(inner: any MobilePairedMacStoring) {
+        self.inner = inner
+    }
+
+    func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let shouldFail = lock.withLock {
+            if failed { return false }
+            failed = true
+            return true
+        }
+        if shouldFail { throw TransientError() }
+        try await inner.removeExactScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
+    func loadAllInstances(macDeviceID: String, stackUserID: String?) async throws -> [MobilePairedMac] {
+        try await inner.loadAllInstances(macDeviceID: macDeviceID, stackUserID: stackUserID)
+    }
+
+    func upsert(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], instanceTag: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws {
+        try await inner.upsert(macDeviceID: macDeviceID, displayName: displayName, routes: routes, instanceTag: instanceTag, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func upsertIfNewer(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], instanceTag: String?, customName: String?, customColor: String?, customIcon: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws -> Bool {
+        try await inner.upsertIfNewer(macDeviceID: macDeviceID, displayName: displayName, routes: routes, instanceTag: instanceTag, customName: customName, customColor: customColor, customIcon: customIcon, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func upsertRoutesIfAuthorized(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], condition: MobilePairedMacRouteWriteCondition, markActive: Bool?, stackUserID: String?, teamID: String?, now: Date) async throws -> Bool {
+        try await inner.upsertRoutesIfAuthorized(macDeviceID: macDeviceID, displayName: displayName, routes: routes, condition: condition, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
+        try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        try await inner.activeMac(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await inner.setActive(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func clearActive(stackUserID: String?, teamID: String?) async throws {
+        try await inner.clearActive(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setCustomization(macDeviceID: String, customName: String?, customColor: String?, customIcon: String?, stackUserID: String?, teamID: String?, now: Date) async throws {
+        try await inner.setCustomization(macDeviceID: macDeviceID, customName: customName, customColor: customColor, customIcon: customIcon, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func remove(macDeviceID: String, instanceTag: String?, stackUserID: String?, teamID: String?) async throws {
+        try await inner.remove(macDeviceID: macDeviceID, instanceTag: instanceTag, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func removeAll() async throws {
+        try await inner.removeAll()
     }
 }
 
