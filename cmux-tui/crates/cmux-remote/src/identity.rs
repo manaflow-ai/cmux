@@ -2129,6 +2129,24 @@ mod tests {
     }
 
     #[test]
+    fn auth_database_rejects_legacy_state_until_explicit_migration() {
+        let temp = tempfile::tempdir().unwrap();
+        atomic_json(
+            &temp.path().join("devices.json"),
+            &PersistedState {
+                version: STATE_VERSION,
+                ..PersistedState::default()
+            },
+        )
+        .unwrap();
+
+        let error = AuthDatabase::load_or_create(temp.path(), "daemon", false)
+            .expect_err("legacy authorization state opened without explicit migration");
+
+        assert!(error.to_string().contains("migration"), "{error}");
+    }
+
+    #[test]
     fn auth_database_exclusively_owns_its_state_directory() {
         let temp = tempfile::tempdir().unwrap();
         let first = AuthDatabase::load_or_create(temp.path(), "first", false).unwrap();

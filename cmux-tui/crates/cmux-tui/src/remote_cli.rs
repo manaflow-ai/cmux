@@ -3786,6 +3786,46 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn remote_stop_explicitly_removes_malformed_inactive_runtime_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "acknowledge-malformed-runtime";
+        let (state_dir, _, _) = daemon_paths(session, Some(directory.path())).unwrap();
+        drop(
+            cmux_remote::identity::AuthDatabase::load_or_create(
+                state_dir.join("auth"),
+                session,
+                true,
+            )
+            .unwrap(),
+        );
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+        let runtime_path = state_dir.join("runtime.json");
+        fs::write(&runtime_path, b"{not-json").unwrap();
+
+        let error = run_remote_stop(
+            &["--session", session, "--state-dir", directory.path().to_string_lossy().as_ref()]
+                .map(str::to_string),
+        )
+        .expect_err("malformed runtime metadata was reported as stopped");
+        assert!(error.to_string().contains("--acknowledge-legacy-finalization"), "{error:#}");
+
+        run_remote_stop(
+            &[
+                "--session",
+                session,
+                "--state-dir",
+                directory.path().to_string_lossy().as_ref(),
+                "--acknowledge-legacy-finalization",
+            ]
+            .map(str::to_string),
+        )
+        .unwrap();
+
+        assert!(!runtime_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn remote_stop_acknowledges_malformed_outcome_without_runtime_metadata() {
         let directory = tempfile::tempdir().unwrap();
         let session = "acknowledge-malformed-outcome";
