@@ -5,6 +5,9 @@ import Foundation
 /// ordering occludes or reveals its target-relative overlay without cycling it.
 @MainActor
 final class ComputerUseSessionPresentationController {
+    private static let defaultActiveFocusMode =
+        ComputerUseWatchFocusMode.callingTerminal
+
     typealias EffectValidity = @MainActor @Sendable () -> Bool
     typealias CursorVisibilityEffect = @MainActor @Sendable (
         _ driverSessionID: String,
@@ -156,7 +159,7 @@ final class ComputerUseSessionPresentationController {
         let state = statesByDriverSessionID[driverSessionID]
             ?? SessionState(
                 activityPhase: .active,
-                focusMode: .automatic,
+                focusMode: Self.defaultActiveFocusMode,
                 cursorVisible: true,
                 proxySessionID: nil,
                 cursorEffectProxySessionID: nil,
@@ -182,7 +185,7 @@ final class ComputerUseSessionPresentationController {
         var state = statesByDriverSessionID[driverSessionID]
             ?? SessionState(
                 activityPhase: .active,
-                focusMode: .automatic,
+                focusMode: Self.defaultActiveFocusMode,
                 cursorVisible: true,
                 proxySessionID: nil,
                 cursorEffectProxySessionID: nil,
@@ -223,7 +226,7 @@ final class ComputerUseSessionPresentationController {
         var state = statesByDriverSessionID[driverSessionID]
             ?? SessionState(
                 activityPhase: .active,
-                focusMode: .automatic,
+                focusMode: Self.defaultActiveFocusMode,
                 cursorVisible: true,
                 proxySessionID: nil,
                 cursorEffectProxySessionID: nil,
@@ -266,7 +269,7 @@ final class ComputerUseSessionPresentationController {
         guard var state = statesByDriverSessionID[driverSessionID] else {
             return SessionState(
                 activityPhase: .active,
-                focusMode: .automatic,
+                focusMode: Self.defaultActiveFocusMode,
                 cursorVisible: true,
                 proxySessionID: nil,
                 cursorEffectProxySessionID: nil,
@@ -275,7 +278,7 @@ final class ComputerUseSessionPresentationController {
             )
         }
         if state.activityPhase == .completed {
-            state.focusMode = .automatic
+            state.focusMode = Self.defaultActiveFocusMode
             state.cursorVisible = true
         }
         state.activityPhase = .active
