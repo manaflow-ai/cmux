@@ -123,11 +123,17 @@ Use it like the built-in Computer Use connector:
 2. Prefer the current snapshot's string `element_index`; use screenshot-local
    x/y coordinates only as fallback.
 3. Use xdotool-style key strings such as `super+l` with `press_key`.
-4. Every successful action already returns a fresh app state and screenshot.
+4. For deterministic, key-driven tasks such as Calculator arithmetic, prefer
+   one `type_text` call containing the complete input (for example,
+   `100+105=`) after the initial state. Requests like “click 100 + 105” normally describe the UI goal,
+   not a requirement to spend one model/tool round trip on every button.
+   Only pointer-click each control when the user explicitly requires visible
+   button-by-button pointer interaction.
+5. Every successful action already returns a fresh app state and screenshot.
    Use that returned state to verify the requested outcome and choose the next
    action directly. Call `get_app_state` again only when an action reports that
    its state refresh failed or when you intentionally switch to another app.
-5. Numeric `element_index` values belong only to the state that displayed
+6. Numeric `element_index` values belong only to the state that displayed
    them. Never loop, batch, or issue multiple element-index actions without
    examining each returned state; any action can renumber later controls
    (Calculator's **All Clear** removes display nodes, for example). Issue one
