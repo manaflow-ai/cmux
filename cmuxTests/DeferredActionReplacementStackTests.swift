@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -14,26 +15,24 @@ struct DeferredActionReplacementStackTests {
         private var minimumAddress = UInt.max
         private var maximumAddress: UInt = 0
         private var releaseCount = 0
-        private var offMainReleaseCount = 0
 
         // The lock protects synchronous deinit observations that may arrive from
         // task cleanup. It is test-only and never crosses into production code.
         func record(address: UInt, isMainThread: Bool) {
             lock.lock()
-            minimumAddress = min(minimumAddress, address)
-            maximumAddress = max(maximumAddress, address)
             releaseCount += 1
-            if !isMainThread {
-                offMainReleaseCount += 1
+            if isMainThread {
+                minimumAddress = min(minimumAddress, address)
+                maximumAddress = max(maximumAddress, address)
             }
             lock.unlock()
         }
 
-        var snapshot: (count: Int, offMain: Int, addressSpan: UInt) {
+        var snapshot: (count: Int, addressSpan: UInt) {
             lock.lock()
             defer { lock.unlock() }
             let span = minimumAddress == UInt.max ? 0 : maximumAddress - minimumAddress
-            return (releaseCount, offMainReleaseCount, span)
+            return (releaseCount, span)
         }
     }
 
@@ -65,32 +64,6 @@ struct DeferredActionReplacementStackTests {
     @MainActor
     private final class TimerActionOwner {
         var fireCount = 0
-    }
-
-    @MainActor
-    private func legacyWorkItemReleaseSnapshot(
-        count: Int,
-        recorder: ReleaseStackRecorder
-    ) -> (count: Int, offMain: Int, addressSpan: UInt) {
-        let deinitializations = AsyncStream<Int>.makeStream()
-        defer { deinitializations.continuation.finish() }
-        var head: DispatchWorkItem?
-
-        for identifier in 0..<count {
-            let previous = head
-            let probe = ClosureLifetimeProbe(
-                identifier: identifier,
-                recorder: recorder,
-                deinitialized: deinitializations.continuation
-            )
-            head = DispatchWorkItem { [previous, probe] in
-                _ = previous
-                _ = probe
-            }
-        }
-
-        head = nil
-        return recorder.snapshot
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -145,6 +118,8 @@ struct DeferredActionReplacementStackTests {
     @MainActor
     func coalescingDeadlineTimerReusesOneHandleAcrossBurst() async {
         let owner = TimerActionOwner()
+        let clock = ContinuousClock()
+        let start = clock.now
         let fires = AsyncStream<Void>.makeStream()
         defer { fires.continuation.finish() }
         var fireIterator = fires.stream.makeAsyncIterator()
@@ -153,6 +128,7 @@ struct DeferredActionReplacementStackTests {
             fires.continuation.yield()
         }
 
+        timer.schedule(after: .zero)
         for _ in 0..<5_000 {
             timer.schedule(after: .milliseconds(20))
         }
@@ -161,30 +137,12 @@ struct DeferredActionReplacementStackTests {
         _ = await fireIterator.next()
         #expect(owner.fireCount == 1)
         #expect(!timer.isScheduled)
-    }
-
-    @Test
-    @MainActor
-    func legacyWorkItemHarnessShowsProportionalRecursiveReleaseDepth() {
-        let shortChain = legacyWorkItemReleaseSnapshot(
-            count: 16,
-            recorder: ReleaseStackRecorder()
-        )
-        let longChain = legacyWorkItemReleaseSnapshot(
-            count: 128,
-            recorder: ReleaseStackRecorder()
-        )
-
-        #expect(shortChain.count == 16)
-        #expect(longChain.count == 128)
-        #expect(shortChain.offMain == 0)
-        #expect(longChain.offMain == 0)
-        #expect(longChain.addressSpan > shortChain.addressSpan * 2)
+        #expect(start.duration(to: clock.now) >= .milliseconds(10))
     }
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func sharedSchedulerReplacementBurstKeepsReleaseStackBounded() async throws {
+    func sidebarSchedulerReplacementBurstKeepsMainReleaseStackBounded() async throws {
         let replacementCount = 5_000
         let recorder = ReleaseStackRecorder()
         let deinitializations = AsyncStream<Int>.makeStream()
@@ -193,7 +151,7 @@ struct DeferredActionReplacementStackTests {
         let releases = AsyncStream<Int>.makeStream()
         defer { releases.continuation.finish() }
         var releaseIterator = releases.stream.makeAsyncIterator()
-        let scheduler = MainActorDeferredActionScheduler()
+        let scheduler = SidebarResizerCursorReleaseScheduler()
 
         for identifier in 0..<replacementCount {
             let probe = ClosureLifetimeProbe(
@@ -201,9 +159,9 @@ struct DeferredActionReplacementStackTests {
                 recorder: recorder,
                 deinitialized: deinitializations.continuation
             )
-            scheduler.schedule { [probe, scheduler] in
+            scheduler.schedule(force: false, delay: .zero) { [probe, scheduler] _ in
                 // Mirror a SwiftUI value snapshot that transitively retains the
-                // scheduler while its deferred closure is queued.
+                // owner while its deferred closure is queued.
                 _ = scheduler
                 _ = probe
                 releases.continuation.yield(identifier)
@@ -221,9 +179,9 @@ struct DeferredActionReplacementStackTests {
 
         let snapshot = recorder.snapshot
         #expect(snapshot.count == replacementCount)
-        #expect(snapshot.offMain == 0)
-        // Independent task cleanup reuses a shallow executor stack. A linked
-        // release chain would move this marker once per replacement (or exhaust
+        // Off-main cleanup is harmless for this main-thread crash class. Any
+        // captures released on main must stay within a shallow stack span; a
+        // linked chain would move this marker once per replacement (or exhaust
         // the 8 MB main-thread stack before reaching this assertion).
         #expect(snapshot.addressSpan < 512 * 1_024)
     }

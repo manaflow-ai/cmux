@@ -7,9 +7,13 @@ import Foundation
 /// successor. The executor may retain canceled tasks until they drain, but they
 /// cannot create a recursive release chain through prior queued work.
 @MainActor
-final class MainActorDeferredActionScheduler {
-    enum ZeroDelayPolicy {
+public final class MainActorDeferredActionScheduler {
+    /// Defines how a zero-delay action reaches the main actor.
+    public enum ZeroDelayPolicy {
+        /// Enqueues the action for the next available main-actor execution.
         case enqueue
+
+        /// Yields one additional actor turn before attempting the action.
         case yieldOnce
     }
 
@@ -17,21 +21,33 @@ final class MainActorDeferredActionScheduler {
     private var pendingTask: Task<Void, Never>?
     private var generation: UInt64 = 0
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
+    /// Creates a scheduler driven by `clock`.
+    ///
+    /// - Parameter clock: The clock used for nonzero deadlines. Tests can
+    ///   inject a controllable clock instead of waiting for wall time.
+    public init(clock: any Clock<Duration> = ContinuousClock()) {
         self.clock = clock
     }
 
-    var isScheduled: Bool {
+    /// Whether an action is currently waiting to execute.
+    public var isScheduled: Bool {
         pendingTask != nil
     }
 
-    func cancel() {
+    /// Cancels and releases the currently scheduled action, if any.
+    public func cancel() {
         generation &+= 1
         pendingTask?.cancel()
         pendingTask = nil
     }
 
-    func schedule(
+    /// Replaces any pending action with `action`.
+    ///
+    /// - Parameters:
+    ///   - delay: The intended deadline before execution.
+    ///   - zeroDelayPolicy: The enqueue behavior when `delay` is zero.
+    ///   - action: Main-actor work to execute if it remains current.
+    public func schedule(
         after delay: Duration = .zero,
         zeroDelayPolicy: ZeroDelayPolicy = .enqueue,
         _ action: @escaping @MainActor () -> Void

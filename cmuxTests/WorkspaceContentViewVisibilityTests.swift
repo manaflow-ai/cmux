@@ -57,7 +57,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(releases == [false])
         releases.removeAll()
 
-        scheduler.scheduleAfterHoverExit { force in
+        scheduler.schedule(force: false, delay: .milliseconds(50)) { force in
             releases.append(force)
             releaseEvents.continuation.yield(force)
         }

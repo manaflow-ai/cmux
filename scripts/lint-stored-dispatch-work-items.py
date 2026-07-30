@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject stored DispatchWorkItem declarations in Sources/ outside audited one-shot uses."""
+"""Reject stored DispatchWorkItem declarations in shipped Swift sources outside audited uses."""
 
 from __future__ import annotations
 
@@ -11,6 +11,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCES_ROOT = REPO_ROOT / "Sources"
+CLI_ROOT = REPO_ROOT / "CLI"
+IOS_ROOT = REPO_ROOT / "ios"
+PACKAGES_ROOT = REPO_ROOT / "Packages"
 TYPE_DECLARATIONS = {"actor", "class", "enum", "extension", "protocol", "struct"}
 CALLABLE_DECLARATIONS = {"deinit", "func", "init", "subscript"}
 STATEMENT_STARTERS = {
@@ -113,6 +116,30 @@ ALLOWANCES = (
         "member:UpdateTitlebarAccessoryController",
         1,
         "fixed-size append-only startup scan fanout",
+    ),
+    Allowance(
+        "Packages/macOS/CmuxRemoteDaemon/Sources/CmuxRemoteDaemon/Client/RemoteDaemonRPCClient.swift",
+        "webSocketKeepaliveTimeoutWorkItem",
+        "DispatchWorkItem?",
+        "member:RemoteDaemonRPCClient",
+        1,
+        "state-queue-owned watchdog whose queued closure weakly captures the client",
+    ),
+    Allowance(
+        "Packages/macOS/CmuxRemoteDaemon/Sources/CmuxRemoteDaemon/Client/RemoteDaemonRPCClient.swift",
+        "transportKeepaliveTimeoutWorkItem",
+        "DispatchWorkItem?",
+        "member:RemoteDaemonRPCClient",
+        1,
+        "state-queue-owned watchdog whose queued closure weakly captures the client",
+    ),
+    Allowance(
+        "CLI/cmux.swift",
+        "keepaliveTimeoutWorkItem",
+        "DispatchWorkItem?",
+        "member:CMUXCLI.VMPtyWebSocketBridge",
+        1,
+        "send-queue-owned watchdog whose queued closure weakly captures the bridge",
     ),
 )
 
@@ -507,7 +534,14 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
 
 def declarations() -> list[Declaration]:
     found: list[Declaration] = []
-    for path in sorted(SOURCES_ROOT.rglob("*.swift")):
+    source_roots = [SOURCES_ROOT, CLI_ROOT, IOS_ROOT]
+    source_roots.extend(sorted(PACKAGES_ROOT.glob("*/*/Sources")))
+    paths = {
+        path
+        for source_root in source_roots
+        for path in source_root.rglob("*.swift")
+    }
+    for path in sorted(paths):
         relative = path.relative_to(REPO_ROOT).as_posix()
         found.extend(scan_declarations(path.read_text(encoding="utf-8"), relative))
     return found
@@ -524,8 +558,8 @@ def main() -> int:
         return 0
 
     print(
-        "Stored `var DispatchWorkItem` declarations in Sources/ can rebuild recursive release chains. "
-        "Use MainActorDeferredActionScheduler for replace-on-reschedule work.",
+        "Stored `var DispatchWorkItem` declarations in shipped Swift sources can rebuild "
+        "recursive release chains. Use a scheduler that cannot retain prior queued work.",
         file=sys.stderr,
     )
     lines_by_key: dict[tuple[str, str, str, str], list[int]] = collections.defaultdict(list)

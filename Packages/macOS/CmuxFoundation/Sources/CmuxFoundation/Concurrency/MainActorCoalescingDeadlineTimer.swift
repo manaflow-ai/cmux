@@ -6,13 +6,20 @@ import Foundation
 /// existing timer's deadline, so repeated signals allocate neither tasks nor
 /// replacement closures.
 @MainActor
-final class MainActorCoalescingDeadlineTimer<Owner: AnyObject> {
+public final class MainActorCoalescingDeadlineTimer<Owner: AnyObject> {
     private weak var owner: Owner?
     private let action: @MainActor (Owner) -> Void
     private let timer: DispatchSourceTimer
     private var scheduledDeadlineUptimeNanoseconds: UInt64?
 
-    init(
+    /// Creates a reusable deadline timer for `owner`.
+    ///
+    /// The timer retains `action` but holds `owner` weakly.
+    ///
+    /// - Parameters:
+    ///   - owner: The object that receives the coalesced action.
+    ///   - action: Main-actor work to invoke with a live owner.
+    public init(
         owner: Owner,
         action: @escaping @MainActor (Owner) -> Void
     ) {
@@ -32,17 +39,22 @@ final class MainActorCoalescingDeadlineTimer<Owner: AnyObject> {
         timer.resume()
     }
 
-    var isScheduled: Bool {
+    /// Whether the timer currently has an armed deadline.
+    public var isScheduled: Bool {
         scheduledDeadlineUptimeNanoseconds != nil
     }
 
-    func schedule(after delay: Duration) {
+    /// Replaces the current deadline with one `delay` from now.
+    ///
+    /// - Parameter delay: The intended delay, clamped to zero.
+    public func schedule(after delay: Duration) {
         let deadline = DispatchTime.now() + Self.dispatchInterval(for: delay)
         scheduledDeadlineUptimeNanoseconds = deadline.uptimeNanoseconds
         timer.schedule(deadline: deadline)
     }
 
-    func cancel() {
+    /// Disarms the current deadline without destroying the timer handle.
+    public func cancel() {
         scheduledDeadlineUptimeNanoseconds = nil
         timer.schedule(deadline: .distantFuture)
     }

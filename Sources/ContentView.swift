@@ -1613,7 +1613,7 @@ struct ContentView: View {
                     } else {
                         // Give mouse-down + drag-start callbacks time to establish state
                         // before any cursor pop is attempted.
-                        sidebarResizerCursorReleaseScheduler.scheduleAfterHoverExit(release: releaseSidebarResizerCursorIfNeeded)
+                        scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))
                     }
                 }
                 updateSidebarResizerBandState()

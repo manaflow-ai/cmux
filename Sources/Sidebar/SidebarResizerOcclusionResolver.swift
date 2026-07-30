@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 @MainActor
 final class SidebarResizerCursorReleaseScheduler {
@@ -10,10 +11,6 @@ final class SidebarResizerCursorReleaseScheduler {
 
     func cancelPendingRelease() {
         scheduler.cancel()
-    }
-
-    func scheduleAfterHoverExit(release: @escaping @MainActor (Bool) -> Void) {
-        schedule(force: false, delay: .milliseconds(50), release: release)
     }
 
     func schedule(
