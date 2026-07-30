@@ -134,7 +134,7 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .contextMenu { contextMenu }
+        .workspaceGroupRowContextMenu { contextMenu }
         .workspaceGroupRenameDialog(
             isPresented: $isRenaming,
             text: $renameDraft
@@ -286,5 +286,23 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
                 }
             }
         )
+    }
+}
+
+private extension View {
+    /// The iOS workspace list is backed by `UITableView`, whose delegate owns
+    /// the complete group-plus-anchor context menu. Attaching a second SwiftUI
+    /// menu to the hosted row intercepts the long press and hides the anchor's
+    /// workspace actions. The non-iOS list has no UIKit delegate, so it keeps
+    /// this row-local menu.
+    @ViewBuilder
+    func workspaceGroupRowContextMenu<MenuContent: View>(
+        @ViewBuilder content: () -> MenuContent
+    ) -> some View {
+        #if os(iOS)
+        self
+        #else
+        contextMenu(menuItems: content)
+        #endif
     }
 }
