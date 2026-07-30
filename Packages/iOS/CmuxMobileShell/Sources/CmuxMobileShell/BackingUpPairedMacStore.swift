@@ -98,13 +98,17 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         teamID: String,
         account: String
     ) async {
-        for echo in echoes {
+        // ONE persistence pass for the whole snapshot: the durable store
+        // rewrites its full state per save, so per-record saves would do
+        // quadratic work while the user-visible paired-Mac load awaits the
+        // restore.
+        await backupTeamStore.saveAll(echoes.map { echo in
             let rowTeam = echo.hasRetainedLocalRow ? echo.retainedRowTeamID : restoreTeam
-            await backupTeamStore.save(
-                teamID,
-                key: backupTeamKey(account: account, rowTeamID: rowTeam, pairingID: echo.pairingID)
+            return PairedMacBackupTeamMapping(
+                key: backupTeamKey(account: account, rowTeamID: rowTeam, pairingID: echo.pairingID),
+                teamID: teamID
             )
-        }
+        })
         await resolveParkedTombstones(
             matching: echoes,
             verifiedTeamID: teamID,
@@ -158,15 +162,23 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             let identity = MobilePairedMac.pairingIdentity(from: echo.pairingID)
             return cmxCanonicalDeviceID(identity.macDeviceID) == intent.deviceID
         }
-        // Retirement: a record CREATED after the intent was parked is a
-        // REVIVAL — another device re-paired the Mac — not a stale copy. The
+        // Retirement: a record the SERVER wrote after the intent was parked is
+        // a REVIVAL — another device re-paired the Mac — not a stale copy. The
         // intent retires instead of deleting it; without this, the forgetting
-        // phone would delete the revival on every restore forever. Unstamped
-        // legacy intents have no boundary and keep the old delete behavior.
+        // phone would delete the revival on every restore forever. The signal
+        // is the server-authored write time (client-authored createdAt is
+        // preserved across re-pairs on other phones), compared through the
+        // shared skew-margined rule. Unstamped legacy intents have no boundary
+        // and keep the old delete behavior.
         var retiredRaws: Set<String> = []
         for intent in decodeIntents(parked) where intent.stampMs > 0 {
+            let boundary = PairedMacRestoreSuppression(
+                pairingID: intent.pairingID,
+                stampMs: intent.stampMs
+            )
             let revived = echoes.contains { echo in
-                covers(intent, echo) && echo.createdAtMs > intent.stampMs
+                covers(intent, echo)
+                    && boundary.treatsAsRevived(serverUpdatedAtMs: echo.serverUpdatedAtMs)
             }
             if revived { retiredRaws.insert(intent.raw) }
         }
@@ -919,7 +931,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             task = existing
         } else {
             let restore = PairedMacRestore(store: inner, backup: backup)
-            let pendingDeletes = await suppressedPairingIDs(scope: scope, account: account)
+            let pendingDeletes = await restoreSuppressions(scope: scope, account: account)
             let boundaryGeneration = restoreBoundary.generation
             let restoreBoundary = restoreBoundary
             let created = Task {
@@ -928,7 +940,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                     teamID: restoreTeam,
                     boundary: restoreBoundary,
                     boundaryGeneration: boundaryGeneration,
-                    locallyDeletedMacDeviceIDs: pendingDeletes,
+                    suppressions: pendingDeletes,
                     // Persist where the server SAID this snapshot's records live,
                     // so a restored row forgotten later (the reinstall case, when
                     // no upload ever recorded a mapping) still routes its delete
@@ -1112,7 +1124,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             task = existing
         } else {
             let restore = PairedMacRestore(store: inner, backup: backup)
-            let pendingDeletes = await suppressedPairingIDs(scope: scope, account: account)
+            let pendingDeletes = await restoreSuppressions(scope: scope, account: account)
             let boundaryGeneration = restoreBoundary.generation
             let restoreBoundary = restoreBoundary
             let created = Task {
@@ -1121,7 +1133,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                     teamID: restoreTeam,
                     boundary: restoreBoundary,
                     boundaryGeneration: boundaryGeneration,
-                    locallyDeletedMacDeviceIDs: pendingDeletes,
+                    suppressions: pendingDeletes,
                     // Persist where the server SAID this snapshot's records live,
                     // so a restored row forgotten later (the reinstall case, when
                     // no upload ever recorded a mapping) still routes its delete
@@ -1288,15 +1300,33 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// tombstones PLUS the account's PARKED (unknown-destination) ones. A
     /// parked intent is a forget the user was told succeeded; its destination
     /// team is unknown, so EVERY team's restore must refuse to resurrect that
-    /// pairing — the parked intent resolves and flushes once a snapshot echo
-    /// reveals which team actually holds the backup.
-    private func suppressedPairingIDs(scope: String, account: String) async -> Set<String> {
-        var ids = await pendingDeleteIDs(scope: scope)
+    /// pairing — unless the server wrote the record AFTER the intent (a
+    /// revival), which the stamp lets the restore detect. Duplicate pairings
+    /// keep their NEWEST stamp.
+    private func restoreSuppressions(
+        scope: String,
+        account: String
+    ) async -> [PairedMacRestoreSuppression] {
+        var scopeKeys = [scope]
         let parkedScope = await nonoptionalScopeKey(account: account, teamID: nil)
         if parkedScope != scope {
-            ids.formUnion(await pendingDeleteIDs(scope: parkedScope))
+            scopeKeys.append(parkedScope)
         }
-        return ids
+        var stampsByPairing: [String: Double] = [:]
+        for scopeKey in scopeKeys {
+            let scopeTeam = teamID(fromScopeKey: scopeKey)
+            for raw in await pendingRecords(scope: scopeKey) {
+                let record = PendingDeleteRecord(decoding: raw, scopeTeamID: scopeTeam)
+                let stampMs = Double(record.stamp) * 1_000
+                stampsByPairing[record.pairingID] = max(
+                    stampsByPairing[record.pairingID] ?? 0,
+                    stampMs
+                )
+            }
+        }
+        return stampsByPairing.map { pairingID, stampMs in
+            PairedMacRestoreSuppression(pairingID: pairingID, stampMs: stampMs)
+        }
     }
 
     /// The team component of a scope key (`account\0team[\0clientScope]`).

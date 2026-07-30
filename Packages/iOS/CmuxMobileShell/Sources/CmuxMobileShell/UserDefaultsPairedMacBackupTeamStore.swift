@@ -36,14 +36,25 @@ public actor UserDefaultsPairedMacBackupTeamStore: PairedMacBackupTeamStoring {
 
     /// Record the server-verified backup team for one pairing key.
     public func save(_ teamID: String, key mapKey: String) async {
+        await saveAll([PairedMacBackupTeamMapping(key: mapKey, teamID: teamID)])
+    }
+
+    /// Record a whole restore snapshot's mappings in ONE read-modify-write of
+    /// the persisted dictionary and ordering, instead of a full-state rewrite
+    /// per record.
+    public func saveAll(_ mappings: [PairedMacBackupTeamMapping]) async {
+        guard !mappings.isEmpty else { return }
         var all = defaults.dictionary(forKey: key) as? [String: String] ?? [:]
         var order = defaults.stringArray(forKey: orderKey) ?? []
-        all[mapKey] = teamID
-        // Move-to-newest so eviction age tracks the LAST save, and repair any
-        // drift between the dictionary and the order list (pre-order builds
-        // stored only the dictionary).
-        order.removeAll { $0 == mapKey }
-        order.append(mapKey)
+        let touched = Set(mappings.map(\.key))
+        // Move-to-newest so eviction age tracks the LAST save.
+        order.removeAll { touched.contains($0) }
+        for mapping in mappings {
+            all[mapping.key] = mapping.teamID
+            order.append(mapping.key)
+        }
+        // Repair any drift between the dictionary and the order list
+        // (pre-order builds stored only the dictionary).
         order.removeAll { all[$0] == nil }
         let ordered = Set(order)
         for known in all.keys where !ordered.contains(known) {

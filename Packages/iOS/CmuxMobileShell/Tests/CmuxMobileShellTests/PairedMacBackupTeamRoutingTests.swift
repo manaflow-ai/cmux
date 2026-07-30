@@ -642,7 +642,7 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
         let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
         #expect(await composite.forgetHiddenComputer(hidden))
 
-        // Another phone re-pairs the Mac: the server record is CREATED at
+        // Another phone re-pairs the Mac: the SERVER stamps the write at
         // t=2000s, after this phone's forget.
         await backup.seedRecord(
             PairedMacBackupRecord(
@@ -651,7 +651,8 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
                 routes: [try Self.route("100.82.214.112")],
                 createdAt: 2_000_000,
                 lastSeenAt: 2_000_000,
-                isActive: false
+                isActive: false,
+                serverUpdatedAtMs: 2_000_000
             ),
             teamID: "team-shown"
         )

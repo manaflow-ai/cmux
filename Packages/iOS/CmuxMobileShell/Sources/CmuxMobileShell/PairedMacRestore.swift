@@ -53,7 +53,7 @@ public struct PairedMacRestore: Sendable {
         now: Date = Date(),
         boundary: PairedMacRestoreBoundary? = nil,
         boundaryGeneration: UInt64? = nil,
-        locallyDeletedMacDeviceIDs: Set<String> = [],
+        suppressions: [PairedMacRestoreSuppression] = [],
         onResolvedBackupTeam: (@Sendable ([PairedMacRestoreEcho], String) async -> Void)? = nil
     ) async -> RestoreOutcome {
         func isCurrent() -> Bool {
@@ -83,22 +83,27 @@ public struct PairedMacRestore: Sendable {
         }
         // Server tombstones were written only by the retired legacy-delete
         // behavior. They no longer remove or suppress local paired-Mac rows.
-        // Locally pending deletes remain authoritative until their outbox flushes.
-        let pendingDeleteIDs = Set(locallyDeletedMacDeviceIDs.compactMap(canonicalPairingID))
-        // A TAG-LESS pending delete is a device-wide (wildcard) forget — the
-        // only flow that creates one — so it suppresses EVERY tag of its
-        // device, matching the broker revoke's tag-blind breadth. An exact
-        // tagged pending delete suppresses only its own pairing.
-        let wildcardDeletedDevices = Set(pendingDeleteIDs.compactMap { pairingID -> String? in
-            let identity = MobilePairedMac.pairingIdentity(from: pairingID)
-            guard identity.instanceTag == nil else { return nil }
-            return cmxCanonicalDeviceID(identity.macDeviceID)
-        })
+        // Locally pending deletes remain authoritative until their outbox
+        // flushes — UNLESS the record is a REVIVAL: a server write newer than
+        // the suppressing tombstone means another device re-paired the Mac
+        // after this phone's forget, and the record must merge normally (the
+        // owner retires the tombstone from the post-merge echo). A record
+        // survives only when EVERY covering suppression sees it as revived.
+        let normalizedSuppressions = suppressions.compactMap { suppression in
+            canonicalPairingID(suppression.pairingID).map {
+                PairedMacRestoreSuppression(pairingID: $0, stampMs: suppression.stampMs)
+            }
+        }
+        let pendingDeleteIDs = Set(normalizedSuppressions.map(\.pairingID))
         let liveRecords = snapshot.records.filter { record in
-            !pendingDeleteIDs.contains(MobilePairedMac.pairingID(
-                macDeviceID: record.macDeviceID,
+            let pairingID = MobilePairedMac.pairingID(
+                macDeviceID: cmxCanonicalDeviceID(record.macDeviceID),
                 instanceTag: record.instanceTag
-            )) && !wildcardDeletedDevices.contains(cmxCanonicalDeviceID(record.macDeviceID))
+            )
+            return !normalizedSuppressions.contains { suppression in
+                suppression.covers(pairingID: pairingID)
+                    && !suppression.treatsAsRevived(serverUpdatedAtMs: record.serverUpdatedAtMs)
+            }
         }
         guard !liveRecords.isEmpty || !pendingDeleteIDs.isEmpty else {
             return RestoreOutcome(completed: true, restored: 0)
@@ -249,7 +254,7 @@ public struct PairedMacRestore: Sendable {
                     pairingID: pairingID,
                     hasRetainedLocalRow: retained != nil,
                     retainedRowTeamID: retained ?? nil,
-                    createdAtMs: record.createdAt
+                    serverUpdatedAtMs: record.serverUpdatedAtMs
                 )
             }
             await onResolvedBackupTeam(echoes, resolvedTeamID)
@@ -267,19 +272,59 @@ public struct PairedMacRestoreEcho: Sendable {
     /// The retained local row's OWN team (nil = a team-less row); meaningful
     /// only when ``hasRetainedLocalRow``.
     public let retainedRowTeamID: String?
-    /// The snapshot record's creation time (ms since epoch): a record created
-    /// AFTER a forget is a revival, not a stale copy.
-    public let createdAtMs: Double
+    /// SERVER-authored last-write time (ms since epoch): a record the server
+    /// wrote AFTER a forget is a revival, not a stale copy. `nil` for
+    /// snapshots from workers that predate the field.
+    public let serverUpdatedAtMs: Double?
 
     public init(
         pairingID: String,
         hasRetainedLocalRow: Bool,
         retainedRowTeamID: String?,
-        createdAtMs: Double
+        serverUpdatedAtMs: Double?
     ) {
         self.pairingID = pairingID
         self.hasRetainedLocalRow = hasRetainedLocalRow
         self.retainedRowTeamID = retainedRowTeamID
-        self.createdAtMs = createdAtMs
+        self.serverUpdatedAtMs = serverUpdatedAtMs
+    }
+}
+
+/// One tombstone the restore must honor: records covered by it are withheld
+/// from the merge unless the server wrote them AFTER the tombstone.
+public struct PairedMacRestoreSuppression: Sendable {
+    /// The forgotten pairing; a TAG-LESS id is the device-wide wildcard and
+    /// covers every tag of its device.
+    public let pairingID: String
+    /// The tombstone's creation time (ms since epoch); 0 = no boundary is
+    /// known (legacy records), which suppresses unconditionally.
+    public let stampMs: Double
+
+    public init(pairingID: String, stampMs: Double) {
+        self.pairingID = pairingID
+        self.stampMs = stampMs
+    }
+
+    /// Clock-skew allowance biased toward REVIVAL: wrongly retiring a
+    /// tombstone leaves one restorable stale copy, while wrongly deleting
+    /// kills a genuine re-pair on every restore.
+    public static let revivalSkewMarginMs: Double = 60_000
+
+    /// Whether this tombstone covers the pairing (exact, or any tag of the
+    /// device for a tag-less wildcard).
+    public func covers(pairingID other: String) -> Bool {
+        if pairingID == other { return true }
+        let own = MobilePairedMac.pairingIdentity(from: pairingID)
+        guard own.instanceTag == nil else { return false }
+        let identity = MobilePairedMac.pairingIdentity(from: other)
+        return cmxCanonicalDeviceID(identity.macDeviceID)
+            == cmxCanonicalDeviceID(own.macDeviceID)
+    }
+
+    /// Whether a record the server last wrote at `serverUpdatedAtMs` counts as
+    /// a post-forget revival for this tombstone.
+    public func treatsAsRevived(serverUpdatedAtMs: Double?) -> Bool {
+        guard stampMs > 0, let serverUpdatedAtMs else { return false }
+        return serverUpdatedAtMs > stampMs - Self.revivalSkewMarginMs
     }
 }
