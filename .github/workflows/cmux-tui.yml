@@ -11,6 +11,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  RUST_TOOLCHAIN: "1.95.0"
+
 jobs:
   web-frontend:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -61,13 +64,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Rust version
+      - name: Install Rust toolchain
         run: |
-          rustc --version || true
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: Build test binaries
         working-directory: cmux-tui
@@ -153,13 +154,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Rust version
+      - name: Install Rust toolchain
         run: |
-          rustc --version || true
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: cargo fmt
         working-directory: cmux-tui
@@ -206,13 +205,11 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Rust version
+      - name: Install Rust toolchain
         run: |
-          rustc --version || true
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: Java version
         run: |
@@ -254,10 +251,17 @@ jobs:
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+
       - name: Install Rust GNU target
         shell: bash
         run: |
-          rustup target add x86_64-pc-windows-gnu
+          rustup target add --toolchain "$RUST_TOOLCHAIN" x86_64-pc-windows-gnu
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
       - name: Build libghostty-vt for Windows GNU
