@@ -109,6 +109,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let structureChanged = currentSnapshot.sectionIdentifiers != [Self.section]
             || currentSnapshot.itemIdentifiers != next.items
         var changed: [WorkspaceListTableItem] = []
+        var nativeActionReloadIDs: Set<String> = []
         if let previous {
             // This map already mirrors previousConfiguration. Reuse it instead
             // of rebuilding a second full index for every live row update.
@@ -121,6 +122,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     next: next
                 ) {
                     changed.append(item)
+                    if nativeActionPayloadChanged(
+                        item,
+                        previous: previous,
+                        next: next
+                    ) {
+                        nativeActionReloadIDs.insert(item.id)
+                    }
                 }
             }
         }
@@ -147,7 +155,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         } else {
             snapshot = currentSnapshot
         }
-        snapshot.reconfigureItems(changed)
+        let reloadItems = changed.filter { nativeActionReloadIDs.contains($0.id) }
+        let reconfigureItems = changed.filter { !nativeActionReloadIDs.contains($0.id) }
+        snapshot.reloadItems(reloadItems)
+        snapshot.reconfigureItems(reconfigureItems)
         dataSource.apply(snapshot, animatingDifferences: false)
     }
 
@@ -368,6 +379,22 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         ) { _ in
             UIMenu(children: actions)
         }
+    }
+
+    /// UIKit caches swipe-derived accessibility actions on an existing row.
+    /// Reconfiguring its content does not invalidate that cache, so a group
+    /// header must reload when its anchor's read-state action changes.
+    func nativeActionPayloadChanged(
+        _ item: WorkspaceListTableItem,
+        previous: WorkspaceListTable,
+        next: WorkspaceListTable
+    ) -> Bool {
+        guard case .groupHeader(let id) = item else { return false }
+        let previousAnchorID = previous.groupsByID[id]?.anchorWorkspaceID
+        let nextAnchorID = next.groupsByID[id]?.anchorWorkspaceID
+        return previousAnchorID != nextAnchorID
+            || previousAnchorID.flatMap { previous.workspacesByID[$0]?.hasUnread }
+                != nextAnchorID.flatMap { next.workspacesByID[$0]?.hasUnread }
     }
 
     @objc private func refreshRequested(_ refreshControl: UIRefreshControl) {
@@ -761,6 +788,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 && next.selectedWorkspaceID == nextAnchorID
             return previous.groupsByID[id] != next.groupsByID[id]
                 || previous.groupHasUnreadByID[id] != next.groupHasUnreadByID[id]
+                || previousAnchorID.flatMap { previous.workspacesByID[$0]?.hasUnread }
+                    != nextAnchorID.flatMap { next.workspacesByID[$0]?.hasUnread }
                 || previousAnchorID.map { previous.workspacesByID[$0]?.actionCapabilities }
                     != nextAnchorID.map { next.workspacesByID[$0]?.actionCapabilities }
                 || wasAnchorSelected != isAnchorSelected
