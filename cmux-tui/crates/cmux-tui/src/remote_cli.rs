@@ -2999,6 +2999,142 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn legacy_sidecar_process_fixture() {
+        use std::os::unix::net::UnixListener;
+
+        let Some(state_dir) = std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_STATE") else {
+            return;
+        };
+        let state_dir = PathBuf::from(state_dir);
+        let link_socket = PathBuf::from(std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_LINK").unwrap());
+        let admin_socket =
+            PathBuf::from(std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_ADMIN").unwrap());
+        let ready = PathBuf::from(std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_READY").unwrap());
+        let cleanup = PathBuf::from(std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_CLEANUP").unwrap());
+        let release = PathBuf::from(std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_RELEASE").unwrap());
+        let final_write =
+            PathBuf::from(std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_FINAL_WRITE").unwrap());
+        fs::create_dir_all(&state_dir).unwrap();
+        let link_listener = UnixListener::bind(&link_socket).unwrap();
+        let admin_listener = UnixListener::bind(&admin_socket).unwrap();
+        let runtime = crate::remote_runtime::DaemonRuntimeInfo {
+            session: "legacy-handoff".into(),
+            state_dir: state_dir.clone(),
+            link_socket: link_socket.clone(),
+            admin_socket: admin_socket.clone(),
+            daemon_fingerprint: "legacy-daemon".into(),
+            routes: vec![format!("unix://{}", link_socket.display())],
+            direct_websocket: None,
+            iroh_node_id: None,
+            replaceable_sidecar: true,
+        };
+        fs::write(state_dir.join("runtime.json"), serde_json::to_vec_pretty(&runtime).unwrap())
+            .unwrap();
+        fs::write(&ready, b"ready").unwrap();
+
+        let (stream, _) = admin_listener.accept().unwrap();
+        let mut stream = io::BufReader::new(stream);
+        let mut request = String::new();
+        stream.read_line(&mut request).unwrap();
+        assert_eq!(serde_json::from_str::<AdminRequest>(&request).unwrap(), AdminRequest::Shutdown);
+        serde_json::to_writer(
+            stream.get_mut(),
+            &AdminResponse { ok: true, result: Some(serde_json::json!({})), error: None },
+        )
+        .unwrap();
+        stream.get_mut().write_all(b"\n").unwrap();
+        stream.get_mut().flush().unwrap();
+        drop(stream);
+        drop(admin_listener);
+        drop(link_listener);
+        fs::remove_file(&admin_socket).unwrap();
+        fs::remove_file(&link_socket).unwrap();
+        fs::remove_file(state_dir.join("runtime.json")).unwrap();
+        fs::write(&cleanup, b"legacy-cleanup-published").unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !release.exists() {
+            assert!(Instant::now() < deadline, "legacy sidecar finalization was never released");
+            thread::sleep(Duration::from_millis(1));
+        }
+        fs::write(final_write, b"legacy-final-auth-write").unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_waits_for_legacy_sidecar_process_exit_before_upgrade_handoff() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let session = "legacy-handoff";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(directory.path())).unwrap();
+        let ready = directory.path().join("legacy-ready");
+        let cleanup = directory.path().join("legacy-cleanup-published");
+        let release = directory.path().join("release-legacy-finalization");
+        let final_write = directory.path().join("legacy-final-auth-write");
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "remote_cli::tests::legacy_sidecar_process_fixture", "--nocapture"])
+            .env("CMUX_TEST_LEGACY_SIDECAR_STATE", &state_dir)
+            .env("CMUX_TEST_LEGACY_SIDECAR_LINK", &link_socket)
+            .env("CMUX_TEST_LEGACY_SIDECAR_ADMIN", &admin_socket)
+            .env("CMUX_TEST_LEGACY_SIDECAR_READY", &ready)
+            .env("CMUX_TEST_LEGACY_SIDECAR_CLEANUP", &cleanup)
+            .env("CMUX_TEST_LEGACY_SIDECAR_RELEASE", &release)
+            .env("CMUX_TEST_LEGACY_SIDECAR_FINAL_WRITE", &final_write)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        let ready_deadline = Instant::now() + Duration::from_secs(5);
+        while !ready.exists() {
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("legacy sidecar fixture exited before startup: {status}");
+            }
+            assert!(Instant::now() < ready_deadline, "legacy sidecar fixture did not start");
+            thread::sleep(Duration::from_millis(1));
+        }
+
+        let state_root = directory.path().to_string_lossy().into_owned();
+        let stopper = thread::spawn(move || {
+            run_remote_stop(
+                &["--session", session, "--state-dir", state_root.as_str()].map(str::to_string),
+            )
+        });
+        let cleanup_deadline = Instant::now() + Duration::from_secs(5);
+        while !cleanup.exists() {
+            assert!(
+                !stopper.is_finished(),
+                "remote-stop returned before the legacy daemon published lifecycle cleanup"
+            );
+            assert!(
+                Instant::now() < cleanup_deadline,
+                "legacy daemon did not publish lifecycle cleanup"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+        let early_return_deadline = Instant::now() + Duration::from_millis(500);
+        while !stopper.is_finished() && Instant::now() < early_return_deadline {
+            thread::sleep(Duration::from_millis(1));
+        }
+        let returned_before_process_exit = stopper.is_finished();
+
+        fs::write(&release, b"release").unwrap();
+        let stop_result = stopper.join().unwrap();
+        let child_status = child.wait().unwrap();
+        assert!(stop_result.is_ok(), "remote-stop failed: {stop_result:?}");
+        assert!(child_status.success(), "legacy sidecar fixture failed: {child_status}");
+        assert!(
+            final_write.exists(),
+            "legacy sidecar did not complete its final authorization write"
+        );
+        assert!(
+            !returned_before_process_exit,
+            "remote-stop returned after runtime.json removal but before legacy process exit"
+        );
+    }
+
     #[test]
     fn relay_invitation_access_reads_owner_supplied_ticket_file() {
         use std::os::unix::fs::PermissionsExt as _;
