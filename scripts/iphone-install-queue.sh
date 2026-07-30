@@ -59,7 +59,7 @@ log() {
   printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" | tee -a "$LOGS_DIR/drain.log" >&2 || true
 }
 
-usage() { sed -n '2,40p' "$0"; }
+usage() { sed -n '2,46p' "$0"; }
 
 default_device_id() {
   if [[ -n "${CMUX_IPHONE_DEVICE_ID:-}" ]]; then
@@ -258,13 +258,39 @@ fail_entry() {
 
 # Install + launch one entry. Returns 0 on success, 1 on hard failure (entry is
 # moved to failed/), 2 when the device is unreachable (entry stays pending).
+#
+# Re-enqueue race: a reload may replace this entry while the drain is mid-
+# install. Every terminal action (remove on success, move to failed/) first
+# re-reads enqueued_at; when it changed, the newer build is left queued for the
+# next drain pass instead of being silently deleted or failed.
 drain_entry() {
   local slug="$1" override_device="$2"
   local entry="$PENDING_DIR/$slug"
   local meta="$entry/meta.json"
   local app="$entry/cmux.app"
   local tag device_id bundle_id checkout no_attach no_sign_in no_setup launch
-  tag="$(meta_field "$meta" tag)" || { fail_entry "$slug" "unreadable meta.json"; return 1; }
+  local stamp
+  stamp="$(meta_field "$meta" enqueued_at 2>/dev/null || true)"
+  entry_unchanged() {
+    [[ "$(meta_field "$meta" enqueued_at 2>/dev/null || true)" == "$stamp" ]]
+  }
+  finish_failed() {
+    if entry_unchanged; then
+      fail_entry "$slug" "$1"
+      return 1
+    fi
+    log "entry $slug was replaced mid-drain; leaving the newer build queued"
+    return 2
+  }
+  finish_installed() {
+    if entry_unchanged; then
+      rm -rf "$entry"
+      return 0
+    fi
+    log "entry $slug was replaced mid-drain; leaving the newer build queued"
+    return 2
+  }
+  tag="$(meta_field "$meta" tag)" || { finish_failed "unreadable meta.json"; return $?; }
   bundle_id="$(meta_field "$meta" bundle_id)"
   device_id="${override_device:-$(meta_field "$meta" device_id)}"
   [[ -n "$device_id" ]] || device_id="$(default_device_id)"
@@ -275,8 +301,8 @@ drain_entry() {
   launch="$(meta_field "$meta" launch)"
 
   if [[ -z "$device_id" ]]; then
-    fail_entry "$slug" "no device id in meta and no default configured"
-    return 1
+    finish_failed "no device id in meta and no default configured"
+    return $?
   fi
   if ! device_reachable "$device_id"; then
     log "device $device_id unreachable; keeping $slug queued"
@@ -286,24 +312,24 @@ drain_entry() {
   log "installing $bundle_id (tag $tag) on $device_id"
   if ! xcrun devicectl device install app --device "$device_id" "$app" \
       >>"$LOGS_DIR/drain.log" 2>&1; then
-    fail_entry "$slug" "devicectl install failed (see logs/drain.log)"
-    return 1
+    finish_failed "devicectl install failed (see logs/drain.log)"
+    return $?
   fi
 
   if [[ "$launch" != "1" ]]; then
     log "installed $bundle_id (launch disabled at enqueue)"
-    rm -rf "$entry"
-    return 0
+    finish_installed
+    return $?
   fi
 
   if [[ "$no_setup" == "1" || "$no_sign_in" == "1" ]]; then
     if ! xcrun devicectl device process launch --terminate-existing \
         --device "$device_id" "$bundle_id" >>"$LOGS_DIR/drain.log" 2>&1; then
-      fail_entry "$slug" "plain launch failed (device locked?)"
-      return 1
+      finish_failed "plain launch failed (device locked?)"
+      return $?
     fi
-    rm -rf "$entry"
-    return 0
+    finish_installed
+    return $?
   fi
 
   # Signed launch through the checkout's mobile-dev-launch.sh (auto sign-in +
@@ -320,8 +346,8 @@ drain_entry() {
     fi
   done
   if [[ -z "$mdl" ]]; then
-    fail_entry "$slug" "no checkout with scripts/mobile-dev-launch.sh found (enqueuing worktree pruned? set CMUX_IPHONE_QUEUE_CHECKOUT)"
-    return 1
+    finish_failed "no checkout with scripts/mobile-dev-launch.sh found (enqueuing worktree pruned? set CMUX_IPHONE_QUEUE_CHECKOUT)"
+    return $?
   fi
   local args=(--tag "$tag" --device --device-id "$device_id")
   # --ensure-mac launches the same-tag Mac app if its socket is down, so the
@@ -329,12 +355,12 @@ drain_entry() {
   [[ "$no_attach" == "1" ]] || args+=(--ensure-mac)
   if ! ( cd "$checkout" && "$mdl" "${args[@]}" ) >>"$LOGS_DIR/drain.log" 2>&1; then
     # Policy: never degrade a failed signed setup to a plain launch.
-    fail_entry "$slug" "signed launch (mobile-dev-launch.sh) failed; see logs/drain.log"
-    return 1
+    finish_failed "signed launch (mobile-dev-launch.sh) failed; see logs/drain.log"
+    return $?
   fi
   log "installed + launched $bundle_id (tag $tag) on $device_id"
-  rm -rf "$entry"
-  return 0
+  finish_installed
+  return $?
 }
 
 cmd_drain() {

@@ -34,7 +34,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GUI_DOMAIN="gui/$(id -u)"
 
-usage() { sed -n '2,28p' "$0"; }
+usage() { sed -n '2,27p' "$0"; }
 
 cmd_status() {
   if launchctl print "$GUI_DOMAIN/$LABEL" >/dev/null 2>&1; then

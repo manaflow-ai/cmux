@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
     --no-sign-in) NO_SIGN_IN=1; shift ;;
     --no-setup) NO_SETUP=1; shift ;;
     --no-launch) LAUNCH=0; shift ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -40,8 +40,14 @@ done
 
 SLUG="$(cmux_attach__slug "$TAG")"
 BUNDLE_ID="dev.cmux.ios.$SLUG"
+# Fail closed: an unreadable CFBundleIdentifier must not skip validation and
+# install an arbitrary app under this tag's identity.
 APP_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" 2>/dev/null || true)"
-if [[ -n "$APP_BUNDLE_ID" && "$APP_BUNDLE_ID" != "$BUNDLE_ID" ]]; then
+if [[ -z "$APP_BUNDLE_ID" ]]; then
+  echo "error: could not read CFBundleIdentifier from $APP/Info.plist" >&2
+  exit 1
+fi
+if [[ "$APP_BUNDLE_ID" != "$BUNDLE_ID" ]]; then
   echo "error: app bundle id $APP_BUNDLE_ID does not match tag '$TAG' ($BUNDLE_ID)" >&2
   exit 1
 fi

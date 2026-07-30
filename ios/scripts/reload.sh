@@ -783,7 +783,13 @@ reload_device() {
   # the CMUX_IPHONE_QUEUE_FORCE_UNREACHABLE test hook. select_device still owns
   # name/ambiguity resolution for reachable devices, and its failure is treated
   # as unreachable too (the phone can drop between probe and selection).
-  local probe_id="${DEVICE_ID:-$DEFAULT_DEVICE_ID}"
+  # A --device-name target never falls back to the DEFAULT device id: queueing
+  # a build for a different phone than the one named would install it on the
+  # wrong device.
+  local probe_id="$DEVICE_ID"
+  if [[ -z "$probe_id" && -z "$DEVICE_NAME" ]]; then
+    probe_id="$DEFAULT_DEVICE_ID"
+  fi
   local device_unreachable=0
   if [[ -n "$probe_id" && -x "$QUEUE_SCRIPT" ]] \
       && ! "$QUEUE_SCRIPT" probe --device-id "$probe_id" >/dev/null 2>&1; then
@@ -802,7 +808,11 @@ reload_device() {
       exit 1
     fi
     if [[ -z "$queued_device_id" ]]; then
-      echo "error: iPhone unreachable and no device id to queue for (pass --device-id, set CMUX_IPHONE_DEVICE_ID, or write ~/.config/cmux/iphone-device-id)" >&2
+      if [[ -n "$DEVICE_NAME" ]]; then
+        echo "error: device '$DEVICE_NAME' is unreachable and name targets cannot be queued (the queue needs a stable id); pass --device-id instead" >&2
+      else
+        echo "error: iPhone unreachable and no device id to queue for (pass --device-id, set CMUX_IPHONE_DEVICE_ID, or write ~/.config/cmux/iphone-device-id)" >&2
+      fi
       exit 1
     fi
     if [[ ! -x "$QUEUE_SCRIPT" ]]; then
@@ -814,10 +824,10 @@ reload_device() {
     echo "==> iPhone unreachable; the signed build will be QUEUED for auto-install on reconnect"
   else
     tab=$'\t'
-    selected_device_id="${selection%%$tab*}"
-    selection_remainder="${selection#*$tab}"
-    selected_device_install_id="${selection_remainder%%$tab*}"
-    selected_device_name="${selection_remainder#*$tab}"
+    selected_device_id="${selection%%"$tab"*}"
+    selection_remainder="${selection#*"$tab"}"
+    selected_device_install_id="${selection_remainder%%"$tab"*}"
+    selected_device_name="${selection_remainder#*"$tab"}"
   fi
   device_destination="generic/platform=iOS"
   if [[ "$queue_mode" -eq 0 && "$ALLOW_DEVICE_REGISTRATION" -eq 1 ]]; then
