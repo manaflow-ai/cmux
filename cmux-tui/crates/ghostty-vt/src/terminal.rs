@@ -3014,7 +3014,7 @@ impl Terminal {
     fn vt_replay_text_layout_bounded(
         &mut self,
         max_bytes: usize,
-        placement_rows: &BTreeSet<u64>,
+        placement_rows: &KittyReplayRowIndex,
         minimum_start: Option<u64>,
         include_palette: bool,
     ) -> Result<ReplayText> {
@@ -3095,15 +3095,18 @@ impl Terminal {
         &mut self,
         mut best: ReplayText,
         failed_start: u64,
-        placement_rows: &BTreeSet<u64>,
+        placement_rows: &KittyReplayRowIndex,
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<ReplayText> {
         let Some(best_range) = best.range else {
             return Ok(best);
         };
-        let candidates =
-            placement_rows.range(failed_start..best_range.start).copied().collect::<Vec<_>>();
+        let candidates = placement_rows
+            .anchors
+            .range(failed_start..best_range.start)
+            .copied()
+            .collect::<Vec<_>>();
         let mut low = 0;
         let mut high = candidates.len();
         while low < high {
@@ -3127,7 +3130,7 @@ impl Terminal {
     fn vt_replay_text_range_bounded(
         &mut self,
         range: ReplayRowRange,
-        placement_rows: &BTreeSet<u64>,
+        placement_rows: &KittyReplayRowIndex,
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<Option<ReplayText>> {
@@ -3140,8 +3143,12 @@ impl Terminal {
         let Some(format_max_bytes) = max_bytes.checked_sub(suffix_len) else {
             return Ok(None);
         };
+        let insert_at_start = placement_rows.overlaps(range.start);
         let mut segment_ends =
-            placement_rows.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
+            placement_rows.anchors.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
+        if insert_at_start {
+            segment_ends.insert(range.start);
+        }
         segment_ends.insert(range.end);
 
         let mut bytes = Vec::new();
@@ -3180,7 +3187,9 @@ impl Terminal {
                     emitted_breaks = emitted_breaks.saturating_add(1);
                 }
             }
-            if placement_rows.contains(&segment_end) {
+            if placement_rows.anchors.contains(&segment_end)
+                || (insert_at_start && segment_end == range.start)
+            {
                 insertion_offsets.insert(segment_end, bytes.len());
             }
             if !last {
@@ -3409,6 +3418,56 @@ struct ReplayRowRange {
     end: u64,
 }
 
+#[derive(Default)]
+struct KittyReplayRowIndex {
+    anchors: BTreeSet<u64>,
+    // Merged inclusive spans avoid expanding attacker-controlled `grid_rows`
+    // into one entry per occupied cell.
+    occupied_spans: Vec<ReplayRowRange>,
+}
+
+impl KittyReplayRowIndex {
+    fn insert(&mut self, row: u64, grid_rows: u32) {
+        self.anchors.insert(row);
+        self.occupied_spans.push(ReplayRowRange {
+            start: row,
+            end: row.saturating_add(u64::from(grid_rows.max(1)) - 1),
+        });
+    }
+
+    fn finish(mut self) -> Self {
+        self.occupied_spans.sort_by_key(|span| (span.start, span.end));
+        let mut merged = Vec::<ReplayRowRange>::with_capacity(self.occupied_spans.len());
+        for span in self.occupied_spans.drain(..) {
+            if let Some(previous) = merged.last_mut()
+                && span.start <= previous.end.saturating_add(1)
+            {
+                previous.end = previous.end.max(span.end);
+            } else {
+                merged.push(span);
+            }
+        }
+        self.occupied_spans = merged;
+        self
+    }
+
+    fn overlaps(&self, row: u64) -> bool {
+        let insertion = self.occupied_spans.partition_point(|span| span.start <= row);
+        insertion > 0 && self.occupied_spans[insertion - 1].end >= row
+    }
+}
+
+#[cfg(test)]
+impl FromIterator<u64> for KittyReplayRowIndex {
+    fn from_iter<T: IntoIterator<Item = u64>>(rows: T) -> Self {
+        let mut index = Self::default();
+        for row in rows {
+            index.insert(row, 1);
+        }
+        index.finish()
+    }
+}
+
 struct ReplayText {
     bytes: Vec<u8>,
     range: Option<ReplayRowRange>,
@@ -3461,7 +3520,7 @@ struct KittyReplayImage<'a> {
 
 struct KittyReplayCatalog<'a> {
     images: Vec<KittyReplayImage<'a>>,
-    placement_rows: BTreeSet<u64>,
+    placement_rows: KittyReplayRowIndex,
     cell_pixels: (u32, u32),
     terminal_rows: u16,
     #[cfg(test)]
@@ -3485,7 +3544,7 @@ struct KittyReplayPlan {
 impl<'a> KittyReplayCatalog<'a> {
     fn new(snapshot: &'a KittyReplaySnapshot, cell_pixels: (u32, u32), terminal_rows: u16) -> Self {
         let mut placements_by_image = HashMap::<u32, Vec<KittyReplayPlacement<'a>>>::new();
-        let mut placement_rows = BTreeSet::new();
+        let mut placement_rows = KittyReplayRowIndex::default();
         #[cfg(test)]
         let mut placement_grouping_visits = 0;
         for placement in &snapshot.graphics.placements {
@@ -3496,7 +3555,7 @@ impl<'a> KittyReplayCatalog<'a> {
             let Some(anchor) = snapshot.anchors.get(&placement.key).copied() else {
                 continue;
             };
-            placement_rows.insert(u64::from(anchor.row));
+            placement_rows.insert(u64::from(anchor.row), placement.grid_rows);
             placements_by_image
                 .entry(placement.image_id)
                 .or_default()
@@ -3517,7 +3576,7 @@ impl<'a> KittyReplayCatalog<'a> {
             .collect();
         Self {
             images,
-            placement_rows,
+            placement_rows: placement_rows.finish(),
             cell_pixels,
             terminal_rows,
             #[cfg(test)]
@@ -3534,7 +3593,7 @@ impl<'a> KittyReplayCatalog<'a> {
             .min()
     }
 
-    fn placement_rows(&self) -> &BTreeSet<u64> {
+    fn placement_rows(&self) -> &KittyReplayRowIndex {
         &self.placement_rows
     }
 
@@ -3565,7 +3624,9 @@ impl<'a> KittyReplayCatalog<'a> {
             if let Some(range) = range {
                 for replay_placement in &image.placements {
                     let row = u64::from(replay_placement.anchor.row);
-                    if row < range.start || row > range.end {
+                    let end = row
+                        .saturating_add(u64::from(replay_placement.placement.grid_rows.max(1)) - 1);
+                    if end < range.start || row > range.end {
                         continue;
                     }
                     let Some(command) = kitty_replay_placement_at(
@@ -3578,7 +3639,7 @@ impl<'a> KittyReplayCatalog<'a> {
                         continue;
                     };
                     visible |= replay_placement.placement.viewport_visible;
-                    placements.push((row, command));
+                    placements.push((row.max(range.start), command));
                 }
             }
             let Some(cost) =
@@ -3711,45 +3772,65 @@ fn kitty_replay_placement_at(
     anchor: KittyPlacementAnchor,
     replay_start_row: u64,
     terminal_rows: u16,
-    _cell_pixels: (u32, u32),
+    cell_pixels: (u32, u32),
 ) -> Option<Vec<u8>> {
-    if placement.pixel_width == 0
-        || placement.pixel_height == 0
-        || placement.source_width == 0
-        || placement.source_height == 0
-    {
-        return None;
-    }
-    let relative_row = u64::from(anchor.row).checked_sub(replay_start_row)?;
-    let row = relative_row.min(u64::from(terminal_rows.saturating_sub(1))).saturating_add(1);
-    let col = u32::from(anchor.col).saturating_add(1);
-    let placement_id = if placement.is_internal { 0 } else { placement.placement_id };
     // The interleaved row break or final replay suffix positions the cursor
     // after this command. DECSC/DECRC would overwrite the application's one
     // saved-cursor slot while providing no additional replay state.
-    let mut command = format!(
-        "\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={},y={},w={},h={},X={},Y={}",
-        placement.image_id,
-        placement_id,
-        placement.source_x,
-        placement.source_y,
-        placement.source_width,
-        placement.source_height,
-        placement.x_offset,
-        placement.y_offset,
-    );
-    if placement.columns > 0 {
-        command.push_str(&format!(",c={}", placement.columns));
+    let anchor_row = u64::from(anchor.row);
+    if anchor_row >= replay_start_row {
+        if placement.pixel_width == 0
+            || placement.pixel_height == 0
+            || placement.source_width == 0
+            || placement.source_height == 0
+        {
+            return None;
+        }
+        let row = (anchor_row - replay_start_row)
+            .min(u64::from(terminal_rows.saturating_sub(1)))
+            .saturating_add(1);
+        let col = u32::from(anchor.col).saturating_add(1);
+        let placement_id = if placement.is_internal { 0 } else { placement.placement_id };
+        let mut command = format!(
+            "\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={},y={},w={},h={},X={},Y={}",
+            placement.image_id,
+            placement_id,
+            placement.source_x,
+            placement.source_y,
+            placement.source_width,
+            placement.source_height,
+            placement.x_offset,
+            placement.y_offset,
+        );
+        if placement.columns > 0 {
+            command.push_str(&format!(",c={}", placement.columns));
+        }
+        if placement.rows > 0 {
+            command.push_str(&format!(",r={}", placement.rows));
+        }
+        command.push_str(&format!(",z={},C=1,q=2;\x1b\\", placement.z));
+        return Some(command.into_bytes());
     }
-    if placement.rows > 0 {
-        command.push_str(&format!(",r={}", placement.rows));
-    }
-    command.push_str(&format!(",z={},C=1,q=2;\x1b\\", placement.z));
-    Some(command.into_bytes())
+    let relative_row = i64::try_from(replay_start_row - anchor_row).ok()?.checked_neg()?;
+    kitty_replay_placement_from_origin(placement, i64::from(anchor.col), relative_row, cell_pixels)
 }
 
 #[cfg(test)]
 fn kitty_replay_placement(placement: &KittyPlacement, cell_pixels: (u32, u32)) -> Option<Vec<u8>> {
+    kitty_replay_placement_from_origin(
+        placement,
+        i64::from(placement.viewport_col),
+        i64::from(placement.viewport_row),
+        cell_pixels,
+    )
+}
+
+fn kitty_replay_placement_from_origin(
+    placement: &KittyPlacement,
+    viewport_col: i64,
+    viewport_row: i64,
+    cell_pixels: (u32, u32),
+) -> Option<Vec<u8>> {
     if placement.pixel_width == 0
         || placement.pixel_height == 0
         || placement.source_width == 0
@@ -3760,10 +3841,12 @@ fn kitty_replay_placement(placement: &KittyPlacement, cell_pixels: (u32, u32)) -
 
     let cell_width = cell_pixels.0.max(1);
     let cell_height = cell_pixels.1.max(1);
-    let image_left =
-        i64::from(placement.viewport_col) * i64::from(cell_width) + i64::from(placement.x_offset);
-    let image_top =
-        i64::from(placement.viewport_row) * i64::from(cell_height) + i64::from(placement.y_offset);
+    let image_left = viewport_col
+        .saturating_mul(i64::from(cell_width))
+        .saturating_add(i64::from(placement.x_offset));
+    let image_top = viewport_row
+        .saturating_mul(i64::from(cell_height))
+        .saturating_add(i64::from(placement.y_offset));
     let image_right = image_left.saturating_add(i64::from(placement.pixel_width));
     let image_bottom = image_top.saturating_add(i64::from(placement.pixel_height));
     let visible_left = image_left.max(0);
@@ -3866,7 +3949,6 @@ fn kitty_replay_placement(placement: &KittyPlacement, cell_pixels: (u32, u32)) -
     Some(command.into_bytes())
 }
 
-#[cfg(test)]
 fn replay_proportional_boundary(
     source_pixels: u32,
     output_pixels: u32,
@@ -3882,7 +3964,6 @@ fn replay_proportional_boundary(
     .min(source_pixels)
 }
 
-#[cfg(test)]
 fn replay_rounded_ratio(value: u32, numerator: u32, denominator: u32) -> Option<u32> {
     if denominator == 0 {
         return None;
@@ -3894,7 +3975,6 @@ fn replay_rounded_ratio(value: u32, numerator: u32, denominator: u32) -> Option<
     .ok()
 }
 
-#[cfg(test)]
 fn replay_fit_inferred_source_dimension(
     explicit_pixels: u32,
     fixed_source: u32,
@@ -4552,7 +4632,7 @@ mod tests {
         let text = source
             .vt_replay_text_layout_bounded(
                 max_bytes,
-                &std::collections::BTreeSet::new(),
+                &super::KittyReplayRowIndex::default(),
                 None,
                 false,
             )
