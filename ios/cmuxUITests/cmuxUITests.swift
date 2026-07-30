@@ -448,6 +448,39 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceGroupFullSwipeMarksRead() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 8))
+        XCTAssertEqual(groupName.value as? String, "Unread")
+
+        let swipeStart = groupName.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)
+        )
+        let swipeEnd = groupName.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)
+        )
+        swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
+
+        let groupBecameRead = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value != %@", "Unread"),
+            object: groupName
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [groupBecameRead], timeout: 3),
+            .completed,
+            "A full leading swipe must complete the group's Mark as Read action."
+        )
+    }
+
+    @MainActor
     func testWorkspaceSearchIsMinimizedAndPreservesQueryAcrossRefresh() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")
