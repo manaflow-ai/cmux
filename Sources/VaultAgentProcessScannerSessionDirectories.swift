@@ -1,64 +1,127 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension PiSessionLocator {
-    static func candidateSessionDirectory(
+    static func candidateSessionDirectories(
         for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration
-    ) -> String {
+        registration: CmuxVaultAgentRegistration,
+        fileManager: FileManager
+    ) -> [String] {
+        if registration.id == CmuxVaultAgentRegistration.builtInOmp.id {
+            return ompCandidateSessionDirectories(
+                for: process,
+                registration: registration,
+                fileManager: fileManager
+            )
+        }
+
         let sessionRoot = process.arguments.sessionDirectoryValue(afterOption: "--session-dir")
             ?? piConfiguredSessionDirectory(for: process, registration: registration)
             ?? configuredSessionDirectory(for: registration)
-            ?? ompAgentSessionsRoot(for: process, registration: registration)
             ?? campfireAgentSessionsRoot(for: process, registration: registration)
             ?? registration.sessionDirectory
             ?? defaultSessionsRoot()
-        let expandedRoot = (sessionRoot as NSString).expandingTildeInPath
-        if let cwd = process.environment["CMUX_AGENT_LAUNCH_CWD"] ?? process.environment["PWD"],
-           let projectDirectory = projectDirectoryName(for: cwd) {
-            return (expandedRoot as NSString).appendingPathComponent(projectDirectory)
-        }
-        return expandedRoot
+        return candidateSessionDirectories(
+            root: sessionRoot,
+            workingDirectory: process.environment["CMUX_AGENT_LAUNCH_CWD"] ?? process.environment["PWD"]
+        )
     }
 
-    /// Reads `PI_CODING_AGENT_SESSION_DIR` for Pi-based agents only.
+    private static func ompCandidateSessionDirectories(
+        for process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration,
+        fileManager: FileManager
+    ) -> [String] {
+        let environmentPath = { (name: String) -> String? in
+            guard let value = process.environment[name], !value.isEmpty else { return nil }
+            return value
+        }
+        let homeDirectory = environmentPath("HOME") ?? NSHomeDirectory()
+        let fallbackCurrentDirectory = environmentPath("CMUX_AGENT_LAUNCH_CWD")
+            ?? environmentPath("PWD")
+            ?? homeDirectory
+        let resolver = OmpDirectoryResolver()
+        let resolution = try? resolver.resolve(
+            arguments: process.arguments,
+            environment: process.environment,
+            homeDirectory: homeDirectory,
+            currentDirectory: fallbackCurrentDirectory,
+            fileManager: fileManager
+        )
+
+        let builtInSessionDirectory = CmuxVaultAgentRegistration.builtInOmp.sessionDirectory
+        let configuredSessionRoot = registration.sessionDirectory.flatMap { directory -> String? in
+            guard directory != builtInSessionDirectory else { return nil }
+            return expandedOmpRegistrationSessionRoot(directory, homeDirectory: homeDirectory)
+        }
+        let resolvedSessionRoot = resolution?.sessionRoot
+        // The shared resolver marks only an explicit `--session-dir` as a flat
+        // root. That process-level selector must beat a registration default.
+        let explicitSessionRoot = resolvedSessionRoot.flatMap { root in
+            root.usesCwdBuckets ? nil : root
+        }
+        guard let sessionRoot = explicitSessionRoot?.path
+            ?? configuredSessionRoot
+            ?? resolvedSessionRoot?.path else {
+            return []
+        }
+        let usesCwdBuckets = explicitSessionRoot == nil
+            && (configuredSessionRoot != nil || resolvedSessionRoot?.usesCwdBuckets == true)
+        guard usesCwdBuckets else {
+            return [sessionRoot]
+        }
+
+        let currentDirectory = resolution?.currentDirectory ?? fallbackCurrentDirectory
+        let buckets = resolver.cwdBucketNames(
+            currentDirectory: currentDirectory,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
+        return buckets.searchOrder.map {
+            (sessionRoot as NSString).appendingPathComponent($0)
+        }
+    }
+
+    private static func expandedOmpRegistrationSessionRoot(
+        _ rawPath: String,
+        homeDirectory: String
+    ) -> String? {
+        let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return nil }
+        if path == "~" {
+            return (homeDirectory as NSString).standardizingPath
+        }
+        if path.hasPrefix("~/") {
+            return ((homeDirectory as NSString).appendingPathComponent(String(path.dropFirst(2))) as NSString)
+                .standardizingPath
+        }
+        return (path as NSString).expandingTildeInPath
+    }
+
+    private static func candidateSessionDirectories(
+        root: String,
+        workingDirectory: String?
+    ) -> [String] {
+        let expandedRoot = (root as NSString).expandingTildeInPath
+        guard let workingDirectory,
+              let projectDirectory = projectDirectoryName(for: workingDirectory) else {
+            return [expandedRoot]
+        }
+        return [(expandedRoot as NSString).appendingPathComponent(projectDirectory)]
+    }
+
+    /// Reads `PI_CODING_AGENT_SESSION_DIR` for Pi-based agents other than OMP and Campfire.
     ///
     /// Campfire embeds Pi, so a Campfire process can inherit
-    /// `PI_CODING_AGENT_SESSION_DIR` from a user's Pi configuration. Consuming it
-    /// here would resolve Campfire sessions against the Pi session directory and
-    /// pre-empt Campfire's own `CAMPFIRE_CODING_AGENT_SESSION_DIR` /
-    /// `CAMPFIRE_CODING_AGENT_DIR` lookup, so it is gated out for the `campfire`
-    /// registration. Behavior for `pi` and `omp` is unchanged.
+    /// `PI_CODING_AGENT_SESSION_DIR` from a user's Pi configuration. OMP has its
+    /// own directory resolution contract and deliberately ignores the legacy
+    /// variable.
     static func piConfiguredSessionDirectory(
         for process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration
     ) -> String? {
-        guard registration.id != "campfire" else { return nil }
+        guard registration.id != "campfire", registration.id != "omp" else { return nil }
         return process.environment["PI_CODING_AGENT_SESSION_DIR"]
-    }
-
-    static func ompAgentSessionsRoot(
-        for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration
-    ) -> String? {
-        guard registration.id == "omp" else { return nil }
-        if let agentRoot = nonEmptyEnvironmentValue("PI_CODING_AGENT_DIR", in: process.environment) {
-            let expandedAgentRoot = NSString(string: agentRoot).expandingTildeInPath
-            return (expandedAgentRoot as NSString).appendingPathComponent("sessions")
-        }
-        guard let configDir = nonEmptyEnvironmentValue("PI_CONFIG_DIR", in: process.environment) else {
-            return nil
-        }
-        let home = nonEmptyEnvironmentValue("HOME", in: process.environment) ?? NSHomeDirectory()
-        let expandedConfigDir = NSString(string: configDir).expandingTildeInPath
-        let configRoot: String
-        if (expandedConfigDir as NSString).isAbsolutePath {
-            configRoot = expandedConfigDir
-        } else {
-            configRoot = ((NSString(string: home).expandingTildeInPath) as NSString)
-                .appendingPathComponent(configDir)
-        }
-        let agentRoot = (configRoot as NSString).appendingPathComponent("agent")
-        return (agentRoot as NSString).appendingPathComponent("sessions")
     }
 
     static func campfireAgentSessionsRoot(
@@ -78,10 +141,6 @@ extension PiSessionLocator {
 
     static func configuredSessionDirectory(for registration: CmuxVaultAgentRegistration) -> String? {
         guard let sessionDirectory = registration.sessionDirectory else { return nil }
-        if registration.id == "omp",
-           sessionDirectory == CmuxVaultAgentRegistration.builtInOmp.sessionDirectory {
-            return nil
-        }
         if registration.id == "campfire",
            sessionDirectory == CmuxVaultAgentRegistration.builtInCampfire.sessionDirectory {
             return nil
@@ -94,24 +153,34 @@ extension PiSessionLocator {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    static func newestJSONLFile(in directory: String, fileManager: FileManager = .default) -> URL? {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let enumerator = fileManager.enumerator(
-                  at: URL(fileURLWithPath: directory, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
-        }
+    static func newestJSONLFile(
+        in directories: [String],
+        fileManager: FileManager = .default
+    ) -> URL? {
+        var newest: (url: URL, modified: Date, directoryIndex: Int)?
+        for (directoryIndex, directory) in directories.enumerated() {
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  let enumerator = fileManager.enumerator(
+                      at: URL(fileURLWithPath: directory, isDirectory: true),
+                      includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                      options: [.skipsHiddenFiles]
+                  ) else {
+                continue
+            }
 
-        var newest: (url: URL, modified: Date)?
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            if newest == nil || modified > newest!.modified {
-                newest = (url, modified)
+            for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+                guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
+                if newest == nil
+                    || modified > newest!.modified
+                    || (modified == newest!.modified && directoryIndex < newest!.directoryIndex)
+                    || (modified == newest!.modified
+                        && directoryIndex == newest!.directoryIndex
+                        && url.path < newest!.url.path) {
+                    newest = (url, modified, directoryIndex)
+                }
             }
         }
         return newest?.url

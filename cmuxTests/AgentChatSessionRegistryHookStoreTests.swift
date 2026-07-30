@@ -260,6 +260,60 @@ struct AgentChatSessionRegistryHookStoreTests {
         #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == pendingID)
     }
 
+    @MainActor
+    @Test func hookStoreSeedRestoresOmpAsFirstClassAfterRegistryRestart() async throws {
+        let home = try temporaryHomeDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let sessionID = "019f0000-0000-7000-8000-000000000101"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let transcript = home
+            .appendingPathComponent(".omp/agent/sessions/-project", isDirectory: true)
+            .appendingPathComponent("2026-02-16T10-20-30_\(sessionID).jsonl")
+        try FileManager.default.createDirectory(
+            at: transcript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try (#"{"type":"session","version":3,"id":"019f0000-0000-7000-8000-000000000101","timestamp":"2026-02-16T10:20:30.000Z","cwd":"/project"}"# + "\n")
+            .write(to: transcript, atomically: true, encoding: .utf8)
+        let livePID = Int(ProcessInfo.processInfo.processIdentifier)
+        try writeOmpHookStore(
+            home: home,
+            sessionID: sessionID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            transcriptPath: transcript.path,
+            pid: livePID
+        )
+        let hookStore = AgentChatHookSessionStore(homeDirectory: home)
+        let beforeRestart = AgentChatSessionRegistry(hookStore: hookStore)
+
+        let liveRecord = beforeRestart.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "omp",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            transcriptPath: transcript.path,
+            cwd: "/project",
+            ppid: livePID,
+            receivedAt: Date(timeIntervalSince1970: 200)
+        ))
+        #expect(liveRecord.agentKind == .omp)
+
+        let restored = AgentChatSessionRegistry(hookStore: hookStore)
+        await restored.seedFromHookStores()
+
+        let record = try #require(restored.record(sessionID: sessionID))
+        #expect(record.agentKind == .omp)
+        #expect(record.agentKind.sourceName == "omp")
+        #expect(record.workspaceID == workspaceID)
+        #expect(record.surfaceID == surfaceID)
+        #expect(record.transcriptPath == transcript.path)
+        #expect(record.state == .idle)
+        #expect(restored.liveSession(surfaceID: surfaceID)?.sessionID == sessionID)
+    }
+
     private func guaranteedDeadPID() -> Int? {
         for pid in 900_000..<1_000_000 {
             errno = 0
@@ -327,6 +381,32 @@ struct AgentChatSessionRegistryHookStoreTests {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         try data.write(to: directory.appendingPathComponent("claude-hook-sessions.json"))
     }
+    private func writeOmpHookStore(
+        home: URL,
+        sessionID: String,
+        workspaceID: String,
+        surfaceID: String,
+        transcriptPath: String,
+        pid: Int
+    ) throws {
+        let directory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let payload: [String: Any] = [
+            "sessions": [
+                sessionID: [
+                    "workspaceId": workspaceID,
+                    "surfaceId": surfaceID,
+                    "cwd": "/project",
+                    "transcriptPath": transcriptPath,
+                    "pid": pid,
+                    "updatedAt": 200.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        try data.write(to: directory.appendingPathComponent("omp-hook-sessions.json"))
+    }
+
 
     private func writeCodexHookStore(
         home: URL,

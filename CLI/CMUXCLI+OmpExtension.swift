@@ -1,24 +1,188 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
     private static let ompExtensionMarker = "cmux-omp-session-extension-marker"
     private static let ompExtensionFilename = "cmux-omp-session.ts"
     private static let ompExtensionSource = #"""
-// cmux-omp-session-extension-marker v1
-// Bridges OMP session lifecycle events into cmux's restorable session store.
+// cmux-omp-session-extension-marker v2
+// Bridges OMP lifecycle and observational telemetry into cmux.
 // Installed by `cmux hooks omp install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+
+type HookExtra = Record<string, unknown>;
+type InvocationClass = "prompt" | "feed" | "lifecycle" | "approval";
+
+interface ContextSnapshot {
+  sessionId: string;
+  cwd: string;
+  transcriptPath?: string;
+}
+
+interface CmuxInvocation {
+  cmux: string;
+  args: string[];
+  cwd: string;
+  sessionId: string;
+  payload: string;
+  env: NodeJS.ProcessEnv;
+  name: string;
+  invocationClass: InvocationClass;
+  priority: number;
+  dedupeKey?: string;
+}
+
+interface QueuedInvocation {
+  invocation: CmuxInvocation;
+}
+
+interface RunningInvocation {
+  completion: Promise<void>;
+  cancel: () => void;
+}
+
+interface FeedProjectionState {
+  remainingNodes: number;
+  seen: WeakSet<object>;
+}
 
 function firstString(...values: unknown[]): string | null {
   for (const value of values) {
     if (typeof value === "string" && value.trim().length > 0) return value.trim();
   }
   return null;
+}
+
+function objectValue(value: unknown, keys: string[]): unknown {
+  if (!value || typeof value !== "object") return undefined;
+  const typed = value as Record<string, unknown>;
+  for (const key of keys) {
+    if (typed[key] !== undefined && typed[key] !== null) return typed[key];
+  }
+  return undefined;
+}
+
+function utf8Prefix(value: unknown, maximumBytes: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const candidate = value.length > maximumBytes ? value.slice(0, maximumBytes) : value;
+  const bytes = Buffer.from(candidate, "utf8");
+  if (bytes.byteLength <= maximumBytes) return candidate;
+  return bytes.subarray(0, maximumBytes).toString("utf8").replace(/\uFFFD+$/u, "");
+}
+
+function feedValueSummary(value: unknown): Record<string, unknown> {
+  if (value === null) return { kind: "null" };
+  if (typeof value === "string") return { kind: "text", length: value.length };
+  if (typeof value === "boolean" || typeof value === "number") return { kind: typeof value };
+  if (Array.isArray(value)) return { kind: "array", count: value.length };
+  if (value && typeof value === "object") {
+    try {
+      return { kind: "object", key_count: Object.keys(value).length };
+    } catch (_) {
+      return { kind: "object" };
+    }
+  }
+  return { kind: "undefined" };
+}
+
+function projectFeedValue(
+  value: unknown,
+  state: FeedProjectionState,
+  depth = 0,
+  preserveText = true,
+): unknown {
+  if (value === null) return preserveText ? null : feedValueSummary(value);
+  if (typeof value === "string") {
+    return preserveText ? utf8Prefix(value, 512) : feedValueSummary(value);
+  }
+  if (typeof value === "boolean") return preserveText ? value : feedValueSummary(value);
+  if (typeof value === "number") {
+    return preserveText && Number.isFinite(value) ? value : feedValueSummary(value);
+  }
+  if (typeof value !== "object") return feedValueSummary(value);
+  if (depth >= 4 || state.remainingNodes <= 0) return feedValueSummary(value);
+  if (state.seen.has(value)) return { kind: "circular" };
+
+  state.remainingNodes -= 1;
+  state.seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const out: unknown[] = [];
+      const retained = Math.min(value.length, 12);
+      for (let index = 0; index < retained; index += 1) {
+        try {
+          out.push(projectFeedValue(value[index], state, depth + 1, preserveText));
+        } catch (_) {
+          out.push({ kind: "unavailable" });
+        }
+      }
+      if (value.length > retained) out.push({ kind: "omitted", count: value.length - retained });
+      return out;
+    }
+
+    const out: Record<string, unknown> = {};
+    let scanned = 0;
+    try {
+      for (const key in value as Record<string, unknown>) {
+        if (scanned >= 12) {
+          out.cmux_truncated = true;
+          break;
+        }
+        scanned += 1;
+        if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+        const projectedKey = utf8Prefix(key, 128);
+        if (!projectedKey) continue;
+        try {
+          out[projectedKey] = projectFeedValue(
+            (value as Record<string, unknown>)[key],
+            state,
+            depth + 1,
+            preserveText,
+          );
+        } catch (_) {
+          out[projectedKey] = { kind: "unavailable" };
+        }
+      }
+    } catch (_) {
+      return feedValueSummary(value);
+    }
+    return out;
+  } finally {
+    state.seen.delete(value);
+  }
+}
+
+function boundedFeedPayload(payload: HookExtra): string {
+  const maximumBytes = 12 * 1024;
+  const serialized = JSON.stringify(payload);
+  if (Buffer.byteLength(serialized, "utf8") <= maximumBytes) return serialized;
+
+  const safe: HookExtra = {};
+  for (const key of [
+    "session_id",
+    "cwd",
+    "transcript_path",
+    "hook_event_name",
+    "event",
+    "tool_call_id",
+    "tool_name",
+    "request_id",
+  ] as const) {
+    const value = utf8Prefix(payload[key], key === "cwd" || key === "transcript_path" ? 2048 : 256);
+    if (value !== undefined) safe[key] = value;
+  }
+  for (const key of ["is_error", "approved"] as const) {
+    if (typeof payload[key] === "boolean") safe[key] = payload[key];
+  }
+  for (const key of ["tool_input", "tool_result", "compaction"] as const) {
+    if (payload[key] !== undefined) safe[key] = feedValueSummary(payload[key]);
+  }
+  return JSON.stringify(safe);
 }
 
 function resolveExecutable(name: string): string {
@@ -85,25 +249,32 @@ function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   return env;
 }
 
-interface HookInvocation {
-  cmux: string;
-  cwd: string;
-  sessionId: string;
-  payload: string;
-  env: NodeJS.ProcessEnv;
+function sessionFile(ctx: ExtensionContext): string | null {
+  try {
+    return firstString(ctx.sessionManager.getSessionFile());
+  } catch (_) {
+    return null;
+  }
 }
 
-function eventName(subcommand: string): string {
-  switch (subcommand) {
-    case "session-start":
-      return "SessionStart";
-    case "prompt-submit":
-      return "UserPromptSubmit";
-    case "stop":
-      return "Stop";
-    default:
-      return subcommand;
-  }
+function isNestedArtifactSession(transcriptPath: string | null): boolean {
+  return transcriptPath !== null && fs.existsSync(`${path.dirname(transcriptPath)}.jsonl`);
+}
+
+function snapshotContext(ctx: ExtensionContext): ContextSnapshot | null {
+  if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return null;
+  if (!process.env.CMUX_SURFACE_ID) return null;
+
+  const transcriptPath = sessionFile(ctx);
+  if (isNestedArtifactSession(transcriptPath)) return null;
+  const sessionId = firstString(ctx.sessionManager.getSessionId());
+  if (!sessionId) return null;
+  const cwd = firstString(ctx.cwd, process.cwd()) || process.cwd();
+  return {
+    sessionId,
+    cwd,
+    transcriptPath: transcriptPath || undefined,
+  };
 }
 
 function textFromContent(content: unknown): string | null {
@@ -118,9 +289,11 @@ function textFromContent(content: unknown): string | null {
   return parts.join("\n") || null;
 }
 
-function lastAssistantMessage(event: AgentEndEvent): string | undefined {
-  for (let index = event.messages.length - 1; index >= 0; index -= 1) {
-    const message = event.messages[index];
+function lastAssistantMessage(event: unknown): string | undefined {
+  const messages = objectValue(event, ["messages"]);
+  if (!Array.isArray(messages)) return undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
     if (!message || typeof message !== "object") continue;
     const typed = message as { role?: unknown; content?: unknown };
     if (typed.role !== "assistant") continue;
@@ -130,48 +303,58 @@ function lastAssistantMessage(event: AgentEndEvent): string | undefined {
   return undefined;
 }
 
-function boundedHookText(value: string | undefined): string | undefined {
-  if (value === undefined || value.length <= 32768) return value;
-  return value.slice(0, 32768);
+function boundedHookText(value: unknown, maximumBytes = 32768): string | undefined {
+  return utf8Prefix(value, maximumBytes);
 }
 
-function isNestedArtifactSession(ctx: ExtensionContext): boolean {
-  const sessionFile = firstString(ctx.sessionManager.getSessionFile());
-  return sessionFile !== null && fs.existsSync(`${path.dirname(sessionFile)}.jsonl`);
+function invocationPriority(invocationClass: InvocationClass, name: string): number {
+  if (name === "stop" || name === "session-end") return 3;
+  if (name === "session-start" || invocationClass === "approval") return 2;
+  if (invocationClass === "lifecycle" || invocationClass === "prompt") return 1;
+  return 0;
 }
 
-function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): HookInvocation | null {
-  if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return null;
-  if (!process.env.CMUX_SURFACE_ID) return null;
-  if (isNestedArtifactSession(ctx)) return null;
-
-  const sessionId = firstString(ctx.sessionManager.getSessionId());
-  if (!sessionId) return null;
-
-  const cwd = firstString(ctx.cwd, process.cwd()) || process.cwd();
-  const payload: Record<string, unknown> = {
-    session_id: sessionId,
-    cwd,
-    hook_event_name: eventName(subcommand),
-    event: eventName(subcommand),
-    ...extra,
+function cmuxInvocation(
+  args: string[],
+  name: string,
+  eventName: string,
+  ctx: ExtensionContext,
+  extra: HookExtra,
+  invocationClass: InvocationClass,
+  dedupe = false,
+  boundFeedPayload = false,
+): CmuxInvocation | null {
+  const context = snapshotContext(ctx);
+  if (!context) return null;
+  const payload: HookExtra = {
+    session_id: context.sessionId,
+    cwd: context.cwd,
+    hook_event_name: eventName,
+    event: eventName,
   };
-  const cmux = process.env.CMUX_OMP_CMUX_BIN || "cmux";
+  if (context.transcriptPath) payload.transcript_path = context.transcriptPath;
+  Object.assign(payload, extra);
+  let serialized: string;
+  try {
+    serialized = boundFeedPayload ? boundedFeedPayload(payload) : JSON.stringify(payload);
+  } catch (_) {
+    return null;
+  }
   return {
-    cmux,
-    cwd,
-    sessionId,
-    payload: JSON.stringify(payload),
-    env: hookEnvironment(cwd),
+    cmux: process.env.CMUX_OMP_CMUX_BIN || "cmux",
+    args,
+    cwd: context.cwd,
+    sessionId: context.sessionId,
+    payload: serialized,
+    env: hookEnvironment(context.cwd),
+    name,
+    invocationClass,
+    priority: invocationPriority(invocationClass, name),
+    dedupeKey: dedupe ? `${context.sessionId}:${invocationClass}:${name}` : undefined,
   };
 }
 
-interface RunningHook {
-  completion: Promise<void>;
-  cancel: () => void;
-}
-
-function startHook(invocation: HookInvocation, subcommand: string): RunningHook {
+function startInvocation(invocation: CmuxInvocation): RunningInvocation {
   let child: ReturnType<typeof spawn> | null = null;
   let settle = () => {};
   const terminate = () => {
@@ -179,9 +362,7 @@ function startHook(invocation: HookInvocation, subcommand: string): RunningHook 
   };
   const completion = new Promise<void>((resolve) => {
     let settled = false;
-    const timeout = setTimeout(() => {
-      terminate();
-    }, 5000);
+    const timeout = setTimeout(terminate, 5000);
     timeout.unref();
     settle = () => {
       if (settled) return;
@@ -190,7 +371,7 @@ function startHook(invocation: HookInvocation, subcommand: string): RunningHook 
       resolve();
     };
     try {
-      child = spawn(invocation.cmux, ["hooks", "omp", subcommand], {
+      child = spawn(invocation.cmux, invocation.args, {
         env: invocation.env,
         stdio: ["pipe", "ignore", "ignore"],
       });
@@ -202,61 +383,76 @@ function startHook(invocation: HookInvocation, subcommand: string): RunningHook 
       settle();
     }
   });
-  return {
-    completion,
-    cancel: () => {
-      terminate();
-    },
-  };
+  return { completion, cancel: terminate };
 }
 
-interface QueuedHook {
-  invocation: HookInvocation;
-  subcommand: string;
-}
+const maxQueuedInvocations = 16;
+const shutdownSoftDeadlineMs = 2000;
+const shutdownFinishDeadlineMs = 5500;
+const invocationQueue: QueuedInvocation[] = [];
+let invocationWorker: Promise<void> | null = null;
+let activeInvocation: { command: CmuxInvocation; running: RunningInvocation } | null = null;
 
-function hookPriority(subcommand: string): number {
-  switch (subcommand) {
-    case "stop":
-      return 2;
-    case "session-start":
-      return 1;
-    default:
-      return 0;
-  }
-}
-
-const maxQueuedHooks = 16;
-const hookShutdownDeadlineMs = 2000;
-const hookQueue: QueuedHook[] = [];
-let hookWorker: Promise<void> | null = null;
-let activeHook: RunningHook | null = null;
-let activeHookSubcommand: string | null = null;
-
-async function drainHookQueue(): Promise<void> {
-  while (hookQueue.length > 0) {
-    const next = hookQueue.shift();
-    if (!next) continue;
-    const running = startHook(next.invocation, next.subcommand);
-    activeHook = running;
-    activeHookSubcommand = next.subcommand;
-    await running.completion;
-    if (activeHook === running) {
-      activeHook = null;
-      activeHookSubcommand = null;
+function nextInvocationQueueIndex(): number {
+  const terminalBarrier = invocationQueue.findIndex(
+    (queued) => queued.invocation.name === "stop" || queued.invocation.name === "session-end"
+  );
+  // Terminal lifecycle events are FIFO barriers: all events observed before
+  // them must settle first. Within that prefix, run higher-priority work first
+  // while preserving enqueue order among equal priorities.
+  const searchEnd = terminalBarrier < 0
+    ? invocationQueue.length
+    : Math.max(1, terminalBarrier);
+  let nextIndex = 0;
+  for (let index = 1; index < searchEnd; index += 1) {
+    if (invocationQueue[index].invocation.priority > invocationQueue[nextIndex].invocation.priority) {
+      nextIndex = index;
     }
   }
+  return nextIndex;
 }
 
-function startHookWorker(): void {
-  if (hookWorker) return;
-  hookWorker = drainHookQueue().finally(() => {
-    hookWorker = null;
-    if (hookQueue.length > 0) startHookWorker();
+async function drainInvocationQueue(): Promise<void> {
+  while (invocationQueue.length > 0) {
+    const [next] = invocationQueue.splice(nextInvocationQueueIndex(), 1);
+    if (!next) continue;
+    const running = startInvocation(next.invocation);
+    activeInvocation = { command: next.invocation, running };
+    await running.completion;
+    if (activeInvocation?.running === running) activeInvocation = null;
+  }
+}
+
+function startInvocationWorker(): void {
+  if (invocationWorker) return;
+  invocationWorker = drainInvocationQueue().finally(() => {
+    invocationWorker = null;
+    if (invocationQueue.length > 0) startInvocationWorker();
   });
 }
 
-async function waitForHookWorker(worker: Promise<void>, timeoutMs: number): Promise<boolean> {
+function enqueueInvocation(invocation: CmuxInvocation): boolean {
+  const duplicate = invocation.dedupeKey
+    ? invocationQueue.findIndex((queued) => queued.invocation.dedupeKey === invocation.dedupeKey)
+    : -1;
+  if (duplicate >= 0) {
+    invocationQueue.splice(duplicate, 1);
+    invocationQueue.push({ invocation });
+  } else {
+    if (invocationQueue.length >= maxQueuedInvocations) {
+      const evictable = invocationQueue.findIndex(
+        (queued) => queued.invocation.priority < invocation.priority
+      );
+      if (evictable >= 0) invocationQueue.splice(evictable, 1);
+      else return false;
+    }
+    invocationQueue.push({ invocation });
+  }
+  startInvocationWorker();
+  return true;
+}
+
+async function waitForInvocationWorker(worker: Promise<void>, timeoutMs: number): Promise<boolean> {
   let completed = false;
   let timeout: ReturnType<typeof setTimeout> | null = null;
   await Promise.race([
@@ -271,103 +467,351 @@ async function waitForHookWorker(worker: Promise<void>, timeoutMs: number): Prom
   return completed;
 }
 
-async function awaitHookQueueDrain(): Promise<void> {
-  for (let index = hookQueue.length - 1; index >= 0; index -= 1) {
-    if (hookQueue[index]?.subcommand === "prompt-submit") hookQueue.splice(index, 1);
+async function awaitInvocationQueueDrain(): Promise<void> {
+  for (let index = invocationQueue.length - 1; index >= 0; index -= 1) {
+    if (invocationQueue[index]?.invocation.invocationClass === "prompt") {
+      invocationQueue.splice(index, 1);
+    }
   }
-  const worker = hookWorker;
+  const worker = invocationWorker;
   if (!worker) return;
-  if (await waitForHookWorker(worker, hookShutdownDeadlineMs)) return;
+  if (await waitForInvocationWorker(worker, shutdownSoftDeadlineMs)) return;
 
-  for (let index = hookQueue.length - 1; index >= 0; index -= 1) {
-    if (hookQueue[index]?.subcommand !== "stop") hookQueue.splice(index, 1);
+  const active = activeInvocation?.command;
+  if (
+    active &&
+    active.invocationClass !== "feed" &&
+    active.name !== "stop" &&
+    active.name !== "session-end"
+  ) {
+    activeInvocation?.running.cancel();
   }
-  if (activeHookSubcommand !== "stop") activeHook?.cancel();
-  if (await waitForHookWorker(worker, hookShutdownDeadlineMs)) return;
+  if (await waitForInvocationWorker(worker, shutdownFinishDeadlineMs)) return;
 
-  hookQueue.splice(0);
-  activeHook?.cancel();
+  for (let index = invocationQueue.length - 1; index >= 0; index -= 1) {
+    if (invocationQueue[index]?.invocation.name !== "session-end") invocationQueue.splice(index, 1);
+  }
+  activeInvocation?.running.cancel();
   await worker;
 }
 
-function enqueueHook(invocation: HookInvocation, subcommand: string): void {
-  const duplicate = hookQueue.findIndex(
-    (queued) => queued.invocation.sessionId === invocation.sessionId && queued.subcommand === subcommand
+function lifecycleInvocation(
+  subcommand: string,
+  eventName: string,
+  ctx: ExtensionContext,
+  extra: HookExtra = {},
+  invocationClass: InvocationClass = "lifecycle",
+  dedupe = false,
+): CmuxInvocation | null {
+  return cmuxInvocation(
+    ["hooks", "omp", subcommand],
+    subcommand,
+    eventName,
+    ctx,
+    extra,
+    invocationClass,
+    dedupe,
   );
-  if (duplicate >= 0) {
-    hookQueue.splice(duplicate, 1);
-    hookQueue.push({ invocation, subcommand });
-  } else {
-    if (hookQueue.length >= maxQueuedHooks) {
-      const priority = hookPriority(subcommand);
-      const evictable = hookQueue.findIndex((queued) => hookPriority(queued.subcommand) < priority);
-      if (evictable >= 0) hookQueue.splice(evictable, 1);
-      else return;
-    }
-    hookQueue.push({ invocation, subcommand });
-  }
-  startHookWorker();
 }
 
-function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
-  const invocation = hookInvocation(subcommand, ctx, extra);
-  if (!invocation) return Promise.resolve();
-  enqueueHook(invocation, subcommand);
-  return Promise.resolve();
+let feedRequestSequence = 0;
+
+function feedInvocation(
+  eventName: string,
+  ctx: ExtensionContext,
+  extra: HookExtra,
+): CmuxInvocation | null {
+  feedRequestSequence += 1;
+  const requestId = firstString(extra.tool_call_id)
+    || `omp-${process.pid}-${feedRequestSequence}`;
+  return cmuxInvocation(
+    ["hooks", "feed", "--source", "omp", "--event", eventName],
+    eventName,
+    eventName,
+    ctx,
+    { ...extra, request_id: requestId },
+    "feed",
+    false,
+    true,
+  );
+}
+
+function enqueueLifecycle(
+  subcommand: string,
+  eventName: string,
+  ctx: ExtensionContext,
+  extra: HookExtra = {},
+  invocationClass: InvocationClass = "lifecycle",
+  dedupe = false,
+): string | null {
+  const invocation = lifecycleInvocation(
+    subcommand,
+    eventName,
+    ctx,
+    extra,
+    invocationClass,
+    dedupe,
+  );
+  if (!invocation || !enqueueInvocation(invocation)) return null;
+  return invocation.sessionId;
+}
+
+function enqueueFeed(eventName: string, ctx: ExtensionContext, extra: HookExtra): void {
+  const invocation = feedInvocation(eventName, ctx, extra);
+  if (invocation) enqueueInvocation(invocation);
+}
+
+function toolEventExtra(event: unknown, terminal: boolean): HookExtra {
+  const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
+  const toolName = firstString(objectValue(event, ["toolName", "tool_name", "name"]));
+  const projectionState: FeedProjectionState = { remainingNodes: 48, seen: new WeakSet() };
+  const extra: HookExtra = {};
+  const boundedToolCallId = utf8Prefix(toolCallId, 256);
+  if (boundedToolCallId !== undefined) extra.tool_call_id = boundedToolCallId;
+  const boundedToolName = utf8Prefix(toolName, 256);
+  if (boundedToolName !== undefined) extra.tool_name = boundedToolName;
+
+  if (terminal) {
+    const result = objectValue(event, ["result", "details", "content"]);
+    if (result !== undefined) {
+      extra.tool_result = projectFeedValue(result, projectionState, 0, false);
+    }
+    const isError = objectValue(event, ["isError", "is_error"]);
+    if (typeof isError === "boolean") extra.is_error = isError;
+  } else {
+    const input = objectValue(event, ["args", "input"]);
+    if (input !== undefined) extra.tool_input = projectFeedValue(input, projectionState);
+  }
+  return extra;
+}
+
+function compactEventExtra(event: unknown, before: boolean): HookExtra {
+  const compaction: HookExtra = { phase: before ? "before" : "after" };
+  if (before) {
+    const preparation = objectValue(event, ["preparation"]);
+    const tokensBefore = objectValue(preparation, ["tokensBefore", "tokens_before"]);
+    if (typeof tokensBefore === "number" && Number.isFinite(tokensBefore)) {
+      compaction.tokens_before = tokensBefore;
+    }
+  } else {
+    const fromExtension = objectValue(event, ["fromExtension", "from_extension"]);
+    if (typeof fromExtension === "boolean") compaction.from_extension = fromExtension;
+    const entry = objectValue(event, ["compactionEntry", "compaction_entry"]);
+    const summary = objectValue(entry, ["summary"]);
+    if (typeof summary === "string") compaction.summary_length = summary.length;
+  }
+  return { compaction };
+}
+
+function isLowercaseTask(event: unknown): boolean {
+  return firstString(objectValue(event, ["toolName", "tool_name", "name"])) === "task";
 }
 
 export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
+  const terminalSessions = new Set<string>();
+
+  const startOrRebindSession = (ctx: ExtensionContext) => {
+    const invocation = lifecycleInvocation(
+      "session-start",
+      "SessionStart",
+      ctx,
+      {},
+      "lifecycle",
+      true,
+    );
+    if (!invocation) return;
+    terminalSessions.delete(invocation.sessionId);
+    enqueueInvocation(invocation);
+  };
+
   api.on("session_start", async (_event, ctx) => {
-    await sendHook("session-start", ctx);
+    startOrRebindSession(ctx);
+  });
+
+  api.on("session_switch", async (_event, ctx) => {
+    startOrRebindSession(ctx);
+  });
+
+  api.on("session_branch", async (_event, ctx) => {
+    startOrRebindSession(ctx);
   });
 
   api.on("before_agent_start", async (event, ctx) => {
-    await sendHook("prompt-submit", ctx, { prompt: boundedHookText(event.prompt) });
+    const invocation = lifecycleInvocation(
+      "prompt-submit",
+      "UserPromptSubmit",
+      ctx,
+      { prompt: boundedHookText(objectValue(event, ["prompt"])) },
+      "prompt",
+      true,
+    );
+    if (!invocation) return;
+    terminalSessions.delete(invocation.sessionId);
+    enqueueInvocation(invocation);
+  });
+
+  api.on("tool_execution_start", async (event, ctx) => {
+    enqueueFeed(
+      isLowercaseTask(event) ? "SubagentStart" : "PreToolUse",
+      ctx,
+      toolEventExtra(event, false),
+    );
+  });
+
+  api.on("tool_execution_end", async (event, ctx) => {
+    enqueueFeed(
+      isLowercaseTask(event) ? "SubagentStop" : "PostToolUse",
+      ctx,
+      toolEventExtra(event, true),
+    );
+  });
+
+  api.on("session_before_compact", async (event, ctx) => {
+    enqueueFeed("PreCompact", ctx, compactEventExtra(event, true));
+  });
+
+  api.on("session_compact", async (event, ctx) => {
+    enqueueFeed("PostCompact", ctx, compactEventExtra(event, false));
+  });
+
+  api.on("tool_approval_requested", async (event, ctx) => {
+    const toolCallId = boundedHookText(
+      objectValue(event, ["toolCallId", "tool_call_id", "id"]),
+      256,
+    );
+    const toolName = boundedHookText(
+      objectValue(event, ["toolName", "tool_name", "name"]),
+      256,
+    );
+    const reason = boundedHookText(objectValue(event, ["reason"]), 1024);
+    enqueueLifecycle(
+      "notification",
+      "Notification",
+      ctx,
+      {
+        event: "permission_request",
+        notification_type: "permission_request",
+        message: reason ?? toolName,
+        tool_call_id: toolCallId,
+        tool_name: toolName,
+        reason,
+        approval_mode: boundedHookText(objectValue(event, ["approvalMode", "approval_mode"]), 64),
+        request_id: toolCallId,
+      },
+      "approval",
+    );
+  });
+
+  api.on("tool_approval_resolved", async (event, ctx) => {
+    const toolCallId = boundedHookText(
+      objectValue(event, ["toolCallId", "tool_call_id", "id"]),
+      256,
+    );
+    enqueueLifecycle(
+      "approval-response",
+      "ApprovalResponse",
+      ctx,
+      {
+        tool_call_id: toolCallId,
+        tool_name: boundedHookText(objectValue(event, ["toolName", "tool_name", "name"]), 256),
+        approved: objectValue(event, ["approved"]),
+        reason: boundedHookText(objectValue(event, ["reason"]), 1024),
+        request_id: toolCallId,
+      },
+      "approval",
+    );
   });
 
   api.on("agent_end", async (event, ctx) => {
-    await sendHook("stop", ctx, { last_assistant_message: boundedHookText(lastAssistantMessage(event)) });
+    if (objectValue(event, ["willContinue", "will_continue"]) === true) return;
+    const invocation = lifecycleInvocation(
+      "stop",
+      "Stop",
+      ctx,
+      { last_assistant_message: boundedHookText(lastAssistantMessage(event)) },
+    );
+    if (!invocation || terminalSessions.has(invocation.sessionId)) return;
+    terminalSessions.add(invocation.sessionId);
+    if (!enqueueInvocation(invocation)) terminalSessions.delete(invocation.sessionId);
   });
 
-  api.on("session_shutdown", async () => {
-    await awaitHookQueueDrain();
+  api.on("session_stop" as any, async () => {
+    // OMP may stop an internal run before continuing the same session.
+    // Only a terminal agent_end owns the durable Stop transition.
+  });
+
+  api.on("session_shutdown", async (_event, ctx) => {
+    enqueueLifecycle("session-end", "SessionEnd", ctx);
+    await awaitInvocationQueueDrain();
   });
 }
 """#
 
-    static func resolvedOmpAgentDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        if let agentRoot = nonEmptyEnvironmentValue("PI_CODING_AGENT_DIR", in: environment) {
-            return URL(
-                fileURLWithPath: NSString(string: agentRoot).expandingTildeInPath,
-                isDirectory: true
-            )
-        }
-
-        let home = nonEmptyEnvironmentValue("HOME", in: environment) ?? NSHomeDirectory()
-        let configDir = nonEmptyEnvironmentValue("PI_CONFIG_DIR", in: environment) ?? ".omp"
-        let expandedConfigDir = NSString(string: configDir).expandingTildeInPath
-        let configRoot: URL
-        if (expandedConfigDir as NSString).isAbsolutePath {
-            configRoot = URL(fileURLWithPath: expandedConfigDir, isDirectory: true)
-        } else {
-            configRoot = URL(
-                fileURLWithPath: NSString(string: home).expandingTildeInPath,
-                isDirectory: true
-            )
-            .appendingPathComponent(configDir, isDirectory: true)
-        }
-        return configRoot.appendingPathComponent("agent", isDirectory: true)
+    private static func resolvedOmpHomeDirectory(
+        environment: [String: String],
+        homeDirectory: String?
+    ) -> String {
+        let environmentHome = environment["HOME"].flatMap { $0.isEmpty ? nil : $0 }
+        return homeDirectory.flatMap { $0.isEmpty ? nil : $0 }
+            ?? environmentHome
+            ?? NSHomeDirectory()
     }
 
-    private static func nonEmptyEnvironmentValue(_ name: String, in environment: [String: String]) -> String? {
-        let trimmed = environment[name]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
+    private static func requiredOmpAgentDirectory(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String? = nil,
+        currentDirectory: String = FileManager.default.currentDirectoryPath
+    ) throws -> URL {
+        let home = resolvedOmpHomeDirectory(
+            environment: environment,
+            homeDirectory: homeDirectory
+        )
+        let resolver = OmpDirectoryResolver()
+        do {
+            let resolution = try resolver.resolve(
+                arguments: ["omp"],
+                environment: environment,
+                homeDirectory: home,
+                currentDirectory: currentDirectory
+            )
+            return URL(fileURLWithPath: resolution.agentDirectory, isDirectory: true)
+        } catch {
+            var defaultEnvironment = environment
+            defaultEnvironment.removeValue(forKey: "OMP_PROFILE")
+            defaultEnvironment.removeValue(forKey: "PI_PROFILE")
+            let fallback = try resolver.resolve(
+                arguments: ["omp"],
+                environment: defaultEnvironment,
+                homeDirectory: home,
+                currentDirectory: currentDirectory
+            )
+            return URL(fileURLWithPath: fallback.agentDirectory, isDirectory: true)
+        }
     }
 
-    private func ompExtensionURL() -> URL {
-        return Self.resolvedOmpAgentDirectory()
-            .appendingPathComponent("extensions", isDirectory: true)
-            .appendingPathComponent(Self.ompExtensionFilename, isDirectory: false)
+    static func resolvedOmpAgentDirectory(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String? = nil,
+        currentDirectory: String = FileManager.default.currentDirectoryPath
+    ) -> URL {
+        if let resolved = try? requiredOmpAgentDirectory(
+            environment: environment,
+            homeDirectory: homeDirectory,
+            currentDirectory: currentDirectory
+        ) {
+            return resolved
+        }
+        let home = resolvedOmpHomeDirectory(
+            environment: environment,
+            homeDirectory: homeDirectory
+        )
+        return URL(fileURLWithPath: home, isDirectory: true)
+            .appendingPathComponent(".omp/agent", isDirectory: true)
+    }
+
+    private func ompExtensionURL(for def: AgentHookDef) throws -> URL {
+        try Self.requiredOmpAgentDirectory()
+            .appendingPathComponent(def.configFile, isDirectory: false)
     }
 
     private func existingOmpExtensionContents(at url: URL, fileManager: FileManager = .default) throws -> String {
@@ -386,8 +830,8 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
         }
     }
 
-    func installOmpExtensionHooks(_ _: AgentHookDef) throws {
-        let extensionURL = ompExtensionURL()
+    func installOmpExtensionHooks(_ def: AgentHookDef) throws {
+        let extensionURL = try ompExtensionURL(for: def)
         let fileManager = FileManager.default
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
@@ -438,8 +882,8 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
         ))
     }
 
-    func uninstallOmpExtensionHooks(_ _: AgentHookDef) throws {
-        let extensionURL = ompExtensionURL()
+    func uninstallOmpExtensionHooks(_ def: AgentHookDef) throws {
+        let extensionURL = try ompExtensionURL(for: def)
         let fm = FileManager.default
         guard fm.fileExists(atPath: extensionURL.path) else {
             print(String.localizedStringWithFormat(

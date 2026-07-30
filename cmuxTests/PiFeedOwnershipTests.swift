@@ -63,6 +63,57 @@ struct PiFeedOwnershipTests {
 
     @MainActor
     @Test
+    func acknowledgedOmpInsertionRehomesSurfaceToItsLiveWorkspace() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        appDelegate.didAttemptStartupSessionRestore = true
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = tabManager
+
+        let staleWorkspace = tabManager.addWorkspace(select: false)
+        let liveWorkspace = tabManager.addWorkspace(select: true)
+        let surfaceId = try #require(liveWorkspace.focusedPanelId)
+        defer {
+            for workspace in [staleWorkspace, liveWorkspace]
+                where tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+            CmuxEventBus.shared.resetForTesting()
+        }
+
+        let store = WorkstreamStore(ringCapacity: 10)
+        FeedCoordinator.shared.install(store: store)
+        CmuxEventBus.shared.resetForTesting()
+
+        let event = WorkstreamEvent(
+            sessionId: "omp-live-ownership-test",
+            hookEventName: .postToolUse,
+            source: "omp",
+            workspaceId: staleWorkspace.id.uuidString,
+            surfaceId: surfaceId.uuidString,
+            toolName: "bash",
+            requestId: "omp-live-ownership-request"
+        )
+        let result = await Self.ingestAcknowledgedOffMainActor([event])
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any],
+              let rawItemId = payload["item_id"] as? String,
+              let itemId = UUID(uuidString: rawItemId) else {
+            Issue.record("expected authoritative OMP Feed insertion")
+            return
+        }
+
+        let receivedPayload = try #require(Self.receivedFeedEventPayloads().first)
+        #expect(store.items.contains(where: { $0.id == itemId }))
+        #expect(receivedPayload["workspace_id"] as? String == liveWorkspace.id.uuidString)
+        #expect(receivedPayload["surface_id"] as? String == surfaceId.uuidString)
+    }
+
+    @MainActor
+    @Test
     func acknowledgedInsertionRejectsClosedAndMalformedSurfaceClaims() async {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

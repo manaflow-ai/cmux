@@ -310,7 +310,7 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
         print(f"FAIL: surface.resume.set had wrong OMP binding params: {params!r}")
         return False
     command = params.get("command")
-    if not isinstance(command, str) or "--session" not in command or session_id not in command:
+    if not isinstance(command, str) or "--resume" not in command or session_id not in command:
         print(f"FAIL: surface.resume.set command cannot resume OMP session: {params!r}")
         return False
     return True
@@ -404,6 +404,19 @@ def main() -> int:
             fake_cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
+case "$*" in
+  "hooks feed "*)
+    printf '%s\n' "$*" >> "$FAKE_CMUX_STARTED_ARGS_LOG"
+    cat >/dev/null
+    printf '{}\n'
+    exit 0
+    ;;
+  "hooks omp session-end")
+    cat >/dev/null
+    printf '{}\n'
+    exit 0
+    ;;
+esac
 if ! mkdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null; then
   active_pid="$(cat "$FAKE_CMUX_LOCK_DIR/pid" 2>/dev/null || true)"
   if [ -n "$active_pid" ] && kill -0 "$active_pid" 2>/dev/null; then
@@ -474,7 +487,7 @@ mod.default({
     handlers.set(name, handler);
   }
 });
-for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown"]) {
+for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown", "tool_execution_start"]) {
   if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
 }
 process.argv.splice(
@@ -567,22 +580,30 @@ const firstPhasePids = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
 if (firstPhasePids.length !== 3) {
   throw new Error(`nested OMP task session spawned a hook child: ${firstPhasePids}`);
 }
-currentSessionId = "priority-stop-session";
+currentSessionId = "priority-feed-pressure";
 await handlers.get("session_start")({}, parentCtx);
-await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, parentCtx);
+const prioritySessionStartPid = await stoppedHookPID(4);
+const priorityStartOffset = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG).length;
 for (let index = 0; index < 40; index += 1) {
-  currentSessionId = `priority-prompt-${index}`;
-  await handlers.get("before_agent_start")({ prompt: `priority prompt ${index}` }, parentCtx);
+  await handlers.get("tool_execution_start")({
+    type: "tool_execution_start",
+    toolCallId: `priority-feed-${index}`,
+    toolName: "bash",
+    args: { command: `printf feed-${index}` },
+  }, parentCtx);
 }
-await releaseHook(4);
+await handlers.get("before_agent_start")({ prompt: "priority prompt survives feed pressure" }, parentCtx);
+process.kill(prioritySessionStartPid, "SIGCONT");
 await waitForCompletedHooks(4);
-await releaseHook(5);
-await waitForCompletedHooks(5);
-const priorityPromptPid = await stoppedHookPID(6);
-const priorityDrain = handlers.get("session_shutdown")({}, parentCtx);
+const priorityPromptPid = await stoppedHookPID(5);
+const priorityStarts = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG)
+  .slice(priorityStartOffset);
+if (priorityStarts[0] !== "hooks omp prompt-submit") {
+  throw new Error(`Queued prompt did not run before the Feed backlog: ${priorityStarts}`);
+}
 process.kill(priorityPromptPid, "SIGCONT");
-await waitForCompletedHooks(6);
-await priorityDrain;
+await waitForCompletedHooks(5);
+await handlers.get("session_shutdown")({}, parentCtx);
 currentSessionId = "omp-session-test";
 await handlers.get("session_start")({}, parentCtx);
 for (let index = 0; index < 40; index += 1) {
@@ -592,7 +613,7 @@ await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, paren
 await handlers.get("session_shutdown")({}, parentCtx);
 const hungPidLines = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
 const startedArgs = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG);
-if (hungPidLines.length !== 8) {
+if (hungPidLines.length !== 7) {
   throw new Error(`shutdown did not start the queued Stop after cancelling the active hook: ${hungPidLines}`);
 }
 if (
@@ -655,7 +676,542 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        expected_invocations = 6
+        # Exercise OMP's full ExtensionAPI event surface in a fresh Bun process.
+        # The fake cmux executable records the actual child-process protocol and
+        # uses a FIFO to hold one terminal Feed event, making Stop ordering
+        # observable without sleeping.
+        behavior_cmux = root / "behavior-cmux"
+        behavior_log = root / "behavior-cmux.jsonl"
+        terminal_feed_gate = root / "terminal-feed-gate"
+        terminal_feed_ack = root / "terminal-feed-ack"
+        os.mkfifo(terminal_feed_gate)
+        make_executable(
+            behavior_cmux,
+            """#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+argv = sys.argv[1:]
+stdin = sys.stdin.read()
+try:
+    payload = json.loads(stdin) if stdin else {}
+except json.JSONDecodeError:
+    payload = {}
+
+log_path = os.environ["CMUX_TEST_OMP_BEHAVIOR_LOG"]
+gate_path = os.environ["CMUX_TEST_OMP_TERMINAL_FEED_GATE"]
+ack_path = os.environ["CMUX_TEST_OMP_TERMINAL_FEED_ACK"]
+
+def record(phase):
+    item = {
+        "phase": phase,
+        "pid": os.getpid(),
+        "argv": argv,
+        "payload": payload,
+    }
+    if argv[:3] == ["hooks", "omp", "stop"]:
+        item["terminalFeedAcknowledged"] = Path(ack_path).exists()
+    encoded = (json.dumps(item, separators=(",", ":")) + "\\n").encode("utf-8")
+    fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        os.write(fd, encoded)
+    finally:
+        os.close(fd)
+
+record("started")
+is_gated_terminal_feed = (
+    argv[:6] == ["hooks", "feed", "--source", "omp", "--event", "PostToolUse"]
+    and payload.get("tool_call_id") == "terminal-feed-call"
+)
+if is_gated_terminal_feed:
+    fd = os.open(gate_path, os.O_RDONLY)
+    try:
+        os.read(fd, 1)
+    finally:
+        os.close(fd)
+    Path(ack_path).write_text("ack", encoding="utf-8")
+record("completed")
+print("{}")
+""",
+        )
+        switch_session_file = sessions_dir / "2026-07-28T12-05-00_omp-switched.jsonl"
+        switch_session_file.write_text("{}\n", encoding="utf-8")
+        branch_session_file = sessions_dir / "2026-07-28T12-10-00_omp-branched.jsonl"
+        branch_session_file.write_text("{}\n", encoding="utf-8")
+        behavior_env = check_env.copy()
+        behavior_env["CMUX_OMP_CMUX_BIN"] = str(behavior_cmux)
+        behavior_env["CMUX_TEST_OMP_BEHAVIOR_LOG"] = str(behavior_log)
+        behavior_env["CMUX_TEST_OMP_TERMINAL_FEED_GATE"] = str(terminal_feed_gate)
+        behavior_env["CMUX_TEST_OMP_TERMINAL_FEED_ACK"] = str(terminal_feed_ack)
+        behavior_env["CMUX_TEST_OMP_SWITCH_SESSION_FILE"] = str(switch_session_file)
+        behavior_env["CMUX_TEST_OMP_BRANCH_SESSION_FILE"] = str(branch_session_file)
+        behavior_source = """
+import * as fs from "node:fs";
+const extensionPath = process.env.CMUX_TEST_OMP_EXTENSION_PATH;
+const mod = await import(extensionPath);
+if (typeof mod.default !== "function") throw new Error("missing default export");
+const handlers = new Map();
+mod.default({
+  on(name, handler) {
+    handlers.set(name, handler);
+  }
+});
+for (const name of [
+  "session_start",
+  "session_switch",
+  "session_branch",
+  "session_before_compact",
+  "session_compact",
+  "before_agent_start",
+  "agent_end",
+  "session_shutdown",
+  "tool_execution_start",
+  "tool_execution_end",
+  "tool_approval_requested",
+  "tool_approval_resolved",
+]) {
+  if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
+}
+
+let currentSessionId = "omp-runtime-initial";
+let currentSessionFile = process.env.CMUX_TEST_OMP_PARENT_SESSION_FILE;
+let currentCwd = "/tmp/omp-runtime-project";
+const ctx = {
+  get cwd() { return currentCwd; },
+  sessionManager: {
+    getSessionId() { return currentSessionId; },
+    getSessionFile() { return currentSessionFile; },
+    getSessionDir() { return currentSessionFile ? currentSessionFile.replace(/\\/[^/]+$/, "") : undefined; },
+  },
+};
+
+function records() {
+  const path = process.env.CMUX_TEST_OMP_BEHAVIOR_LOG;
+  if (!path || !fs.existsSync(path)) return [];
+  const contents = fs.readFileSync(path, "utf8");
+  const lines = contents.split("\\n");
+  if (!contents.endsWith("\\n")) lines.pop();
+  return lines
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line));
+}
+
+const behaviorLogPath = process.env.CMUX_TEST_OMP_BEHAVIOR_LOG;
+fs.appendFileSync(behaviorLogPath, '{"phase":"partial');
+if (records().length !== 0) throw new Error("partial JSONL record was parsed before completion");
+fs.appendFileSync(behaviorLogPath, '"}\\n');
+if (records()[0]?.phase !== "partial") throw new Error("completed JSONL record was not parsed");
+
+function hasArgvPrefix(record, expected) {
+  return expected.every((value, index) => record.argv[index] === value);
+}
+
+async function waitForRecord(predicate, label, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const record = records().find(predicate);
+    if (record) return record;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error(`timed out waiting for ${label}; records=${JSON.stringify(records())}`);
+}
+
+
+async function completedCommand(argvPrefix, payloadPredicate, label) {
+  return waitForRecord(
+    (record) => record.phase === "completed"
+      && hasArgvPrefix(record, argvPrefix)
+      && payloadPredicate(record.payload),
+    label,
+  );
+}
+
+async function invoke(name, event) {
+  const result = await handlers.get(name)(event, ctx);
+  if (result !== undefined) {
+    throw new Error(`${name} returned an agent decision: ${JSON.stringify(result)}`);
+  }
+}
+
+function assertTranscript(record, expected) {
+  if (record.payload.transcript_path !== expected) {
+    throw new Error(`wrong transcript_path: expected ${expected}, got ${JSON.stringify(record.payload)}`);
+  }
+}
+
+function assertBoundedStructuredPayload(record, key, label) {
+  const value = record.payload[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} was not a structured object: ${JSON.stringify(record.payload)}`);
+  }
+  const byteLength = Buffer.byteLength(JSON.stringify(record.payload), "utf8");
+  if (byteLength > 12 * 1024) {
+    throw new Error(`${label} payload was not bounded: ${byteLength} bytes`);
+  }
+}
+
+await invoke("session_start", { type: "session_start" });
+const initialStart = await completedCommand(
+  ["hooks", "omp", "session-start"],
+  (payload) => payload.session_id === "omp-runtime-initial",
+  "initial lifecycle binding",
+);
+assertTranscript(initialStart, process.env.CMUX_TEST_OMP_PARENT_SESSION_FILE);
+
+currentSessionId = "omp-runtime-switched";
+currentSessionFile = process.env.CMUX_TEST_OMP_SWITCH_SESSION_FILE;
+currentCwd = "/tmp/omp-runtime-switched";
+await invoke("session_switch", {
+  type: "session_switch",
+  sessionId: "stale-event-session-id",
+  transcript_path: "/tmp/stale-event-transcript.jsonl",
+});
+const switchedStart = await completedCommand(
+  ["hooks", "omp", "session-start"],
+  (payload) => payload.session_id === "omp-runtime-switched",
+  "switched lifecycle binding",
+);
+assertTranscript(switchedStart, process.env.CMUX_TEST_OMP_SWITCH_SESSION_FILE);
+if (switchedStart.payload.cwd !== currentCwd) {
+  throw new Error(`session_switch did not re-read authoritative context: ${JSON.stringify(switchedStart.payload)}`);
+}
+
+currentSessionId = "omp-runtime-branched";
+currentSessionFile = process.env.CMUX_TEST_OMP_BRANCH_SESSION_FILE;
+currentCwd = "/tmp/omp-runtime-branched";
+await invoke("session_branch", {
+  type: "session_branch",
+  sessionId: "stale-branch-event-session-id",
+  transcript_path: "/tmp/stale-branch-transcript.jsonl",
+});
+const branchedStart = await completedCommand(
+  ["hooks", "omp", "session-start"],
+  (payload) => payload.session_id === "omp-runtime-branched",
+  "branched lifecycle binding",
+);
+assertTranscript(branchedStart, process.env.CMUX_TEST_OMP_BRANCH_SESSION_FILE);
+if (branchedStart.payload.cwd !== currentCwd) {
+  throw new Error(`session_branch did not re-read authoritative context: ${JSON.stringify(branchedStart.payload)}`);
+}
+
+const privateBranchEntry = "private-branch-entry-" + "x".repeat(20000);
+await invoke("session_before_compact", {
+  type: "session_before_compact",
+  preparation: { tokensBefore: 120000 },
+  branchEntries: [
+    { type: "message", role: "user", content: privateBranchEntry },
+  ],
+});
+const preCompact = await completedCommand(
+  ["hooks", "feed", "--source", "omp", "--event", "PreCompact"],
+  (payload) => payload.session_id === currentSessionId,
+  "PreCompact Feed telemetry",
+);
+const preCompactJSON = JSON.stringify(preCompact.payload);
+if (
+  preCompactJSON.includes("branchEntries")
+  || preCompactJSON.includes("branch_entries")
+  || preCompactJSON.includes("private-branch-entry-")
+) {
+  throw new Error(`PreCompact forwarded raw branch entries: ${preCompactJSON}`);
+}
+assertTranscript(preCompact, currentSessionFile);
+
+await invoke("session_compact", {
+  type: "session_compact",
+  fromExtension: false,
+  compactionEntry: {
+    summary: "bounded summary",
+    branchEntries: [{ content: privateBranchEntry }],
+  },
+});
+const postCompact = await completedCommand(
+  ["hooks", "feed", "--source", "omp", "--event", "PostCompact"],
+  (payload) => payload.session_id === currentSessionId,
+  "PostCompact Feed telemetry",
+);
+const postCompactJSON = JSON.stringify(postCompact.payload);
+if (
+  postCompactJSON.includes("branchEntries")
+  || postCompactJSON.includes("branch_entries")
+  || postCompactJSON.includes("private-branch-entry-")
+) {
+  throw new Error(`PostCompact forwarded raw branch entries: ${postCompactJSON}`);
+}
+
+const privateToolInput = "private-pre-tool-input-" + "i".repeat(20000);
+await invoke("tool_execution_start", {
+  type: "tool_execution_start",
+  toolCallId: "ordinary-tool-call",
+  toolName: "bash",
+  args: {
+    command: "printf bounded",
+    nested: { private: privateToolInput },
+  },
+});
+const preTool = await completedCommand(
+  ["hooks", "feed", "--source", "omp", "--event", "PreToolUse"],
+  (payload) => payload.tool_call_id === "ordinary-tool-call",
+  "ordinary PreToolUse Feed telemetry",
+);
+assertBoundedStructuredPayload(preTool, "tool_input", "PreToolUse tool_input");
+if (JSON.stringify(preTool.payload).includes(privateToolInput)) {
+  throw new Error(`PreToolUse forwarded an unbounded raw tool input: ${JSON.stringify(preTool.payload)}`);
+}
+assertTranscript(preTool, currentSessionFile);
+
+const privateToolResult = "private-post-tool-output-" + "o".repeat(20000);
+await invoke("tool_execution_end", {
+  type: "tool_execution_end",
+  toolCallId: "ordinary-tool-call",
+  toolName: "bash",
+  result: {
+    content: [{ type: "text", text: privateToolResult }],
+    metadata: { exitCode: 7 },
+  },
+  isError: true,
+});
+const postTool = await completedCommand(
+  ["hooks", "feed", "--source", "omp", "--event", "PostToolUse"],
+  (payload) => payload.tool_call_id === "ordinary-tool-call",
+  "ordinary PostToolUse Feed telemetry",
+);
+assertBoundedStructuredPayload(postTool, "tool_result", "PostToolUse tool_result");
+if (postTool.payload.is_error !== true) {
+  throw new Error(`PostToolUse lost the error state: ${JSON.stringify(postTool.payload)}`);
+}
+if (JSON.stringify(postTool.payload).includes(privateToolResult)) {
+  throw new Error(`PostToolUse forwarded unbounded raw output: ${JSON.stringify(postTool.payload)}`);
+}
+
+await invoke("tool_execution_start", {
+  type: "tool_execution_start",
+  toolCallId: "task-call",
+  toolName: "task",
+  args: { task: "review the storage race" },
+});
+await completedCommand(
+  ["hooks", "feed", "--source", "omp", "--event", "SubagentStart"],
+  (payload) => payload.tool_call_id === "task-call" && payload.tool_name === "task",
+  "lowercase task SubagentStart",
+);
+await invoke("tool_execution_end", {
+  type: "tool_execution_end",
+  toolCallId: "task-call",
+  toolName: "task",
+  result: { content: [{ type: "text", text: "review complete" }] },
+  isError: false,
+});
+const taskStop = await completedCommand(
+  ["hooks", "feed", "--source", "omp", "--event", "SubagentStop"],
+  (payload) => payload.tool_call_id === "task-call" && payload.tool_name === "task",
+  "lowercase task SubagentStop",
+);
+if (taskStop.payload.is_error !== false) {
+  throw new Error(`SubagentStop lost the success state: ${JSON.stringify(taskStop.payload)}`);
+}
+
+await invoke("tool_approval_requested", {
+  type: "tool_approval_requested",
+  sessionId: currentSessionId,
+  toolCallId: "approval-call",
+  toolName: "bash",
+  reason: "write a generated fixture",
+  approvalMode: "once",
+});
+const approvalRequested = await completedCommand(
+  ["hooks", "omp", "notification"],
+  (payload) => payload.tool_call_id === "approval-call",
+  "observational approval request",
+);
+if (
+  approvalRequested.payload.event !== "permission_request"
+  || approvalRequested.payload.notification_type !== "permission_request"
+) {
+  throw new Error(`approval request had the wrong lifecycle payload: ${JSON.stringify(approvalRequested.payload)}`);
+}
+if (approvalRequested.payload.message !== "write a generated fixture") {
+  throw new Error(`approval request lost its reason message: ${JSON.stringify(approvalRequested.payload)}`);
+}
+
+await invoke("tool_approval_resolved", {
+  type: "tool_approval_resolved",
+  sessionId: currentSessionId,
+  toolCallId: "approval-call",
+  toolName: "bash",
+  approved: false,
+  reason: "denied in OMP",
+});
+const approvalResolved = await completedCommand(
+  ["hooks", "omp", "approval-response"],
+  (payload) => payload.tool_call_id === "approval-call",
+  "observational approval resolution",
+);
+if (approvalResolved.payload.approved !== false) {
+  throw new Error(`approval resolution lost the decision state: ${JSON.stringify(approvalResolved.payload)}`);
+}
+
+const stopCommand = ["hooks", "omp", "stop"];
+const stopCount = () => records().filter(
+  (record) => record.phase === "started"
+    && hasArgvPrefix(record, stopCommand)
+    && record.payload.session_id === currentSessionId,
+).length;
+const stopCountBeforeContinuations = stopCount();
+if (stopCountBeforeContinuations !== 0) {
+  throw new Error(`OMP emitted Stop before a terminal agent_end: ${JSON.stringify(records())}`);
+}
+for (const assistantText of ["intermediate one", "intermediate two"]) {
+  await invoke("agent_end", {
+    type: "agent_end",
+    messages: [{ role: "assistant", content: assistantText }],
+    willContinue: true,
+  });
+}
+await invoke("tool_approval_resolved", {
+  type: "tool_approval_resolved",
+  sessionId: currentSessionId,
+  toolCallId: "continuation-barrier",
+  toolName: "bash",
+  approved: true,
+});
+await completedCommand(
+  ["hooks", "omp", "approval-response"],
+  (payload) => payload.tool_call_id === "continuation-barrier",
+  "willContinue ordering barrier",
+);
+if (stopCount() !== stopCountBeforeContinuations) {
+  throw new Error(`agent_end(willContinue: true) emitted Stop: ${JSON.stringify(records())}`);
+}
+
+await invoke("tool_execution_end", {
+  type: "tool_execution_end",
+  toolCallId: "terminal-feed-call",
+  toolName: "bash",
+  result: { content: [{ type: "text", text: "terminal result" }] },
+  isError: false,
+});
+const terminalFeedStarted = await waitForRecord(
+  (record) => record.phase === "started"
+    && hasArgvPrefix(record, ["hooks", "feed", "--source", "omp", "--event", "PostToolUse"])
+    && record.payload.tool_call_id === "terminal-feed-call",
+  "gated terminal Feed event",
+);
+let finalAgentEndCompleted = false;
+let finalAgentEndError;
+const finalAgentEnd = handlers.get("agent_end")({
+  type: "agent_end",
+  messages: [{ role: "assistant", content: "final answer" }],
+  willContinue: false,
+}, ctx).then((result) => {
+  if (result !== undefined) throw new Error(`agent_end returned a decision: ${JSON.stringify(result)}`);
+  finalAgentEndCompleted = true;
+}).catch((error) => {
+  finalAgentEndError = error;
+  finalAgentEndCompleted = true;
+});
+
+const gateFD = fs.openSync(process.env.CMUX_TEST_OMP_TERMINAL_FEED_GATE, "w");
+fs.writeSync(gateFD, Buffer.from([1]));
+fs.closeSync(gateFD);
+const terminalFeedCompleted = await waitForRecord(
+  (record) => record.phase === "completed"
+    && record.pid === terminalFeedStarted.pid,
+  "terminal Feed acknowledgment",
+);
+const finalStop = await completedCommand(
+  stopCommand,
+  (payload) => payload.session_id === currentSessionId,
+  "final Stop after terminal Feed acknowledgment",
+);
+await waitForRecord(
+  () => finalAgentEndCompleted,
+  "final agent_end completion",
+);
+if (finalAgentEndError) throw finalAgentEndError;
+const orderedRecords = records();
+const terminalCompletionIndex = orderedRecords.findIndex(
+  (record) => record.phase === "completed" && record.pid === terminalFeedCompleted.pid,
+);
+const stopStartIndex = orderedRecords.findIndex(
+  (record) => record.phase === "started" && record.pid === finalStop.pid,
+);
+if (
+  terminalCompletionIndex < 0
+  || stopStartIndex <= terminalCompletionIndex
+  || finalStop.terminalFeedAcknowledged !== true
+) {
+  throw new Error(`final Stop was not ordered after terminal Feed acknowledgment: ${JSON.stringify(orderedRecords)}`);
+}
+if (stopCount() !== stopCountBeforeContinuations + 1) {
+  throw new Error(`expected exactly one final Stop: ${JSON.stringify(orderedRecords)}`);
+}
+assertTranscript(finalStop, currentSessionFile);
+
+await invoke("before_agent_start", {
+  type: "before_agent_start",
+  prompt: "follow-up turn",
+});
+await invoke("agent_end", {
+  type: "agent_end",
+  messages: [{ role: "assistant", content: "follow-up answer" }],
+  willContinue: false,
+});
+const followUpStop = await completedCommand(
+  stopCommand,
+  (payload) => payload.session_id === currentSessionId
+    && payload.last_assistant_message === "follow-up answer",
+  "follow-up turn Stop",
+);
+assertTranscript(followUpStop, currentSessionFile);
+if (stopCount() !== stopCountBeforeContinuations + 2) {
+  throw new Error(`follow-up turn did not re-arm Stop: ${JSON.stringify(records())}`);
+}
+
+await invoke("session_shutdown", { type: "session_shutdown" });
+const sessionEnd = await completedCommand(
+  ["hooks", "omp", "session-end"],
+  (payload) => payload.session_id === currentSessionId,
+  "SessionEnd on shutdown",
+);
+if (
+  sessionEnd.payload.hook_event_name !== "SessionEnd"
+  || "last_assistant_message" in sessionEnd.payload
+) {
+  throw new Error(`shutdown emitted fake completion instead of SessionEnd: ${JSON.stringify(sessionEnd.payload)}`);
+}
+if (stopCount() !== stopCountBeforeContinuations + 2) {
+  throw new Error(`shutdown emitted a duplicate Stop: ${JSON.stringify(records())}`);
+}
+assertTranscript(sessionEnd, currentSessionFile);
+"""
+        try:
+            behavior_check = subprocess.run(
+                [bun, "--eval", behavior_source],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+                env=behavior_env,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            print("FAIL: generated OMP extension behavior harness timed out")
+            if behavior_log.exists():
+                print(behavior_log.read_text(encoding="utf-8"))
+            return 1
+        if behavior_check.returncode != 0:
+            print("FAIL: generated OMP extension did not satisfy the OMP 17.1.8 event contract")
+            print(f"exit={behavior_check.returncode}")
+            print(f"stdout={behavior_check.stdout.strip()}")
+            print(f"stderr={behavior_check.stderr.strip()}")
+            if behavior_log.exists():
+                print(f"behavior log={behavior_log.read_text(encoding='utf-8').strip()}")
+            return 1
+
+        expected_invocations = 5
         args_log = wait_for_stable_text(fake_args_log, expected_invocations, timeout=20.0)
         stdin_log = wait_for_stable_text(fake_stdin_log, expected_invocations * 2, timeout=20.0)
         env_log = wait_for_stable_text(fake_env_log, expected_invocations * 4, timeout=20.0)
@@ -683,8 +1239,11 @@ for (const rawPid of hungPidLines.slice(-2)) {
         if '"hook_event_name":"Stop"' not in stdin_log:
             print(f"FAIL: stop hook payload was missing: {stdin_log!r}")
             return 1
-        if '"session_id":"priority-stop-session","cwd":"/tmp/omp-project","hook_event_name":"Stop"' not in stdin_log:
-            print(f"FAIL: queued stop hook was evicted under prompt pressure: {stdin_log!r}")
+        if '"session_id":"priority-feed-pressure","cwd":"/tmp/omp-project","hook_event_name":"UserPromptSubmit"' not in stdin_log:
+            print(f"FAIL: queued prompt was evicted under Feed pressure: {stdin_log!r}")
+            return 1
+        if '"prompt":"priority prompt survives feed pressure"' not in stdin_log:
+            print(f"FAIL: surviving priority prompt lost its payload: {stdin_log!r}")
             return 1
         if '"prompt":"hello omp 39"' not in stdin_log or '"last_assistant_message":"done"' not in stdin_log:
             print(f"FAIL: extension did not pass prompt/assistant payload, got {stdin_log!r}")
@@ -809,9 +1368,9 @@ for (const rawPid of hungPidLines.slice(-2)) {
             env=config_env,
             timeout=20,
         )
-        config_extension_path = config_override / "agent" / "extensions" / "cmux-omp-session.ts"
+        config_extension_path = home / str(config_override).lstrip(os.sep) / "agent" / "extensions" / "cmux-omp-session.ts"
         if config_install.returncode != 0 or not config_extension_path.exists():
-            print("FAIL: omp extension install did not respect absolute PI_CONFIG_DIR")
+            print("FAIL: omp extension install did not match OMP PI_CONFIG_DIR path joining")
             print(f"exit={config_install.returncode}")
             print(f"stdout={config_install.stdout.strip()}")
             print(f"stderr={config_install.stderr.strip()}")
@@ -825,12 +1384,12 @@ for (const rawPid of hungPidLines.slice(-2)) {
             timeout=20,
         )
         if config_uninstall.returncode != 0 or config_extension_path.exists():
-            print("FAIL: omp extension uninstall did not respect absolute PI_CONFIG_DIR")
+            print("FAIL: omp extension uninstall did not match OMP PI_CONFIG_DIR path joining")
             print(f"exit={config_uninstall.returncode}")
             print(f"stdout={config_uninstall.stdout.strip()}")
             print(f"stderr={config_uninstall.stderr.strip()}")
             return 1
-    print("PASS: generated OMP extension installs, emits complete cmux hook payloads, and persists hook sessions")
+    print("PASS: generated OMP extension installs, executes the OMP event contract, and persists hook sessions")
     return 0
 
 

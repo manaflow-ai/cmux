@@ -105,12 +105,13 @@ extension TerminalController {
                 cmuxDebugLog("agentChat.list observeTimedOut workspace=nil")
             }
             #endif
-            let descriptors = service.sessionRecords(workspaceID: nil)
-                .filter { mobileChatBindingIsCurrentAgent($0) }
+            let records = service.listableSessionRecords(workspaceID: nil)
+            let descriptors = records
+                .filter { $0.state == .ended || mobileChatBindingIsCurrentAgent($0) }
                 .map(\.descriptor)
             let encoded = descriptors.compactMap { service.wirePayload($0) }
             #if DEBUG
-            cmuxDebugLog("agentChat.list workspace=nil records=\(service.sessionRecords(workspaceID: nil).count) returned=\(encoded.count)")
+            cmuxDebugLog("agentChat.list workspace=nil records=\(records.count) returned=\(encoded.count)")
             #endif
             return .ok(["sessions": encoded])
         }
@@ -137,12 +138,13 @@ extension TerminalController {
             cmuxDebugLog("agentChat.list observeTimedOut workspace=\(workspaceID.prefix(8))")
         }
         #endif
+        let listableRecords = service.listableSessionRecords(workspaceID: nil)
         var encoded: [[String: Any]] = []
         #if DEBUG
-        var dropNotInWorkspace = 0, dropDeadPID = 0, dropEndedMissingTranscript = 0, kept = 0
-        let allRecords = service.sessionRecords(workspaceID: nil)
+        var dropNotInWorkspace = 0, dropDeadPID = 0, kept = 0
+        let allRecords = listableRecords
         #endif
-        for record in service.sessionRecords(workspaceID: nil) {
+        for record in listableRecords {
             guard let surfaceID = record.surfaceID,
                   let surfaceUUID = UUID(uuidString: surfaceID),
                   workspace.terminalInputTarget(forPanelID: surfaceUUID) != nil else {
@@ -161,14 +163,6 @@ extension TerminalController {
                 #endif
                 continue
             }
-            if record.state == .ended,
-               !service.shouldListEndedSession(record) {
-                #if DEBUG
-                dropEndedMissingTranscript += 1
-                cmuxDebugLog("agentChat.list drop=endedMissingTranscript session=\(record.sessionID.prefix(8)) kind=\(record.agentKind.sourceName) surface=\(record.surfaceID?.prefix(8) ?? "nil")")
-                #endif
-                continue
-            }
             #if DEBUG
             kept += 1
             #endif
@@ -182,7 +176,7 @@ extension TerminalController {
             }
         }
         #if DEBUG
-        cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) total=\(allRecords.count) dropNotInWS=\(dropNotInWorkspace) dropDeadPID=\(dropDeadPID) dropEndedMissingTranscript=\(dropEndedMissingTranscript) kept=\(kept) returned=\(encoded.count)")
+        cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) total=\(allRecords.count) dropNotInWS=\(dropNotInWorkspace) dropDeadPID=\(dropDeadPID) kept=\(kept) returned=\(encoded.count)")
         #endif
         return .ok(["sessions": encoded])
     }

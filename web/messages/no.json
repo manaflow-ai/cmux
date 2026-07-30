@@ -1504,6 +1504,7 @@
       "underHoodItemResume": "Ved gjenoppretting bygger cmux først opp vinduer og paneler. Hvis automatisk agent-gjenopptakelse er aktivert, starter den en engangs shell-kommando som kjører agentens native resume-kommando med lagret session-ID.",
       "underHoodMore": "Vanlige <configLink>konfigurasjonsdokumenter</configLink> dekker cmux.json. Sesjongjenoppretting holder app-layout separat fra Ghostty-terminalens renderingsinnstillinger.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "Telemetri for verktøy, underagenter og komprimering",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

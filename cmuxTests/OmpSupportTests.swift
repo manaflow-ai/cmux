@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -94,7 +95,7 @@ struct OmpSupportTests {
                 arguments: ["/Users/example/.bun/bin/omp"] + selector.arguments,
                 environment: [
                     "PWD": workspace.path,
-                    "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+                    "PI_CODING_AGENT_DIR": root.path,
                 ]
             ), selectorComment)
 
@@ -126,7 +127,7 @@ struct OmpSupportTests {
             arguments: ["/Users/example/.bun/bin/omp", "--session", "partial-omp-session"],
             environment: [
                 "PWD": workspace.path,
-                "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+                "PI_CODING_AGENT_DIR": root.path,
             ]
         ))
 
@@ -200,17 +201,22 @@ struct OmpSupportTests {
         #expect(detected.workingDirectory == workspace.path)
     }
 
-    @Test func directProcessDetectionPreservesCustomSessionDirectoryBeforeOmpEnvironment() throws {
+    @Test func directProcessDetectionPreservesCustomSessionDirectoryWithOmpBuckets() throws {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-custom-session-dir-")
         defer { try? FileManager.default.removeItem(at: root) }
-        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let workspace = home.appendingPathComponent("repo", isDirectory: true)
         let customRoot = root.appendingPathComponent("custom-sessions", isDirectory: true)
         let environmentRoot = root.appendingPathComponent("environment-sessions", isDirectory: true)
-        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
-        let customProjectSessions = customRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        let cwdBucket = OmpDirectoryResolver().cwdBucketNames(
+            currentDirectory: workspace.path,
+            homeDirectory: home.path,
+            fileManager: .default
+        ).current
+        let customProjectSessions = customRoot.appendingPathComponent(cwdBucket, isDirectory: true)
         let environmentProjectSessions = environmentRoot
             .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent(projectDirectory, isDirectory: true)
+            .appendingPathComponent(cwdBucket, isDirectory: true)
         try FileManager.default.createDirectory(at: customProjectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: environmentProjectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
@@ -231,12 +237,13 @@ struct OmpSupportTests {
             name: "OMP",
             detect: CmuxVaultAgentDetectRule(processName: "omp"),
             sessionIdSource: .piSessionFile,
-            resumeCommand: "{{executable}} --session {{sessionId}}",
+            resumeCommand: "{{executable}} --resume {{sessionId}}",
             sessionDirectory: customRoot.path
         )
         let detected = try #require(Self.detectedOmpSnapshot(
             arguments: ["/Users/example/.bun/bin/omp"],
             environment: [
+                "HOME": home.path,
                 "PWD": workspace.path,
                 "PI_CODING_AGENT_DIR": environmentRoot.path,
             ],
@@ -246,6 +253,59 @@ struct OmpSupportTests {
         #expect(detected.kind == RestorableAgentKind.custom("omp"))
         #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(custom.path))
         #expect(Self.normalizedPath(detected.sessionId) != Self.normalizedPath(environment.path))
+        #expect(detected.workingDirectory == workspace.path)
+    }
+
+    @Test func directProcessDetectionPrefersExplicitSessionDirectoryOverCustomRegistration() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-explicit-over-custom-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let workspace = home.appendingPathComponent("repo", isDirectory: true)
+        let customRoot = root.appendingPathComponent("custom-sessions", isDirectory: true)
+        let explicitRoot = root.appendingPathComponent("explicit-sessions", isDirectory: true)
+        let cwdBucket = OmpDirectoryResolver().cwdBucketNames(
+            currentDirectory: workspace.path,
+            homeDirectory: home.path,
+            fileManager: .default
+        ).current
+        let customProjectSessions = customRoot.appendingPathComponent(cwdBucket, isDirectory: true)
+        try FileManager.default.createDirectory(at: customProjectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: explicitRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let custom = try Self.writeSessionFile(
+            id: "omp-custom-registration-session",
+            in: customProjectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let explicit = try Self.writeSessionFile(
+            id: "omp-explicit-process-session",
+            in: explicitRoot,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let registration = CmuxVaultAgentRegistration(
+            id: "omp",
+            name: "OMP",
+            detect: CmuxVaultAgentDetectRule(processName: "omp"),
+            sessionIdSource: .piSessionFile,
+            resumeCommand: "{{executable}} --resume {{sessionId}}",
+            sessionDirectory: customRoot.path
+        )
+
+        let detected = try #require(Self.detectedOmpSnapshot(
+            arguments: [
+                "/Users/example/.bun/bin/omp",
+                "--session-dir=\(explicitRoot.path)",
+            ],
+            environment: [
+                "HOME": home.path,
+                "PWD": workspace.path,
+            ],
+            registration: registration
+        ))
+
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(explicit.path))
+        #expect(Self.normalizedPath(detected.sessionId) != Self.normalizedPath(custom.path))
         #expect(detected.workingDirectory == workspace.path)
     }
 
@@ -276,7 +336,7 @@ struct OmpSupportTests {
             ],
             environment: [
                 "PWD": workspace.path,
-                "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+                "PI_CODING_AGENT_DIR": root.path,
             ]
         ))
 
@@ -318,7 +378,7 @@ struct OmpSupportTests {
             ],
             environment: [
                 "PWD": workspace.path,
-                "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+                "PI_CODING_AGENT_DIR": root.path,
             ]
         ))
 
@@ -364,7 +424,7 @@ struct OmpSupportTests {
             ],
             environment: [
                 "PWD": workspace.path,
-                "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+                "PI_CODING_AGENT_DIR": root.path,
             ]
         ))
 
@@ -416,6 +476,340 @@ struct OmpSupportTests {
         #expect(legacyPi.id == "pi")
     }
 
+    @Test func liveVaultUsesCliProfileDirectoryAndCurrentHomeRelativeBucket() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-profile-vault-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let workspace = home.appendingPathComponent("project", isDirectory: true)
+        let profileSessions = home
+            .appendingPathComponent(".omp/profiles/work/agent/sessions", isDirectory: true)
+            .appendingPathComponent("-project", isDirectory: true)
+        let ambientAgent = root.appendingPathComponent("ambient-agent", isDirectory: true)
+        let ambientSessions = ambientAgent
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(Self.legacyProjectDirectoryName(for: workspace.path), isDirectory: true)
+        try FileManager.default.createDirectory(at: profileSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: ambientSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let expected = try Self.writeSessionFile(
+            id: "omp-work-profile-session",
+            in: profileSessions,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let ambient = try Self.writeSessionFile(
+            id: "omp-ambient-agent-session",
+            in: ambientSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let detected = try #require(Self.detectedOmpSnapshot(
+            arguments: ["/Users/example/.bun/bin/omp", "--profile", "work"],
+            environment: [
+                "HOME": home.path,
+                "PWD": workspace.path,
+                "OMP_PROFILE": "personal",
+                "PI_PROFILE": "legacy",
+                "PI_CODING_AGENT_DIR": ambientAgent.path,
+            ]
+        ))
+
+        #expect(detected.kind == RestorableAgentKind.custom("omp"))
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(expected.path))
+        #expect(Self.normalizedPath(detected.sessionId) != Self.normalizedPath(ambient.path))
+        #expect(detected.workingDirectory == workspace.path)
+    }
+
+    @Test func liveVaultFallsBackToLegacyOmpCwdBucket() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-legacy-bucket-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let workspace = home.appendingPathComponent("project", isDirectory: true)
+        let legacySessions = home
+            .appendingPathComponent(".omp/agent/sessions", isDirectory: true)
+            .appendingPathComponent(Self.legacyProjectDirectoryName(for: workspace.path), isDirectory: true)
+        try FileManager.default.createDirectory(at: legacySessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let legacy = try Self.writeSessionFile(
+            id: "omp-legacy-bucket-session",
+            in: legacySessions,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+
+        let detected = try #require(Self.detectedOmpSnapshot(
+            arguments: ["/Users/example/.bun/bin/omp"],
+            environment: [
+                "HOME": home.path,
+                "PWD": workspace.path,
+            ]
+        ))
+
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(legacy.path))
+        #expect(detected.workingDirectory == workspace.path)
+    }
+
+    @Test func liveVaultUsesCurrentOmpHomeTempAndAbsoluteCwdBuckets() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-current-buckets-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let nestedWorkspace = home.appendingPathComponent("project/sub", isDirectory: true)
+        let tempWorkspace = root.appendingPathComponent("scratch", isDirectory: true)
+        let outsideWorkspace = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: nestedWorkspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tempWorkspace, withIntermediateDirectories: true)
+        let fixtures = [
+            (workspace: home, bucket: "-", sessionID: "omp-home-bucket-session"),
+            (workspace: nestedWorkspace, bucket: "-project-sub", sessionID: "omp-home-relative-bucket-session"),
+            (
+                workspace: tempWorkspace,
+                bucket: "-tmp-\(root.lastPathComponent)-scratch",
+                sessionID: "omp-temp-bucket-session"
+            ),
+            (
+                workspace: outsideWorkspace,
+                bucket: Self.legacyProjectDirectoryName(for: outsideWorkspace.path),
+                sessionID: "omp-absolute-bucket-session"
+            ),
+        ]
+
+        for fixture in fixtures {
+            let projectSessions = home
+                .appendingPathComponent(".omp/agent/sessions", isDirectory: true)
+                .appendingPathComponent(fixture.bucket, isDirectory: true)
+            try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+            let expected = try Self.writeSessionFile(
+                id: fixture.sessionID,
+                in: projectSessions,
+                modifiedAt: Date(timeIntervalSince1970: 1_000)
+            )
+
+            let arguments = fixture.workspace == home
+                ? ["/Users/example/.bun/bin/omp", "--allow-home"]
+                : ["/Users/example/.bun/bin/omp"]
+            let detected = try #require(Self.detectedOmpSnapshot(
+                arguments: arguments,
+                environment: [
+                    "HOME": home.path,
+                    "PWD": fixture.workspace.path,
+                ]
+            ), Comment(rawValue: fixture.bucket))
+
+            #expect(
+                Self.normalizedPath(detected.sessionId) == Self.normalizedPath(expected.path),
+                Comment(rawValue: fixture.bucket)
+            )
+            #expect(detected.workingDirectory == fixture.workspace.path, Comment(rawValue: fixture.bucket))
+        }
+    }
+
+    @Test func liveVaultUsesExplicitOmpSessionDirectoryWithoutAppendingCwdBucket() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-explicit-session-dir-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let workspace = home.appendingPathComponent("project", isDirectory: true)
+        let explicitSessions = root.appendingPathComponent("explicit-sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: explicitSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let explicit = try Self.writeSessionFile(
+            id: "omp-explicit-session-dir-session",
+            in: explicitSessions,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+
+        let detected = try #require(Self.detectedOmpSnapshot(
+            arguments: [
+                "/Users/example/.bun/bin/omp",
+                "--profile",
+                "work",
+                "--session-dir",
+                explicitSessions.path,
+            ],
+            environment: [
+                "HOME": home.path,
+                "PWD": workspace.path,
+                "OMP_PROFILE": "personal",
+            ]
+        ))
+
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(explicit.path))
+        #expect(detected.workingDirectory == workspace.path)
+    }
+
+    @Test func historicalVaultIndexesValidOmpProfilesWithProfileSpecificCommands() async throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-profile-history-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let workspace = home.appendingPathComponent("project", isDirectory: true)
+        let xdgDataHome = root.appendingPathComponent("xdg-data", isDirectory: true)
+        let workSessions = home
+            .appendingPathComponent(".omp/profiles/work/agent/sessions/-project", isDirectory: true)
+        let invalidSessions = home
+            .appendingPathComponent(".omp/profiles/INVALID PROFILE/agent/sessions/-project", isDirectory: true)
+        let xdgProfileSessions = xdgDataHome
+            .appendingPathComponent("omp/profiles/data/sessions/-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let workFile = try Self.writeOmpTranscript(
+            id: "omp-work-history",
+            title: "Resume the work profile",
+            cwd: workspace.path,
+            in: workSessions,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let invalidFile = try Self.writeOmpTranscript(
+            id: "omp-invalid-history",
+            title: "Do not index an invalid profile",
+            cwd: workspace.path,
+            in: invalidSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let xdgFile = try Self.writeOmpTranscript(
+            id: "omp-xdg-history",
+            title: "Resume the XDG profile",
+            cwd: workspace.path,
+            in: xdgProfileSessions,
+            modifiedAt: Date(timeIntervalSince1970: 3_000)
+        )
+        let mirroredXdgProfile = xdgDataHome
+            .appendingPathComponent("omp/profiles/work", isDirectory: true)
+        try FileManager.default.createSymbolicLink(
+            at: mirroredXdgProfile,
+            withDestinationURL: workSessions
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+        )
+
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: .builtInOmp,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10,
+            environment: [
+                "HOME": home.path,
+                "XDG_DATA_HOME": xdgDataHome.path,
+            ],
+            homeDirectory: home.path,
+            fileManager: .default
+        )
+
+        let workEntry = try #require(entries.first {
+            $0.fileURL?.resolvingSymlinksInPath() == workFile.resolvingSymlinksInPath()
+        })
+        #expect(entries.filter {
+            $0.fileURL?.resolvingSymlinksInPath() == workFile.resolvingSymlinksInPath()
+        }.count == 1)
+        let xdgEntry = try #require(entries.first {
+            $0.fileURL?.resolvingSymlinksInPath() == xdgFile.resolvingSymlinksInPath()
+        })
+        #expect(!entries.contains {
+            $0.fileURL?.resolvingSymlinksInPath() == invalidFile.resolvingSymlinksInPath()
+        })
+
+        guard case .registered(let workRegistration) = workEntry.specifics,
+              case .registered(let xdgRegistration) = xdgEntry.specifics else {
+            Issue.record("Expected OMP profile history to retain registered-agent specifics")
+            return
+        }
+        let builtIn = CmuxVaultAgentRegistration.builtInOmp
+        let builtInForkCommand = try #require(builtIn.forkCommand)
+        #expect(workRegistration.resumeCommand == "env OMP_PROFILE='work' \(builtIn.resumeCommand)")
+        #expect(workRegistration.forkCommand == "env OMP_PROFILE='work' \(builtInForkCommand)")
+        #expect(xdgRegistration.resumeCommand == "env OMP_PROFILE='data' \(builtIn.resumeCommand)")
+        #expect(xdgRegistration.forkCommand == "env OMP_PROFILE='data' \(builtInForkCommand)")
+    }
+
+    @Test func historicalVaultKeepsCustomOmpRegistrationRootAndTemplates() async throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-custom-omp-history-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let workspace = home.appendingPathComponent("project", isDirectory: true)
+        let customSessions = root.appendingPathComponent("custom-sessions/-project", isDirectory: true)
+        let builtInProfileSessions = home
+            .appendingPathComponent(".omp/profiles/work/agent/sessions/-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let customFile = try Self.writeOmpTranscript(
+            id: "custom-omp-history",
+            title: "Resume custom OMP",
+            cwd: workspace.path,
+            in: customSessions,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let builtInProfileFile = try Self.writeOmpTranscript(
+            id: "built-in-profile-history",
+            title: "Ignore built-in profile roots",
+            cwd: workspace.path,
+            in: builtInProfileSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        var registration = CmuxVaultAgentRegistration.builtInOmp
+        registration.name = "Project OMP"
+        registration.sessionDirectory = customSessions.deletingLastPathComponent().path
+        registration.resumeCommand = "project-omp --resume {{sessionId}}"
+        registration.forkCommand = "project-omp --fork {{sessionId}}"
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10,
+            environment: ["HOME": home.path],
+            homeDirectory: home.path,
+            fileManager: .default
+        )
+
+        let entry = try #require(entries.first {
+            $0.fileURL?.resolvingSymlinksInPath() == customFile.resolvingSymlinksInPath()
+        })
+        #expect(!entries.contains {
+            $0.fileURL?.resolvingSymlinksInPath() == builtInProfileFile.resolvingSymlinksInPath()
+        })
+        guard case .registered(let retainedRegistration) = entry.specifics else {
+            Issue.record("Expected custom OMP history to retain registered-agent specifics")
+            return
+        }
+        #expect(retainedRegistration == registration)
+    }
+
+    @Test func historicalVaultResolvesRelativeOmpAgentRootFromFilteredWorkspace() async throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-relative-omp-history-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let workspace = home.appendingPathComponent("project", isDirectory: true)
+        let sessions = workspace
+            .appendingPathComponent("agents/omp/sessions/-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let transcript = try Self.writeOmpTranscript(
+            id: "relative-omp-history",
+            title: "Resume relative OMP",
+            cwd: workspace.path,
+            in: sessions,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: .builtInOmp,
+            needle: "",
+            cwdFilter: workspace.path,
+            offset: 0,
+            limit: 10,
+            environment: [
+                "HOME": home.path,
+                "PWD": home.appendingPathComponent("unrelated").path,
+                "PI_CODING_AGENT_DIR": "agents/omp",
+            ],
+            homeDirectory: home.path,
+            fileManager: .default
+        )
+
+        #expect(entries.contains {
+            $0.fileURL?.resolvingSymlinksInPath() == transcript.resolvingSymlinksInPath()
+        })
+    }
+
     private static func detectedOmpSnapshot(
         processName: String = "omp",
         processPath: String? = "/Users/example/.bun/bin/omp",
@@ -461,6 +855,16 @@ struct OmpSupportTests {
         )[panelKey]?.snapshot
     }
 
+    private static func legacyProjectDirectoryName(for workingDirectory: String) -> String {
+        let resolved = (workingDirectory as NSString).standardizingPath
+        let withoutLeadingSlash = resolved.hasPrefix("/") ? String(resolved.dropFirst()) : resolved
+        let encoded = withoutLeadingSlash
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "\\", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        return "--\(encoded)--"
+    }
+
     private static func normalizedPath(_ path: String) -> String {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
@@ -469,6 +873,23 @@ struct OmpSupportTests {
         let url = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
             .appendingPathComponent(prefix + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private static func writeOmpTranscript(
+        id: String,
+        title: String,
+        cwd: String,
+        in directory: URL,
+        modifiedAt: Date
+    ) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("\(id).jsonl", isDirectory: false)
+        try """
+        {"id":"\(id)","cwd":"\(cwd)"}
+        {"type":"message","message":{"role":"user","content":[{"type":"text","text":"\(title)"}]}}
+        """.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: url.path)
         return url
     }
 

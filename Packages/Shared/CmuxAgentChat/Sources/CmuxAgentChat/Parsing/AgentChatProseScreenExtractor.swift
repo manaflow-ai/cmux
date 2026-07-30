@@ -283,7 +283,7 @@ public struct AgentChatProseScreenExtractor: Sendable {
     /// These are *exclusive* boundaries: collection stops before the row.
     static func boundaryLeadingGlyphs(for agentKind: ChatAgentKind) -> Set<Character> {
         switch agentKind {
-        case .claude, .other:
+        case .claude, .omp, .other:
             // ● tool bullet, ⎿ tool-result continuation, ❯/> user prompt echo,
             // │ prompt-box border. (⏺ is handled as an *inclusive* answer top in
             // answerTopBullets, so it is not listed here.)
@@ -302,7 +302,7 @@ public struct AgentChatProseScreenExtractor: Sendable {
     /// `⏺ `; Codex prose carries no per-block bullet in v1.
     static func answerTopBullets(for agentKind: ChatAgentKind) -> Set<Character> {
         switch agentKind {
-        case .claude, .other:
+        case .claude, .omp, .other:
             return ["⏺"]
         case .codex:
             return []

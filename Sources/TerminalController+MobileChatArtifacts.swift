@@ -74,14 +74,14 @@ extension TerminalController {
         sessionID: String
     ) async throws -> (sessionID: String, snapshot: AgentChatArtifactIndex.Snapshot)? {
         guard let service = agentChatTranscriptService,
-              let record = service.sessionRecord(sessionID: sessionID),
-              let transcriptPath = service.resolver.transcriptPath(for: record) else {
+              let binding = await service.resolvedTranscriptBinding(sessionID: sessionID) else {
             return nil
         }
+        let record = binding.record
         let snapshot = try await TerminalControllerChatArtifactIndexProvider.shared.snapshot(
             sessionID: record.sessionID,
             agentKind: record.agentKind,
-            transcriptPath: transcriptPath,
+            transcriptPath: binding.path,
             workingDirectory: record.workingDirectory
         )
         return (record.sessionID, snapshot)
@@ -301,17 +301,15 @@ extension TerminalController {
         guard let service = agentChatTranscriptService else {
             return .failure(.err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil))
         }
-        guard let record = service.sessionRecord(sessionID: sessionID) else {
+        guard let binding = await service.resolvedTranscriptBinding(sessionID: sessionID) else {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
         }
-        guard let transcriptPath = service.resolver.transcriptPath(for: record) else {
-            return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
-        }
+        let record = binding.record
         do {
             let pathResult = try await TerminalControllerChatArtifactIndexProvider.shared.canonicalPath(
                 sessionID: record.sessionID,
                 agentKind: record.agentKind,
-                transcriptPath: transcriptPath,
+                transcriptPath: binding.path,
                 workingDirectory: record.workingDirectory,
                 requestedPath: requestedPath,
                 operation: operation.indexOperation,

@@ -1,17 +1,21 @@
+import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
 
 /// Resolves the transcript JSONL path for an agent session.
 ///
-/// Preference order: the hook store's recorded `transcriptPath`, then the
-/// agent-specific conventional location (claude: encoded-cwd project dir;
-/// codex: rollout filename containing the session id).
+/// A hook-recorded `transcriptPath` is preferred. For OMP it is authoritative:
+/// if the recorded file disappears, no unrelated profile fallback may replace
+/// it. Without a recorded path, agent-specific conventional roots are searched
+/// (Claude projects, Codex rollouts, or OMP config/profile/XDG session roots).
 struct AgentChatTranscriptResolver: Sendable {
     private let homeDirectory: URL
     /// Config-dir root for Claude (`$CLAUDE_CONFIG_DIR` or `~/.claude`).
     private let claudeConfigRoot: URL
     /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
     private let codexConfigRoot: URL
+    /// Environment used by OMP's shared profile/root resolver.
+    private let environment: [String: String]
 
     /// Creates a resolver.
     ///
@@ -32,6 +36,7 @@ struct AgentChatTranscriptResolver: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.homeDirectory = homeDirectory
+        self.environment = environment
         self.claudeConfigRoot = Self.configRoot(
             override: environment["CLAUDE_CONFIG_DIR"],
             default: homeDirectory.appendingPathComponent(".claude", isDirectory: true)
@@ -65,28 +70,38 @@ struct AgentChatTranscriptResolver: Sendable {
         if let recorded = recordedTranscriptPath(for: record) {
             return recorded
         }
+        if hasAuthoritativeOmpTranscriptReference(record) {
+            return nil
+        }
         switch record.agentKind {
         case .claude:
             return claudeFallbackPath(record: record)
         case .codex:
             return codexFallbackPath(sessionID: record.sessionID, deadline: deadline)
+        case .omp:
+            return ompFallbackPath(
+                record: record,
+                deadline: deadline ?? ContinuousClock.now.advanced(by: .seconds(3))
+            )
         case .other:
             return nil
         }
     }
 
     /// Resolves only paths that are cheap to check from the main-actor mobile
-    /// session list path. Codex's fallback scans the full sessions tree, so it is
-    /// intentionally excluded here and remains available only when opening a
-    /// transcript.
+    /// session list path. Codex and OMP fallbacks enumerate session directories,
+    /// so they remain available only through explicit off-main history work.
     func boundedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
         if let recorded = recordedTranscriptPath(for: record) {
             return recorded
         }
+        if hasAuthoritativeOmpTranscriptReference(record) {
+            return nil
+        }
         switch record.agentKind {
         case .claude:
             return claudeFallbackPath(record: record)
-        case .codex, .other:
+        case .codex, .omp, .other:
             return nil
         }
     }
@@ -95,6 +110,10 @@ struct AgentChatTranscriptResolver: Sendable {
         guard let recorded = record.transcriptPath else { return nil }
         let expanded = (recorded as NSString).expandingTildeInPath
         return FileManager.default.fileExists(atPath: expanded) ? expanded : nil
+    }
+
+    private func hasAuthoritativeOmpTranscriptReference(_ record: AgentChatSessionRecord) -> Bool {
+        record.agentKind == .omp && record.transcriptPath != nil
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
@@ -107,6 +126,63 @@ struct AgentChatTranscriptResolver: Sendable {
             .appendingPathComponent("\(record.hookStoreLookupSessionID).jsonl", isDirectory: false)
             .path
         return fileManager.fileExists(atPath: path) ? path : nil
+    }
+
+    /// Resolves OMP history from the shared launch resolver's valid
+    /// config/profile/XDG session roots and current plus legacy cwd buckets.
+    private func ompFallbackPath(
+        record: AgentChatSessionRecord,
+        deadline: ContinuousClock.Instant
+    ) -> String? {
+        guard !Task.isCancelled,
+              ContinuousClock.now < deadline,
+              let currentDirectory = record.workingDirectory,
+              !currentDirectory.isEmpty else {
+            return nil
+        }
+        let fileManager = FileManager.default
+        let directoryResolver = OmpDirectoryResolver()
+        let roots = directoryResolver.sessionRoots(
+            environment: environment,
+            homeDirectory: homeDirectory.path,
+            currentDirectory: currentDirectory,
+            fileManager: fileManager
+        )
+        guard !Task.isCancelled, ContinuousClock.now < deadline else { return nil }
+        let bucketNames = directoryResolver.cwdBucketNames(
+            currentDirectory: currentDirectory,
+            homeDirectory: homeDirectory.path,
+            fileManager: fileManager
+        )
+        for root in roots {
+            guard !Task.isCancelled, ContinuousClock.now < deadline else { return nil }
+            let rootURL = URL(fileURLWithPath: root.path, isDirectory: true)
+            let directories = root.usesCwdBuckets
+                ? bucketNames.searchOrder.map {
+                    rootURL.appendingPathComponent($0, isDirectory: true)
+                }
+                : [rootURL]
+            for directory in directories {
+                guard !Task.isCancelled, ContinuousClock.now < deadline else { return nil }
+                guard let files = try? fileManager.contentsOfDirectory(
+                    at: directory,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                ) else {
+                    continue
+                }
+                for transcript in files {
+                    guard !Task.isCancelled, ContinuousClock.now < deadline else {
+                        return nil
+                    }
+                    if transcript.pathExtension == "jsonl",
+                       transcript.lastPathComponent.contains(record.sessionID) {
+                        return transcript.path
+                    }
+                }
+            }
+        }
+        return nil
     }
 
     /// Codex rollout files are named `rollout-<timestamp>-<session-uuid>.jsonl`

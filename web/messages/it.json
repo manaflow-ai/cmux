@@ -1504,6 +1504,7 @@
       "underHoodItemResume": "Al ripristino, cmux ricostruisce prima finestre e pannelli. Se il resume automatico degli agent è abilitato, lancia un comando shell one-shot che esegue il comando resume nativo dell'agent con l'ID sessione salvato.",
       "underHoodMore": "La normale <configLink>documentazione di configurazione</configLink> copre cmux.json. Il ripristino sessione mantiene il layout dell'app separato dalle impostazioni di rendering del terminale Ghostty.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "Telemetria di strumenti, sottoagenti e compattazione",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

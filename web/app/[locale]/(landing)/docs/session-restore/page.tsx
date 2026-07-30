@@ -104,8 +104,8 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
           <tr>
             <td>OMP</td>
             <td><code>omp</code></td>
-            <td><code>omp --session &lt;id&gt;</code></td>
-            <td>{t("none")}</td>
+            <td><code>omp --resume &lt;id&gt;</code></td>
+            <td>{t("feedOmpTelemetry")}</td>
           </tr>
           <tr>
             <td>Campfire</td>

@@ -10,6 +10,8 @@ public enum ChatAgentKind: Sendable, Equatable, Hashable {
     case claude
     /// OpenAI Codex CLI.
     case codex
+    /// Oh My Pi.
+    case omp
     /// Any other agent runtime, identified by its raw `_source` string.
     case other(String)
 
@@ -20,6 +22,7 @@ public enum ChatAgentKind: Sendable, Equatable, Hashable {
         switch source {
         case "claude": self = .claude
         case "codex": self = .codex
+        case "omp": self = .omp
         default: self = .other(source)
         }
     }
@@ -29,6 +32,7 @@ public enum ChatAgentKind: Sendable, Equatable, Hashable {
         switch self {
         case .claude: return "claude"
         case .codex: return "codex"
+        case .omp: return "omp"
         case .other(let source): return source
         }
     }
@@ -38,6 +42,7 @@ public enum ChatAgentKind: Sendable, Equatable, Hashable {
         switch self {
         case .claude: return "Claude"
         case .codex: return "Codex"
+        case .omp: return "OMP"
         case .other(let source): return source.capitalized
         }
     }

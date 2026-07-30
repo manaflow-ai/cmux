@@ -1504,6 +1504,7 @@
       "underHoodItemResume": "Geri yüklemede cmux önce pencereleri ve panelleri yeniden kurar. Otomatik agent resume açıksa, kaydedilen session ID ile agent'ın native resume komutunu çalıştıran tek seferlik shell komutu başlatır.",
       "underHoodMore": "Normal <configLink>configuration docs</configLink> cmux.json'u kapsar. Session restore app layout'unu Ghostty terminal rendering ayarlarından ayrı tutar.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "Araç, alt ajan ve sıkıştırma telemetrisi",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

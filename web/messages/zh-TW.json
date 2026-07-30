@@ -1504,6 +1504,7 @@
       "underHoodItemResume": "還原時，cmux 會先重建視窗和 pane。如果 agent 自動還原已啟用，它會啟動一次性 shell 命令，用儲存的工作階段 ID 執行 agent 的原生 resume 命令。",
       "underHoodMore": "一般<configLink>設定文件</configLink>說明 cmux.json。工作階段還原會將應用程式佈局與 Ghostty 終端機渲染設定分開保存。",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "工具、子代理程式和壓縮遙測資料",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

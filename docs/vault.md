@@ -30,7 +30,7 @@ Pi Coding Agent, OMP, and Campfire are registered by default:
           "processName": "omp"
         },
         "sessionIdSource": { "type": "piSessionFile" },
-        "resumeCommand": "{{executable}} --session {{sessionId}}",
+        "resumeCommand": "{{executable}} --resume {{sessionId}}",
         "forkCommand": "{{executable}} --fork {{sessionId}}",
         "cwd": "preserve",
         "sessionDirectory": "~/.omp/agent/sessions"
@@ -78,7 +78,7 @@ For a generic agent that exposes the current session as an argv option:
 Supported `resumeCommand` placeholders are `{{sessionId}}`, `{{sessionPath}}`,
 `{{executable}}`, `{{cwd}}`, and `{{sessionDir}}`. Pi uses `pi --session <id-or-path>`
 instead of `pi --continue` so Vault reopens the exact saved session.
-OMP accepts `--session`, `--resume`, and `-r` for existing sessions; Vault emits `omp --session <id-or-path>` so relaunch reopens the exact saved OMP session.
+OMP resumes with its documented `omp --resume <id-or-path>` command. Vault indexes default and named-profile session roots under OMP's config or XDG data directories, searches current and legacy cwd buckets, and reapplies `OMP_PROFILE` when it restores or forks a named-profile session.
 
 Campfire resumes with `campfire --session <id>`; only the driver's host session is restorable (joiners are ephemeral views), and resuming restores the conversation in a fresh collaborative session with a new invite link.
 

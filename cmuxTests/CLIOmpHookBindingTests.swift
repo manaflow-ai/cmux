@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Foundation
 import Testing
 
@@ -288,6 +289,72 @@ struct CLIOmpHookBindingTests {
     }
 
     @Test
+    func postToolTelemetryIsNonActionableAndSanitizedAtIngress() throws {
+        let context = try Harness.makeContext(name: "omp-feed-sanitize")
+        defer { context.cleanup() }
+        let serverHandled = Self.startAcknowledgedFeedServer(context: context)
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_OMP_PID"] = String(Self.ompPID)
+
+        let privateOutput = "omp-private-tool-output-" + String(repeating: "x", count: 20_000)
+        let hookInput: [String: Any] = [
+            "session_id": "omp-feed-session",
+            "cwd": context.root.path,
+            "transcript_path": context.root.appendingPathComponent("session.jsonl").path,
+            "hook_event_name": "PostToolUse",
+            "tool_call_id": "omp-tool-call",
+            "tool_name": "bash",
+            "tool_result": [
+                "stdout": privateOutput,
+                "content": [["type": "text", "text": privateOutput]],
+                "metadata": ["exitCode": 1],
+            ],
+            "is_error": true,
+        ]
+        let hookInputData = try JSONSerialization.data(withJSONObject: hookInput)
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "feed", "--source", "omp", "--event", "PostToolUse"],
+            environment: environment,
+            standardInput: String(decoding: hookInputData, as: UTF8.self)
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n", "Observational OMP telemetry must not return a Feed decision")
+
+        let feedPush = try #require(context.state.snapshot().compactMap(Self.jsonObject).first {
+            $0["method"] as? String == "feed.push"
+        })
+        #expect(
+            (feedPush["id"] as? String)?.isEmpty == false,
+            "OMP telemetry must await an ingestion acknowledgment without waiting for a user decision"
+        )
+        let params = try #require(feedPush["params"] as? [String: Any])
+        #expect(params["wait_timeout_seconds"] as? Int == 0)
+        let event = try #require(params["event"] as? [String: Any])
+        #expect(event["session_id"] as? String == "omp-omp-feed-session")
+        #expect(event["hook_event_name"] as? String == "PostToolUse")
+        #expect(event["_source"] as? String == "omp")
+        #expect(event["is_error"] as? Bool == true)
+        let summary = try #require(event["tool_input"] as? [String: Any])
+        #expect(summary["_cmux_sanitized"] as? Bool == true)
+        #expect(summary["kind"] as? String == "object")
+        #expect(summary["_cmux_original_key_count"] as? Int == 3)
+        #expect(summary["key_count"] as? Int == 3)
+        #expect(summary["_cmux_omitted_key_count"] as? Int == 3)
+        let persistedEvent = String(
+            decoding: try JSONSerialization.data(withJSONObject: event, options: [.sortedKeys]),
+            as: UTF8.self
+        )
+        #expect(!persistedEvent.contains(privateOutput))
+        #expect(!persistedEvent.contains("omp-private-tool-output-"))
+    }
+
+    @Test
     func numericPIDWithoutGenerationDoesNotSupersedePriorSession() throws {
         let context = try Harness.makeContext(name: "omp-pid-generation")
         defer { context.cleanup() }
@@ -338,6 +405,88 @@ struct CLIOmpHookBindingTests {
         let sessions = try #require(saved["sessions"] as? [String: Any])
         #expect(sessions[priorSessionId] != nil)
         #expect(sessions[currentSessionId] != nil)
+    }
+
+    private static func startAcknowledgedFeedServer(context: Harness.Context) -> DispatchSemaphore {
+        let handled = DispatchSemaphore(value: 0)
+        let listenerFD = context.listenerFD
+        let state = context.state
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { handled.signal() }
+            let clientFD = Darwin.accept(listenerFD, nil, nil)
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+
+                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                    pending.removeSubrange(0...newlineRange.lowerBound)
+                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                    state.append(line)
+                    let response = Self.acknowledgedFeedResponse(for: line) + "\n"
+                    _ = response.withCString { pointer in
+                        Darwin.write(clientFD, pointer, strlen(pointer))
+                    }
+                }
+            }
+        }
+        return handled
+    }
+
+    private static func acknowledgedFeedResponse(for line: String) -> String {
+        guard let request = Self.jsonObject(line),
+              let requestId = request["id"] as? String,
+              let method = request["method"] as? String else {
+            return "OK"
+        }
+        let result: [String: Any]
+        switch method {
+        case "surface.list":
+            result = [
+                "surfaces": [
+                    [
+                        "id": Self.liveSurfaceId,
+                        "ref": "surface:1",
+                        "focused": true,
+                    ],
+                ],
+            ]
+        case "feed.push":
+            result = [
+                "status": "acknowledged",
+                "item_id": "55555555-5555-5555-5555-555555555555",
+                "workspace_id": Self.liveWorkspaceId,
+                "surface_id": Self.liveSurfaceId,
+            ]
+        default:
+            let response: [String: Any] = [
+                "id": requestId,
+                "ok": false,
+                "error": [
+                    "code": "unrecognized_method",
+                    "message": "unexpected method: \(method)",
+                ],
+            ]
+            let data = try? JSONSerialization.data(withJSONObject: response)
+            return String(decoding: data ?? Data("{}".utf8), as: UTF8.self)
+        }
+        let response: [String: Any] = [
+            "id": requestId,
+            "ok": true,
+            "result": result,
+        ]
+        let data = try? JSONSerialization.data(withJSONObject: response)
+        return String(decoding: data ?? Data("{}".utf8), as: UTF8.self)
     }
 
     private static func writePriorSession(

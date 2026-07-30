@@ -113,13 +113,15 @@ public struct AgentForkArgv: Sendable, Equatable {
                 arguments: arguments
             )
         case "omp":
-            return withForkSessionValue(
-                kind: "omp",
-                executable: "omp",
-                sessionId: sessionId,
+            let parts = commandParts(
                 executablePath: executablePath,
-                arguments: arguments
+                arguments: arguments,
+                fallbackExecutable: "omp"
             )
+            guard let preserved = AgentResumeArgv.preservedOmpLaunchArguments(parts.tail) else {
+                return nil
+            }
+            return [parts.executable, "--fork", sessionId] + preserved
         default:
             return nil
         }

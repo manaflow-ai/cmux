@@ -69,6 +69,7 @@ cmux hooks omp install`}</CodeBlock>
         <li>{t("whatYouGet1")}</li>
         <li>{t("whatYouGet2")}</li>
         <li>{t("whatYouGet3")}</li>
+        <li>{t("whatYouGet6")}</li>
         <li>{t("whatYouGet4")}</li>
         <li>{t("whatYouGet5")}</li>
       </ul>
@@ -83,8 +84,8 @@ cmux hooks omp install`}</CodeBlock>
           </tr>
         </thead>
         <tbody>
-          <tr><td><code>~/.omp/agent/extensions/cmux-omp-session.ts</code></td><td>{t("dirExtension")}</td></tr>
-          <tr><td><code>~/.omp/agent/sessions</code></td><td>{t("dirSessions")}</td></tr>
+          <tr><td><code>~/.omp/agent/extensions/cmux-omp-session.ts</code><br /><code>~/.omp/profiles/&lt;profile&gt;/agent/extensions/cmux-omp-session.ts</code></td><td>{t("dirExtension")}</td></tr>
+          <tr><td><code>~/.omp/agent/sessions</code><br /><code>~/.omp/profiles/&lt;profile&gt;/agent/sessions</code><br /><code>$XDG_DATA_HOME/omp/sessions</code><br /><code>$XDG_DATA_HOME/omp/profiles/&lt;profile&gt;/sessions</code></td><td>{t("dirSessions")}</td></tr>
         </tbody>
       </table>
 
@@ -97,6 +98,10 @@ cmux hooks omp install`}</CodeBlock>
           </tr>
         </thead>
         <tbody>
+          <tr><td><code>OMP_PROFILE</code> / <code>PI_PROFILE</code></td><td>{t("envProfile")}</td></tr>
+          <tr><td><code>PI_CONFIG_DIR</code></td><td>{t("envConfigRoot")}</td></tr>
+          <tr><td><code>PI_CODING_AGENT_DIR</code></td><td>{t("envAgentDir")}</td></tr>
+          <tr><td><code>XDG_DATA_HOME</code></td><td>{t("envDataHome")}</td></tr>
           <tr><td><code>CMUX_OMP_HOOKS_DISABLED=1</code></td><td>{t("envHooksDisabled")}</td></tr>
           <tr><td><code>CMUX_OMP_CMUX_BIN</code></td><td>{t("envCmuxBin")}</td></tr>
         </tbody>

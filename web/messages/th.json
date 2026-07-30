@@ -1510,6 +1510,7 @@
       "underHoodItemResume": "ตอนกู้คืน cmux สร้าง window และ pane ก่อน หากเปิด automatic agent resume มันจะเริ่ม one-shot shell command ที่รัน native resume command ของ agent ด้วย session ID ที่บันทึกไว้",
       "underHoodMore": "<configLink>เอกสาร configuration</configLink> ปกติครอบคลุม cmux.json Session restore แยก app layout ออกจาก Ghostty terminal rendering settings",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedOmpTelemetry": "เทเลเมทรีของเครื่องมือ เอเจนต์ย่อย และการย่อข้อมูล",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

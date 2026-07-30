@@ -66,7 +66,7 @@ adapters/: normalize each provider into AgentEvent
   claude.ts   persistent `claude -p --input/output-format stream-json`
   codex.ts    shared `codex app-server` (JSON-RPC), one thread per session
   pi.ts       persistent `pi --mode rpc`
-  acp.ts      generic ACP (JSON-RPC/NDJSON over stdio) client → opencode, gemini, …
+  acp.ts      generic ACP (JSON-RPC/NDJSON over stdio) client → opencode, gemini, omp, …
 ```
 
 The UI only knows `AgentEvent` (types.ts): `user`, `delta`, `assistant`, `thinking`, `tool-start/end`, `status`, `done`, `error`, `meta`. Sessions live in server memory with a full event log, so any client (reload, second browser, future native surface) can subscribe and replay.
@@ -76,7 +76,7 @@ The UI only knows `AgentEvent` (types.ts): `user`, `delta`, `assistant`, `thinki
 Two adapter families are enough, and family 2 is a single implementation:
 
 1. **Native stream-JSON/JSON-RPC CLIs.** Claude Code (`--output-format stream-json`), Codex (`app-server`, the JSON-RPC server its IDE extension uses), pi (`--mode rpc`), cursor-agent and amp have the same shape. Each needs a ~100-line adapter because event names differ, but they all reduce to the same event set: text deltas, tool start/end, turn done. Use a native adapter when the native protocol carries things ACP doesn't yet (Claude permission modes/hooks, Codex thread/turn model and approvals).
-2. **ACP (Agent Client Protocol, agentclientprotocol.com).** One generic client (`adapters/acp.ts`) speaks initialize → session/new → session/prompt, renders `session/update` notifications, and answers reverse requests (`session/request_permission`). That single file already runs opencode (`opencode acp`) and gemini (`gemini --acp`), and gets claude (`@zed-industries/claude-code-acp`), goose, marimo, and future agents for free. ACP is the long-term contract: it's the protocol Zed drove, adapters keep appearing, and it standardizes exactly the hard parts (permissions, fs proxying, tool call lifecycle, plans).
+2. **ACP (Agent Client Protocol, agentclientprotocol.com).** One generic client (`adapters/acp.ts`) speaks initialize → session/new → session/prompt, renders `session/update` notifications, and answers reverse requests (`session/request_permission`). That single file already runs opencode (`opencode acp`), gemini (`gemini --acp`), and OMP (`omp acp`), and gets claude (`@zed-industries/claude-code-acp`), goose, marimo, and future agents for free. ACP is the long-term contract: it's the protocol Zed drove, adapters keep appearing, and it standardizes exactly the hard parts (permissions, fs proxying, tool call lifecycle, plans).
 
 Capability differences are absorbed by the schema, not the UI:
 
@@ -86,6 +86,7 @@ Capability differences are absorbed by the schema, not the UI:
 | codex     | app-server JSON-RPC  | deltas    | yes           | thread per session         | approvals + sandbox options |
 | opencode  | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle for request_permission |
 | gemini    | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle (`--yolo` at start) |
+| omp       | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle for request_permission |
 | pi        | persistent stdio     | deltas    | yes           | persistent proc            | none (always executes) |
 
 Runtime options are declared by adapters as `SessionOption[]` and replayed as
@@ -104,12 +105,12 @@ stays in adapters.
 | codex | approvals, sandbox | `approvalPolicy` and `sandboxPolicy` turn/thread overrides |
 | codex | mode | real `collaborationMode/list` + `collaborationMode` setter; app-server requires `experimentalApi` capability |
 | codex | skills | `skills/list`, emitted as `$` commands |
-| opencode/gemini ACP | auto-approve | local `autoApprove` toggle answers `session/request_permission`; gemini also maps the start value to `--yolo` |
+| ACP (opencode, gemini, omp) | auto-approve | local `autoApprove` toggle answers `session/request_permission`; gemini also maps the start value to `--yolo` |
 | pi | model | RPC `get_available_models` / `set_model {provider, modelId}` |
 | pi | thinking | RPC `set_thinking_level` |
 | pi | commands | RPC `get_commands`, emitted as `/` commands |
-| opencode/gemini ACP | model, mode | `session/new` `configOptions` / ACP `modes`; opencode setter is `session/set_config_option` (`session/set_config` is not supported by 1.17.13) |
-| opencode/gemini ACP | commands | `available_commands_update`, emitted as `/` commands; opencode accepts slash command prompt text and routes it to `session.command` |
+| ACP (opencode, gemini, omp) | model, mode | `session/new` `configOptions` / ACP `modes`; opencode setter is `session/set_config_option` (`session/set_config` is not supported by 1.17.13) |
+| ACP (opencode, gemini, omp) | commands | `available_commands_update`, emitted as `/` commands; opencode accepts slash command prompt text and routes it to `session.command` |
 
 Keyboard shortcuts are defined once in `src/keymap.ts` and the status row plus
 keyboard handler both call the same `setOption` path:

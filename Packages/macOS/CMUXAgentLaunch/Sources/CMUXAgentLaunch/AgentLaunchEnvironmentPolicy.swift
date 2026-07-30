@@ -40,19 +40,28 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "HERMES_CODEX_BASE_URL",
     ]
 
-    /// Keys campfire manages itself and must not inherit from a captured Pi
+    /// Keys Campfire manages itself and must not inherit from a captured Pi
     /// environment. Replaying a captured PI_PACKAGE_DIR would pin a resumed
-    /// campfire to the previous binary's extracted asset cache
+    /// Campfire to the previous binary's extracted asset cache
     /// (version+fingerprint keyed) after an upgrade, and replaying
     /// PI_CODING_AGENT_SESSION_DIR would let the embedded Pi runtime resolve
     /// session state under the user's Pi session root instead of the Campfire
     /// root that cmux's scanner uses (`CAMPFIRE_CODING_AGENT_SESSION_DIR` /
-    /// `CAMPFIRE_CODING_AGENT_DIR`). Both are dropped for campfire resumes
-    /// specifically; pi/omp keep them (Nix installs and custom Pi session
-    /// roots rely on them).
+    /// `CAMPFIRE_CODING_AGENT_DIR`). Both are dropped for Campfire resumes;
+    /// Pi keeps both values while OMP keeps only its safe package root.
     private static let campfireManagedEnvironmentKeys: Set<String> = [
         "PI_CODING_AGENT_SESSION_DIR",
         "PI_PACKAGE_DIR",
+    ]
+
+    private static let ompOnlyEnvironmentKeys: Set<String> = [
+        "OMP_PROFILE",
+        "PI_PROFILE",
+        "XDG_DATA_HOME",
+    ]
+
+    private static let ompIgnoredEnvironmentKeys: Set<String> = [
+        "PI_CODING_AGENT_SESSION_DIR",
     ]
 
     private static let safeEnvironmentKeys: Set<String> = [
@@ -104,15 +113,18 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "OLLAMA_EDITOR",
         "OLLAMA_HOST",
         "OLLAMA_NOHISTORY",
+        "OMP_PROFILE",
         "PI_CACHE_RETENTION",
         "PI_CONFIG_DIR",
         "PI_CODING_AGENT_DIR",
         "PI_CODING_AGENT_SESSION_DIR",
+        "PI_PROFILE",
         "PI_OFFLINE",
         "PI_PACKAGE_DIR",
         "PI_SKIP_VERSION_CHECK",
         "QODER_CONFIG_DIR",
-        "USE_BUILTIN_RIPGREP"
+        "USE_BUILTIN_RIPGREP",
+        "XDG_DATA_HOME",
     ]
 
     private static let sortedSafeEnvironmentKeys = safeEnvironmentKeys.sorted()
@@ -137,6 +149,16 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         }
         if kind == "campfire" {
             for key in Self.campfireManagedEnvironmentKeys {
+                result.removeValue(forKey: key)
+            }
+        }
+        if kind != "omp" {
+            for key in Self.ompOnlyEnvironmentKeys {
+                result.removeValue(forKey: key)
+            }
+        }
+        if kind == "omp" {
+            for key in Self.ompIgnoredEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
         }
