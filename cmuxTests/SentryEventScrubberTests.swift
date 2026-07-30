@@ -262,6 +262,18 @@ import Testing
         )
     }
 
+    @Test func loadedXCTestInjectionLibraryIsATestRunMarker() {
+        #expect(
+            MacSentryStartupPolicy.containsXCTestArtifacts(
+                plugInNames: [],
+                frameworkNames: [],
+                loadedImageNames: [
+                    "/tmp/cmux DEV.app/Contents/Frameworks/libXCTestBundleInject.dylib"
+                ]
+            )
+        )
+    }
+
     @Test func explicitTestTelemetryOptInOverridesUITestMarker() {
         #expect(
             MacSentryStartupPolicy(

@@ -44,9 +44,11 @@ struct MacSentryStartupPolicy: Sendable {
 
     static func containsXCTestArtifacts(
         plugInNames: [String],
-        frameworkNames: [String]
+        frameworkNames: [String],
+        loadedImageNames: [String] = []
     ) -> Bool {
-        plugInNames.contains { $0.hasSuffix(".xctest") }
+        _ = loadedImageNames
+        return plugInNames.contains { $0.hasSuffix(".xctest") }
             || frameworkNames.contains("libXCTestBundleInject.dylib")
     }
 
