@@ -27,6 +27,58 @@ import UIKit
         )
     }
 
+    @Test func chromeTopInsetKeepsRowsAndScrollIndicatorBelowChrome() {
+        let topInset: CGFloat = 72
+        let initial = configuration(
+            workspaceIDs: ["workspace-1"],
+            chromeTopInset: topInset
+        )
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let tableView = makeTableView()
+
+        coordinator.attach(to: tableView)
+
+        #expect(tableView.contentInset.top == topInset)
+        #expect(tableView.verticalScrollIndicatorInsets.top == topInset)
+        #expect(tableView.contentOffset.y == -tableView.adjustedContentInset.top)
+    }
+
+    @Test func refreshConfigurationInstallsRefreshControl() {
+        let initial = configuration(
+            workspaceIDs: ["workspace-1"],
+            refresh: {}
+        )
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let tableView = makeTableView()
+
+        coordinator.attach(to: tableView)
+
+        #expect(tableView.refreshControl != nil)
+    }
+
+    @Test func chromeTopInsetChangePreservesNonTopContentOffset() {
+        let initial = configuration(
+            workspaceIDs: ["workspace-1"],
+            chromeTopInset: 20
+        )
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+        tableView.contentOffset.y = 40
+
+        coordinator.update(
+            configuration: configuration(
+                workspaceIDs: ["workspace-1"],
+                chromeTopInset: 72
+            ),
+            in: tableView
+        )
+
+        #expect(tableView.contentInset.top == 72)
+        #expect(tableView.verticalScrollIndicatorInsets.top == 72)
+        #expect(tableView.contentOffset.y == 40)
+    }
+
     @Test func structuralUpdateAppliesThroughNativeDataSource() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
@@ -234,7 +286,9 @@ import UIKit
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         renameRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
-        customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil
+        customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
+        chromeTopInset: CGFloat = 0,
+        refresh: (@Sendable () async -> Void)? = nil
     ) -> WorkspaceListTable {
         let workspaces = workspaceIDs.map { rawID in
             var workspace = MobileWorkspacePreview(
@@ -252,7 +306,9 @@ import UIKit
             setUnread: setUnread,
             setPinned: setPinned,
             renameRequest: renameRequest,
-            customizeRequest: customizeRequest
+            customizeRequest: customizeRequest,
+            chromeTopInset: chromeTopInset,
+            refresh: refresh
         )
     }
 
@@ -263,7 +319,9 @@ import UIKit
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         renameRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
-        customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil
+        customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
+        chromeTopInset: CGFloat = 0,
+        refresh: (@Sendable () async -> Void)? = nil
     ) -> WorkspaceListTable {
         return WorkspaceListTable(
             items: workspaces.map { .workspace($0.id, indented: false) },
@@ -309,7 +367,8 @@ import UIKit
             retryInitialConnection: nil,
             showAddDevice: nil,
             reconnect: nil,
-            refresh: nil
+            refresh: refresh,
+            chromeTopInset: chromeTopInset
         )
     }
 }
