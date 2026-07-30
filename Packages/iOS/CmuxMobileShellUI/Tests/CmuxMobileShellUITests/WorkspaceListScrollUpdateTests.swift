@@ -345,6 +345,130 @@ import UIKit
         )
     }
 
+    @Test func groupHeaderReloadsNativeActionsWhenAnchorCapabilitiesChange() {
+        let group = MobileWorkspaceGroupPreview(
+            id: "group-1",
+            name: "Release",
+            anchorWorkspaceID: "workspace-1"
+        )
+        let fullCapabilities = MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: true,
+            supportsWorkspaceMetadata: false,
+            supportsReadStateActions: true,
+            supportsCloseActions: true,
+            supportsMoveActions: false,
+            supportsGroupActions: true,
+            supportsGroupCreate: false
+        )
+        let noReadCapabilities = MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: true,
+            supportsWorkspaceMetadata: false,
+            supportsReadStateActions: false,
+            supportsCloseActions: true,
+            supportsMoveActions: false,
+            supportsGroupActions: true,
+            supportsGroupCreate: false
+        )
+        let noCloseCapabilities = MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: true,
+            supportsWorkspaceMetadata: false,
+            supportsReadStateActions: true,
+            supportsCloseActions: false,
+            supportsMoveActions: false,
+            supportsGroupActions: true,
+            supportsGroupCreate: false
+        )
+        let full = configuration(
+            workspaceIDs: ["workspace-1"],
+            groups: [group],
+            items: [.groupHeader(group.id)],
+            actionCapabilities: fullCapabilities,
+            requestWorkspaceClose: { _ in },
+            setUnread: { _, _ in }
+        )
+        let withoutRead = configuration(
+            workspaceIDs: ["workspace-1"],
+            groups: [group],
+            items: [.groupHeader(group.id)],
+            actionCapabilities: noReadCapabilities,
+            requestWorkspaceClose: { _ in },
+            setUnread: { _, _ in }
+        )
+        let withoutClose = configuration(
+            workspaceIDs: ["workspace-1"],
+            groups: [group],
+            items: [.groupHeader(group.id)],
+            actionCapabilities: noCloseCapabilities,
+            requestWorkspaceClose: { _ in },
+            setUnread: { _, _ in }
+        )
+
+        expectGroupHeaderNativeReload(group.id, previous: full, next: withoutRead)
+        expectGroupHeaderNativeReload(group.id, previous: full, next: withoutClose)
+    }
+
+    @Test func groupHeaderReloadsNativeActionsWhenCallbacksDisappear() {
+        let group = MobileWorkspaceGroupPreview(
+            id: "group-1",
+            name: "Release",
+            anchorWorkspaceID: "workspace-1"
+        )
+        let capabilities = MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: true,
+            supportsWorkspaceMetadata: false,
+            supportsReadStateActions: true,
+            supportsCloseActions: true,
+            supportsMoveActions: false,
+            supportsGroupActions: true,
+            supportsGroupCreate: false
+        )
+        let full = configuration(
+            workspaceIDs: ["workspace-1"],
+            groups: [group],
+            items: [.groupHeader(group.id)],
+            actionCapabilities: capabilities,
+            requestWorkspaceClose: { _ in },
+            setUnread: { _, _ in }
+        )
+        let withoutRead = configuration(
+            workspaceIDs: ["workspace-1"],
+            groups: [group],
+            items: [.groupHeader(group.id)],
+            actionCapabilities: capabilities,
+            requestWorkspaceClose: { _ in }
+        )
+        let withoutClose = configuration(
+            workspaceIDs: ["workspace-1"],
+            groups: [group],
+            items: [.groupHeader(group.id)],
+            actionCapabilities: capabilities,
+            setUnread: { _, _ in }
+        )
+
+        expectGroupHeaderNativeReload(group.id, previous: full, next: withoutRead)
+        expectGroupHeaderNativeReload(group.id, previous: full, next: withoutClose)
+    }
+
+    private func expectGroupHeaderNativeReload(
+        _ groupID: MobileWorkspaceGroupPreview.ID,
+        previous: WorkspaceListTable,
+        next: WorkspaceListTable
+    ) {
+        let coordinator = WorkspaceListTableCoordinator(configuration: previous)
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+
+        #expect(
+            coordinator.nativeActionPayloadChanged(
+                .groupHeader(groupID),
+                previous: previous,
+                next: next
+            )
+        )
+        coordinator.update(configuration: next, in: tableView)
+        #expect(coordinator.lastPayloadApplyRoute == .snapshotApply)
+    }
+
     private func menuActionIdentifiers(in elements: [UIMenuElement]) -> [String] {
         elements.flatMap { element -> [String] in
             if let action = element as? UIAction {
