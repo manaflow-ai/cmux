@@ -9,7 +9,7 @@ import Foundation
 public final class MainActorCoalescingDeadlineTimer<Owner: AnyObject> {
     private weak var owner: Owner?
     private let action: @MainActor (Owner) -> Void
-    private let timer: DispatchSourceTimer
+    private let timer: any DispatchSourceTimer
     private var scheduledDeadlineUptimeNanoseconds: UInt64?
 
     /// Creates a reusable deadline timer for `owner`.

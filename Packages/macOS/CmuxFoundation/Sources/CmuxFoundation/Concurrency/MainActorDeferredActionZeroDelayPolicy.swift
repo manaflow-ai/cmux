@@ -1,5 +1,5 @@
 /// Defines how a zero-delay deferred action reaches the main actor.
-public enum MainActorDeferredActionZeroDelayPolicy {
+public enum MainActorDeferredActionZeroDelayPolicy: Sendable, Equatable {
     /// Enqueues the action for the next available main-actor execution.
     case enqueue
 

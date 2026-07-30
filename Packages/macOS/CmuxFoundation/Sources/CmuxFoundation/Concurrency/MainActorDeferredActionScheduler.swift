@@ -1,5 +1,3 @@
-import Foundation
-
 /// Coalesces deferred main-actor work without linking replacement closures.
 ///
 /// The stored task captures this scheduler weakly. Replacing an action cancels
