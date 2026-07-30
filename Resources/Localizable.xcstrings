@@ -3824,6 +3824,23 @@
         }
       }
     },
+    "agent.deliveryTarget.error.invalidPidResolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution must be corroborated or controlling_tty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution は corroborated または controlling_tty でなければなりません。"
+          }
+        }
+      }
+    },
     "agent.deliveryTarget.error.notFound": {
       "extractionState": "manual",
       "localizations": {
@@ -50946,6 +50963,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] 遠端主機未安裝 mosh-server；將繼續使用 SSH。"
+          }
+        }
+      }
+    },
+    "cli.ssh.restore.lifecycleUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] توقف استعادة SSH لأن cmux لم يتمكن من تسجيل دورة حياة الاتصال. أعد فتح مساحة العمل البعيدة لإعادة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Vraćanje SSH-a je zaustavljeno jer cmux nije mogao registrirati životni ciklus veze. Ponovo otvorite udaljeni radni prostor za ponovno povezivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH-gendannelse blev stoppet, fordi cmux ikke kunne registrere forbindelsens livscyklus. Åbn fjernarbejdsområdet igen for at oprette forbindelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Die SSH-Wiederherstellung wurde beendet, weil cmux den Verbindungslebenszyklus nicht registrieren konnte. Öffnen Sie den Remote-Arbeitsbereich erneut, um die Verbindung wiederherzustellen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH restore stopped because cmux could not register the connection lifecycle. Reopen this remote workspace to reconnect."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] La restauración de SSH se detuvo porque cmux no pudo registrar el ciclo de vida de la conexión. Vuelva a abrir este espacio de trabajo remoto para reconectarse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] La restauration SSH s’est arrêtée, car cmux n’a pas pu enregistrer le cycle de vie de la connexion. Rouvrez cet espace de travail distant pour vous reconnecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Il ripristino SSH è stato interrotto perché cmux non ha potuto registrare il ciclo di vita della connessione. Riapri questo spazio di lavoro remoto per riconnetterti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux が接続ライフサイクルを登録できなかったため、SSH の復元を停止しました。再接続するには、このリモートワークスペースを開き直してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ការស្តារ SSH បានបញ្ឈប់ ព្រោះ cmux មិនអាចចុះឈ្មោះវដ្តជីវិតនៃការតភ្ជាប់បាន។ សូមបើកកន្លែងធ្វើការពីចម្ងាយនេះឡើងវិញ ដើម្បីភ្ជាប់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux가 연결 수명 주기를 등록하지 못해 SSH 복원이 중지되었습니다. 다시 연결하려면 이 원격 작업 공간을 다시 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH-gjenopprettingen stoppet fordi cmux ikke kunne registrere tilkoblingens livssyklus. Åpne det eksterne arbeidsområdet på nytt for å koble til igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Przywracanie SSH zostało zatrzymane, ponieważ cmux nie mógł zarejestrować cyklu życia połączenia. Otwórz ponownie ten zdalny obszar roboczy, aby się połączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] A restauração do SSH foi interrompida porque o cmux não conseguiu registrar o ciclo de vida da conexão. Reabra este workspace remoto para se reconectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Восстановление SSH остановлено, потому что cmux не смог зарегистрировать жизненный цикл подключения. Повторно откройте удалённое рабочее пространство, чтобы подключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] การกู้คืน SSH หยุดลงเนื่องจาก cmux ไม่สามารถลงทะเบียนวงจรชีวิตการเชื่อมต่อได้ เปิดพื้นที่ทำงานระยะไกลนี้อีกครั้งเพื่อเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux bağlantı yaşam döngüsünü kaydedemediği için SSH geri yüklemesi durduruldu. Yeniden bağlanmak için bu uzak çalışma alanını yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Відновлення SSH зупинено, оскільки cmux не зміг зареєструвати життєвий цикл підключення. Повторно відкрийте віддалений робочий простір, щоб підключитися."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 无法注册连接生命周期，因此已停止恢复 SSH。请重新打开此远程工作区以重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 無法註冊連線生命週期，因此已停止復原 SSH。請重新開啟此遠端工作區以重新連線。"
           }
         }
       }
@@ -228298,6 +228440,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "リモート tmux ペインを対象にできるのはターミナルサーフェスだけです。ターミナルは対象ペインのウインドウの後に新しい tmux ウインドウとして作成されます。"
+          }
+        }
+      }
+    },
+    "socket.surface.resume.agentSessionEndedMustBeBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended must be a boolean"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent_session_ended はブール値である必要があります"
           }
         }
       }

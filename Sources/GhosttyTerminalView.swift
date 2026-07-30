@@ -323,6 +323,11 @@ extension TerminalSurfaceRegistry {
     func allTerminalSurfaces() -> [TerminalSurface] {
         allSurfaces().compactMap { $0 as? TerminalSurface }
     }
+
+    /// Concrete hot-path snapshot for consumers that apply their own ranking.
+    func allTerminalSurfacesUnordered() -> [TerminalSurface] {
+        allSurfacesUnordered().compactMap { $0 as? TerminalSurface }
+    }
 }
 
 // TerminalSurfaceRuntimeTeardownCoordinator moved to CmuxTerminal
