@@ -2423,12 +2423,57 @@ mod unix {
     }
 
     fn wait_for_host_service_activity(
-        _listener_fd: RawFd,
-        _exit_waiter: &mut UnixStream,
+        listener_fd: RawFd,
+        exit_waiter: &mut UnixStream,
         dead: &AtomicBool,
     ) -> std::io::Result<bool> {
-        thread::sleep(Duration::from_millis(20));
-        Ok(!dead.load(Ordering::Acquire))
+        loop {
+            if dead.load(Ordering::Acquire) {
+                return Ok(false);
+            }
+            let mut poll_fds = [
+                libc::pollfd {
+                    fd: listener_fd,
+                    events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: exit_waiter.as_raw_fd(),
+                    events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+                    revents: 0,
+                },
+            ];
+            // SAFETY: poll_fds contains two initialized descriptors that
+            // remain owned by the service loop for the duration of this call.
+            let ready =
+                unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, -1) };
+            if ready < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            if poll_fds[0].revents & libc::POLLNVAL != 0 {
+                return Err(std::io::Error::other("terminal host listener became invalid"));
+            }
+            if poll_fds[1].revents & libc::POLLIN != 0 {
+                let mut wake = [0u8; 64];
+                let _ = exit_waiter.read(&mut wake);
+                if dead.load(Ordering::Acquire) {
+                    return Ok(false);
+                }
+            }
+            if poll_fds[0].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0 {
+                return Ok(true);
+            }
+            if poll_fds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+                if dead.load(Ordering::Acquire) {
+                    return Ok(false);
+                }
+                return Err(std::io::Error::other("terminal host exit waiter became invalid"));
+            }
+        }
     }
 
     struct HostClientAdmission {
@@ -2479,6 +2524,8 @@ mod unix {
         exit_published: AtomicBool,
         force_pty_drain: AtomicBool,
         pty_drain_waker: Mutex<UnixStream>,
+        service_exit_waker: Mutex<UnixStream>,
+        service_exit_waiter: Mutex<Option<UnixStream>>,
         termination_started: AtomicBool,
         child_signal_lock: Mutex<()>,
         child_reaped: AtomicBool,
@@ -2964,6 +3011,9 @@ mod unix {
                 &self.exit_published,
             ) {
                 self.dead.store(true, Ordering::Release);
+                // Wake the blocking listener poll so host service cleanup
+                // follows terminal exit without periodic timer retries.
+                let _ = self.service_exit_waker.lock().unwrap().write_all(&[1]);
                 self.broadcast(MessageKind::Exit, Vec::new());
             }
         }
@@ -3288,7 +3338,10 @@ mod unix {
         // record and connects through the already-listening Unix socket.
         let _ = write_frame(writer, &response);
 
-        let (_service_waker, mut service_waiter) = cmux_tui_process::unix::pair_stream()?;
+        let mut service_waiter =
+            shared.service_exit_waiter.lock().unwrap().take().ok_or_else(|| {
+                anyhow::anyhow!("terminal host service waiter was already claimed")
+            })?;
         while !shared.dead.load(Ordering::Acquire) {
             match cmux_tui_process::unix::accept_stream(&listener) {
                 Ok((stream, _)) => {
@@ -3324,7 +3377,6 @@ mod unix {
                 Err(error) => return Err(error.into()),
             }
         }
-        thread::sleep(Duration::from_millis(20));
         drop(guard);
         Ok(())
     }
@@ -3376,6 +3428,7 @@ mod unix {
         let mut pty_reader = pty.master.try_clone_reader()?;
         let pty_writer = pty.master.take_writer()?;
         let (pty_drain_waker, pty_drain_waiter) = cmux_tui_process::unix::pair_stream()?;
+        let (service_exit_waker, service_exit_waiter) = cmux_tui_process::unix::pair_stream()?;
 
         let pending_responses = Arc::new(Mutex::new(Vec::<u8>::new()));
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -3430,6 +3483,8 @@ mod unix {
             exit_published: AtomicBool::new(false),
             force_pty_drain: AtomicBool::new(false),
             pty_drain_waker: Mutex::new(pty_drain_waker),
+            service_exit_waker: Mutex::new(service_exit_waker),
+            service_exit_waiter: Mutex::new(Some(service_exit_waiter)),
             termination_started: AtomicBool::new(false),
             child_signal_lock: Mutex::new(()),
             child_reaped: AtomicBool::new(false),
@@ -4306,6 +4361,35 @@ mod unix {
 
             assert!(waited_for_event, "an idle host service woke without socket activity");
             assert!(!result.unwrap(), "the exit wake was reported as client activity");
+        }
+
+        #[test]
+        fn host_service_wait_reports_listener_activity() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-hsc-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&root).unwrap();
+            let endpoint = root.join("host.sock");
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let (_service_waker, mut service_waiter) =
+                cmux_tui_process::unix::pair_stream().unwrap();
+            let dead = AtomicBool::new(false);
+            let listener_fd = listener.as_raw_fd();
+            let worker = thread::spawn(move || {
+                wait_for_host_service_activity(listener_fd, &mut service_waiter, &dead)
+            });
+
+            let client = UnixStream::connect(&endpoint).unwrap();
+            let activity = worker.join().unwrap().unwrap();
+            drop(client);
+            drop(listener);
+            let _ = fs::remove_file(endpoint);
+            let _ = fs::remove_dir(root);
+
+            assert!(activity, "a waiting host service ignored a client connection");
         }
 
         #[cfg(target_os = "macos")]
