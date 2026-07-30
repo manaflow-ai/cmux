@@ -3545,6 +3545,191 @@ def verify_legacy_session_end_claim_requires_live_authoritative_identity(
                     )
 
 
+def verify_retired_clear_source_cannot_reclaim_stopped_successor(
+    cli_path: str,
+) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    retired_session_id = f"retired-clear-source-{uuid.uuid4().hex}"
+    successor_session_id = f"clear-successor-{uuid.uuid4().hex}"
+    with HookSocketServer(
+        workspace_id=workspace_id,
+        surface_id=surface_id,
+    ) as server:
+        state_path = Path(server.root.name) / "retired-source-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": retired_session_id,
+                "turn_id": "pre-clear-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": retired_session_id,
+                "turn_id": "pre-clear-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "ready to clear",
+                "background_tasks": [],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {
+                "session_id": retired_session_id,
+                "reason": "clear",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {
+                "session_id": successor_session_id,
+                "source": "clear",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": successor_session_id,
+                "turn_id": "successor-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": successor_session_id,
+                "turn_id": "successor-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "successor stopped",
+                "background_tasks": [],
+                "session_crons": [],
+            },
+            env,
+        )
+
+        replay_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": retired_session_id,
+                "turn_id": "late-pre-clear-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        replay_commands = server.commands[replay_start:]
+        assert_no_claude_lifecycle_mutations(
+            replay_commands,
+            context="A retired pre-clear prompt after its successor stopped",
+        )
+
+        state = json.loads(state_path.read_text())
+        if retired_session_id in state.get("sessions", {}):
+            raise RuntimeError(
+                "A late prompt recreated its retired pre-clear session:\n"
+                f"state={state!r}"
+            )
+        successor = state.get("sessions", {}).get(successor_session_id)
+        if successor is None or successor.get("agentLifecycle") != "idle":
+            raise RuntimeError(
+                "A retired pre-clear prompt rewrote its idle successor:\n"
+                f"successor={successor!r}\nstate={state!r}"
+            )
+        surface_owner = state.get("activeSessionsBySurface", {}).get(surface_id)
+        if (
+            surface_owner is None
+            or surface_owner.get("sessionId") != successor_session_id
+        ):
+            raise RuntimeError(
+                "A retired pre-clear prompt reclaimed its successor's pane:\n"
+                f"state={state!r}"
+            )
+
+
+def verify_stop_failure_ends_running_turn(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    session_id = f"stop-failure-{uuid.uuid4().hex}"
+    with HookSocketServer(
+        workspace_id=workspace_id,
+        surface_id=surface_id,
+    ) as server:
+        state_path = Path(server.root.name) / "stop-failure-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": session_id,
+                "turn_id": "failed-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+
+        failure_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "hook_event_name": "StopFailure",
+                "session_id": session_id,
+                "turn_id": "failed-turn",
+                "cwd": "/tmp",
+                "error": "Credit balance is too low",
+                "background_tasks": [],
+                "session_crons": [],
+            },
+            env,
+        )
+        failure_commands = server.commands[failure_start:]
+        if not has_command_with(
+            failure_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "StopFailure did not end the running turn as Idle:\n"
+                f"commands={failure_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        record = state.get("sessions", {}).get(session_id)
+        if record is None or record.get("agentLifecycle") != "idle":
+            raise RuntimeError(
+                "StopFailure did not persist an idle lifecycle:\n"
+                f"record={record!r}\nstate={state!r}"
+            )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -3797,6 +3982,8 @@ def main() -> int:
         verify_legacy_session_end_claim_requires_live_authoritative_identity(
             cli_path
         )
+        verify_retired_clear_source_cannot_reclaim_stopped_successor(cli_path)
+        verify_stop_failure_ends_running_turn(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
         return 1
