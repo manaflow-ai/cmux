@@ -2848,6 +2848,36 @@ struct ComputerUseUXTests {
         ))
     }
 
+    @Test @MainActor
+    func computerUseSessionsDefaultToCallingTerminalFocus() {
+        let controller = ComputerUseSessionPresentationController(
+            setCursorVisibility: { _, _, _, _ in },
+            focusTerminal: { _, _, _ in }
+        )
+        let driverSessionID = "terminal-default-session"
+
+        #expect(controller.focusMode(for: driverSessionID) == .callingTerminal)
+
+        controller.driverSessionDidStart(driverSessionID)
+        #expect(controller.isRunningInBackground(driverSessionID))
+
+        var targetWasActivated = false
+        controller.activateTarget(driverSessionID: driverSessionID) {
+            targetWasActivated = true
+        }
+        #expect(!targetWasActivated)
+
+        controller.focusComputerUse(driverSessionID: driverSessionID) {
+            targetWasActivated = true
+        }
+        #expect(targetWasActivated)
+        #expect(controller.focusMode(for: driverSessionID) == .computerUse)
+
+        controller.driverSessionDidComplete(driverSessionID)
+        controller.driverSessionDidStart(driverSessionID)
+        #expect(controller.isRunningInBackground(driverSessionID))
+    }
+
     @Test(.timeLimit(.minutes(1))) @MainActor
     func newerComputerUseFocusInvalidatesDelayedTerminalAndCursorEffects() async throws {
         let currentApplication = NSRunningApplication.current
