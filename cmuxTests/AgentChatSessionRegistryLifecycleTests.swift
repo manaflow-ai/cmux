@@ -430,6 +430,62 @@ struct AgentChatSessionRegistryLifecycleTests {
     }
 
     @MainActor
+    @Test func endedOmpSessionListabilityDefersFallbackScanUntilHistoryOpen() async throws {
+        let home = try temporaryHomeDirectory()
+        let cwd = home.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let sessionID = "019f0000-0000-7000-8000-000000000401"
+        let bucket = OmpDirectoryResolver().cwdBucketNames(
+            currentDirectory: cwd.path,
+            homeDirectory: home.path,
+            fileManager: .default
+        ).current
+        let transcriptURL = home
+            .appendingPathComponent(".omp/agent/sessions", isDirectory: true)
+            .appendingPathComponent(bucket, isDirectory: true)
+            .appendingPathComponent("2026-07-29T00-00-00_\(sessionID).jsonl")
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
+        )
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionEnd,
+            source: "omp",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            transcriptPath: nil,
+            cwd: cwd.path,
+            ppid: nil,
+            receivedAt: Date()
+        ))
+        let record = try #require(service.sessionRecord(sessionID: sessionID))
+
+        let missingAuthoritativeRecord = AgentChatSessionRecord(
+            sessionID: "019f0000-0000-7000-8000-000000000402",
+            agentKind: .omp,
+            workspaceID: UUID().uuidString,
+            surfaceID: UUID().uuidString,
+            workingDirectory: cwd.path,
+            transcriptPath: home.appendingPathComponent("missing.jsonl").path,
+            state: .ended,
+            lastActivityAt: Date(),
+            title: nil,
+            pid: nil
+        )
+
+        #expect(!service.hasBoundedReadableTranscript(record))
+        #expect(service.shouldListEndedSession(record))
+        #expect(!service.shouldListEndedSession(missingAuthoritativeRecord))
+        #expect(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 20) != nil)
+    }
+
+    @MainActor
     @Test func pendingClaudeAliasUsesRealHookSessionIDForFallbackTranscript() throws {
         let home = try temporaryHomeDirectory()
         let service = AgentChatTranscriptService(

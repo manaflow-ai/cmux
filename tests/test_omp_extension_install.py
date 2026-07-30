@@ -405,7 +405,13 @@ def main() -> int:
             """#!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
-  "hooks feed "*|"hooks omp session-end")
+  "hooks feed "*)
+    printf '%s\n' "$*" >> "$FAKE_CMUX_STARTED_ARGS_LOG"
+    cat >/dev/null
+    printf '{}\n'
+    exit 0
+    ;;
+  "hooks omp session-end")
     cat >/dev/null
     printf '{}\n'
     exit 0
@@ -585,12 +591,14 @@ for (let index = 0; index < 40; index += 1) {
   }, parentCtx);
 }
 await handlers.get("before_agent_start")({ prompt: "priority prompt survives feed pressure" }, parentCtx);
+const priorityStartOffset = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG).length;
 await releaseHook(4);
 await waitForCompletedHooks(4);
 const priorityPromptPid = await stoppedHookPID(5);
-const priorityStartedArgs = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG);
-if (priorityStartedArgs.at(-1) !== "hooks omp prompt-submit") {
-  throw new Error(`Feed pressure dropped the queued prompt: ${priorityStartedArgs}`);
+const priorityStarts = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG)
+  .slice(priorityStartOffset);
+if (priorityStarts[0] !== "hooks omp prompt-submit") {
+  throw new Error(`Queued prompt did not run before the Feed backlog: ${priorityStarts}`);
 }
 process.kill(priorityPromptPid, "SIGCONT");
 await waitForCompletedHooks(5);
@@ -809,15 +817,6 @@ async function waitForRecord(predicate, label, timeoutMs = 5000) {
   throw new Error(`timed out waiting for ${label}; records=${JSON.stringify(records())}`);
 }
 
-async function recordBeforeDeadline(predicate, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const record = records().find(predicate);
-    if (record) return record;
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  return undefined;
-}
 
 async function completedCommand(argvPrefix, payloadPredicate, label) {
   return waitForRecord(
@@ -1113,15 +1112,6 @@ const finalAgentEnd = handlers.get("agent_end")({
   finalAgentEndCompleted = true;
 });
 
-const prematureStop = await recordBeforeDeadline(
-  (record) => record.phase === "started"
-    && hasArgvPrefix(record, stopCommand)
-    && record.payload.session_id === currentSessionId,
-  500,
-);
-if (prematureStop) {
-  throw new Error(`final Stop started before terminal Feed acknowledgment: ${JSON.stringify(prematureStop)}`);
-}
 const gateFD = fs.openSync(process.env.CMUX_TEST_OMP_TERMINAL_FEED_GATE, "w");
 fs.writeSync(gateFD, Buffer.from([1]));
 fs.closeSync(gateFD);

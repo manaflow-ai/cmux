@@ -256,6 +256,59 @@ struct OmpSupportTests {
         #expect(detected.workingDirectory == workspace.path)
     }
 
+    @Test func directProcessDetectionPrefersExplicitSessionDirectoryOverCustomRegistration() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-explicit-over-custom-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let workspace = home.appendingPathComponent("repo", isDirectory: true)
+        let customRoot = root.appendingPathComponent("custom-sessions", isDirectory: true)
+        let explicitRoot = root.appendingPathComponent("explicit-sessions", isDirectory: true)
+        let cwdBucket = OmpDirectoryResolver().cwdBucketNames(
+            currentDirectory: workspace.path,
+            homeDirectory: home.path,
+            fileManager: .default
+        ).current
+        let customProjectSessions = customRoot.appendingPathComponent(cwdBucket, isDirectory: true)
+        try FileManager.default.createDirectory(at: customProjectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: explicitRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        let custom = try Self.writeSessionFile(
+            id: "omp-custom-registration-session",
+            in: customProjectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let explicit = try Self.writeSessionFile(
+            id: "omp-explicit-process-session",
+            in: explicitRoot,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let registration = CmuxVaultAgentRegistration(
+            id: "omp",
+            name: "OMP",
+            detect: CmuxVaultAgentDetectRule(processName: "omp"),
+            sessionIdSource: .piSessionFile,
+            resumeCommand: "{{executable}} --resume {{sessionId}}",
+            sessionDirectory: customRoot.path
+        )
+
+        let detected = try #require(Self.detectedOmpSnapshot(
+            arguments: [
+                "/Users/example/.bun/bin/omp",
+                "--session-dir=\(explicitRoot.path)",
+            ],
+            environment: [
+                "HOME": home.path,
+                "PWD": workspace.path,
+            ],
+            registration: registration
+        ))
+
+        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(explicit.path))
+        #expect(Self.normalizedPath(detected.sessionId) != Self.normalizedPath(custom.path))
+        #expect(detected.workingDirectory == workspace.path)
+    }
+
     @Test func vaultDetectsBunInvokedOmpPackage() throws {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-bun-vault-")
         defer { try? FileManager.default.removeItem(at: root) }
