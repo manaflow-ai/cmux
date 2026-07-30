@@ -76,6 +76,11 @@ export type IrohChallengeRecord = typeof irohRegistrationChallenges.$inferSelect
 export type IrohRegistrationCommit = {
   readonly binding: IrohBindingRecord;
   readonly created: boolean;
+  readonly accountRevision: number;
+};
+export type IrohRevocationCommit = {
+  readonly revoked: boolean;
+  readonly accountRevision: number;
 };
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
@@ -117,6 +122,7 @@ export type IrohRepositoryShape = {
   }) => Effect.Effect<{
     readonly bindings: IrohBindingRecord[];
     readonly lanDiscoveryGeneration: number;
+    readonly accountRevision: number;
   }, RepositoryError>;
   readonly findActiveBindings: (
     userId: string,
@@ -126,12 +132,12 @@ export type IrohRepositoryShape = {
     userId: string,
     endpointId: string,
   ) => Effect.Effect<IrohBindingRecord | null, RepositoryError>;
-  /** Returns true when the exact binding is owned and revoked, including retries. */
+  /** Returns the authoritative revision after revoking the owned binding. */
   readonly revokeBinding: (input: {
     readonly userId: string;
     readonly bindingId: string;
     readonly now: Date;
-  }) => Effect.Effect<boolean, RepositoryError>;
+  }) => Effect.Effect<IrohRevocationCommit, RepositoryError>;
   readonly pruneExpiredState: (input: {
     readonly userId: string;
     readonly now: Date;
@@ -416,7 +422,8 @@ function makeLiveRepository(): IrohRepositoryShape {
             .set({ consumedAt: input.now })
             .where(eq(irohRegistrationChallenges.id, challenge.id));
           if (!updated) throw new Error("binding update returned no row");
-          return { binding: updated, created: false };
+          const accountRevision = await advanceRouteRevision(tx, input.userId, input.now);
+          return { binding: updated, created: false, accountRevision };
         }
 
         // A NEW incarnation on an existing slot: the endpoint key rotated (a
@@ -500,7 +507,8 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohRegistrationChallenges.id, challenge.id),
             isNull(irohRegistrationChallenges.consumedAt),
           ));
-        return { binding, created: true };
+        const accountRevision = await advanceRouteRevision(tx, input.userId, input.now);
+        return { binding, created: true, accountRevision };
       });
     }),
 
@@ -515,7 +523,10 @@ function makeLiveRepository(): IrohRepositoryShape {
             target: irohAccountSecurityStates.userId,
             set: { updatedAt: sql`${irohAccountSecurityStates.updatedAt}` },
           })
-          .returning({ generation: irohAccountSecurityStates.lanDiscoveryGeneration });
+          .returning({
+            generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+            revision: irohAccountSecurityStates.routeRevision,
+          });
         if (!state) throw new Error("account security state returned no row");
         const bindings = await tx
           .select()
@@ -528,6 +539,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         return {
           bindings,
           lanDiscoveryGeneration: state.generation,
+          accountRevision: state.revision,
         };
       });
     }),
@@ -576,8 +588,18 @@ function makeLiveRepository(): IrohRepositoryShape {
           ))
           .for("update")
           .limit(1);
-        if (!binding) return false;
-        if (binding.revokedAt) return true;
+        if (!binding) {
+          return {
+            revoked: false,
+            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+          };
+        }
+        if (binding.revokedAt) {
+          return {
+            revoked: true,
+            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+          };
+        }
 
         const revoked = await revokeActiveBindings(tx, {
           userId: input.userId,
@@ -585,8 +607,16 @@ function makeLiveRepository(): IrohRepositoryShape {
           now: input.now,
           reason: "user_requested",
         });
-        if (revoked.length === 0) return false;
-        return true;
+        if (revoked.length === 0) {
+          return {
+            revoked: false,
+            accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+          };
+        }
+        return {
+          revoked: true,
+          accountRevision: await advanceRouteRevision(tx, input.userId, input.now),
+        };
       });
     }),
 
@@ -617,6 +647,9 @@ function makeLiveRepository(): IrohRepositoryShape {
               updatedAt: input.now,
             })
             .where(eq(irohEndpointBindings.id, binding.id));
+        }
+        if (bindings.length > 0) {
+          await advanceRouteRevision(tx, input.userId, input.now);
         }
 
         const challengeRetentionCutoff = new Date(input.now.getTime() - 24 * 60 * 60 * 1_000);
@@ -1014,6 +1047,55 @@ async function revokeActiveBindings(
       },
     });
   return revokedIds;
+}
+
+async function advanceRouteRevision(
+  tx: CloudDbTransaction,
+  userId: string,
+  now: Date,
+): Promise<number> {
+  const [state] = await tx
+    .insert(irohAccountSecurityStates)
+    .values({
+      userId,
+      lanDiscoveryGeneration: 1,
+      routeRevision: 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: irohAccountSecurityStates.userId,
+      set: {
+        routeRevision: sql`${irohAccountSecurityStates.routeRevision} + 1`,
+        updatedAt: now,
+      },
+    })
+    .returning({ revision: irohAccountSecurityStates.routeRevision });
+  if (!state) throw new Error("route revision update returned no row");
+  return state.revision;
+}
+
+async function currentRouteRevision(
+  tx: CloudDbTransaction,
+  userId: string,
+  now: Date,
+): Promise<number> {
+  const [state] = await tx
+    .insert(irohAccountSecurityStates)
+    .values({
+      userId,
+      lanDiscoveryGeneration: 1,
+      routeRevision: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: irohAccountSecurityStates.userId,
+      set: { updatedAt: sql`${irohAccountSecurityStates.updatedAt}` },
+    })
+    .returning({ revision: irohAccountSecurityStates.routeRevision });
+  if (!state) throw new Error("route revision read returned no row");
+  return state.revision;
 }
 
 // Reject a genuinely-new slot once the account already holds

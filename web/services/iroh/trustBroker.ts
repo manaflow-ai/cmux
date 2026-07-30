@@ -258,6 +258,7 @@ export function makeIrohTrustBroker(
         )
         : { status: "not_requested" as const };
       return {
+        revision: registration.accountRevision,
         binding: publicBinding(registration.binding, now, savedCustomRelayURLs),
         relay,
       };
@@ -275,7 +276,8 @@ export function makeIrohTrustBroker(
       ));
       const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
       return {
-        route_contract_version: 1,
+        route_contract_version: 1 as const,
+        revision: snapshot.accountRevision,
         bindings: snapshot.bindings.map((binding) => publicBinding(
           binding,
           now,
@@ -292,9 +294,13 @@ export function makeIrohTrustBroker(
 
     revoke: (userId, raw, now = new Date()) => Effect.gen(function* () {
       const { bindingId } = yield* parseEffect(() => parseBindingIdBody(raw));
-      const revoked = yield* repository.revokeBinding({ userId, bindingId, now });
-      if (!revoked) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-      return { revoked: true, lan_rendezvous_rotated: true };
+      const result = yield* repository.revokeBinding({ userId, bindingId, now });
+      if (!result.revoked) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+      return {
+        revoked: true,
+        revision: result.accountRevision,
+        lan_rendezvous_rotated: true,
+      };
     }),
 
     issuePairGrant: (userId, raw, now = new Date()) => Effect.gen(function* () {

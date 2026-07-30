@@ -272,6 +272,42 @@ describe("Iroh trust broker registration", () => {
 });
 
 describe("Iroh discovery and grants", () => {
+  test("publishes one monotonic account revision across registration and revocation", async () => {
+    const fixture = makeFixture();
+    const first = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    )) as { revision: number; binding: { binding_id: string } };
+    expect(first.revision).toBe(1);
+
+    const firstSnapshot = await Effect.runPromise(
+      fixture.broker.discover(USER_A, NOW),
+    ) as { revision: number };
+    expect(firstSnapshot.revision).toBe(1);
+
+    const refreshed = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      new Date(NOW.getTime() + 1_000),
+    )) as { revision: number };
+    expect(refreshed.revision).toBe(2);
+
+    const revoked = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId: first.binding.binding_id },
+      new Date(NOW.getTime() + 2_000),
+    )) as { revision: number };
+    expect(revoked.revision).toBe(3);
+
+    const retried = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId: first.binding.binding_id },
+      new Date(NOW.getTime() + 3_000),
+    )) as { revision: number };
+    expect(retried.revision).toBe(3);
+  });
+
   test("makes owned binding revocation retry-safe without rotating LAN state twice", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A });
@@ -283,7 +319,11 @@ describe("Iroh discovery and grants", () => {
       NOW,
     ));
     const firstRevokedAt = active.revokedAt;
-    expect(first).toEqual({ revoked: true, lan_rendezvous_rotated: true });
+    expect(first).toEqual({
+      revoked: true,
+      revision: 1,
+      lan_rendezvous_rotated: true,
+    });
     expect(firstRevokedAt).toEqual(NOW);
     const firstDiscovery = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
       lan_rendezvous: { generation: number };
@@ -707,6 +747,7 @@ class MemoryRepository implements IrohRepositoryShape {
     status: string;
   }> = [];
   private lanGenerations = new Map<string, number>();
+  private routeRevisions = new Map<string, number>();
   beforeDiscoverySnapshot: (() => Promise<void>) | undefined;
   beforeRecordPairGrant: (() => void) | undefined;
   beforeFinalizeEndpointAttestation: (() => void) | undefined;
@@ -791,7 +832,11 @@ class MemoryRepository implements IrohRepositoryShape {
       existing.lastSeenAt = input.now;
       existing.registeredAt = challenge.createdAt;
       existing.updatedAt = input.now;
-      return Effect.succeed({ binding: existing, created: false });
+      return Effect.succeed({
+        binding: existing,
+        created: false,
+        accountRevision: this.advanceRouteRevision(input.userId),
+      });
     }
     // A new incarnation (rotated endpoint, or any changed signed identity field):
     // retire the old row (soft-revoke, never delete) and mint a fresh binding id so
@@ -831,7 +876,11 @@ class MemoryRepository implements IrohRepositoryShape {
     });
     challenge.consumedAt = input.now;
     this.bindings.push(inserted);
-    return Effect.succeed({ binding: inserted, created: true });
+    return Effect.succeed({
+      binding: inserted,
+      created: true,
+      accountRevision: this.advanceRouteRevision(input.userId),
+    });
   }
 
   discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
@@ -840,6 +889,7 @@ class MemoryRepository implements IrohRepositoryShape {
       return {
         bindings: this.bindings.filter((row) => row.userId === input.userId && !row.revokedAt),
         lanDiscoveryGeneration: this.lanGenerations.get(input.userId) ?? 1,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
       };
     });
   }
@@ -857,22 +907,45 @@ class MemoryRepository implements IrohRepositoryShape {
   revokeBinding(input: Parameters<IrohRepositoryShape["revokeBinding"]>[0]) {
     const row = this.bindings.find((candidate) =>
       candidate.id === input.bindingId && candidate.userId === input.userId);
-    if (!row) return Effect.succeed(false);
-    if (row.revokedAt) return Effect.succeed(true);
+    if (!row) {
+      return Effect.succeed({
+        revoked: false,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
+      });
+    }
+    if (row.revokedAt) {
+      return Effect.succeed({
+        revoked: true,
+        accountRevision: this.routeRevisions.get(input.userId) ?? 0,
+      });
+    }
     row.revokedAt = input.now;
     row.revokedReason = "user_requested";
     this.lanGenerations.set(input.userId, (this.lanGenerations.get(input.userId) ?? 1) + 1);
-    return Effect.succeed(true);
+    return Effect.succeed({
+      revoked: true,
+      accountRevision: this.advanceRouteRevision(input.userId),
+    });
   }
 
   pruneExpiredState(input: Parameters<IrohRepositoryShape["pruneExpiredState"]>[0]) {
+    let changed = false;
     for (const row of this.bindings.filter((candidate) => candidate.userId === input.userId)) {
-      row.pathHints = row.pathHints.filter((hint) => {
+      const retained = row.pathHints.filter((hint) => {
         const expiry = (hint as { expires_at?: unknown }).expires_at;
         return typeof expiry === "string" && new Date(expiry) > input.now;
       });
+      changed = changed || retained.length !== row.pathHints.length;
+      row.pathHints = retained;
     }
+    if (changed) this.advanceRouteRevision(input.userId);
     return Effect.void;
+  }
+
+  private advanceRouteRevision(userId: string): number {
+    const revision = (this.routeRevisions.get(userId) ?? 0) + 1;
+    this.routeRevisions.set(userId, revision);
+    return revision;
   }
 
   pruneExpiredStateGlobally(input: Parameters<IrohRepositoryShape["pruneExpiredStateGlobally"]>[0]) {
