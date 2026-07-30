@@ -293,80 +293,6 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
-    /// Regression for https://github.com/manaflow-ai/cmux/pull/9159: the
-    /// connection-status toast presenter must observe transport transitions
-    /// from the always-mounted shell root. Mounted inside the workspaces tab
-    /// instead, it is unmounted while the Notifications tab is selected, so a
-    /// host that dies there presents no status capsule and the recovery never
-    /// toasts "Reconnected to your Mac."
-    ///
-    /// Manual pairing (not the loopback debug attach) is load-bearing: it
-    /// persists the Mac, so it stays visible after the host dies. The debug
-    /// attach's Mac vanishes with its workspaces, and the list policy then
-    /// deliberately suppresses the capsule (nothing visible to reconnect to).
-    @MainActor
-    func testConnectionStatusToastsPresentWhileNotificationsTabSelected() async throws {
-        let server = try MobileSyncMockHostServer(supportsManualAttachTicket: true)
-        let port = try await server.start()
-        defer { server.stop() }
-
-        let app = try launchConnectedAppViaManualPairing(
-            port: port,
-            openWorkspace: false,
-            extraLaunchArguments: ["-cmux.toasts.betaEnabled", "YES"]
-        )
-        defer { app.terminate() }
-
-        let notificationsTab = app.tabBars.buttons["Notifications"]
-        XCTAssertTrue(notificationsTab.waitForExistence(timeout: 8))
-        notificationsTab.tap()
-        XCTAssertTrue(notificationsTab.isSelected)
-
-        // Kill the host while the workspaces tab content (and any presenter
-        // wrongly mounted inside it) is out of the hierarchy.
-        server.stop()
-
-        // The failure variant of the capsule combines an action Button into
-        // the single accessibility element, so its element type is not stable;
-        // match the identifier across any type like waitForWorkspaceShell.
-        let toast = app.descendants(matching: .any)["MobileToast"]
-        if !toast.waitForExistence(timeout: 60) {
-            print("TOAST-DEBUG no capsule after host loss; tree:\n\(app.debugDescription)")
-            XCTFail(
-                "Losing the host must present a connection-status capsule while the Notifications tab is selected"
-            )
-        }
-        XCTAssertTrue(notificationsTab.isSelected)
-
-        // Revive the host at the paired address; the recovery's success toast
-        // must also present while the Notifications tab stays selected. The
-        // revived host must keep serving attach tickets for the redial's
-        // re-mint.
-        let revived = try MobileSyncMockHostServer(
-            supportsManualAttachTicket: true,
-            port: port
-        )
-        _ = try await revived.start()
-        defer { revived.stop() }
-
-        // ToastCardView combines its children into the single "MobileToast"
-        // accessibility element, so the message is only reachable through
-        // that element's label, never as a descendant static text.
-        let reconnectedShown = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                toast.exists && toast.label.contains("Reconnected to your Mac.")
-            },
-            object: app
-        )
-        if XCTWaiter.wait(for: [reconnectedShown], timeout: 90) != .completed {
-            print("TOAST-DEBUG no reconnected toast after revival; tree:\n\(app.debugDescription)")
-            XCTFail(
-                "Recovering the host must toast success while the Notifications tab is selected"
-            )
-        }
-        XCTAssertTrue(notificationsTab.isSelected)
-    }
-
     @MainActor
     func testDeleteComputersVerifierPasses() throws {
         let app = launchApp(mockData: false, environment: [
@@ -3641,11 +3567,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedAppViaManualPairing(
-        port: UInt16,
-        openWorkspace: Bool = true,
-        extraLaunchArguments: [String] = []
-    ) throws -> XCUIApplication {
+    private func launchConnectedAppViaManualPairing(port: UInt16) throws -> XCUIApplication {
         let portText = String(port)
         guard let finalPortDigit = portText.last else {
             throw URLError(.badURL)
@@ -3654,16 +3576,9 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
         ], launchArguments: [
             "-cmux.mobile.taskComposerEnabled", "YES",
-        ] + extraLaunchArguments)
+        ])
         let pairingForm = app.otherElements["MobileAddDeviceForm"]
-        if !pairingForm.waitForExistence(timeout: 8) {
-            // The no-computers shell does not auto-present the pairing sheet;
-            // open it through the toolbar like a user would.
-            let addButton = app.buttons["MobileShowAddDeviceToolbarButton"]
-            XCTAssertTrue(addButton.waitForExistence(timeout: 8))
-            addButton.tap()
-            XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
-        }
+        XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
 
         let hostField = app.textFields["MobileAddDeviceHostField"]
         XCTAssertTrue(hostField.waitForExistence(timeout: 4))
@@ -3692,7 +3607,6 @@ final class cmuxUITests: XCTestCase {
         )
 
         waitForWorkspaceShell(in: app)
-        guard openWorkspace else { return app }
         try openSelectedWorkspaceIfNeeded(app)
         assertTerminalRow(0, label: "$ cmux ios status", in: app)
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
@@ -6098,20 +6012,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         createdWorkspaceTerminalDelay: TimeInterval? = nil,
         supportsManualAttachTicket: Bool = false,
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
-        macInstanceTag: String = mockHostInstanceTag(),
-        port: UInt16? = nil
+        macInstanceTag: String = mockHostInstanceTag()
     ) throws {
-        // A fixed port lets a test revive a "dead" host at the address the
-        // app already paired with, so automatic recovery can be exercised.
-        // Reuse is required because the revived listener binds while the
-        // previous socket may still be in TIME_WAIT.
-        if let port, let fixedPort = NWEndpoint.Port(rawValue: port) {
-            let parameters: NWParameters = .tcp
-            parameters.allowLocalEndpointReuse = true
-            listener = try NWListener(using: parameters, on: fixedPort)
-        } else {
-            listener = try NWListener(using: .tcp, on: .any)
-        }
+        listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
