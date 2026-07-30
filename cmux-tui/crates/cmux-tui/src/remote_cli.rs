@@ -1815,8 +1815,9 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     let lifecycle_id = runtime.lifecycle_id;
     let link = runtime.link_socket;
     let admin = runtime.admin_socket;
+    let shutdown_request = shutdown_request_for_lifecycle(lifecycle_id.as_deref());
     let (response, mut peer_exit) =
-        tokio_runtime()?.block_on(call_admin_with_peer_exit(&admin, &AdminRequest::Shutdown))?;
+        tokio_runtime()?.block_on(call_admin_with_peer_exit(&admin, &shutdown_request))?;
     if !response.ok {
         return Err(anyhow!(response.error.unwrap_or_else(|| "daemon shutdown failed".into())));
     }
@@ -1833,6 +1834,10 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
         thread::sleep(Duration::from_millis(50));
     }
     Err(anyhow!("remote daemon did not stop within 20 seconds"))
+}
+
+fn shutdown_request_for_lifecycle(_lifecycle_id: Option<&str>) -> AdminRequest {
+    AdminRequest::Shutdown
 }
 
 fn verify_shutdown_outcome(state_dir: &Path, lifecycle_id: &str) -> anyhow::Result<()> {
@@ -3024,6 +3029,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn modern_shutdown_request_binds_the_inspected_lifecycle() {
+        let request = shutdown_request_for_lifecycle(Some("inspected-lifecycle"));
+        let encoded = serde_json::to_value(request).unwrap();
+
+        assert_eq!(encoded["method"], "shutdown-lifecycle");
+        assert_eq!(encoded["lifecycle_id"], "inspected-lifecycle");
+        assert_eq!(
+            shutdown_request_for_lifecycle(None),
+            AdminRequest::Shutdown,
+            "legacy runtime metadata must retain its compatible shutdown request"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn legacy_sidecar_process_fixture() {
@@ -3276,6 +3295,32 @@ mod tests {
         )
         .unwrap();
         verify_shutdown_outcome(directory.path(), "current").unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_without_runtime_rejects_failed_authorization_finalization() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "inactive-failed-finalization";
+        let (state_dir, _, _) = daemon_paths(session, Some(directory.path())).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        fs::write(
+            state_dir.join("shutdown.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "lifecycle_id": "failed-lifecycle",
+                "status": "failed",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let error = run_remote_stop(
+            &["--session", session, "--state-dir", directory.path().to_string_lossy().as_ref()]
+                .map(str::to_string),
+        )
+        .expect_err("inactive failed authorization finalization was treated as clean");
+        assert!(error.to_string().contains("authorization finalization"), "{error:#}");
     }
 
     #[test]

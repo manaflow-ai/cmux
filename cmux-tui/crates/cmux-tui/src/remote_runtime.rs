@@ -2531,6 +2531,48 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn daemon_startup_refuses_failed_authorization_finalization() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_dir = directory.path().join("state");
+        fs::create_dir(&state_dir).unwrap();
+        persist_shutdown_outcome(
+            &state_dir,
+            &DaemonShutdownOutcome {
+                version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                lifecycle_id: "failed-predecessor".into(),
+                status: DaemonShutdownStatus::Failed,
+            },
+        )
+        .unwrap();
+
+        let result = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "failed-predecessor".into(),
+                state_dir: Some(state_dir),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        );
+        let error = match result {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("daemon started after failed authorization finalization");
+            }
+        };
+        assert!(error.to_string().contains("authorization finalization"), "{error:#}");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn daemon_runtime_metadata_remains_until_auth_finalization() {
         let directory = tempfile::tempdir_in("/tmp").unwrap();
         let runtime = start_daemon_runtime(
