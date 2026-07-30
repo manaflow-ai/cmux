@@ -329,6 +329,7 @@ mod unix {
     const HOST_PROCESS_REAPER_RETRY_MAX: Duration = Duration::from_secs(1);
     const MAX_TERMINAL_HOST_RECORD_BYTES: usize = MAX_LAUNCH_PAYLOAD;
     const MAX_TERMINAL_HOST_RECORDS: usize = 4_096;
+    const MAX_TERMINAL_HOST_CLIENTS: usize = 64;
     const TERMINAL_HOST_RECORD_SCAN_TIMEOUT: Duration = Duration::from_secs(2);
     static HOST_PROCESS_REAPER: OnceLock<Mutex<Option<HostProcessReaper>>> = OnceLock::new();
     #[cfg(test)]
@@ -2421,6 +2422,27 @@ mod unix {
         }
     }
 
+    struct HostClientAdmission {
+        active: Arc<AtomicUsize>,
+    }
+
+    impl HostClientAdmission {
+        fn try_acquire(active: &Arc<AtomicUsize>) -> Option<Self> {
+            active
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                    (count < MAX_TERMINAL_HOST_CLIENTS).then_some(count + 1)
+                })
+                .ok()?;
+            Some(Self { active: active.clone() })
+        }
+    }
+
+    impl Drop for HostClientAdmission {
+        fn drop(&mut self) {
+            self.active.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+
     struct HostShared {
         terminal_id: TerminalId,
         incarnation: HostIncarnation,
@@ -2440,6 +2462,7 @@ mod unix {
         broadcast_lock: Mutex<()>,
         sequence: AtomicU64,
         next_client: AtomicU64,
+        active_clients: Arc<AtomicUsize>,
         dead: AtomicBool,
         child_exit: (Mutex<bool>, Condvar),
         child_waitable: AtomicBool,
@@ -3263,12 +3286,20 @@ mod unix {
                     // on macOS. Client protocol threads use blocking framed
                     // reads, so normalize the accepted descriptor here.
                     stream.set_nonblocking(false)?;
+                    let Some(admission) = HostClientAdmission::try_acquire(&shared.active_clients)
+                    else {
+                        continue;
+                    };
                     let host = shared.clone();
-                    thread::Builder::new().name("terminal-host-client".into()).spawn(
+                    // A transient thread creation failure rejects this client
+                    // without taking down the terminal host. Dropping the
+                    // unstarted closure releases its admission automatically.
+                    let _ = thread::Builder::new().name("terminal-host-client".into()).spawn(
                         move || {
+                            let _admission = admission;
                             let _ = serve_client(host, stream);
                         },
-                    )?;
+                    );
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(20));
@@ -3375,6 +3406,7 @@ mod unix {
             broadcast_lock: Mutex::new(()),
             sequence: AtomicU64::new(0),
             next_client: AtomicU64::new(1),
+            active_clients: Arc::new(AtomicUsize::new(0)),
             dead: AtomicBool::new(false),
             child_exit: (Mutex::new(false), Condvar::new()),
             child_waitable: AtomicBool::new(false),
@@ -3560,6 +3592,7 @@ mod unix {
     }
 
     fn serve_client(host: Arc<HostShared>, mut stream: UnixStream) -> anyhow::Result<()> {
+        stream.set_read_timeout(Some(HOST_HANDSHAKE_TIMEOUT))?;
         let hello_frame = read_required_frame(&mut stream, "client hello")?;
         if hello_frame.kind != MessageKind::ClientHello
             || hello_frame.sequence != 0
@@ -3592,7 +3625,6 @@ mod unix {
         write_frame(&mut stream, &hello_response)?;
 
         if terminate_only {
-            stream.set_read_timeout(Some(HOST_HANDSHAKE_TIMEOUT))?;
             let terminate = read_required_frame(&mut stream, "terminate-only request")?;
             if terminate.kind != MessageKind::Terminate
                 || terminate.flags != 0
@@ -3606,6 +3638,10 @@ mod unix {
             return Ok(());
         }
 
+        // Authenticated interactive clients are long-lived. Clear the
+        // unauthenticated handshake deadline before entering their command
+        // and live-output loops.
+        stream.set_read_timeout(None)?;
         let client = host.next_client.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = sync_channel(256);
         let tap = HostTap {
@@ -4183,6 +4219,29 @@ mod unix {
                     panic!("the terminal-host client worker disconnected without a result")
                 }
             }
+        }
+
+        #[test]
+        fn host_client_admission_is_bounded_and_reusable() {
+            let active = Arc::new(AtomicUsize::new(0));
+            let mut admissions = (0..MAX_TERMINAL_HOST_CLIENTS)
+                .map(|_| {
+                    HostClientAdmission::try_acquire(&active)
+                        .expect("a client below the configured limit was rejected")
+                })
+                .collect::<Vec<_>>();
+
+            assert!(
+                HostClientAdmission::try_acquire(&active).is_none(),
+                "the terminal host admitted more than its configured client limit"
+            );
+            admissions.pop();
+            let replacement = HostClientAdmission::try_acquire(&active)
+                .expect("a released client admission was not reusable");
+            drop(replacement);
+            drop(admissions);
+
+            assert_eq!(active.load(Ordering::Acquire), 0);
         }
 
         #[cfg(target_os = "macos")]
