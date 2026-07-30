@@ -486,6 +486,10 @@ jobs:
           # The script writes the CFBundleVersion that actually shipped here (the
           # monotonic guard may bump it), so the summary reports the real value.
           CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
+          # Pin the archive/export workspace: the default is a /tmp dir keyed by
+          # the build number, which this workflow cannot compute, and the
+          # post-upload dSYM artifact step must find the archive's dSYM bundle.
+          CMUX_IOS_UPLOAD_DIR: ${{ runner.temp }}/cmux-ios-upload
           # The previous beta's commit (the last successful run's head_sha): base
           # of the per-build "What to Test" commit range. Empty on the very first
           # run / a missing history, where the generator falls back gracefully.
@@ -597,6 +601,23 @@ jobs:
           # therefore skip logic + notes ranges) independent per app.
           name: ${{ github.event.inputs.marketing_version_override != '' && 'ios-testflight-build-metadata-override' || needs.decide.outputs.variant == 'demo' && 'ios-testflight-build-metadata-demo' || 'ios-testflight-build-metadata' }}
           path: ${{ runner.temp }}/ios-testflight-build.json
+          retention-days: 30
+
+      - name: Persist dSYM bundle as run artifact
+        # The runner is ephemeral, so the archive's dSYMs are the only durable
+        # copy of this build's symbols besides the Symbols/ files uploaded
+        # inside the IPA; without this artifact, a TestFlight crash whose
+        # symbols ASC cannot serve is permanently unsymbolicatable (build
+        # 20260730090940). Keyed by variant + CFBundleVersion so a crash
+        # report's build number finds the right bundle. The override path is
+        # excluded like the canonical metadata artifact: it archives on a fleet
+        # Mac via cloud-testflight.sh, not under CMUX_IOS_UPLOAD_DIR.
+        if: success() && github.event.inputs.marketing_version_override == ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-dsyms-${{ needs.decide.outputs.variant }}-${{ steps.upload.outputs.final_build_number }}
+          path: ${{ runner.temp }}/cmux-ios-upload/cmux.xcarchive/dSYMs
+          if-no-files-found: error
           retention-days: 30
 
       - name: Cleanup keychain
