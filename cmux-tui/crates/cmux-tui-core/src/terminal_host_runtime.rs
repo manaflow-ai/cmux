@@ -2422,6 +2422,15 @@ mod unix {
         }
     }
 
+    fn wait_for_host_service_activity(
+        _listener_fd: RawFd,
+        _exit_waiter: &mut UnixStream,
+        dead: &AtomicBool,
+    ) -> std::io::Result<bool> {
+        thread::sleep(Duration::from_millis(20));
+        Ok(!dead.load(Ordering::Acquire))
+    }
+
     struct HostClientAdmission {
         active: Arc<AtomicUsize>,
     }
@@ -3279,6 +3288,7 @@ mod unix {
         // record and connects through the already-listening Unix socket.
         let _ = write_frame(writer, &response);
 
+        let (_service_waker, mut service_waiter) = cmux_tui_process::unix::pair_stream()?;
         while !shared.dead.load(Ordering::Acquire) {
             match cmux_tui_process::unix::accept_stream(&listener) {
                 Ok((stream, _)) => {
@@ -3302,7 +3312,13 @@ mod unix {
                     );
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(20));
+                    if !wait_for_host_service_activity(
+                        listener.as_raw_fd(),
+                        &mut service_waiter,
+                        &shared.dead,
+                    )? {
+                        break;
+                    }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(error) => return Err(error.into()),
@@ -4242,6 +4258,54 @@ mod unix {
             drop(admissions);
 
             assert_eq!(active.load(Ordering::Acquire), 0);
+        }
+
+        #[test]
+        fn idle_host_service_wait_is_event_driven() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-hsw-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&root).unwrap();
+            let endpoint = root.join("host.sock");
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let (mut service_waker, mut service_waiter) =
+                cmux_tui_process::unix::pair_stream().unwrap();
+            let dead = Arc::new(AtomicBool::new(false));
+            let waiter_dead = dead.clone();
+            let listener_fd = listener.as_raw_fd();
+            let (done_sender, done_receiver) = sync_channel(1);
+            let worker = thread::spawn(move || {
+                done_sender
+                    .send(wait_for_host_service_activity(
+                        listener_fd,
+                        &mut service_waiter,
+                        &waiter_dead,
+                    ))
+                    .unwrap();
+            });
+
+            let first = done_receiver.recv_timeout(Duration::from_millis(75));
+            dead.store(true, Ordering::Release);
+            let _ = service_waker.write_all(&[1]);
+            let (waited_for_event, result) = match first {
+                Ok(result) => (false, result),
+                Err(RecvTimeoutError::Timeout) => {
+                    (true, done_receiver.recv_timeout(Duration::from_secs(1)).unwrap())
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("the host service waiter disconnected without a result")
+                }
+            };
+            worker.join().unwrap();
+            drop(listener);
+            let _ = fs::remove_file(endpoint);
+            let _ = fs::remove_dir(root);
+
+            assert!(waited_for_event, "an idle host service woke without socket activity");
+            assert!(!result.unwrap(), "the exit wake was reported as client activity");
         }
 
         #[cfg(target_os = "macos")]
