@@ -39,6 +39,7 @@ final class ComputerUseSessionPresentationController {
     private let setCursorVisibility: CursorVisibilityEffect
     private let focusTerminal: TerminalFocusEffect
     private var statesByDriverSessionID: [String: SessionState] = [:]
+    private var focusTasksByDriverSessionID: [String: Task<Void, Never>] = [:]
     private var cursorTasksByDriverSessionID: [String: Task<Void, Never>] = [:]
     private var nextEpoch: UInt64 = 0
 
@@ -51,6 +52,10 @@ final class ComputerUseSessionPresentationController {
     }
 
     func stop() {
+        for task in focusTasksByDriverSessionID.values {
+            task.cancel()
+        }
+        focusTasksByDriverSessionID.removeAll()
         for task in cursorTasksByDriverSessionID.values {
             task.cancel()
         }
@@ -103,18 +108,18 @@ final class ComputerUseSessionPresentationController {
         state.proxySessionID = proxySessionID ?? state.proxySessionID
         assignNextFocusEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
-        let isCurrent = focusValidity(
+        scheduleFocusEffect(
             driverSessionID: driverSessionID,
             epoch: state.focusEpoch
-        )
-        guard isCurrent() else { return }
-        focusTerminal(workspaceID, surfaceID, isCurrent)
+        ) { [focusTerminal] isCurrent in
+            focusTerminal(workspaceID, surfaceID, isCurrent)
+        }
     }
 
     func focusComputerUse(
         driverSessionID: String,
         proxySessionID: String? = nil,
-        activate: @MainActor () -> Void
+        activate: @escaping @MainActor () -> Void
     ) {
         var state = activeState(for: driverSessionID)
         state.activityPhase = .active
@@ -124,12 +129,12 @@ final class ComputerUseSessionPresentationController {
         state.proxySessionID = proxySessionID ?? state.proxySessionID
         assignNextFocusEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
-        let isCurrent = focusValidity(
+        scheduleFocusEffect(
             driverSessionID: driverSessionID,
             epoch: state.focusEpoch
-        )
-        guard isCurrent() else { return }
-        activate()
+        ) { _ in
+            activate()
+        }
     }
 
     func reassertCallingTerminal(
@@ -144,12 +149,12 @@ final class ComputerUseSessionPresentationController {
         else {
             return
         }
-        let isCurrent = focusValidity(
+        scheduleFocusEffect(
             driverSessionID: driverSessionID,
             epoch: state.focusEpoch
-        )
-        guard isCurrent() else { return }
-        focusTerminal(workspaceID, surfaceID, isCurrent)
+        ) { [focusTerminal] isCurrent in
+            focusTerminal(workspaceID, surfaceID, isCurrent)
+        }
     }
 
     func activateTarget(
@@ -204,6 +209,10 @@ final class ComputerUseSessionPresentationController {
         state.cursorVisible = false
         state.proxySessionID = resolvedProxySessionID
         assignNextFocusEpoch(to: &state)
+        focusTasksByDriverSessionID[driverSessionID]?.cancel()
+        focusTasksByDriverSessionID.removeValue(
+            forKey: driverSessionID
+        )
         guard shouldScheduleCursorEffect else {
             statesByDriverSessionID[driverSessionID] = state
             return
@@ -312,6 +321,27 @@ final class ComputerUseSessionPresentationController {
         { @MainActor [weak self] in
             self?.statesByDriverSessionID[driverSessionID]?.cursorEpoch
                 == epoch
+        }
+    }
+
+    /// Status-item actions arrive while AppKit is still tracking the menu.
+    /// Recording the epoch synchronously makes the selected mode authoritative;
+    /// scheduling the effect on the next main-actor turn lets menu dismissal
+    /// finish first. Replacing the task guarantees that a rapid mode switch
+    /// cannot apply an older focus choice after the newer one.
+    private func scheduleFocusEffect(
+        driverSessionID: String,
+        epoch: UInt64,
+        effect: @escaping @MainActor (EffectValidity) -> Void
+    ) {
+        focusTasksByDriverSessionID[driverSessionID]?.cancel()
+        let isCurrent = focusValidity(
+            driverSessionID: driverSessionID,
+            epoch: epoch
+        )
+        focusTasksByDriverSessionID[driverSessionID] = Task { @MainActor in
+            guard !Task.isCancelled, isCurrent() else { return }
+            effect(isCurrent)
         }
     }
 

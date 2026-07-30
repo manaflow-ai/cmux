@@ -2857,7 +2857,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor
-    func computerUseSessionsDefaultToCallingTerminalFocus() {
+    func computerUseSessionsDefaultToCallingTerminalFocus() async {
         let controller = ComputerUseSessionPresentationController(
             setCursorVisibility: { _, _, _, _ in },
             focusTerminal: { _, _, _ in }
@@ -2876,6 +2876,8 @@ struct ComputerUseUXTests {
         controller.focusComputerUse(driverSessionID: driverSessionID) {
             targetWasActivated = true
         }
+        #expect(!targetWasActivated)
+        await Task.yield()
         #expect(targetWasActivated)
         #expect(controller.focusMode(for: driverSessionID) == .computerUse)
 
@@ -2888,7 +2890,7 @@ struct ComputerUseUXTests {
     /// selected mode must become authoritative immediately, but the activation
     /// effect must wait until menu tracking unwinds. If the user switches modes
     /// before that happens, only the newest choice may take focus.
-    @Test @MainActor
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func newestMenuFocusChoiceWinsAfterMenuTrackingCloses() async throws {
         let application = NSRunningApplication.current
         let bundleIdentifier = try #require(application.bundleIdentifier)
@@ -2908,6 +2910,11 @@ struct ComputerUseUXTests {
             logicalSessionID: logicalSessionID,
             rootProcessIdentities: [writerIdentity]
         )
+        let focusEffectStream = AsyncStream.makeStream(
+            of: String.self,
+            bufferingPolicy: .unbounded
+        )
+        defer { focusEffectStream.continuation.finish() }
         var focusEffects: [String] = []
         let controller = ComputerUseWatchTargetController(
             stateDirectoryURL: FileManager.default.temporaryDirectory,
@@ -2919,9 +2926,11 @@ struct ComputerUseUXTests {
             ),
             onFocusTerminal: { _, _, _ in
                 focusEffects.append("terminal")
+                focusEffectStream.continuation.yield("terminal")
             },
             activate: { _ in
                 focusEffects.append("computerUse")
+                focusEffectStream.continuation.yield("computerUse")
             }
         )
         controller.start()
@@ -2951,8 +2960,12 @@ struct ComputerUseUXTests {
             logicalSessionID: logicalSessionID
         ))
 
-        await Task.yield()
+        var focusEffectIterator =
+            focusEffectStream.stream.makeAsyncIterator()
+        let committedFocusEffect =
+            try #require(await focusEffectIterator.next())
 
+        #expect(committedFocusEffect == "computerUse")
         #expect(focusEffects == ["computerUse"])
     }
 
