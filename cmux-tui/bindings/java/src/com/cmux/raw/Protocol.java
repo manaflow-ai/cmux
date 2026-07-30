@@ -6,7 +6,7 @@ import java.util.Map;
 
 
 public final class Protocol {
-    public static final String SDK_VERSION = "0.4.0";
+    public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 10;
     public static final int SCHEMA_VERSION = 2;
     public static final String IR_SHA256 = "c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd";

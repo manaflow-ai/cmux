@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+import xml.etree.ElementTree as ET
 from collections.abc import Mapping
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from codegen.ir import SdkIR, mutable_document
@@ -28,7 +29,29 @@ _HEADER = """// Generated from cmux-tui/spec/sdk-schema.json. DO NOT EDIT.
 package com.cmux.raw;
 
 """
-_SDK_VERSION = "0.4.0"
+_JAVA_PACKAGE_MANIFEST = (
+    Path(__file__).resolve().parents[1] / "java" / "pom.xml"
+)
+_SDK_VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+
+
+def _read_sdk_version(manifest: Path) -> str:
+    try:
+        root = ET.parse(manifest).getroot()
+    except (OSError, ET.ParseError) as error:
+        raise ValueError(
+            f"cannot read Java package version from {manifest}: {error}"
+        ) from error
+    namespace = ""
+    if root.tag.startswith("{") and "}" in root.tag:
+        namespace = root.tag[1:].split("}", 1)[0]
+    version_tag = f"{{{namespace}}}version" if namespace else "version"
+    version = root.findtext(version_tag)
+    if version is None or not _SDK_VERSION_PATTERN.fullmatch(version.strip()):
+        raise ValueError(
+            f"Java package manifest {manifest} must define an X.Y.Z project version"
+        )
+    return version.strip()
 
 
 def _words(value: str) -> list[str]:
@@ -152,8 +175,9 @@ class Registry:
 
 
 class JavaEmitter:
-    def __init__(self, ir: SdkIR):
+    def __init__(self, ir: SdkIR, sdk_version: str):
         self.ir = ir
+        self.sdk_version = sdk_version
         self.document = mutable_document(ir)
         self.registry = Registry()
         self.request_exprs: dict[str, Mapping[str, Any]] = {}
@@ -1015,7 +1039,7 @@ class JavaEmitter:
             _HEADER,
             "import java.util.Map;\n\n",
             "public final class Protocol {",
-            f"    public static final String SDK_VERSION = {_java_string(_SDK_VERSION)};",
+            f"    public static final String SDK_VERSION = {_java_string(self.sdk_version)};",
             f"    public static final int VERSION = {self.ir.mux_protocol};",
             f"    public static final int SCHEMA_VERSION = {self.ir.schema_version};",
             f"    public static final String IR_SHA256 = {_java_string(self.ir.ir_sha256)};",
@@ -1135,8 +1159,12 @@ def java_name_for(wire_name: str) -> str:
     return _camel(wire_name)
 
 
-def emit(ir: SdkIR) -> Mapping[str | PurePosixPath, str | bytes]:
-    return JavaEmitter(ir).render()
+def emit(
+    ir: SdkIR,
+    *,
+    version_manifest: Path = _JAVA_PACKAGE_MANIFEST,
+) -> Mapping[str | PurePosixPath, str | bytes]:
+    return JavaEmitter(ir, _read_sdk_version(version_manifest)).render()
 
 
 EMITTER = Emitter(

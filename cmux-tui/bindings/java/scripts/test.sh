@@ -13,6 +13,7 @@ for test_class in \
   com.cmux.raw.StreamModeTest \
   com.cmux.raw.LifecycleTest \
   com.cmux.raw.ErgonomicsTest \
+  com.cmux.internal.UnixTransportTest \
   com.cmux.ResourceApiTest \
   com.cmux.BrowserPointerFrameTest
 do

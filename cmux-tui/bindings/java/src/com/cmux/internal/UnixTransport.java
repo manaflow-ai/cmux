@@ -8,27 +8,52 @@ import java.io.IOException;
 import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.ByteChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Bounded JSON-lines transport using Java 17 Unix-domain sockets. */
 public final class UnixTransport implements Transport {
-    private final SocketChannel channel;
+    static final int READ_BUFFER_BYTES = 8192;
+
+    private final ByteChannel channel;
     private final int maxRequestBytes;
     private final int maxResponseBytes;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Object readLock = new Object();
     private final Object writeLock = new Object();
+    private final ByteBuffer readBuffer = ByteBuffer.allocate(READ_BUFFER_BYTES);
+    private final ByteArrayOutputStream frame =
+        new ByteArrayOutputStream(READ_BUFFER_BYTES);
 
     public UnixTransport(Path socket, int maxRequestBytes, int maxResponseBytes)
             throws IOException {
         this.maxRequestBytes = positive(maxRequestBytes, "maxRequestBytes");
         this.maxResponseBytes = positive(maxResponseBytes, "maxResponseBytes");
-        channel = SocketChannel.open(StandardProtocolFamily.UNIX);
-        channel.connect(UnixDomainSocketAddress.of(socket));
+        SocketChannel opened = SocketChannel.open(StandardProtocolFamily.UNIX);
+        try {
+            opened.connect(UnixDomainSocketAddress.of(socket));
+        } catch (IOException | RuntimeException error) {
+            try {
+                opened.close();
+            } catch (IOException closeError) {
+                error.addSuppressed(closeError);
+            }
+            throw error;
+        }
+        channel = opened;
+        readBuffer.limit(0);
+    }
+
+    UnixTransport(ByteChannel channel, int maxRequestBytes, int maxResponseBytes) {
+        this.channel = Objects.requireNonNull(channel, "channel");
+        this.maxRequestBytes = positive(maxRequestBytes, "maxRequestBytes");
+        this.maxResponseBytes = positive(maxResponseBytes, "maxResponseBytes");
+        readBuffer.limit(0);
     }
 
     @Override
@@ -51,38 +76,31 @@ public final class UnixTransport implements Transport {
     public Map<String, Object> receive() throws IOException {
         synchronized (readLock) {
             ensureOpen();
-            ByteArrayOutputStream line = new ByteArrayOutputStream(8192);
-            ByteBuffer one = ByteBuffer.allocate(1);
             while (true) {
-                one.clear();
-                int count = channel.read(one);
+                while (readBuffer.hasRemaining()) {
+                    byte value = readBuffer.get();
+                    if (value == '\n') {
+                        return decodeFrame();
+                    }
+                    if (frame.size() >= maxResponseBytes) {
+                        close();
+                        throw new ProtocolError(
+                            "server message exceeds " + maxResponseBytes + " bytes"
+                        );
+                    }
+                    frame.write(value);
+                }
+
+                readBuffer.clear();
+                int count = channel.read(readBuffer);
                 if (count < 0) {
                     throw new IOException("session socket closed");
                 }
+                readBuffer.flip();
                 if (count == 0) {
                     continue;
                 }
-                byte value = one.array()[0];
-                if (value == '\n') {
-                    break;
-                }
-                if (line.size() >= maxResponseBytes) {
-                    close();
-                    throw new ProtocolError(
-                        "server message exceeds " + maxResponseBytes + " bytes"
-                    );
-                }
-                line.write(value);
             }
-            byte[] encoded = line.toByteArray();
-            int length = encoded.length;
-            if (length > 0 && encoded[length - 1] == '\r') {
-                length--;
-            }
-            Object decoded = Json.parse(
-                new String(encoded, 0, length, StandardCharsets.UTF_8)
-            );
-            return Wire.object(decoded, "server message");
         }
     }
 
@@ -97,6 +115,24 @@ public final class UnixTransport implements Transport {
         if (closed.get()) {
             throw new IOException("transport is closed");
         }
+    }
+
+    private Map<String, Object> decodeFrame() {
+        byte[] encoded = frame.toByteArray();
+        frame.reset();
+        int length = encoded.length;
+        if (length > 0 && encoded[length - 1] == '\r') {
+            length--;
+        }
+        if (length != encoded.length) {
+            byte[] trimmed = new byte[length];
+            System.arraycopy(encoded, 0, trimmed, 0, length);
+            encoded = trimmed;
+        }
+        return Wire.object(
+            Json.parse(encoded, Json.DEFAULT_MAX_DEPTH),
+            "server message"
+        );
     }
 
     private static int positive(int value, String name) {
