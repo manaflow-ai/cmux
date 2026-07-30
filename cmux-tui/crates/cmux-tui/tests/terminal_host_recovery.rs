@@ -1527,6 +1527,12 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.terminal_id, terminal_id);
 
     harness.restart();
+    let adopted_surface = wait_for_adopted_terminal(
+        &harness.socket,
+        &terminal_id,
+        &incarnation,
+        "terminal host was not adopted",
+    );
     let recovered =
         request(&harness.socket, serde_json::json!({"id": 4, "cmd": "list-workspaces"}));
     let recovered_workspace = recovered["workspaces"]
@@ -1535,8 +1541,7 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
         .iter()
         .find(|item| item["key"].as_str() == Some(&workspace_key))
         .expect("durable workspace was not recovered");
-    let adopted_surface =
-        first_surface(recovered_workspace).expect("terminal host was not adopted");
+    assert_eq!(first_surface(recovered_workspace), Some(adopted_surface));
     let state = wait_for_cursor_visual(&harness.socket, adopted_surface, "block", true);
     assert_eq!(state["colors"]["cursor_style"], "block");
     assert_eq!(state["colors"]["cursor_blink"], true);
@@ -1590,6 +1595,12 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     // only in the disposable daemon-side Ghostty mirror.
     harness.sigkill();
     harness.restart();
+    let resized_surface = wait_for_adopted_terminal(
+        &harness.socket,
+        &terminal_id,
+        &incarnation,
+        "resized terminal host was not adopted",
+    );
     let recovered =
         request(&harness.socket, serde_json::json!({"id": 8, "cmd": "list-workspaces"}));
     let recovered_workspace = recovered["workspaces"]
@@ -1598,8 +1609,7 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
         .iter()
         .find(|item| item["key"].as_str() == Some(&workspace_key))
         .expect("workspace was not recovered after the resized host survived again");
-    let resized_surface =
-        first_surface(recovered_workspace).expect("resized terminal host was not adopted");
+    assert_eq!(first_surface(recovered_workspace), Some(resized_surface));
     let state = request(
         &harness.socket,
         serde_json::json!({"id": 9, "cmd": "vt-state", "surface": resized_surface}),
@@ -2553,6 +2563,32 @@ fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
         std::thread::sleep(Duration::from_millis(50));
     }
     last
+}
+
+fn wait_for_adopted_terminal(
+    path: &Path,
+    terminal_id: &str,
+    incarnation: &str,
+    failure: &str,
+) -> u64 {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let resolved = request(
+            path,
+            serde_json::json!({
+                "cmd": "resolve-terminal",
+                "terminal_id": terminal_id,
+            }),
+        );
+        if resolved["lifecycle"] == "running"
+            && resolved["terminal_incarnation"].as_str() == Some(incarnation)
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            return surface;
+        }
+        assert!(Instant::now() < deadline, "{failure}: {resolved}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, TerminalHostRecord)> {
