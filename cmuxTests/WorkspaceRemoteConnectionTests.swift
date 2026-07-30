@@ -1,6 +1,7 @@
 import Darwin
 import Combine
 import XCTest
+import os
 import CmuxControlSocket
 import CmuxCore
 import CmuxRemoteDaemon
@@ -24,16 +25,57 @@ private typealias RemoteProcessScript = (_ executable: String, _ arguments: [Str
 private final class ManualRemotePTYLifecycleCommitLease:
     ControlRemotePTYLifecycleCommitLease
 {
-    var isCurrent = true
+    private enum DeliveryState {
+        case available
+        case inFlight
+        case completed
+    }
+
+    private struct State {
+        var isCurrent = true
+        var delivery = DeliveryState.available
+    }
+
+    private nonisolated let state = OSAllocatedUnfairLock(initialState: State())
+
+    var isCurrent: Bool {
+        get {
+            state.withLock { $0.isCurrent }
+        }
+        set {
+            state.withLock {
+                $0.isCurrent = newValue
+                if !newValue {
+                    $0.delivery = .available
+                }
+            }
+        }
+    }
     var afterOperation: (@MainActor () -> Void)?
 
     nonisolated func beginReadinessDelivery()
         -> ControlRemotePTYReadinessDeliveryAdmission
     {
-        .acquired
+        state.withLock {
+            guard $0.isCurrent else { return .stale }
+            switch $0.delivery {
+            case .available:
+                $0.delivery = .inFlight
+                return .acquired
+            case .inFlight:
+                return .inFlight
+            case .completed:
+                return .alreadyCompleted
+            }
+        }
     }
 
-    nonisolated func finishReadinessDelivery(succeeded _: Bool) {}
+    nonisolated func finishReadinessDelivery(succeeded: Bool) {
+        state.withLock {
+            guard $0.delivery == .inFlight else { return }
+            $0.delivery = succeeded ? .completed : .available
+        }
+    }
 
     func commitIfCurrent(
         _ operation: @MainActor @Sendable () -> Bool
