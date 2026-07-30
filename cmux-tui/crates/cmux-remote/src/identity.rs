@@ -20,6 +20,9 @@ use crate::owner_lock::{OwnerFileLock, sibling_lock_path};
 use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 
 const STATE_VERSION: u32 = 1;
+/// Current on-disk authorization schema. Version 2 fences binaries that only
+/// understand the original version-1 state.
+pub const AUTH_STATE_VERSION: u32 = 2;
 const MAX_INVITATION_TTL: Duration = Duration::from_secs(5 * 60);
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const ENROLLMENT_RETRY_GRACE: Duration = Duration::from_secs(60);
@@ -900,19 +903,50 @@ impl AuthDatabase {
         daemon_name: impl Into<String>,
         allow_carrier: bool,
     ) -> Result<Arc<Self>, IdentityError> {
-        let state_dir = state_dir.into();
+        Self::load(
+            state_dir.into(),
+            daemon_name.into(),
+            allow_carrier,
+            AuthStateLoadMode::CurrentOnly,
+        )
+    }
+
+    /// Open current authorization state or explicitly migrate the legacy
+    /// version after the caller has fenced every predecessor process.
+    pub fn load_or_migrate_legacy(
+        state_dir: impl Into<PathBuf>,
+        daemon_name: impl Into<String>,
+        allow_carrier: bool,
+    ) -> Result<Arc<Self>, IdentityError> {
+        Self::load(
+            state_dir.into(),
+            daemon_name.into(),
+            allow_carrier,
+            AuthStateLoadMode::MigrateLegacy,
+        )
+    }
+
+    fn load(
+        state_dir: PathBuf,
+        daemon_name: String,
+        allow_carrier: bool,
+        load_mode: AuthStateLoadMode,
+    ) -> Result<Arc<Self>, IdentityError> {
         secure_directory(&state_dir)?;
         let state_path = state_dir.join("devices.json");
         let lease_path = sibling_lock_path(&state_path).map_err(IdentityError::Io)?;
         let state_lease = OwnerFileLock::try_acquire(&lease_path).map_err(IdentityError::Io)?;
+        // Persist the rollback fence while the authorization lease is held and
+        // before creating identity.json. A crash cannot leave a directory that
+        // a retry mistakes for unfenced legacy authorization state.
+        let persisted = load_auth_state(&state_path, load_mode)?;
         let identity = load_or_create_identity(&state_dir.join("identity.json"))?;
-        let persisted = load_state(&state_path)?;
         let (revocation_tx, _) = watch::channel(persisted.revocation_generation);
         let persistence =
             Arc::new(PersistenceCoordinator::new(state_path, persisted.revision, state_lease)?);
         Ok(Arc::new(Self {
             state_dir,
-            daemon_name: daemon_name.into(),
+            daemon_name,
             identity,
             allow_carrier,
             state: Mutex::new(AuthState::from_persisted(persisted)),
@@ -1563,7 +1597,7 @@ impl AuthState {
 
     fn to_persisted(&self) -> PersistedState {
         PersistedState {
-            version: STATE_VERSION,
+            version: AUTH_STATE_VERSION,
             revision: self.revision,
             revocation_generation: self.revocation_generation,
             devices: self.devices.values().cloned().collect(),
@@ -1633,7 +1667,7 @@ struct PersistedState {
 impl Default for PersistedState {
     fn default() -> Self {
         Self {
-            version: STATE_VERSION,
+            version: AUTH_STATE_VERSION,
             revision: 0,
             revocation_generation: 0,
             devices: Vec::new(),
@@ -1712,25 +1746,77 @@ fn load_client_state(path: &Path) -> Result<Option<(PersistedClientState, bool)>
     Ok(Some((state, routes_changed)))
 }
 
+#[derive(Clone, Copy)]
+enum AuthStateLoadMode {
+    CurrentOnly,
+    MigrateLegacy,
+}
+
+#[derive(Deserialize)]
+struct PersistedAuthStateVersion {
+    version: u32,
+}
+
+/// Read the on-disk authorization schema without creating or modifying state.
+pub fn persisted_auth_state_version(state_dir: &Path) -> Result<Option<u32>, IdentityError> {
+    let data = match fs::read(state_dir.join("devices.json")) {
+        Ok(data) => data,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(IdentityError::Io(error)),
+    };
+    let version: PersistedAuthStateVersion =
+        serde_json::from_slice(&data).map_err(IdentityError::Json)?;
+    Ok(Some(version.version))
+}
+
+/// Return whether a pre-existing authorization directory needs an explicit,
+/// process-fenced migration before current code may open it.
+pub fn auth_state_requires_explicit_migration(state_dir: &Path) -> Result<bool, IdentityError> {
+    Ok(matches!(persisted_auth_state_version(state_dir)?, None | Some(STATE_VERSION)))
+}
+
+#[cfg(test)]
 fn load_state(path: &Path) -> Result<PersistedState, IdentityError> {
-    if !path.exists() {
-        return Ok(PersistedState::default());
-    }
-    let data = fs::read(path).map_err(IdentityError::Io)?;
+    load_auth_state(path, AuthStateLoadMode::CurrentOnly)
+}
+
+fn load_auth_state(
+    path: &Path,
+    load_mode: AuthStateLoadMode,
+) -> Result<PersistedState, IdentityError> {
+    let data = match fs::read(path) {
+        Ok(data) => data,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let state = PersistedState::default();
+            atomic_json(path, &state)?;
+            return Ok(state);
+        }
+        Err(error) => return Err(IdentityError::Io(error)),
+    };
     let mut state: PersistedState = serde_json::from_slice(&data).map_err(IdentityError::Json)?;
-    if state.version != STATE_VERSION {
+    let migrating_legacy =
+        state.version == STATE_VERSION && matches!(load_mode, AuthStateLoadMode::MigrateLegacy);
+    if state.version == STATE_VERSION && !migrating_legacy {
+        return Err(IdentityError::Invalid(
+            "device state version 1 requires explicit migration".into(),
+        ));
+    }
+    if state.version != AUTH_STATE_VERSION && !migrating_legacy {
         return Err(IdentityError::Invalid(format!(
             "device state version {} is unsupported",
             state.version
         )));
     }
-    let mut routes_changed = false;
+    let mut state_changed = migrating_legacy;
+    if migrating_legacy {
+        state.version = AUTH_STATE_VERSION;
+    }
     for invitation in &mut state.invitations {
         let sanitized = credential_free_route_hints_lossy(&invitation.route_hints);
-        routes_changed |= sanitized != invitation.route_hints;
+        state_changed |= sanitized != invitation.route_hints;
         invitation.route_hints = sanitized;
     }
-    if routes_changed {
+    if state_changed {
         state.revision = state
             .revision
             .checked_add(1)
@@ -2133,10 +2219,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         atomic_json(
             &temp.path().join("devices.json"),
-            &PersistedState {
-                version: STATE_VERSION,
-                ..PersistedState::default()
-            },
+            &PersistedState { version: STATE_VERSION, ..PersistedState::default() },
         )
         .unwrap();
 
@@ -2144,6 +2227,79 @@ mod tests {
             .expect_err("legacy authorization state opened without explicit migration");
 
         assert!(error.to_string().contains("migration"), "{error}");
+        assert_eq!(persisted_auth_state_version(temp.path()).unwrap(), Some(STATE_VERSION));
+        assert!(
+            !temp.path().join("identity.json").exists(),
+            "rejected legacy state created a daemon identity"
+        );
+    }
+
+    #[test]
+    fn auth_database_explicit_migration_persists_rollback_fence_before_opening() {
+        let temp = tempfile::tempdir().unwrap();
+        atomic_json(
+            &temp.path().join("devices.json"),
+            &PersistedState { version: STATE_VERSION, revision: 7, ..PersistedState::default() },
+        )
+        .unwrap();
+
+        let database = AuthDatabase::load_or_migrate_legacy(temp.path(), "daemon", false)
+            .expect("explicit legacy migration failed");
+        assert_eq!(persisted_auth_state_version(temp.path()).unwrap(), Some(AUTH_STATE_VERSION));
+        let persisted = load_state(&temp.path().join("devices.json")).unwrap();
+        assert_eq!(persisted.revision, 8);
+        drop(database);
+
+        AuthDatabase::load_or_create(temp.path(), "daemon", false)
+            .expect("migrated authorization state was not current");
+    }
+
+    #[test]
+    fn auth_database_explicit_migration_never_downgrades_unknown_state() {
+        let temp = tempfile::tempdir().unwrap();
+        atomic_json(
+            &temp.path().join("devices.json"),
+            &PersistedState { version: AUTH_STATE_VERSION + 1, ..PersistedState::default() },
+        )
+        .unwrap();
+
+        let error = AuthDatabase::load_or_migrate_legacy(temp.path(), "daemon", false)
+            .expect_err("unknown authorization state was downgraded");
+
+        assert!(error.to_string().contains("unsupported"), "{error}");
+        assert_eq!(
+            persisted_auth_state_version(temp.path()).unwrap(),
+            Some(AUTH_STATE_VERSION + 1)
+        );
+        assert!(!temp.path().join("identity.json").exists());
+    }
+
+    #[test]
+    fn fresh_auth_state_persists_rollback_fence_before_identity_creation() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing");
+        assert_eq!(persisted_auth_state_version(&missing).unwrap(), None);
+        assert!(!missing.exists(), "read-only version inspection created state");
+
+        fs::create_dir(temp.path().join("identity.json")).unwrap();
+        AuthDatabase::load_or_create(temp.path(), "daemon", false)
+            .expect_err("identity creation unexpectedly accepted a directory");
+
+        assert_eq!(
+            persisted_auth_state_version(temp.path()).unwrap(),
+            Some(AUTH_STATE_VERSION),
+            "identity failure happened before the rollback fence was durable"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            assert_eq!(
+                fs::metadata(temp.path().join("devices.json")).unwrap().permissions().mode()
+                    & 0o777,
+                0o600
+            );
+        }
     }
 
     #[test]
@@ -2957,7 +3113,7 @@ mod tests {
             revoked_at_unix: Some(9),
         };
         let newer = PersistedState {
-            version: STATE_VERSION,
+            version: AUTH_STATE_VERSION,
             revision: 2,
             revocation_generation: 1,
             devices: vec![device],
@@ -2970,7 +3126,7 @@ mod tests {
             }],
         };
         let older = PersistedState {
-            version: STATE_VERSION,
+            version: AUTH_STATE_VERSION,
             revision: 1,
             revocation_generation: 0,
             devices: Vec::new(),
@@ -3138,13 +3294,13 @@ mod tests {
     }
 
     #[test]
-    fn legacy_device_state_without_revision_loads_at_revision_zero() {
+    fn device_state_without_revision_loads_at_revision_zero() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("devices.json");
         fs::write(
             &path,
             serde_json::json!({
-                "version": STATE_VERSION,
+                "version": AUTH_STATE_VERSION,
                 "revocation_generation": 0,
                 "devices": [],
                 "invitations": [],

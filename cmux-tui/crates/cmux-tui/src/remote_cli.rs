@@ -39,12 +39,14 @@ use serde_json::Value;
 use url::Url;
 use zeroize::Zeroizing;
 
+#[cfg(test)]
+use crate::remote_runtime::persist_daemon_lifecycle_fence;
 use crate::remote_runtime::{
     ClientRuntimeOptions, DaemonRuntimeOptions, DaemonShutdownStatus, RelayClientOptions,
     ResolvedRouteCandidate, SshBootstrapOptions, acknowledge_failed_shutdown_outcome,
-    acknowledge_legacy_shutdown_state, client_provider_registry, daemon_paths,
-    inactive_daemon_needs_legacy_acknowledgement, load_runtime_info, load_shutdown_outcome,
-    persist_daemon_lifecycle_fence, start_client_runtime, start_daemon_runtime,
+    acknowledge_legacy_shutdown_state, client_provider_registry, complete_verified_daemon_stop,
+    daemon_paths, inactive_daemon_needs_legacy_acknowledgement, load_runtime_info,
+    load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
 
@@ -1839,6 +1841,24 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
                     &default_admin,
                 ));
             }
+            let runtime_path = state_dir.join("runtime.json");
+            match fs::symlink_metadata(&runtime_path) {
+                Ok(_) => {
+                    return Err(anyhow!(
+                        "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization ({})",
+                        runtime_path.display()
+                    ));
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!(
+                            "could not inspect remote daemon runtime metadata ({})",
+                            runtime_path.display()
+                        )
+                    });
+                }
+            }
             verify_inactive_shutdown_outcome(&state_dir)?;
             if inactive_daemon_needs_legacy_acknowledgement(&state_dir)? {
                 return Err(anyhow!(
@@ -1894,7 +1914,8 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
                 Some(lifecycle_id) => verify_shutdown_outcome(&state_dir, lifecycle_id),
                 None => Ok(()),
             }?;
-            persist_daemon_lifecycle_fence(&state_dir)?;
+            tokio_runtime()?
+                .block_on(complete_verified_daemon_stop(&state_dir, &parsed.session))?;
             return Ok(());
         }
         thread::sleep(Duration::from_millis(50));
@@ -2377,6 +2398,23 @@ fn expand_home(path: String) -> anyhow::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn seed_legacy_authorization_state(state_dir: &Path) {
+        let auth_state_dir = state_dir.join("auth");
+        fs::create_dir_all(&auth_state_dir).unwrap();
+        fs::write(
+            auth_state_dir.join("devices.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "version": 1,
+                "revision": 0,
+                "revocation_generation": 0,
+                "devices": [],
+                "invitations": [],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
 
     #[tokio::test]
     async fn rpc_stdin_wait_stops_when_remote_runtime_finishes_without_eof() {
@@ -3250,6 +3288,7 @@ mod tests {
         let session = "legacy-handoff";
         let (state_dir, link_socket, admin_socket) =
             daemon_paths(session, Some(directory.path())).unwrap();
+        seed_legacy_authorization_state(&state_dir);
         let ready = directory.path().join("legacy-ready");
         let cleanup = directory.path().join("legacy-cleanup-published");
         let release = directory.path().join("release-legacy-finalization");
@@ -3317,6 +3356,11 @@ mod tests {
         assert!(
             state_dir.join("lifecycle-fence.json").exists(),
             "process-fenced legacy shutdown did not publish a lifecycle fence"
+        );
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&state_dir.join("auth")).unwrap(),
+            Some(cmux_remote::identity::AUTH_STATE_VERSION),
+            "process-fenced legacy shutdown did not publish its rollback fence"
         );
     }
 
@@ -3505,14 +3549,8 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let session = "acknowledge-inactive-legacy";
         let (state_dir, _, _) = daemon_paths(session, Some(directory.path())).unwrap();
-        drop(
-            cmux_remote::identity::AuthDatabase::load_or_create(
-                state_dir.join("auth"),
-                session,
-                true,
-            )
-            .unwrap(),
-        );
+        seed_legacy_authorization_state(&state_dir);
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
 
         let error = run_remote_stop(
             &["--session", session, "--state-dir", directory.path().to_string_lossy().as_ref()]
@@ -3534,6 +3572,10 @@ mod tests {
         .unwrap();
 
         assert!(state_dir.join("lifecycle-fence.json").exists());
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&state_dir.join("auth")).unwrap(),
+            Some(cmux_remote::identity::AUTH_STATE_VERSION)
+        );
         let runtime = start_daemon_runtime(
             directory.path().join("missing-mux.sock"),
             DaemonRuntimeOptions {
@@ -3822,6 +3864,63 @@ mod tests {
         .unwrap();
 
         assert!(!runtime_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn malformed_runtime_and_failed_outcome_have_a_complete_recovery_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "acknowledge-malformed-runtime-and-failure";
+        let (state_dir, _, _) = daemon_paths(session, Some(directory.path())).unwrap();
+        drop(
+            cmux_remote::identity::AuthDatabase::load_or_create(
+                state_dir.join("auth"),
+                session,
+                true,
+            )
+            .unwrap(),
+        );
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+        let runtime_path = state_dir.join("runtime.json");
+        let outcome_path = state_dir.join("shutdown.json");
+        fs::write(&runtime_path, b"{not-json").unwrap();
+        fs::write(
+            &outcome_path,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "lifecycle_id": "failed-lifecycle",
+                "status": "failed",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        run_remote_stop(
+            &[
+                "--session",
+                session,
+                "--state-dir",
+                directory.path().to_string_lossy().as_ref(),
+                "--acknowledge-legacy-finalization",
+            ]
+            .map(str::to_string),
+        )
+        .unwrap();
+        assert!(!runtime_path.exists());
+        assert!(outcome_path.exists(), "legacy recovery discarded failed shutdown evidence");
+
+        run_remote_stop(
+            &[
+                "--session",
+                session,
+                "--state-dir",
+                directory.path().to_string_lossy().as_ref(),
+                "--acknowledge-failed-finalization",
+            ]
+            .map(str::to_string),
+        )
+        .unwrap();
+        assert!(!outcome_path.exists());
     }
 
     #[cfg(unix)]

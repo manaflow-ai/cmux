@@ -25,7 +25,8 @@ use cmux_remote::connection::{
 use cmux_remote::crypto::{AuthKind, ClientAuthMode, CryptoError, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix};
 use cmux_remote::identity::{
-    AuthDatabase, IdentityError, credential_free_route_hint, default_state_dir,
+    AuthDatabase, IdentityError, auth_state_requires_explicit_migration,
+    credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
@@ -1765,6 +1766,14 @@ async fn run_daemon(
             .context("could not inspect remote daemon authorization state")?;
         let mut lifecycle_fenced = read_daemon_lifecycle_fence(&state_dir)
             .context("could not verify remote daemon lifecycle fence")?;
+        if auth_state_preexisting
+            && auth_state_requires_explicit_migration(&auth_state_dir)
+                .context("could not inspect remote daemon authorization schema")?
+        {
+            return Err(anyhow!(
+                "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains, then run remote-stop --acknowledge-legacy-finalization"
+            ));
+        }
         // Publish the fresh-state marker before AuthDatabase can create any
         // path that a retry would otherwise mistake for legacy state.
         if !auth_state_preexisting && !lifecycle_fenced {
@@ -2292,12 +2301,17 @@ fn read_daemon_lifecycle_fence(state_dir: &Path) -> Result<bool, IdentityError> 
 pub(crate) fn inactive_daemon_needs_legacy_acknowledgement(
     state_dir: &Path,
 ) -> anyhow::Result<bool> {
-    if !state_dir
-        .join("auth")
+    let auth_state_dir = state_dir.join("auth");
+    if !auth_state_dir
         .try_exists()
         .context("could not inspect remote daemon authorization state")?
     {
         return Ok(false);
+    }
+    if auth_state_requires_explicit_migration(&auth_state_dir)
+        .context("could not inspect remote daemon authorization schema")?
+    {
+        return Ok(true);
     }
     Ok(!read_daemon_lifecycle_fence(state_dir)
         .context("could not verify remote daemon lifecycle fence")?)
@@ -2320,6 +2334,33 @@ pub(crate) fn load_shutdown_outcome(state_dir: &Path) -> anyhow::Result<DaemonSh
 }
 
 #[cfg(unix)]
+pub(crate) async fn complete_verified_daemon_stop(
+    state_dir: &Path,
+    daemon_name: &str,
+) -> anyhow::Result<()> {
+    let auth_state_dir = state_dir.join("auth");
+    if !auth_state_dir
+        .try_exists()
+        .context("could not inspect stopped daemon authorization state")?
+    {
+        return persist_daemon_lifecycle_fence(state_dir)
+            .context("could not persist stopped daemon lifecycle fence");
+    }
+
+    let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
+        .context("could not acquire the stopped daemon authorization lease")?;
+    let cleanup_state_dir = state_dir.to_path_buf();
+    auth.shutdown_with_cleanup(move |finalization| {
+        if finalization.is_err() {
+            return Ok(());
+        }
+        persist_daemon_lifecycle_fence(&cleanup_state_dir)
+    })
+    .await
+    .context("could not finalize stopped daemon authorization migration")
+}
+
+#[cfg(unix)]
 pub(crate) async fn acknowledge_failed_shutdown_outcome(
     state_dir: &Path,
     daemon_name: &str,
@@ -2336,7 +2377,7 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
         .context("could not snapshot remote daemon authorization finalization for recovery")?;
     validate_failed_shutdown_recovery_evidence(&initial_runtime, &initial_outcome)?;
 
-    let auth = AuthDatabase::load_or_create(state_dir.join("auth"), daemon_name, true)
+    let auth = AuthDatabase::load_or_migrate_legacy(state_dir.join("auth"), daemon_name, true)
         .context("could not acquire the remote daemon authorization lease for recovery")?;
 
     let runtime_snapshot = read_optional_file(&runtime_path)
@@ -2454,7 +2495,7 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
         .context("could not snapshot legacy remote daemon shutdown metadata")?;
     let runtime = validate_legacy_shutdown_evidence(&initial_runtime, &initial_outcome)?;
 
-    let auth = AuthDatabase::load_or_create(&auth_state_dir, daemon_name, true)
+    let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
         .context("could not acquire the remote daemon authorization lease for legacy recovery")?;
     let runtime_snapshot = read_optional_file(&runtime_path)
         .context("could not resnapshot legacy remote daemon runtime metadata")?;
@@ -2510,17 +2551,20 @@ fn validate_legacy_shutdown_evidence(
     runtime_snapshot: &Option<Vec<u8>>,
     outcome_snapshot: &Option<Vec<u8>>,
 ) -> anyhow::Result<Option<DaemonRuntimeInfo>> {
+    // Explicit operator acknowledgement is the only recovery path for raw
+    // metadata that cannot reveal its recorded sockets. The caller still
+    // holds the authorization lease and probes the session's default sockets
+    // before removing the unchanged byte snapshot.
     let runtime = runtime_snapshot
         .as_deref()
-        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
-        .transpose()
-        .context("could not verify legacy remote daemon runtime metadata")?;
+        .and_then(|encoded| serde_json::from_slice::<DaemonRuntimeInfo>(encoded).ok());
+    let runtime_is_malformed = runtime_snapshot.is_some() && runtime.is_none();
     if runtime.as_ref().is_some_and(|runtime| runtime.lifecycle_id.is_some()) {
         return Err(anyhow!(
             "remote daemon runtime metadata is lifecycle-aware; use --acknowledge-failed-finalization when its shutdown failed"
         ));
     }
-    if let Some(encoded) = outcome_snapshot {
+    if !runtime_is_malformed && let Some(encoded) = outcome_snapshot {
         match decode_shutdown_outcome(encoded) {
             Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Succeeded, .. }) => {}
             Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Failed, .. }) | Err(_) => {
@@ -3173,6 +3217,60 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn daemon_startup_does_not_treat_lifecycle_marker_as_an_auth_rollback_fence() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "marker-with-legacy-auth";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        let auth_state_dir = state_dir.join("auth");
+        fs::create_dir_all(&auth_state_dir).unwrap();
+        fs::write(
+            auth_state_dir.join("devices.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "version": 1,
+                "revision": 0,
+                "revocation_generation": 0,
+                "devices": [],
+                "invitations": [],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        let error = match start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        ) {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("lifecycle marker bypassed authorization-state migration");
+            }
+        };
+
+        assert!(error.to_string().contains("explicit migration"), "{error:#}");
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&auth_state_dir).unwrap(),
+            Some(1),
+            "rejected startup rewrote legacy authorization state"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn daemon_startup_persists_fresh_fence_before_auth_initialization_failure() {
         use std::os::unix::fs::symlink;
 
@@ -3681,7 +3779,10 @@ mod tests {
         let (session_state, _, _) =
             daemon_paths("daemon-handoff-retry", Some(&state_root)).unwrap();
         let auth_state = session_state.join("auth");
-        fs::create_dir_all(&auth_state).unwrap();
+        drop(
+            AuthDatabase::load_or_create(&auth_state, "daemon-handoff-retry", true)
+                .expect("could not seed current authorization state"),
+        );
         persist_daemon_lifecycle_fence(&session_state).unwrap();
         let lock = OpenOptions::new()
             .read(true)
