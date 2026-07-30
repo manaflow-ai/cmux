@@ -435,6 +435,44 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceRenameFromGroupMenuUsesAlert() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 8))
+        groupName.press(forDuration: 1)
+
+        let rename = app.descendants(matching: .any)[
+            "MobileWorkspaceRenameButton-workspace-seed-4"
+        ]
+        XCTAssertTrue(rename.waitForExistence(timeout: 3))
+        guard rename.exists else { return }
+        rename.tap()
+
+        let renameAlert = app.alerts[
+            String(localized: "mobile.workspace.rename.title", defaultValue: "Rename Workspace")
+        ]
+        XCTAssertTrue(
+            renameAlert.waitForExistence(timeout: 3),
+            "Workspace rename must use a compact system alert instead of a sheet."
+        )
+        XCTAssertTrue(
+            renameAlert.textFields["WorkspaceRenameField"].exists,
+            "The rename alert must include the shared editable workspace-name field."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-rename-alert-from-group-menu"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testWorkspaceGroupContextMenuPreservesAnchorWorkspaceActions() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
