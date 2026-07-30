@@ -529,9 +529,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        // On some macOS/Xcode setups, the app-under-test process doesn't get
-        // `XCTestConfigurationFilePath`. Use a broader set of signals so UI tests
-        // can reliably skip heavyweight startup work and bring up a window.
+        // Test schemes provide an explicit marker because Xcode does not always
+        // pass its XCTest environment keys to the app host. The policy retains
+        // those keys as compatibility fallbacks for other launch paths.
         MacSentryStartupPolicy.isRunningUnderXCTest(environment: env)
     }
 
