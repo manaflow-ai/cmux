@@ -2967,6 +2967,13 @@ mod unix {
             let _ = self.pty_drain_waker.lock().unwrap().write_all(&[1]);
         }
 
+        fn wake_reserved_child_reaper(&self) {
+            let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                return;
+            };
+            crate::process_session::wake_child_reaper(session);
+        }
+
         fn request_termination(self: &Arc<Self>) {
             let already_started = {
                 // Serialize the ownership transition with WNOWAIT's final
@@ -2979,7 +2986,7 @@ mod unix {
             if already_started {
                 return;
             }
-            crate::process_session::wake_child_reaper();
+            self.wake_reserved_child_reaper();
             let worker = self.clone();
             if thread::Builder::new()
                 .name("terminal-host-terminate".into())
@@ -2996,7 +3003,7 @@ mod unix {
             let changed = !self.group_escalation_complete.swap(true, Ordering::AcqRel);
             self.child_exit.1.notify_all();
             if changed {
-                crate::process_session::wake_child_reaper();
+                self.wake_reserved_child_reaper();
             }
         }
 
@@ -3004,7 +3011,7 @@ mod unix {
             let changed = self.termination_started.swap(false, Ordering::AcqRel);
             self.child_exit.1.notify_all();
             if changed {
-                crate::process_session::wake_child_reaper();
+                self.wake_reserved_child_reaper();
             }
         }
 
@@ -3034,7 +3041,7 @@ mod unix {
             };
             self.child_exit.1.notify_all();
             if termination_changed {
-                crate::process_session::wake_child_reaper();
+                self.wake_reserved_child_reaper();
             }
             if wait_ownership_lost {
                 self.abandon_group_escalation();
@@ -3581,7 +3588,7 @@ mod unix {
             let drain_changed = !reader_host.pty_drained.swap(true, Ordering::AcqRel);
             reader_host.child_exit.1.notify_all();
             if drain_changed {
-                crate::process_session::wake_child_reaper();
+                reader_host.wake_reserved_child_reaper();
             }
             reader_host.publish_exit_if_drained();
         })?;
@@ -5267,7 +5274,7 @@ mod unix {
 
             host.group_escalation_complete.store(true, Ordering::Release);
             host.child_exit.1.notify_all();
-            crate::process_session::wake_child_reaper();
+            host.wake_reserved_child_reaper();
             let _ = host.wait_for_child_exit(Duration::from_secs(2));
             let _ = fs::remove_dir_all(root);
 

@@ -1131,13 +1131,21 @@ impl LocalPtyProcess {
         self.killer.lock().unwrap().kill().is_ok()
     }
 
+    #[cfg(unix)]
+    fn wake_reserved_child_reaper(&self) {
+        let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+            return;
+        };
+        crate::process_session::wake_child_reaper(session);
+    }
+
     fn mark_pty_drained(&self) {
         #[cfg(unix)]
         {
             let changed = !self.pty_drained.swap(true, Ordering::AcqRel);
             self.exited.1.notify_all();
             if changed {
-                crate::process_session::wake_child_reaper();
+                self.wake_reserved_child_reaper();
             }
         }
     }
@@ -1183,7 +1191,7 @@ impl LocalPtyProcess {
         let changed = self.termination_started.swap(false, Ordering::AcqRel);
         self.exited.1.notify_all();
         if changed {
-            crate::process_session::wake_child_reaper();
+            self.wake_reserved_child_reaper();
         }
     }
 
@@ -1345,7 +1353,7 @@ impl LocalPtyProcess {
             };
             self.exited.1.notify_all();
             if termination_changed {
-                crate::process_session::wake_child_reaper();
+                self.wake_reserved_child_reaper();
             }
             if wait_ownership_lost {
                 self.abandon_termination();
@@ -1387,7 +1395,7 @@ impl LocalPtyProcess {
             let escalation_changed = !self.group_escalation_complete.swap(true, Ordering::AcqRel);
             self.exited.1.notify_all();
             if escalation_changed {
-                crate::process_session::wake_child_reaper();
+                self.wake_reserved_child_reaper();
             }
         }
         #[cfg(not(unix))]
@@ -4649,7 +4657,7 @@ mod tests {
 
         process.group_escalation_complete.store(true, Ordering::Release);
         process.exited.1.notify_all();
-        crate::process_session::wake_child_reaper();
+        process.wake_reserved_child_reaper();
         let reap_deadline = Instant::now() + Duration::from_secs(2);
         while !process.child_reaped.load(Ordering::Acquire) && Instant::now() < reap_deadline {
             std::thread::sleep(Duration::from_millis(10));

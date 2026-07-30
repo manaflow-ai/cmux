@@ -126,7 +126,7 @@ enum NaturalChildObservation {
 
 enum NaturalReaperCommand {
     Add(NaturalReapRequest),
-    Wake,
+    WakeSession(libc::pid_t),
 }
 
 struct NaturalReapRequest {
@@ -185,7 +185,6 @@ struct NaturalReaper {
     sender: mpsc::Sender<NaturalReaperCommand>,
     active: Arc<AtomicUsize>,
     degraded: Arc<AtomicUsize>,
-    wake_pending: Arc<AtomicBool>,
     _worker: std::thread::JoinHandle<()>,
 }
 
@@ -206,18 +205,16 @@ impl NaturalReaper {
         let (sender, receiver) = mpsc::channel();
         let active = Arc::new(AtomicUsize::new(0));
         let degraded = Arc::new(AtomicUsize::new(0));
-        let wake_pending = Arc::new(AtomicBool::new(false));
-        let worker_wake_pending = wake_pending.clone();
         let worker = std::thread::Builder::new().name("cmux-pty-session-reaper".into()).spawn(
             move || {
                 #[cfg(test)]
                 NATURAL_REAP_WORKERS.fetch_add(1, Ordering::AcqRel);
-                run_natural_reaper(receiver, worker_wake_pending);
+                run_natural_reaper(receiver);
                 #[cfg(test)]
                 NATURAL_REAP_WORKERS.fetch_sub(1, Ordering::AcqRel);
             },
         )?;
-        Ok(Self { sender, active, degraded, wake_pending, _worker: worker })
+        Ok(Self { sender, active, degraded, _worker: worker })
     }
 
     fn lease(&self) -> io::Result<ReservedChildReaperLease> {
@@ -298,18 +295,16 @@ fn require_waitable_child_disposition() -> io::Result<()> {
     Ok(())
 }
 
-/// Wake every reserved child after a cleanup-relevant state transition.
+/// Wake one reserved child after a cleanup-relevant state transition.
 ///
-/// This deliberately preempts degraded retry delays once. Callers must emit
-/// it only when the state actually changed; a failed attempt keeps its normal
-/// degraded backoff.
-pub(crate) fn wake_child_reaper() {
+/// This deliberately preempts that session's degraded retry delay once.
+/// Callers must emit it only when the state actually changed; a failed attempt
+/// keeps its normal degraded backoff.
+pub(crate) fn wake_child_reaper(session: libc::pid_t) {
     let Some(slot) = NATURAL_REAPER.get() else { return };
     let slot = slot.lock().unwrap();
     let Some(reaper) = slot.as_ref() else { return };
-    if !reaper.wake_pending.swap(true, Ordering::AcqRel) {
-        let _ = reaper.sender.send(NaturalReaperCommand::Wake);
-    }
+    let _ = reaper.sender.send(NaturalReaperCommand::WakeSession(session));
 }
 
 pub(crate) fn enqueue_reserved_session_leader(
@@ -370,10 +365,7 @@ pub(crate) fn poll_reserved_session_leader(
     true
 }
 
-fn run_natural_reaper(
-    receiver: mpsc::Receiver<NaturalReaperCommand>,
-    wake_pending: Arc<AtomicBool>,
-) {
+fn run_natural_reaper(receiver: mpsc::Receiver<NaturalReaperCommand>) {
     let mut pending = Vec::<NaturalReapRequest>::new();
     loop {
         let received = if pending.is_empty() {
@@ -389,7 +381,7 @@ fn run_natural_reaper(
         };
         match received {
             Ok(command) => {
-                accept_natural_reaper_command(command, &mut pending, wake_pending.as_ref());
+                accept_natural_reaper_command(command, &mut pending);
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) if pending.is_empty() => return,
@@ -402,7 +394,7 @@ fn run_natural_reaper(
         while let Some(remaining) = batch_deadline.checked_duration_since(Instant::now()) {
             match receiver.recv_timeout(remaining) {
                 Ok(command) => {
-                    accept_natural_reaper_command(command, &mut pending, wake_pending.as_ref());
+                    accept_natural_reaper_command(command, &mut pending);
                 }
                 Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => break,
             }
@@ -605,14 +597,12 @@ fn kill_sessions_until_only_leaders_from_snapshot(
 fn accept_natural_reaper_command(
     command: NaturalReaperCommand,
     pending: &mut Vec<NaturalReapRequest>,
-    wake_pending: &AtomicBool,
 ) {
     match command {
         NaturalReaperCommand::Add(request) => pending.push(request),
-        NaturalReaperCommand::Wake => {
-            wake_pending.store(false, Ordering::Release);
+        NaturalReaperCommand::WakeSession(session) => {
             let now = Instant::now();
-            for request in pending {
+            for request in pending.iter_mut().filter(|request| request.session == session) {
                 request.next_attempt = now;
             }
         }
@@ -1676,7 +1666,7 @@ mod tests {
         let retried_while_degraded =
             attempt_receiver.recv_timeout(Duration::from_millis(250)).is_ok();
         release.store(true, Ordering::Release);
-        wake_child_reaper();
+        wake_child_reaper(session);
         finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
         assert!(
@@ -1717,7 +1707,7 @@ mod tests {
         let retried_while_degraded =
             attempt_receiver.recv_timeout(Duration::from_millis(250)).is_ok();
         release.store(true, Ordering::Release);
-        wake_child_reaper();
+        wake_child_reaper(session);
         finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
         assert!(
@@ -1744,7 +1734,7 @@ mod tests {
             _lease: ReservedChildReaperLease {
                 sender,
                 active: Arc::new(AtomicUsize::new(1)),
-                degraded: degraded.clone(),
+                degraded,
             },
             next_attempt,
             retry_delay: NATURAL_REAP_RETRY_MAX,
@@ -1755,11 +1745,10 @@ mod tests {
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn accept_session_state_change_for_test(
-        _session: libc::pid_t,
+        session: libc::pid_t,
         pending: &mut Vec<NaturalReapRequest>,
-        wake_pending: &AtomicBool,
     ) {
-        accept_natural_reaper_command(NaturalReaperCommand::Wake, pending, wake_pending);
+        accept_natural_reaper_command(NaturalReaperCommand::WakeSession(session), pending);
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -1773,9 +1762,7 @@ mod tests {
             now + Duration::from_secs(30),
             degraded.clone(),
         )];
-        let wake_pending = AtomicBool::new(true);
-
-        accept_session_state_change_for_test(41, &mut pending, &wake_pending);
+        accept_session_state_change_for_test(41, &mut pending);
 
         assert!(
             pending[0].next_attempt <= shutdown_deadline,
@@ -1801,11 +1788,9 @@ mod tests {
         let degraded = Arc::new(AtomicUsize::new(2));
         let mut pending = vec![
             degraded_reap_request_for_test(41, now + Duration::from_secs(30), degraded.clone()),
-            degraded_reap_request_for_test(73, now + Duration::from_secs(30), degraded.clone()),
+            degraded_reap_request_for_test(73, now + Duration::from_secs(30), degraded),
         ];
-        let wake_pending = AtomicBool::new(true);
-
-        accept_session_state_change_for_test(41, &mut pending, &wake_pending);
+        accept_session_state_change_for_test(41, &mut pending);
 
         assert!(pending[0].next_attempt <= shutdown_deadline);
         assert!(
