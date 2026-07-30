@@ -28,3 +28,6 @@ def test_tui_rust_jobs_install_the_release_toolchain() -> None:
         assert "rustup toolchain install \"$RUST_TOOLCHAIN\" --profile minimal" in block
         assert "rustup default \"$RUST_TOOLCHAIN\"" in block
         assert "if ! command -v cargo" not in block
+
+    test_job = job_block(workflow, "test")
+    assert "--component clippy,rustfmt" in test_job
