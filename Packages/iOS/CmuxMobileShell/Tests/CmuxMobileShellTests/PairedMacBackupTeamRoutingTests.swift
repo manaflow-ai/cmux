@@ -1055,6 +1055,84 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
         #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
     }
 
+    /// The forget boundary must keep MILLISECOND precision. Flooring the
+    /// tombstone stamp to whole seconds while server write times carry
+    /// milliseconds classifies a server write from the SAME second but before
+    /// the forget (server 1000.5s, forget 1000.9s) as a post-forget revival:
+    /// the intent retires and the stale record restores instead of being
+    /// deleted.
+    @Test func sameSecondPreForgetWriteIsNotARevival() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 900)
+        )
+        // Server write at 1000.5s; the forget stamps 1000.9s — SAME second.
+        let backup = FakeBackup(
+            recordsByTeam: [
+                "team-shown": [
+                    PairedMacBackupRecord(
+                        macDeviceID: "mac-a",
+                        displayName: "Desk Mac",
+                        routes: [try Self.route("100.82.214.112")],
+                        createdAt: 900_000,
+                        lastSeenAt: 1_000_500,
+                        isActive: false,
+                        serverUpdatedAtMs: 1_000_500
+                    ),
+                ],
+            ],
+            failNextFetches: 99
+        )
+        let pending = InMemoryPairedMacPendingDeleteStore()
+        let store = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { "team-shown" },
+            pendingDeleteStore: pending,
+            now: { Date(timeIntervalSince1970: 1_000.9) }
+        )
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: store,
+            personalIrohForget: BackupRoutingForget(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-shown" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await composite.loadPairedMacs()
+        await composite.hideMac(macDeviceID: "mac-a")
+        let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+        #expect(await composite.forgetHiddenComputer(hidden))
+
+        await backup.setFailNextFetches(0)
+        await store.refreshFromBackup(stackUserID: "user-1")
+
+        // The pre-forget record was deleted, not restored.
+        let deleteSent = await backup.uploadedOps().contains {
+            switch $0 {
+            case .delete(let macDeviceID): return macDeviceID == "mac-a"
+            default: return false
+            }
+        }
+        #expect(deleteSent)
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }
