@@ -31,7 +31,7 @@ enum SidebarAccountButtonVisual: Equatable {
 }
 
 struct SidebarAccountButtonPresentation: Equatable {
-    static let defaultProfileIconSystemName = "person.crop.circle.fill"
+    static let defaultProfileIconSystemName = "person.crop.circle"
 
     let visual: SidebarAccountButtonVisual
     let size: CGFloat
@@ -92,9 +92,9 @@ enum SidebarFooterProfileIconDebugChoice: String, CaseIterable, Identifiable {
 }
 
 enum SidebarFooterProfileIconDebugSettings {
-    static let iconKey = "debug.sidebarFooterProfileIcon.symbol.v2"
+    static let iconKey = "debug.sidebarFooterProfileIcon.symbol.v3"
     static let sizeKey = "debug.sidebarFooterProfileIcon.size"
-    static let defaultIcon = SidebarFooterProfileIconDebugChoice.filledCropCircle
+    static let defaultIcon = SidebarFooterProfileIconDebugChoice.cropCircle
     static let defaultSize = Double(SidebarFooterButtonMetrics.profileIconSize)
 }
 
