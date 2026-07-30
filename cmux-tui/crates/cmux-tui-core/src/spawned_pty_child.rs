@@ -158,3 +158,102 @@ impl Drop for SpawnedPtyChild {
         let _ = child.wait();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    #[derive(Debug)]
+    struct FailedKiller;
+
+    impl portable_pty::ChildKiller for FailedKiller {
+        fn kill(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "forced child kill failure",
+            ))
+        }
+
+        fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
+            Box::new(Self)
+        }
+    }
+
+    #[derive(Debug)]
+    struct BlockingWaitChild {
+        try_waits: Arc<AtomicUsize>,
+        wait_called: Arc<AtomicBool>,
+    }
+
+    impl portable_pty::ChildKiller for BlockingWaitChild {
+        fn kill(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "forced child kill failure",
+            ))
+        }
+
+        fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
+            Box::new(FailedKiller)
+        }
+    }
+
+    impl portable_pty::Child for BlockingWaitChild {
+        fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
+            self.try_waits.fetch_add(1, Ordering::AcqRel);
+            Ok(None)
+        }
+
+        fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
+            self.wait_called.store(true, Ordering::Release);
+            loop {
+                std::thread::park();
+            }
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    #[test]
+    fn failed_kill_does_not_block_spawned_child_drop() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_NONBLOCKING_CHILD_DROP";
+        const TEST_NAME: &str =
+            "spawned_pty_child::tests::failed_kill_does_not_block_spawned_child_drop";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "nonblocking child-drop subprocess failed: {status}");
+            return;
+        }
+
+        let try_waits = Arc::new(AtomicUsize::new(0));
+        let wait_called = Arc::new(AtomicBool::new(false));
+        let child = SpawnedPtyChild::new(Box::new(BlockingWaitChild {
+            try_waits: try_waits.clone(),
+            wait_called: wait_called.clone(),
+        }));
+        let (dropped_sender, dropped_receiver) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            drop(child);
+            let _ = dropped_sender.send(());
+        });
+
+        dropped_receiver
+            .recv_timeout(Duration::from_millis(250))
+            .expect("spawned PTY child Drop blocked after kill failed");
+        let deadline = Instant::now() + Duration::from_millis(250);
+        while try_waits.load(Ordering::Acquire) == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(try_waits.load(Ordering::Acquire) > 0, "cleanup owner never polled the child");
+        assert!(!wait_called.load(Ordering::Acquire), "cleanup owner called blocking child wait");
+    }
+}
