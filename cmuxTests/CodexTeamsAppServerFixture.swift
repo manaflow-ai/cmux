@@ -154,7 +154,9 @@ final class CodexTeamsAppServerFixture: @unchecked Sendable {
                 return
             }
             stateLock.lock()
-            resumedThreadIds.append(threadId)
+            if !resumedThreadIds.contains(threadId) {
+                resumedThreadIds.append(threadId)
+            }
             let isLastResume = resumedThreadIds.count == threadIds.count
             stateLock.unlock()
             try sendObject([
