@@ -1879,10 +1879,13 @@ async fn run_daemon(
             server.shutdown().await?;
         }
         unix.shutdown().await;
-        let _ = fs::remove_file(state_dir.join("runtime.json"));
-        #[cfg(test)]
-        pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeAuthRelease);
-        auth.shutdown().await?;
+        let cleanup_state_dir = state_dir.clone();
+        auth.shutdown_with_cleanup(move || {
+            #[cfg(test)]
+            pause_daemon_cleanup(&cleanup_state_dir, DaemonCleanupPausePhase::BeforeAuthRelease);
+            let _ = fs::remove_file(cleanup_state_dir.join("runtime.json"));
+        })
+        .await?;
         #[cfg(test)]
         pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::AfterAuthShutdown);
         Ok::<_, anyhow::Error>(())

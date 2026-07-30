@@ -446,7 +446,7 @@ impl PersistenceFailure {
 
 struct PersistenceCoordinator {
     shared: Arc<PersistenceWorkerShared>,
-    worker: StdMutex<Option<std::thread::JoinHandle<()>>>,
+    worker: StdMutex<Option<std::thread::JoinHandle<OwnerFileLock>>>,
     #[cfg(test)]
     hooks: Arc<PersistenceTestHooks>,
 }
@@ -498,8 +498,16 @@ impl PersistenceCoordinator {
         let worker = std::thread::Builder::new()
             .name("cmux-auth-persistence".into())
             .spawn(move || {
-                let _state_lease = state_lease;
-                worker_shared.drain();
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    worker_shared.drain();
+                }))
+                .is_err()
+                {
+                    worker_shared.fail_terminal(PersistenceFailure::Uncommitted(
+                        "identity persistence worker panicked".into(),
+                    ));
+                }
+                state_lease
             })
             .map_err(IdentityError::Io)?;
         Ok(Self {
@@ -577,21 +585,36 @@ impl PersistenceCoordinator {
     }
 
     fn close_and_join(&self) -> Result<(), IdentityError> {
+        self.close_and_join_with_cleanup(|| {})
+    }
+
+    fn close_and_join_with_cleanup(&self, cleanup: impl FnOnce()) -> Result<(), IdentityError> {
         {
             let mut state = self.lock_state();
             state.closing = true;
         }
         self.shared.changed.notify_all();
         let mut worker = self.worker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(worker) = worker.take()
-            && worker.join().is_err()
-        {
-            self.lock_state().terminal_failure = Some(PersistenceFailure::Uncommitted(
-                "identity persistence worker panicked".into(),
-            ));
-        }
+        let Some(worker_handle) = worker.take() else {
+            drop(worker);
+            return self.terminal_result();
+        };
+        let state_lease = match worker_handle.join() {
+            Ok(state_lease) => Some(state_lease),
+            Err(_) => {
+                self.lock_state().terminal_failure = Some(PersistenceFailure::Uncommitted(
+                    "identity persistence worker panicked".into(),
+                ));
+                None
+            }
+        };
         drop(worker);
-        self.terminal_result()
+        let result = self.terminal_result();
+        if result.is_ok() && state_lease.is_some() {
+            cleanup();
+        }
+        drop(state_lease);
+        result
     }
 
     fn terminal_result(&self) -> Result<(), IdentityError> {
@@ -634,7 +657,7 @@ impl Drop for PersistenceCoordinator {
 }
 
 impl PersistenceWorkerShared {
-    fn drain(self: Arc<Self>) {
+    fn drain(&self) {
         loop {
             let next = {
                 let mut state =
@@ -699,6 +722,20 @@ impl PersistenceWorkerShared {
             for waiter in waiters {
                 let _ = waiter.send(result.clone());
             }
+        }
+    }
+
+    fn fail_terminal(&self, failure: PersistenceFailure) {
+        let waiters = {
+            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.in_flight = None;
+            state.pending.clear();
+            state.closing = true;
+            state.terminal_failure = Some(failure.clone());
+            std::mem::take(&mut state.waiters).into_values().flatten().collect::<Vec<_>>()
+        };
+        for waiter in waiters {
+            let _ = waiter.send(Err(failure.clone()));
         }
     }
 }
@@ -895,6 +932,15 @@ impl AuthDatabase {
     /// Stop accepting authorization mutations, durably flush the final
     /// accepted revision, and join the persistence owner before process exit.
     pub async fn shutdown(&self) -> Result<(), IdentityError> {
+        self.shutdown_with_cleanup(|| {}).await
+    }
+
+    /// Finalize authorization persistence while retaining its exclusive state
+    /// lease through lifecycle cleanup.
+    pub async fn shutdown_with_cleanup(
+        &self,
+        cleanup: impl FnOnce() + Send,
+    ) -> Result<(), IdentityError> {
         let final_write = {
             let mut state = self.state.lock().await;
             if state.closing {
@@ -904,12 +950,12 @@ impl AuthDatabase {
                 Some(self.persistence.submit(state.to_persisted()))
             }
         };
-        let persistence_result = match final_write {
-            Some(final_write) => final_write.wait().await,
-            None => Ok(()),
-        };
-        let join_result = self.persistence.close_and_join();
-        persistence_result.and(join_result)
+        if let Some(final_write) = final_write {
+            // The coordinator retains the authoritative terminal result, so a
+            // cancelled caller or worker failure remains observable after join.
+            let _ = final_write.wait().await;
+        }
+        self.persistence.close_and_join_with_cleanup(cleanup)
     }
 
     pub async fn create_invitation(
