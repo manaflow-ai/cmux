@@ -3656,7 +3656,14 @@ final class cmuxUITests: XCTestCase {
             "-cmux.mobile.taskComposerEnabled", "YES",
         ] + extraLaunchArguments)
         let pairingForm = app.otherElements["MobileAddDeviceForm"]
-        XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
+        if !pairingForm.waitForExistence(timeout: 8) {
+            // The no-computers shell does not auto-present the pairing sheet;
+            // open it through the toolbar like a user would.
+            let addButton = app.buttons["MobileShowAddDeviceToolbarButton"]
+            XCTAssertTrue(addButton.waitForExistence(timeout: 8))
+            addButton.tap()
+            XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
+        }
 
         let hostField = app.textFields["MobileAddDeviceHostField"]
         XCTAssertTrue(hostField.waitForExistence(timeout: 4))
