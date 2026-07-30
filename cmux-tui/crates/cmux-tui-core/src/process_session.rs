@@ -940,8 +940,7 @@ fn still_member(pid: libc::pid_t, session: libc::pid_t) -> io::Result<bool> {
     Ok(active_process_session(pid)? == Some(session))
 }
 
-#[cfg(not(target_os = "linux"))]
-fn active_process_session(pid: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
+fn process_session_id(pid: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
     // SAFETY: getsid only queries process metadata.
     let current_session = unsafe { libc::getsid(pid) };
     if current_session >= 0 {
@@ -949,6 +948,11 @@ fn active_process_session(pid: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
     }
     let error = io::Error::last_os_error();
     if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn active_process_session(pid: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
+    process_session_id(pid)
 }
 
 #[cfg(target_os = "linux")]
@@ -960,7 +964,7 @@ struct LinuxProcessMetadata {
 
 #[cfg(target_os = "linux")]
 fn linux_process_metadata(pid: libc::pid_t) -> io::Result<Option<LinuxProcessMetadata>> {
-    let stat = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+    let stat = match std::fs::read(format!("/proc/{pid}/stat")) {
         Ok(stat) => stat,
         Err(error)
             if error.kind() == io::ErrorKind::NotFound
@@ -970,22 +974,36 @@ fn linux_process_metadata(pid: libc::pid_t) -> io::Result<Option<LinuxProcessMet
         }
         Err(error) => return Err(error),
     };
-    let (pid_text, fields) = stat
-        .split_once(" (")
-        .and_then(|(pid_text, remainder)| {
-            remainder.rsplit_once(") ").map(|(_, fields)| (pid_text, fields))
-        })
-        .ok_or_else(|| io::Error::other("invalid process stat record"))?;
-    if pid_text.parse::<libc::pid_t>().ok() != Some(pid) {
-        return Err(io::Error::other("process metadata id mismatch"));
-    }
-    let fields = fields.split_whitespace().collect::<Vec<_>>();
+    let fields = linux_process_stat_fields(pid, &stat)?;
     let state = fields.first().copied().ok_or_else(|| io::Error::other("missing process state"))?;
     let started_at = fields
         .get(19)
+        .and_then(|value| std::str::from_utf8(value).ok())
         .and_then(|value| value.parse::<u128>().ok())
         .ok_or_else(|| io::Error::other("invalid process birth identity"))?;
-    Ok(Some(LinuxProcessMetadata { started_at, zombie: state == "Z" }))
+    Ok(Some(LinuxProcessMetadata { started_at, zombie: state == b"Z" }))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_stat_fields(pid: libc::pid_t, stat: &[u8]) -> io::Result<Vec<&[u8]>> {
+    let name_start = stat
+        .windows(2)
+        .position(|window| window == b" (")
+        .ok_or_else(|| io::Error::other("invalid process stat record"))?;
+    let name_end = stat
+        .windows(2)
+        .rposition(|window| window == b") ")
+        .filter(|name_end| *name_end > name_start)
+        .ok_or_else(|| io::Error::other("invalid process stat record"))?;
+    let pid_text = std::str::from_utf8(&stat[..name_start])
+        .map_err(|_| io::Error::other("invalid process metadata id"))?;
+    if pid_text.parse::<libc::pid_t>().ok() != Some(pid) {
+        return Err(io::Error::other("process metadata id mismatch"));
+    }
+    Ok(stat[name_end + 2..]
+        .split(|byte| byte.is_ascii_whitespace())
+        .filter(|field| !field.is_empty())
+        .collect())
 }
 
 #[cfg(target_os = "linux")]
@@ -995,12 +1013,7 @@ fn active_process_session(pid: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
         return Ok(None);
     }
 
-    // SAFETY: getsid only queries process metadata.
-    let current_session = unsafe { libc::getsid(pid) };
-    if current_session < 0 {
-        let error = io::Error::last_os_error();
-        return if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) };
-    }
+    let Some(current_session) = process_session_id(pid)? else { return Ok(None) };
 
     // Bracket the reusable PID query with the kernel process birth identity.
     // Zombies cannot execute or fork, so shutdown may treat them as drained
@@ -1010,6 +1023,36 @@ fn active_process_session(pid: libc::pid_t) -> io::Result<Option<libc::pid_t>> {
         return Ok(None);
     }
     Ok(Some(current_session))
+}
+
+#[cfg(target_os = "linux")]
+fn tracked_process_session(
+    pid: libc::pid_t,
+    sessions: &HashSet<libc::pid_t>,
+) -> io::Result<Option<libc::pid_t>> {
+    // Query the kernel session first so unrelated PIDs never require procfs
+    // access on hidepid mounts. Candidate members still pass through the
+    // birth-identity bracket, and any failure there aborts the snapshot.
+    tracked_process_session_with(pid, sessions, process_session_id, active_process_session)
+}
+
+#[cfg(target_os = "linux")]
+fn tracked_process_session_with<Q, V>(
+    pid: libc::pid_t,
+    sessions: &HashSet<libc::pid_t>,
+    mut query_session: Q,
+    mut verify_session: V,
+) -> io::Result<Option<libc::pid_t>>
+where
+    Q: FnMut(libc::pid_t) -> io::Result<Option<libc::pid_t>>,
+    V: FnMut(libc::pid_t) -> io::Result<Option<libc::pid_t>>,
+{
+    let Some(candidate_session) = query_session(pid)? else { return Ok(None) };
+    if !sessions.contains(&candidate_session) {
+        return Ok(None);
+    }
+    let Some(verified_session) = verify_session(pid)? else { return Ok(None) };
+    Ok(sessions.contains(&verified_session).then_some(verified_session))
 }
 
 fn stable_process_in_session(
@@ -1384,7 +1427,19 @@ fn scan_sessions(
     sessions: &HashSet<libc::pid_t>,
     deadline: Option<Instant>,
 ) -> io::Result<HashMap<libc::pid_t, Vec<libc::pid_t>>> {
-    scan_sessions_with(sessions, deadline, || all_process_ids(deadline), active_process_session)
+    #[cfg(target_os = "linux")]
+    {
+        scan_sessions_with(
+            sessions,
+            deadline,
+            || all_process_ids(deadline),
+            |pid| tracked_process_session(pid, sessions),
+        )
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        scan_sessions_with(sessions, deadline, || all_process_ids(deadline), active_process_session)
+    }
 }
 
 fn scan_sessions_with<P, S>(
@@ -1409,16 +1464,7 @@ where
         if pid <= 1 {
             continue;
         }
-        let current_session = match process_session(pid) {
-            Ok(Some(current_session)) => current_session,
-            Ok(None) => continue,
-            Err(error)
-                if error.kind() == io::ErrorKind::PermissionDenied && !sessions.contains(&pid) =>
-            {
-                continue;
-            }
-            Err(error) => return Err(error),
-        };
+        let Some(current_session) = process_session(pid)? else { continue };
         ensure_before_deadline(deadline)?;
         if let Some(session_members) = members.get_mut(&current_session) {
             session_members.push(pid);
@@ -2010,6 +2056,34 @@ mod tests {
             |_| Err(io::Error::from_raw_os_error(libc::EACCES)),
         )
         .expect_err("unknown session membership was silently treated as foreign");
+        assert_eq!(error.raw_os_error(), Some(libc::EACCES));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn tracked_session_filter_reads_proc_metadata_only_for_candidates() {
+        let sessions = HashSet::from([41]);
+        let metadata_queried = std::cell::Cell::new(false);
+        let foreign = tracked_process_session_with(
+            73,
+            &sessions,
+            |_| Ok(Some(99)),
+            |_| {
+                metadata_queried.set(true);
+                Err(io::Error::from_raw_os_error(libc::EACCES))
+            },
+        )
+        .unwrap();
+        assert_eq!(foreign, None);
+        assert!(!metadata_queried.get());
+
+        let error = tracked_process_session_with(
+            73,
+            &sessions,
+            |_| Ok(Some(41)),
+            |_| Err(io::Error::from_raw_os_error(libc::EACCES)),
+        )
+        .expect_err("candidate session metadata failure was ignored");
         assert_eq!(error.raw_os_error(), Some(libc::EACCES));
     }
 

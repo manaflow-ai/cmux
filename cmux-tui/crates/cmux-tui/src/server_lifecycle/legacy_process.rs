@@ -818,7 +818,7 @@ fn direct_child_pids(parent: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
 #[cfg(target_os = "linux")]
 fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
     let path = format!("/proc/{pid}/stat");
-    let stat = match std::fs::read_to_string(path) {
+    let stat = match std::fs::read(path) {
         Ok(stat) => stat,
         Err(error)
             if error.kind() == io::ErrorKind::NotFound
@@ -828,33 +828,48 @@ fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
         }
         Err(error) => return Err(error),
     };
-    let (pid_text, remainder) = stat
-        .split_once(" (")
-        .and_then(|(pid_text, remainder)| {
-            remainder.rsplit_once(") ").map(|(_, fields)| (pid_text, fields))
-        })
-        .ok_or_else(|| io::Error::other("invalid process stat record"))?;
-    if pid_text.parse::<libc::pid_t>().ok() != Some(pid) {
-        return Err(io::Error::other("process metadata id mismatch"));
-    }
-    let fields = remainder.split_whitespace().collect::<Vec<_>>();
+    let fields = linux_process_stat_fields(pid, &stat)?;
     let state = fields.first().copied().ok_or_else(|| io::Error::other("missing process state"))?;
-    if state == "Z" {
+    if state == b"Z" {
         return Ok(None);
     }
     let parent = fields
         .get(1)
+        .and_then(|value| std::str::from_utf8(value).ok())
         .and_then(|value| value.parse::<libc::pid_t>().ok())
         .ok_or_else(|| io::Error::other("invalid parent process id"))?;
     let started_at = fields
         .get(19)
+        .and_then(|value| std::str::from_utf8(value).ok())
         .and_then(|value| value.parse::<u128>().ok())
         .ok_or_else(|| io::Error::other("invalid process birth identity"))?;
     Ok(Some(ProcessSnapshot {
         identity: ProcessIdentity { pid, started_at },
         parent,
-        stopped: matches!(state, "T" | "t"),
+        stopped: matches!(state, b"T" | b"t"),
     }))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_stat_fields(pid: libc::pid_t, stat: &[u8]) -> io::Result<Vec<&[u8]>> {
+    let name_start = stat
+        .windows(2)
+        .position(|window| window == b" (")
+        .ok_or_else(|| io::Error::other("invalid process stat record"))?;
+    let name_end = stat
+        .windows(2)
+        .rposition(|window| window == b") ")
+        .filter(|name_end| *name_end > name_start)
+        .ok_or_else(|| io::Error::other("invalid process stat record"))?;
+    let pid_text = std::str::from_utf8(&stat[..name_start])
+        .map_err(|_| io::Error::other("invalid process metadata id"))?;
+    if pid_text.parse::<libc::pid_t>().ok() != Some(pid) {
+        return Err(io::Error::other("process metadata id mismatch"));
+    }
+    Ok(stat[name_end + 2..]
+        .split(|byte| byte.is_ascii_whitespace())
+        .filter(|field| !field.is_empty())
+        .collect())
 }
 
 #[cfg(target_os = "linux")]
