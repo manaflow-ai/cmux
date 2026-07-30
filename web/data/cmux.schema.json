@@ -590,12 +590,6 @@
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         },
-        "autoRetryAgentSessions": {
-          "type": "boolean",
-          "default": false,
-          "descriptionKey": "schemaDescriptions.terminal.autoRetryAgentSessions",
-          "description": "Automatically resume a managed agent session when its active command exits with a nonzero, non-signal error status. Retries are bounded and use exponential backoff; normal completion and explicit user termination are never retried."
-        },
         "showTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,
@@ -650,14 +644,14 @@
               "type": "integer",
               "minimum": 5,
               "maximum": 604800,
-              "default": 30,
+              "default": 5,
               "description": "Minimum seconds a terminal must stay off-screen before its GPU renderer memory is reclaimed."
             },
             "maxWarmRenderers": {
               "type": "integer",
               "minimum": 1,
               "maximum": 256,
-              "default": 12,
+              "default": 1,
               "description": "Most recently visible terminals to keep renderer-ready so switching stays instant. Extra off-screen renderers are reclaimed oldest first."
             }
           }

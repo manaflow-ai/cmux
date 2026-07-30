@@ -2024,6 +2024,23 @@
         }
       }
     },
+    "mobile.connection.routeCleanupBlocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection cleanup is stuck. Restart cmux on this device before reconnecting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続のクリーンアップが停止しています。再接続する前に、このデバイスのcmuxを再起動してください。"
+          }
+        }
+      }
+    },
     "mobile.connection.unavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -4880,6 +4897,23 @@
         }
       }
     },
+    "mobile.pairing.guidance.routeCleanupBlocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force-quit and reopen cmux on this iPhone, then reconnect. If this returns, restart cmux on the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneでcmuxを強制終了して開き直し、再接続してください。再発する場合は、Macのcmuxを再起動してください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.guidance.reachability": {
       "extractionState": "manual",
       "localizations": {
@@ -5063,6 +5097,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータが応答しませんでした。ホストとポートを確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.routeCleanupBlocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux paused new connections because earlier connection cleanups are still stuck."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の接続クリーンアップが停止したままのため、新しい接続を一時停止しました。"
           }
         }
       }
@@ -6185,6 +6236,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータ"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionFocused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focused"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
           }
         }
       }
@@ -17150,6 +17235,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "20,000行"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.loadingMore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading more notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "さらに通知を読み込み中"
           }
         }
       }

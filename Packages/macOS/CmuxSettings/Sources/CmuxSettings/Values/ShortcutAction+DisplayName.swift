@@ -77,7 +77,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
         case .reopenClosedWorkspace:
             return String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace")
-        case .reopenClosedBrowserPanel: return "Reopen Last Closed"
+        case .reopenClosedBrowserPanel:
+            return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
         case .focusTextBoxInput: return "Focus TextBox Input"

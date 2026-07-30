@@ -54,15 +54,34 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
-    func clearBinding(agentSessionEnded: Bool) {
+    func bindingForClear(
+        expectedSource: String?,
+        agentSessionEnded: Bool
+    ) -> SurfaceResumeBindingSnapshot? {
+        switch self {
+        case .workspace:
+            return binding
+        case .dock(_, let dock, let surfaceID):
+            if expectedSource == "agent-hook" || agentSessionEnded {
+                return dock.managedAgentResumeBinding(panelId: surfaceID)
+            }
+            return binding
+        }
+    }
+
+    func clearBinding(
+        _ binding: SurfaceResumeBindingSnapshot?,
+        agentSessionEnded: Bool
+    ) {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            _ = workspace.clearSurfaceResumeBinding(
+            _ = workspace.clearSurfaceResumeBinding(panelId: surfaceID)
+        case .dock(_, let dock, let surfaceID):
+            _ = dock.clearSurfaceResumeBinding(
                 panelId: surfaceID,
+                binding: binding,
                 agentSessionEnded: agentSessionEnded
             )
-        case .dock(_, let dock, let surfaceID):
-            _ = dock.clearSurfaceResumeBinding(panelId: surfaceID)
         }
     }
 
@@ -389,15 +408,18 @@ extension TerminalController {
         ) else {
             return .surfaceNotFound
         }
-        let currentBinding = target.binding
-        if let expectedCheckpointID, currentBinding?.checkpointId != expectedCheckpointID {
-            return .result(surfaceResumeSnapshot(target: target, binding: currentBinding, cleared: false))
+        let bindingForClear = target.bindingForClear(
+            expectedSource: expectedSource,
+            agentSessionEnded: agentSessionEnded
+        )
+        if let expectedCheckpointID, bindingForClear?.checkpointId != expectedCheckpointID {
+            return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
-        if let expectedSource, currentBinding?.source != expectedSource {
-            return .result(surfaceResumeSnapshot(target: target, binding: currentBinding, cleared: false))
+        if let expectedSource, bindingForClear?.source != expectedSource {
+            return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
-        target.clearBinding(agentSessionEnded: agentSessionEnded)
-        return .result(surfaceResumeSnapshot(target: target, binding: nil, cleared: true))
+        target.clearBinding(bindingForClear, agentSessionEnded: agentSessionEnded)
+        return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: true))
     }
 }
 

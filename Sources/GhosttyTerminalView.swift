@@ -323,6 +323,11 @@ extension TerminalSurfaceRegistry {
     func allTerminalSurfaces() -> [TerminalSurface] {
         allSurfaces().compactMap { $0 as? TerminalSurface }
     }
+
+    /// Concrete hot-path snapshot for consumers that apply their own ranking.
+    func allTerminalSurfacesUnordered() -> [TerminalSurface] {
+        allSurfacesUnordered().compactMap { $0 as? TerminalSurface }
+    }
 }
 
 // TerminalSurfaceRuntimeTeardownCoordinator moved to CmuxTerminal
@@ -749,30 +754,28 @@ class GhosttyApp {
     private let scrollLagMinimumAverageMs: Double = 12
     private let scrollLagReportCooldownSeconds: TimeInterval = 300
     private var lastScrollLagReportUptime: TimeInterval?
-    private var scrollEndTimer: DispatchWorkItem?
+    @MainActor private lazy var scrollEndTimer = MainActorCoalescingDeadlineTimer(owner: self) { owner in
+        owner.endScrollSession()
+    }
 
+    @MainActor
     func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
-        // Cancel any pending scroll-end timer
-        scrollEndTimer?.cancel()
-        scrollEndTimer = nil
-
         if momentumEnded {
             // Trackpad momentum ended - scrolling is done
+            scrollEndTimer.cancel()
             endScrollSession()
         } else if hasMomentum {
             // Trackpad scrolling with momentum - wait for momentum to end
+            scrollEndTimer.cancel()
             isScrolling = true
         } else {
             // Mouse wheel or non-momentum scroll - use timeout
             isScrolling = true
-            let timer = DispatchWorkItem { [weak self] in
-                self?.endScrollSession()
-            }
-            scrollEndTimer = timer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: timer)
+            scrollEndTimer.schedule(after: .milliseconds(150))
         }
     }
 
+    @MainActor
     private func endScrollSession() {
         guard isScrolling else { return }
         isScrolling = false
@@ -3158,14 +3161,6 @@ class GhosttyApp {
                 tabId: callbackTabId,
                 surfaceId: callbackSurfaceId,
                 message: action.action.child_exited
-            )
-        }
-
-        if action.tag == GHOSTTY_ACTION_COMMAND_FINISHED {
-            return handleAgentSessionCommandFinishedAction(
-                tabId: callbackTabId,
-                surfaceId: callbackSurfaceId,
-                message: action.action.command_finished
             )
         }
 
@@ -8195,7 +8190,6 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
     private var hasVisibilityRevealRefreshScheduled = false
-    var onExplicitTerminalInput: (() -> Void)?
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -8222,8 +8216,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
-    private var deferredSearchOverlayMutationWorkItem: DispatchWorkItem?
-    private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
+    private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
+    private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
     private var lastSearchOverlayStateID: ObjectIdentifier?
@@ -8821,8 +8815,6 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        deferredSearchOverlayMutationWorkItem?.cancel()
-        imageTransferIndicatorShowWorkItem?.cancel()
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
     }
@@ -9366,28 +9358,22 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func cancelDeferredSearchOverlayMutation() {
-        deferredSearchOverlayMutationWorkItem?.cancel()
-        deferredSearchOverlayMutationWorkItem = nil
+        deferredSearchOverlayMutationScheduler.cancel()
     }
 
     private func scheduleDeferredSearchOverlayMutation(
         generation: UInt64,
         _ mutation: @escaping () -> Void
     ) {
-        cancelDeferredSearchOverlayMutation()
-        let work = DispatchWorkItem { [weak self] in
+        deferredSearchOverlayMutationScheduler.schedule { [weak self] in
             guard let self else { return }
             guard self.searchOverlayMutationGeneration == generation else { return }
-            self.deferredSearchOverlayMutationWorkItem = nil
             mutation()
         }
-        deferredSearchOverlayMutationWorkItem = work
-        DispatchQueue.main.async(execute: work)
     }
 
     private func cancelImageTransferIndicatorShow() {
-        imageTransferIndicatorShowWorkItem?.cancel()
-        imageTransferIndicatorShowWorkItem = nil
+        imageTransferIndicatorShowScheduler.cancel()
     }
 
     private func updateImageTransferIndicatorZOrder(relativeTo overlay: NSView?) {
@@ -9443,17 +9429,14 @@ final class GhosttySurfaceScrollView: NSView {
         imageTransferIndicatorSpinner.stopAnimation(nil)
         imageTransferIndicatorContainerView.isHidden = true
 
-        let work = DispatchWorkItem { [weak self] in
+        imageTransferIndicatorShowScheduler.schedule(after: .milliseconds(150)) { [weak self] in
             guard let self else { return }
             guard self.activeImageTransferOperation === operation else { return }
             guard !operation.isCancelled else { return }
-            self.imageTransferIndicatorShowWorkItem = nil
             self.imageTransferIndicatorSpinner.startAnimation(nil)
             self.imageTransferIndicatorContainerView.isHidden = false
             self.updateImageTransferIndicatorZOrder(relativeTo: self.searchOverlayHostingView)
         }
-        imageTransferIndicatorShowWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 
     func endImageTransferIndicator(for operation: TerminalImageTransferOperation?) {
