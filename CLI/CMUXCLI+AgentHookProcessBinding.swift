@@ -1,29 +1,6 @@
 import Foundation
 
 extension CMUXCLI {
-    enum AgentHookProcessBindingSource {
-        case ambientTTY
-        case liveProcess
-    }
-
-    struct AgentHookProcessBindingResult {
-        let binding: CallerTerminalBinding?
-        let source: AgentHookProcessBindingSource?
-        let rejectsAmbientClaim: Bool
-
-        func canReplaceAmbientWorkspace(_ workspaceId: String?) -> Bool {
-            guard let workspaceId else { return true }
-            return source == .liveProcess || binding?.workspaceId == workspaceId
-        }
-    }
-
-    enum AgentHookProcessBindingProbe {
-        case notAttempted
-        case unsupported
-        case failed
-        case resolved(CallerTerminalBinding)
-    }
-
     func liveAgentControllingTTYBinding(
         pid: Int?,
         client: SocketClient
