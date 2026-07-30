@@ -75,11 +75,12 @@ struct DaemonCleanupPause {
 }
 
 #[cfg(test)]
-static DAEMON_CLEANUP_PAUSE: std::sync::Mutex<Option<Arc<DaemonCleanupPause>>> =
-    std::sync::Mutex::new(None);
+static DAEMON_CLEANUP_PAUSES: std::sync::Mutex<Vec<Arc<DaemonCleanupPause>>> =
+    std::sync::Mutex::new(Vec::new());
 
 #[cfg(test)]
 struct DaemonCleanupPauseHandle {
+    pause: Arc<DaemonCleanupPause>,
     reached: mpsc::Receiver<()>,
     resume: Option<mpsc::SyncSender<()>>,
 }
@@ -89,16 +90,23 @@ impl DaemonCleanupPauseHandle {
     fn install(expected_state_dir: PathBuf, expected_phase: DaemonCleanupPausePhase) -> Self {
         let (reached_tx, reached) = mpsc::sync_channel(1);
         let (resume, resume_rx) = mpsc::sync_channel(1);
-        let mut installed =
-            DAEMON_CLEANUP_PAUSE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        assert!(installed.is_none(), "a daemon cleanup pause is already installed");
-        *installed = Some(Arc::new(DaemonCleanupPause {
+        let pause = Arc::new(DaemonCleanupPause {
             expected_state_dir,
             expected_phase,
             reached: reached_tx,
             resume: std::sync::Mutex::new(resume_rx),
-        }));
-        Self { reached, resume: Some(resume) }
+        });
+        let mut installed =
+            DAEMON_CLEANUP_PAUSES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(
+            !installed.iter().any(|existing| {
+                existing.expected_state_dir == pause.expected_state_dir
+                    && existing.expected_phase == pause.expected_phase
+            }),
+            "a matching daemon cleanup pause is already installed"
+        );
+        installed.push(pause.clone());
+        Self { pause, reached, resume: Some(resume) }
     }
 
     fn wait_until_reached(&self) {
@@ -132,7 +140,10 @@ impl DaemonCleanupPauseHandle {
         if let Some(resume) = self.resume.take() {
             let _ = resume.send(());
         }
-        DAEMON_CLEANUP_PAUSE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        DAEMON_CLEANUP_PAUSES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|pause| !Arc::ptr_eq(pause, &self.pause));
     }
 }
 
@@ -145,12 +156,13 @@ impl Drop for DaemonCleanupPauseHandle {
 
 #[cfg(test)]
 fn pause_daemon_cleanup(state_dir: &Path, phase: DaemonCleanupPausePhase) {
-    let pause =
-        DAEMON_CLEANUP_PAUSE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    let pause = DAEMON_CLEANUP_PAUSES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .find(|pause| pause.expected_state_dir == state_dir && pause.expected_phase == phase)
+        .cloned();
     if let Some(pause) = pause {
-        if pause.expected_state_dir != state_dir || pause.expected_phase != phase {
-            return;
-        }
         let _ = pause.reached.send(());
         let _ = pause.resume.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv();
     }
