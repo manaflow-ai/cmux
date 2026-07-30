@@ -50,9 +50,10 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         func startupInputWithLauncherScript(
             fileManager: FileManager,
             temporaryDirectory: URL,
-            allowLauncherScript: Bool
+            allowLauncherScript: Bool,
+            restoringWorkingDirectory: String?
         ) -> String? {
-            "\(startupInputPrefix):\(command):launcher=\(allowLauncherScript)"
+            "\(startupInputPrefix):\(command):launcher=\(allowLauncherScript):cwd=\(restoringWorkingDirectory ?? "<nil>")"
         }
     }
 
@@ -114,7 +115,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             approvalSigningSecret: Data("secret".utf8)
         )
 
-        #expect(result == "input:echo ok:launcher=false")
+        #expect(result == "input:echo ok:launcher=false:cwd=<nil>")
         #expect(observation.url == approvalURL)
         #expect(observation.secret == Data("secret".utf8))
     }
@@ -150,7 +151,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             binding,
             autoResumeAgentSessions: true,
             approvalStoreURL: approvalURL
-        ) == "input:echo ok:launcher=false")
+        ) == "input:echo ok:launcher=false:cwd=<nil>")
         #expect(approved.surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
@@ -179,7 +180,21 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             binding,
             autoResumeAgentSessions: true,
             approvalStoreURL: approvalURL
-        ) == "input:claude --resume:launcher=false")
+        ) == "input:claude --resume:launcher=false:cwd=<nil>")
+    }
+
+    @Test("post-start launch forwards the resolved resume working directory")
+    func postStartLaunchForwardsWorkingDirectory() throws {
+        let service = makeService()
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            forApprovedBinding: FakeBinding(),
+            restoringWorkingDirectory: "/tmp/restored project"
+        ))
+
+        #expect(
+            launch.initialInput ==
+                "input:echo ok:launcher=true:cwd=/tmp/restored project"
+        )
     }
 
     @Test("Hermes agent bindings receive Codex bootstrap and provider rewrite")
