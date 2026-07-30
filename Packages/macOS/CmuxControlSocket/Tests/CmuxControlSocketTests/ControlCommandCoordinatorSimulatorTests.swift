@@ -449,7 +449,10 @@ struct ControlCommandCoordinatorSimulatorTests {
             _ = coordinator.handleSocketWorkerV2(
                 request("simulator.button", ["button": .string(alias)]), context: context
             )
-            #expect(context.lastOperation == .hardwareButton(expected))
+            #expect(context.lastOperation == .uiAction(.button(
+                button: expected,
+                durationMilliseconds: nil
+            )))
         }
     }
 

@@ -10,6 +10,8 @@ public enum SimulatorWorkerOutbound: Codable, Equatable, Sendable {
     case status(SimulatorSessionStatus)
     /// Reports negotiated private and supported capabilities.
     case capabilities(Set<SimulatorCapability>)
+    /// Resolves one optional capability without waiting for unrelated probes.
+    case capabilityResolved(SimulatorCapability, available: Bool)
     /// Reports the final capability set after optional attachment probes finish.
     case capabilitiesHydrated(Set<SimulatorCapability>)
     /// Reports current framebuffer dimensions and orientation.

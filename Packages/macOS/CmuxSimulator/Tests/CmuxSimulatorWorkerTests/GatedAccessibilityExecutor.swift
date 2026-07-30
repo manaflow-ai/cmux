@@ -25,7 +25,10 @@ actor GatedAccessibilityExecutor: SimulatorAccessibilityExecuting {
         nodeCount: 0
     )
 
-    func attach(device _: SimulatorAccessibilityDevice) -> Bool { true }
+    func attach(
+        device _: SimulatorAccessibilityDevice,
+        deviceIdentifier _: String
+    ) -> Bool { true }
 
     func detach() {}
 

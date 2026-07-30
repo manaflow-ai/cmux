@@ -14,6 +14,9 @@ final class SimulatorHostWindowVisibilityView: NSView {
         super.viewWillMove(toWindow: newWindow)
         guard let newWindow else { return }
         for name in [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didBecomeMainNotification,
+            NSWindow.didResignKeyNotification,
             NSWindow.didChangeOcclusionStateNotification,
             NSWindow.didMiniaturizeNotification,
             NSWindow.didDeminiaturizeNotification,
@@ -69,5 +72,5 @@ final class SimulatorHostWindowVisibilityView: NSView {
 func simulatorHostWindowIsVisible(_ window: NSWindow) -> Bool {
     window.isVisible
         && !window.isMiniaturized
-        && window.occlusionState.contains(.visible)
+        && (window.isKeyWindow || window.occlusionState.contains(.visible))
 }
