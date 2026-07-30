@@ -140,17 +140,8 @@ struct TaskComposerMinimalLayout: View {
 
                 optionsButton
 
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
-                        agentPill
-
-                        if !models.isEmpty, showsStandaloneModelPill {
-                            modelPill
-                        }
-                    }
-                }
-                .scrollIndicators(.hidden)
-                .frame(maxWidth: .infinity)
+                pillScroller
+                    .frame(maxWidth: .infinity)
 
                 submitButton
             }
@@ -162,6 +153,45 @@ struct TaskComposerMinimalLayout: View {
         // provides the visual boundary below.
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .background(Color(uiColor: .systemBackground))
+    }
+
+    /// The pill scroller fades its content into the bar background at both
+    /// horizontal edges so pills dissolve toward the neighboring buttons
+    /// instead of being cut off. iOS 26's native scroll edge effect provides
+    /// the progressive blur+fade; earlier systems get an alpha-mask fade.
+    @ViewBuilder
+    private var pillScroller: some View {
+        let scroller = ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                agentPill
+
+                if !models.isEmpty, showsStandaloneModelPill {
+                    modelPill
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+        if #available(iOS 26.0, *) {
+            scroller.scrollEdgeEffectStyle(.soft, for: .all)
+        } else {
+            scroller.mask {
+                HStack(spacing: 0) {
+                    LinearGradient(
+                        colors: [.clear, .black],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: 14)
+                    Rectangle().fill(.black)
+                    LinearGradient(
+                        colors: [.black, .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: 14)
+                }
+            }
+        }
     }
 
     private var optionsButton: some View {
