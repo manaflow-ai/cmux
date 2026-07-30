@@ -711,7 +711,9 @@ struct SidebarEmptyArea: View {
     @ViewBuilder
     private var hitTarget: some View {
         if expandsVertically {
-            SidebarEmptyAreaWindowDragView()
+            // Full-height background behind the rows: an AppKit view here would
+            // out-hit-test the SwiftUI shield and steal row presses.
+            Color.clear
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
         } else {
