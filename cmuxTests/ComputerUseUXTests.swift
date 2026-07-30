@@ -2273,7 +2273,7 @@ struct ComputerUseUXTests {
     /// Every Codex compatibility action already returns a refreshed screenshot
     /// and accessibility snapshot. Asking the agent to scan again doubled the
     /// state captures and model/MCP round trips between Calculator clicks.
-    @Test func bundledCodexInstructionsReuseActionReturnedState() throws {
+    @Test func bundledCodexInstructionsUseTheReferenceFastPathAndReturnedState() throws {
         let skillURL = try #require(Bundle.main.url(
             forResource: "SKILL",
             withExtension: "md",
@@ -2281,6 +2281,15 @@ struct ComputerUseUXTests {
         ))
         let skill = try String(contentsOf: skillURL, encoding: .utf8)
 
+        #expect(skill.contains(
+            "For deterministic, key-driven tasks such as Calculator arithmetic"
+        ))
+        #expect(skill.contains(
+            "Requests like “click 100 + 105” normally describe the UI goal"
+        ))
+        #expect(skill.contains(
+            "Only pointer-click each control when the user explicitly requires"
+        ))
         #expect(skill.contains(
             "Every successful action already returns a fresh app state and screenshot."
         ))
