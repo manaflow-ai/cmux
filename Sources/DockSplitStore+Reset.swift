@@ -10,18 +10,10 @@ extension DockSplitStore {
         for tabId in tabIds { _ = bonsplitController.closeTab(tabId) }
         collapseToSingleEmptyPane()
         reconcilePanels()
-        for panel in panels.values {
-            if let terminalPanel = panel as? TerminalPanel {
-                terminalFontSizeChangeCoordinator?
-                    .terminalDidLeaveDock(
-                        terminalPanel,
-                        dock: self
-                    )
-            }
-            panel.close()
-        }
-        panels.removeAll()
         surfaceIdToPanelId.removeAll()
+        for panelId in Array(panels.keys) {
+            discardPanelStateAndClose(panelId: panelId)
+        }
         removeAllDetachedSurfaceTransfers()
         restoredTerminalScrollbackByPanelId.removeAll()
         restoredAgentLifecycle.snapshotsByPanelId.removeAll()

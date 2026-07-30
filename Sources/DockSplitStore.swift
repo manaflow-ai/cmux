@@ -525,9 +525,7 @@ final class DockSplitStore: BonsplitDelegate {
             )
         }
         guard splitResult != nil else {
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            panels.removeValue(forKey: panel.id)
-            panel.close()
+            discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
@@ -839,8 +837,7 @@ final class DockSplitStore: BonsplitDelegate {
             isPinned: false,
             inPane: paneId
         ) else {
-            panels.removeValue(forKey: panel.id)
-            panel.close()
+            discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
         surfaceIdToPanelId[tabId] = panel.id
@@ -914,23 +911,11 @@ final class DockSplitStore: BonsplitDelegate {
     func reconcilePanels() {
         let live = Set(bonsplitController.allTabIds)
         let staleTabIds = surfaceIdToPanelId.keys.filter { !live.contains($0) }
-        for tabId in staleTabIds {
-            guard let panelId = surfaceIdToPanelId.removeValue(forKey: tabId) else { continue }
-            panelCancellables[panelId]?.cancel()
-            panelCancellables.removeValue(forKey: panelId)
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
-            removeDetachedSurfaceTransfer(forPanelID: panelId)
-            clearSessionRestoreState(panelId: panelId)
-            if let panel = panels.removeValue(forKey: panelId) {
-                if let terminalPanel = panel as? TerminalPanel {
-                    terminalFontSizeChangeCoordinator?
-                        .terminalDidLeaveDock(
-                            terminalPanel,
-                            dock: self
-                        )
-                }
-                panel.close()
-            }
+        let stalePanelIds = Set(staleTabIds.compactMap { surfaceIdToPanelId[$0] })
+        surfaceIdToPanelId = surfaceIdToPanelId.filter { live.contains($0.key) }
+        let livePanelIds = Set(surfaceIdToPanelId.values)
+        for panelId in stalePanelIds.subtracting(livePanelIds) {
+            discardPanelStateAndClose(panelId: panelId)
         }
     }
 
@@ -1117,9 +1102,7 @@ final class DockSplitStore: BonsplitDelegate {
                     )
                 }
                 guard seedSplitResult != nil else {
-                    surfaceIdToPanelId.removeValue(forKey: newTab.id)
-                    panels.removeValue(forKey: panel.id)
-                    panel.close()
+                    discardPanelOwnershipAndClose(panelId: panel.id)
                     continue
                 }
                 installSubscription(for: panel, tracksTerminalTitle: tracksTitle)

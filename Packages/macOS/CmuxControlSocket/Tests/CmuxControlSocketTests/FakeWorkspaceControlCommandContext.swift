@@ -37,6 +37,13 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         authority: ControlWorkspaceRemoteTerminalAuthority,
         attemptID: UUID
     )?
+    var foregroundAuthResolution:
+        ControlWorkspaceRemoteResolution = .missingWorkspaceID
+    var foregroundAuthCall: (
+        workspaceID: UUID,
+        token: String?,
+        controlPath: String?
+    )?
 
     init(
         currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner? = nil,
@@ -175,5 +182,18 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             return currentRemotePTYLifecycleOwnerProvider()
         }
         return currentRemotePTYLifecycleOwner
+    }
+
+    func controlWorkspaceRemoteForegroundAuthReady(
+        workspaceID: UUID,
+        foregroundAuthToken: String?,
+        resolvedControlPath: String?
+    ) -> ControlWorkspaceRemoteResolution {
+        foregroundAuthCall = (
+            workspaceID,
+            foregroundAuthToken,
+            resolvedControlPath
+        )
+        return foregroundAuthResolution
     }
 }

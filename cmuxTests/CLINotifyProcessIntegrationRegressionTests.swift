@@ -1692,52 +1692,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")
-        XCTAssertEqual(request["agent_session_ended"] as? Bool, true)
-    }
-
-    func testClaudeSessionEndWithoutAuthoritativeCheckpointDoesNotMarkBindingEnded() throws {
-        let context = try makeClaudeHookContext(name: "claude-session-end-missing-checkpoint")
-        defer { context.cleanup() }
-
-        let reportedSessionId = "reported-session"
-        let now = Date().timeIntervalSince1970
-        let store: [String: Any] = [
-            "version": 1,
-            "sessions": [
-                reportedSessionId: [
-                    "sessionId": "   ",
-                    "workspaceId": context.workspaceId,
-                    "surfaceId": context.surfaceId,
-                    "cwd": context.root.path,
-                    "startedAt": now,
-                    "updatedAt": now,
-                ],
-            ],
-        ]
-        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
-        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
-            .write(to: stateURL, options: .atomic)
-
-        let result = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "session-end"],
-            standardInput: #"{"session_id":"\#(reportedSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        let clearRequests = context.state.commands.compactMap { command -> [String: Any]? in
-            guard let payload = jsonObject(command),
-                  payload["method"] as? String == "surface.resume.clear" else {
-                return nil
-            }
-            return payload["params"] as? [String: Any]
-        }
-        let request = try XCTUnwrap(clearRequests.first)
-        XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
-        XCTAssertEqual(request["source"] as? String, "agent-hook")
-        XCTAssertNil(request["checkpoint_id"])
-        XCTAssertNil(request["agent_session_ended"])
     }
 
     func testNestedCodexPromptAndStopDoNotReplaceParentResumeBinding() throws {
@@ -8541,7 +8495,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")
-        XCTAssertEqual(request["agent_session_ended"] as? Bool, true)
     }
 
     func testSurfaceResumeClearCLIForwardsCheckpointAndSourceGuards() throws {
@@ -8601,7 +8554,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, "new-session")
         XCTAssertEqual(request["source"] as? String, "agent-hook")
-        XCTAssertNil(request["agent_session_ended"])
     }
 
     func testSurfaceResumeSetCLIPreservesQuotedShellCommand() throws {

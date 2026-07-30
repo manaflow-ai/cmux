@@ -35,18 +35,18 @@ public struct SSHAgentSocketResolver: Sendable {
             .lowercased()
     }
 
-    /// Reads the last non-empty value for an OpenSSH-style option.
+    /// Reads the first non-empty value for an OpenSSH-style option.
     ///
-    /// OpenSSH applies the last repeated `-o` value, so this method scans in
-    /// reverse order.
+    /// OpenSSH keeps the first value obtained for command-line configuration,
+    /// so later duplicate `-o` values do not override the first.
     ///
     /// - Parameters:
     ///   - key: The option key to read.
     ///   - options: Option strings such as `ForwardAgent=yes`.
-    /// - Returns: The last non-empty matching option value, or `nil`.
+    /// - Returns: The first non-empty matching option value, or `nil`.
     public func optionValue(named key: String, in options: [String]) -> String? {
         let loweredKey = key.lowercased()
-        for option in options.reversed() {
+        for option in options {
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             let parts = trimmed.split(
@@ -100,7 +100,7 @@ public struct SSHAgentSocketResolver: Sendable {
         return normalizedOptional((trimmed as NSString).expandingTildeInPath) ?? trimmed
     }
 
-    /// Resolves the last `ForwardAgent` option into an agent socket path candidate.
+    /// Resolves the effective `ForwardAgent` option into an agent socket path candidate.
     ///
     /// - Parameter options: OpenSSH-style option strings.
     /// - Returns: A socket path candidate, or `nil` when no usable `ForwardAgent` value exists.

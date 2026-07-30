@@ -1156,7 +1156,9 @@ class GhosttyApp {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reloadConfiguration(source: "settings.terminal.copyOnSelect")
+            _ = MainActor.assumeIsolated {
+                self?.reloadConfiguration(source: "settings.terminal.copyOnSelect")
+            }
         })
 
         #endif
@@ -3159,14 +3161,6 @@ class GhosttyApp {
             )
         }
 
-        if action.tag == GHOSTTY_ACTION_COMMAND_FINISHED {
-            return handleAgentSessionCommandFinishedAction(
-                tabId: callbackTabId,
-                surfaceId: callbackSurfaceId,
-                message: action.action.command_finished
-            )
-        }
-
         guard let surfaceView = callbackContext?.surfaceView else { return false }
         if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
             action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
@@ -3583,16 +3577,13 @@ private final class TerminalSharedBackdropCutoutFilter: CIFilter {
 
 // TerminalSurfaceFocusPlacement moved to CmuxTerminalCore (SurfaceRegistry/).
 
+@MainActor
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
-    let recordedAt = Date()
-    Task { @MainActor in
-        AgentHibernationController.shared.recordTerminalInput(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            recordedAt: recordedAt
-        )
-    }
+    AgentHibernationController.shared.recordTerminalInput(
+        workspaceId: workspaceId,
+        panelId: panelId
+    )
 }
 
 // TerminalSurface and its SearchState moved to the CmuxTerminal package
@@ -8196,7 +8187,6 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
     private var hasVisibilityRevealRefreshScheduled = false
-    var onExplicitTerminalInput: (() -> Void)?
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
