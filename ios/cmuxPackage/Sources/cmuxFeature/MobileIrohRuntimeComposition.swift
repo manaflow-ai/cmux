@@ -2674,8 +2674,8 @@ extension MobileIrohRuntimeComposition {
                 )
                 return true
             }
-            group.addTask { [forgetDeadlineSleep] in
-                try? await forgetDeadlineSleep(Self.forgetRevokeDeadlineSeconds)
+            group.addTask {
+                try? await Self.forgetDeadlineSleep(Self.forgetRevokeDeadlineSeconds)
                 return false
             }
             guard let firstFinished = try await group.next() else {
@@ -2754,8 +2754,8 @@ extension MobileIrohRuntimeComposition {
 
     /// Cancellable sleeper backing the forget deadline race — an intentional
     /// bounded timeout (cancelled with the race, never a synchronization
-    /// substitute).
-    private let forgetDeadlineSleep: @Sendable (TimeInterval) async throws -> Void = { seconds in
+    /// substitute). Static because extensions cannot hold instance storage.
+    private static let forgetDeadlineSleep: @Sendable (TimeInterval) async throws -> Void = { seconds in
         try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 
