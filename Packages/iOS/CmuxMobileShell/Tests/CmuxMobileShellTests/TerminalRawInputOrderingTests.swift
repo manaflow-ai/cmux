@@ -180,10 +180,10 @@ import Testing
             router: nextRouter
         )
         let nextSubscription = try #require(
-            store.secondaryMacSubscriptions["next-mac"]
+            store.secondaryMacSubscriptions["next-mac".pairingKey]
         )
         nextSubscription.detachKeepingClient()
-        store.secondaryMacSubscriptions["next-mac"] = nil
+        store.secondaryMacSubscriptions["next-mac".pairingKey] = nil
         store.adoptPooledRemoteClient(nextSubscription.client)
 
         await store.submitTerminalRawInput(
