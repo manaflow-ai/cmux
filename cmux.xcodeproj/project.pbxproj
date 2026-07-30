@@ -637,6 +637,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */; };
 		B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */; };
 		B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */; };
+		9009A0019009A0019009A001 /* CMUXCLI+TmuxCompatLaunchContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9009A0019009A0019009A002 /* CMUXCLI+TmuxCompatLaunchContext.swift */; };
 		7837A0017837A0017837A001 /* CMUXCLI+TmuxCompatResizePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */; };
 		B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */; };
 		B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */; };
@@ -2289,6 +2290,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F50030020000000000000001 /* TitlebarInteractiveControlModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */; };
 		F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */; };
 		C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */; };
+		9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */; };
 		E30760030000000000000002 /* TmuxOverlayExperimentSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */; };
 		E30760040000000000000002 /* TmuxOverlayExperimentTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */; };
 		B35751000000000000000002 /* TmuxResumeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35751000000000000000001 /* TmuxResumeParser.swift */; };
@@ -3211,6 +3213,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Themes.swift"; sourceTree = "<group>"; };
 		B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ThemeSupport.swift"; sourceTree = "<group>"; };
 		B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatHUDSupport.swift"; sourceTree = "<group>"; };
+		9009A0019009A0019009A002 /* CMUXCLI+TmuxCompatLaunchContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatLaunchContext.swift"; sourceTree = "<group>"; };
 		7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatResizePane.swift"; sourceTree = "<group>"; };
 		B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatSupport.swift"; sourceTree = "<group>"; };
 		B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TopRendering.swift"; sourceTree = "<group>"; };
@@ -4788,6 +4791,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlModifier.swift; sourceTree = "<group>"; };
 		F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlTests.swift; sourceTree = "<group>"; };
 		C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarLayoutDebugWindow.swift; sourceTree = "<group>"; };
+		9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatLaunchContextError.swift; sourceTree = "<group>"; };
 		E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentSettings.swift; sourceTree = "<group>"; };
 		E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentTarget.swift; sourceTree = "<group>"; };
 		B35751000000000000000001 /* TmuxResumeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxResumeParser.swift; sourceTree = "<group>"; };
@@ -6930,6 +6934,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */,
 				B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */,
 				7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */,
+				9009A0019009A0019009A002 /* CMUXCLI+TmuxCompatLaunchContext.swift */,
+				9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */,
 				B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */,
 				B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */,
 				B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */,
@@ -9841,6 +9847,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
 				B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
 				B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */,
+				9009A0019009A0019009A001 /* CMUXCLI+TmuxCompatLaunchContext.swift in Sources */,
 				7837A0017837A0017837A001 /* CMUXCLI+TmuxCompatResizePane.swift in Sources */,
 				B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
@@ -9872,6 +9879,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E60610300000000000000002 /* SSHPTYAttachReconnectInputFilterState.swift in Sources */,
 				6379A0046379A0046379A004 /* SSHPTYResizeMonitor.swift in Sources */,
 				9A6800000000000000000002 /* SSHPTYTerminalReadinessReport.swift in Sources */,
+				9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */,
 				A6AC720A0000000000000001 /* WorkspaceLoadingArguments.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
