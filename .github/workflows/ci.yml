@@ -180,6 +180,12 @@ jobs:
       - name: Validate Zig install without sudo
         run: ./tests/test_install_zig_ci_no_sudo.sh
 
+      - name: Initialize Ghostty for Zig version guard
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Validate Ghostty Zig version synchronization
+        run: ./tests/test_ghostty_zig_version_sync.sh
+
       - name: Validate virtual display lock
         run: ./tests/test_ci_virtual_display_lock.sh
 
@@ -623,6 +629,26 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BrowserViewportRuntimeTests \
+            test
+
+      - name: Run five-tab renderer memory regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Use a dedicated app-host process so task_vm_info deltas only compare
+          # one versus five real Ghostty renderers in this workload. The focused
+          # invocation also makes footprint assertion failures non-tolerant.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          CMUX_RENDERER_MEMORY_REGRESSION=1 \
+            scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GhosttySurfaceOverlayTests/testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles \
             test
 
       - name: Run notification routing regressions
