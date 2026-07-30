@@ -396,20 +396,20 @@ final class cmuxUITests: XCTestCase {
     func testWorkspaceGroupRenameUsesAlert() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
-            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "8",
-            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
         ])
         defer { app.terminate() }
 
         let groupHeader = app.descendants(matching: .any)[
-            "MobileWorkspaceGroupHeader-seed-group-0"
+            "MobileWorkspaceGroupHeader-seed-group-1"
         ]
         XCTAssertTrue(groupHeader.waitForExistence(timeout: 8))
         groupHeader.press(forDuration: 1)
 
         let rename = app.descendants(matching: .any)[
-            "MobileWorkspaceGroupRenameButton-seed-group-0"
+            "MobileWorkspaceGroupRenameButton-seed-group-1"
         ]
         XCTAssertTrue(rename.waitForExistence(timeout: 3))
         rename.tap()
