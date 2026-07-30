@@ -1743,6 +1743,7 @@
           "sessionContentAlignment": "sessionContentMaxWidth が有効な場合の、ターミナルと組み込みエージェントチャットの水平方向の配置です。",
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
           "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
+          "trustedResumeSources": "「レジュームコマンドを許可しますか？」の確認を表示せずに cmux が自動承認するレジュームコマンドのソースです。各バインディングの source、続いて name に対して大文字・小文字を区別せずに照合します（例: 「rovo」「claude」「codex」）。承認は通常、レジュームコマンドのセッションごとに一意な識別子をキーとするため、タブごとに新しいセッション ID を生成するエージェント（例: 「rovo run --restore <session-id>」）は新しいセッションのたびに再確認が表示されます。ここにソースを登録すると、そのエージェントの以降のすべてのレジュームコマンドを信頼します。",
           "textBoxDefaultSubmitAction": "新しいターミナルセッションで使う既定の TextBox 送信アクション ID です。通常の入力には text-entry、または設定済みアクション ID のいずれかを使います。",
           "textBoxSubmitActions": "送信ボタン、Shift-Tab の切り替え、右クリックメニューに表示する設定可能な TextBox 送信アクションです。",
           "textBoxSubmitActionId": "terminal.textBoxDefaultSubmitAction から参照される安定したアクション ID です。",

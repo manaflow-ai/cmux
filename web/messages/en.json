@@ -1820,6 +1820,7 @@
           "sessionContentAlignment": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled.",
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
           "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox.",
+          "trustedResumeSources": "Resume-command sources cmux auto-approves without showing the \"Allow Resume Command?\" prompt. Matched case-insensitively against each binding's source, then its name (e.g. \"rovo\", \"claude\", \"codex\"). Approvals are normally keyed to a resume command's exact per-session identifier, so agents that mint a new session id per tab (like \"rovo run --restore <session-id>\") otherwise re-prompt on every new session; listing the source here trusts all of its future resume commands.",
           "textBoxDefaultSubmitAction": "Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs.",
           "textBoxSubmitActions": "Configurable TextBox submit actions shown on the submit button, Shift-Tab cycle, and right-click menu.",
           "textBoxSubmitActionId": "Stable action ID referenced by terminal.textBoxDefaultSubmitAction.",

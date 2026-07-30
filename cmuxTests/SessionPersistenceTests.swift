@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxCore
+import CmuxSettings
 import CmuxFoundation
 import CmuxWorkspaces
 import Darwin
@@ -5400,6 +5401,131 @@ extension SessionPersistenceTests {
         )
         XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
         XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+    }
+
+    @MainActor
+    private func withTrustedResumeSources<T>(_ sources: [String], _ body: () throws -> T) rethrows -> T {
+        let defaults = UserDefaults.standard
+        let key = TerminalCatalogSection().trustedResumeSources.userDefaultsKey
+        let previous = defaults.object(forKey: key)
+        TrustedResumeSourcesStore(defaults: defaults).setTrustedSources(sources)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        return try body()
+    }
+
+    @MainActor
+    func testTrustedResumeSourceRemainsTrustedWithoutApprovalRecordAcrossSessions() {
+        withTrustedResumeSources(["rovo"]) {
+            // Two distinct sessions of the same agent produce different per-session
+            // resume commands; both should auto-trust without a stored record.
+            for sessionId in ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"] {
+                let binding = SurfaceResumeBindingSnapshot(
+                    command: "rovo run --restore \(sessionId)",
+                    cwd: "/tmp/project",
+                    source: "rovo"
+                )
+                let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+                    to: binding,
+                    fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+                    signingSecret: Data("approval-secret".utf8)
+                )
+                XCTAssertEqual(effectiveBinding.approvalPolicy, .auto, "session \(sessionId)")
+                XCTAssertTrue(effectiveBinding.allowsAutomaticResume, "session \(sessionId)")
+            }
+        }
+    }
+
+    @MainActor
+    func testTrustedResumeSourceMatchingIsCaseInsensitiveAndUsesName() {
+        withTrustedResumeSources(["Rovo"]) {
+            let bindingBySource = SurfaceResumeBindingSnapshot(
+                command: "rovo run --restore abc",
+                cwd: "/tmp/project",
+                source: "ROVO"
+            )
+            XCTAssertEqual(
+                SurfaceResumeApprovalStore.applyingStoredApproval(
+                    to: bindingBySource,
+                    fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+                    signingSecret: Data("approval-secret".utf8)
+                ).approvalPolicy,
+                .auto
+            )
+
+            let bindingByName = SurfaceResumeBindingSnapshot(
+                name: "rovo",
+                command: "some-wrapper run --restore abc",
+                cwd: "/tmp/project",
+                source: "cli-passthrough"
+            )
+            XCTAssertEqual(
+                SurfaceResumeApprovalStore.applyingStoredApproval(
+                    to: bindingByName,
+                    fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+                    signingSecret: Data("approval-secret".utf8)
+                ).approvalPolicy,
+                .auto
+            )
+        }
+    }
+
+    @MainActor
+    func testUntrustedResumeSourceIsNotAutoTrustedWhenAllowlistEmpty() {
+        withTrustedResumeSources([]) {
+            let binding = SurfaceResumeBindingSnapshot(
+                command: "rovo run --restore abc",
+                cwd: "/tmp/project",
+                source: "rovo"
+            )
+            let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+                to: binding,
+                fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+                signingSecret: Data("approval-secret".utf8)
+            )
+            XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
+            XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
+        }
+    }
+
+    @MainActor
+    func testTrustedResumeSourceSuppressesApprovalPrompt() {
+        withTrustedResumeSources(["rovo"]) {
+            let trusted = SurfaceResumeBindingSnapshot(
+                command: "rovo run --restore abc",
+                cwd: "/tmp/project",
+                source: "rovo"
+            )
+            XCTAssertFalse(
+                SurfaceResumeApprovalStore.shouldPromptForProposal(
+                    binding: trusted,
+                    existingRecord: nil,
+                    isMainThread: true,
+                    isRunningTests: false
+                ),
+                "trusted source should never prompt"
+            )
+
+            let untrusted = SurfaceResumeBindingSnapshot(
+                command: "other run --restore abc",
+                cwd: "/tmp/project",
+                source: "other"
+            )
+            XCTAssertTrue(
+                SurfaceResumeApprovalStore.shouldPromptForProposal(
+                    binding: untrusted,
+                    existingRecord: nil,
+                    isMainThread: true,
+                    isRunningTests: false
+                ),
+                "untrusted source with no record should prompt"
+            )
+        }
     }
 
     func testHermesAgentHookSurfaceResumeBootstrapsSubrouterAndRewritesStaleCodexProvider() throws {

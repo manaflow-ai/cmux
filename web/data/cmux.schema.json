@@ -590,6 +590,15 @@
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         },
+        "trustedResumeSources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "descriptionKey": "schemaDescriptions.terminal.trustedResumeSources",
+          "description": "Resume-command sources cmux auto-approves without showing the \"Allow Resume Command?\" prompt. Matched case-insensitively against each binding's source, then its name (e.g. \"rovo\", \"claude\", \"codex\"). Approvals are normally keyed to a resume command's exact per-session identifier, so agents that mint a new session id per tab (like \"rovo run --restore <session-id>\") otherwise re-prompt on every new session; listing the source here trusts all of its future resume commands."
+        },
         "showTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,
