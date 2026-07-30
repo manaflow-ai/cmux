@@ -54,4 +54,13 @@ struct BrowserUserAgentPolicyWebKitTests {
             #expect(webView.customUserAgent == nil)
         }
     }
+
+    @Test func nonWebDestinationClearsCustomIdentityWithoutRestarting() {
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
+        let request = URLRequest(url: URL(fileURLWithPath: "/tmp/example.html"))
+
+        #expect(webView.browserUserAgentPolicyRestartRequest(for: request) == nil)
+        #expect(webView.customUserAgent == nil)
+    }
 }

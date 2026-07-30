@@ -10259,9 +10259,13 @@ struct CMUXCLI {
         var authArguments = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options))
         authArguments += ["-T", options.destination, "true"]
         let authCommand = authArguments.map(shellQuote).joined(separator: " ")
-        let attachScript = buildSSHPTYAttachScriptBody(
+        let attachAttemptScript = buildSSHPTYAttachScriptBody(
             remoteShellCommand: remoteShellCommand
         )
+        let attachAttemptCommand = "/bin/sh -c \(shellQuote(attachAttemptScript))"
+        let attachScript = SSHPTYAttachExitCode.noProgressRetryLoopLines(
+            command: attachAttemptCommand
+        ).joined(separator: "\n")
         var authScriptLines: [String] = []
         let sharingOptions = SSHConnectionSharingOptions()
         let authenticationLockPath = sharingOptions.foregroundAuthenticationLockPath(
@@ -12422,29 +12426,11 @@ struct CMUXCLI {
             "trap 'cmux_ssh_attach_signal_exit 129' HUP",
             "trap 'cmux_ssh_attach_signal_exit 130' INT",
             "trap 'cmux_ssh_attach_signal_exit 143' TERM",
-        ] + sshPTYAttachRetryLoopLines(command: attachCommand)).joined(separator: "\n")
+        ] + SSHPTYAttachExitCode.retryLoopLines(
+            command: attachCommand,
+            reauthenticates: false
+        )).joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(script))"
-    }
-
-    private func sshPTYAttachRetryLoopLines(command: String) -> [String] {
-        // Retryable 254|255 is owned by SSHPTYAttachExitCode; keep in sync with SSHPTYAttachStartupCommandBuilder.retryingAttachLines.
-        [
-            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"\ncase \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
-            "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"\ncase \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
-            "cmux_ssh_attach_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"\ncase \"$cmux_ssh_attach_reconnect_max_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_max_delay=30 ;; esac",
-            "if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi",
-            "cmux_ssh_attach_reconnect_initial_delay=\"$cmux_ssh_attach_reconnect_delay\"",
-            "cmux_ssh_attach_retry=0",
-            "while :; do",
-            "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi\n  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" \(command)",
-            "  cmux_ssh_attach_status=$?",
-            "  case \"$cmux_ssh_attach_status\" in 254) cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\" ;; 255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac\n  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
-            "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
-            "  if [ -t 2 ]; then printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s/%s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\" >&2 || true; fi",
-            "  if [ \"$cmux_ssh_attach_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_attach_reconnect_delay\"; fi",
-            "  if [ \"$cmux_ssh_attach_reconnect_delay\" -lt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=$((cmux_ssh_attach_reconnect_delay * 2)); if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi; fi",
-            "done",
-        ]
     }
 
     private func sshSessionTargetParams(
@@ -12514,18 +12500,28 @@ struct CMUXCLI {
         var bridgeReachedReady = false
         var sessionLostWillRespawn = false
         var wrapperWillRetrySameSurface = false
+        var noProgressRetryExhausted = false
         var attachFinished = false
         var attachmentToken = ""
-        func reconcileBridgeEnd(intentionalOnly: Bool) throws -> Bool {
+        func reconcileBridgeEnd(
+            intentionalOnly: Bool,
+            sessionRunningExitCode: SSHPTYAttachExitCode = .bridgeClosedSessionRunning
+        ) throws -> Bool {
             do {
                 return try reconcileSSHPTYBridgeEnd(
                     client: client, workspaceId: workspaceId, surfaceID: surfaceID,
-                    sessionID: sessionID, lifecycleID: lifecycleID, intentionalOnly: intentionalOnly
+                    sessionID: sessionID,
+                    lifecycleID: lifecycleID,
+                    intentionalOnly: intentionalOnly,
+                    sessionRunningExitCode: sessionRunningExitCode
                 )
             } catch let error as CLIError {
-                if SSHPTYAttachExitCode(rawValue: error.exitCode)?.isWrapperRetryable == true,
-                   sshPTYAttachWrapperRetryPending() {
-                    wrapperWillRetrySameSurface = true
+                if let exitCode = SSHPTYAttachExitCode(rawValue: error.exitCode) {
+                    if sshPTYAttachWrapperWillRetry(exitCode) {
+                        wrapperWillRetrySameSurface = true
+                    } else if exitCode == .bridgeClosedWithoutProgress {
+                        noProgressRetryExhausted = true
+                    }
                 }
                 throw error
             }
@@ -12541,7 +12537,8 @@ struct CMUXCLI {
                     attachmentID: attachmentID,
                     attachmentToken: attachmentToken,
                     retireLifecycle: !sessionLostWillRespawn && !wrapperWillRetrySameSurface,
-                    clearLocalSurface: !bridgeReachedReady && !sessionLostWillRespawn
+                    clearLocalSurface: (!bridgeReachedReady || noProgressRetryExhausted)
+                        && !sessionLostWillRespawn
                         && !wrapperWillRetrySameSurface
                 )
             }
@@ -12579,7 +12576,7 @@ struct CMUXCLI {
                 exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(String(describing: error))
             }
             let closedGeneration = (error as? CLIError)?.v2Code == "pty_lifecycle_closed"
-            if !closedGeneration, exitCode.isWrapperRetryable, sshPTYAttachWrapperRetryPending() {
+            if !closedGeneration, sshPTYAttachWrapperWillRetry(exitCode) {
                 wrapperWillRetrySameSurface = true
             }
             if closedGeneration {
@@ -12618,6 +12615,8 @@ struct CMUXCLI {
         }
         var connectedFD: Int32?
         var bridgeHandshakeSize = Self.currentCLITerminalSize()
+        var bridgeReadyUptime: TimeInterval = 0
+        var bridgeReplayBytes = 0
         do {
             let host = (bridge["host"] as? String) ?? "127.0.0.1"
             guard let port = cliStrictInt(bridge["port"]), port > 0, port <= 65535 else {
@@ -12639,17 +12638,22 @@ struct CMUXCLI {
             ], options: [])
             handshakeData.append(0x0A)
             try Self.writeAll(fd: fd, data: handshakeData)
-            attachmentToken = try readSSHPTYBridgeReady(fd: fd)
+            let ready = try readSSHPTYBridgeReady(fd: fd)
+            attachmentToken = ready.attachmentToken
+            bridgeReplayBytes = ready.replayBytes
             bridgeReachedReady = true
+            bridgeReadyUptime = ProcessInfo.processInfo.systemUptime
         } catch {
             let sessionNotFound = requireExisting &&
                 (error as? CLIError)?.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue
             if sessionNotFound {
                 sessionLostWillRespawn = true
             }
-            let preReadyRetryable = (error as? CLIError)
-                .flatMap { SSHPTYAttachExitCode(rawValue: $0.exitCode) }?.isWrapperRetryable == true
-            if preReadyRetryable, sshPTYAttachWrapperRetryPending() {
+            let preReadyExitCode = (error as? CLIError)
+                .flatMap { SSHPTYAttachExitCode(rawValue: $0.exitCode) }
+            let preReadyRetryable = preReadyExitCode?.isWrapperRetryable == true
+            if let preReadyExitCode,
+               sshPTYAttachWrapperWillRetry(preReadyExitCode) {
                 wrapperWillRetrySameSurface = true
             }
             if let connectedFD { Darwin.close(connectedFD) }
@@ -12697,22 +12701,36 @@ struct CMUXCLI {
             throw CLIError(message: "ssh-pty-attach: bridge write failed")
         }
         var reconnectInputFilterStopRequested = false
+        var outputProgress = SSHPTYAttachOutputProgress(replayBytes: bridgeReplayBytes)
 
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
+                outputProgress.recordOutput(byteCount: count)
                 reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeMonitor.cancel()
-                _ = try reconcileBridgeEnd(intentionalOnly: false)
+                _ = try reconcileBridgeEnd(
+                    intentionalOnly: false,
+                    sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
+                        receivedLiveOutput: outputProgress.receivedLiveOutput,
+                        readyUptime: bridgeReadyUptime
+                    )
+                )
                 attachFinished = true
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
                     resizeMonitor.cancel()
-                    _ = try reconcileBridgeEnd(intentionalOnly: false)
+                    _ = try reconcileBridgeEnd(
+                        intentionalOnly: false,
+                        sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
+                            receivedLiveOutput: outputProgress.receivedLiveOutput,
+                            readyUptime: bridgeReadyUptime
+                        )
+                    )
                     attachFinished = true
                     return
                 }
@@ -15379,7 +15397,7 @@ struct CMUXCLI {
             return """
             Usage: cmux agent-hibernation <on|off> [--json]
 
-            Enable or disable Agent Hibernation.
+            Enable or disable routine Agent Hibernation.
             Configure idle and live-terminal limits from Settings or cmux settings JSON.
             """
         case "restore-session":
@@ -24863,16 +24881,14 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: cleanupSurfaceId,
-                    sessionId: consumedSession.sessionId,
-                    sessionDidEnd: true
+                    sessionId: consumedSession.sessionId
                 )
                 if cleanupSurfaceId != consumedSession.surfaceId {
                     clearAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: consumedSession.workspaceId,
                         surfaceId: consumedSession.surfaceId,
-                        sessionId: consumedSession.sessionId,
-                        sessionDidEnd: true
+                        sessionId: consumedSession.sessionId
                     )
                 }
                 sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
@@ -28004,8 +28020,7 @@ struct CMUXCLI {
         client: SocketClient,
         workspaceId: String,
         surfaceId: String,
-        sessionId: String?,
-        sessionDidEnd: Bool = false
+        sessionId: String?
     ) {
         let normalizedSessionId = normalizedHookValue(sessionId)
         var params: [String: Any] = [
@@ -28014,9 +28029,6 @@ struct CMUXCLI {
         ]
         if let normalizedSessionId {
             params["checkpoint_id"] = normalizedSessionId
-        }
-        if sessionDidEnd, normalizedSessionId != nil {
-            params["agent_session_ended"] = true
         }
         _ = try? client.sendV2(method: "surface.resume.clear", params: params)
     }
@@ -30533,8 +30545,7 @@ export default CMUXSessionRestore;
                     client: client,
                     workspaceId: consumed.workspaceId,
                     surfaceId: consumed.surfaceId,
-                    sessionId: consumed.sessionId,
-                    sessionDidEnd: true
+                    sessionId: consumed.sessionId
                 )
                 _ = try? sendV1Command(
                     "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",

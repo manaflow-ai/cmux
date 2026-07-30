@@ -60,6 +60,106 @@ import UIKit
         #expect(replacementTable.numberOfRows(inSection: 0) == 2)
     }
 
+    @Test func subMinuteActivityRestampDoesNoTableWork() {
+        // Second 0 of an epoch minute, so +2s stays inside the same rendered
+        // minute. The Mac restamps preview_at/last_activity_at from the
+        // latest notification on every list emission; a sub-minute restamp
+        // renders identically and must not touch the table.
+        let base = Date(timeIntervalSinceReferenceDate: 790_000_020)
+        var workspace = preview(id: "workspace-1", activityAt: base)
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration(workspaces: [workspace])
+        )
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+
+        workspace.previewAt = base.addingTimeInterval(2)
+        workspace.lastActivityAt = base.addingTimeInterval(2)
+        coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
+
+        #expect(coordinator.lastPayloadApplyRoute == .noChange)
+    }
+
+    @Test func minuteCrossingActivityRestampReconfiguresInPlace() {
+        // One second before a minute boundary, so +2s changes the rendered
+        // timestamp label and the row must re-render — but heights are
+        // untouched, so no snapshot apply is needed.
+        let base = Date(timeIntervalSinceReferenceDate: 790_000_019)
+        var workspace = preview(id: "workspace-1", activityAt: base)
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration(workspaces: [workspace])
+        )
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+
+        workspace.lastActivityAt = base.addingTimeInterval(2)
+        coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
+
+        #expect(
+            coordinator.lastPayloadApplyRoute == .reconfiguredInPlace(["workspace.workspace-1"])
+        )
+    }
+
+    @Test func previewTextChangeReconfiguresInPlaceWithoutSnapshotApply() {
+        var workspace = preview(id: "workspace-1", activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020))
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration(workspaces: [workspace])
+        )
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+
+        workspace.previewText = "Agent finished: PR opened"
+        workspace.hasUnread = true
+        coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
+
+        #expect(
+            coordinator.lastPayloadApplyRoute == .reconfiguredInPlace(["workspace.workspace-1"])
+        )
+    }
+
+    @Test func descriptionArrivalChangesRowHeightThroughSnapshotApply() {
+        // A durable description adds a text line, changing the row's height
+        // key: this payload change must keep riding the snapshot apply so
+        // UITableView re-queries the row height.
+        var workspace = preview(id: "workspace-1", activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020))
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration(workspaces: [workspace])
+        )
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+
+        workspace.customDescription = "Durable workspace context"
+        coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
+
+        #expect(coordinator.lastPayloadApplyRoute == .snapshotApply)
+    }
+
+    @Test func workspaceRenderEquivalenceQuantizesOnlyTimestamps() {
+        let base = Date(timeIntervalSinceReferenceDate: 790_000_020)
+        var previous = preview(id: "workspace-1", activityAt: base)
+        var next = previous
+
+        next.previewAt = base.addingTimeInterval(59)
+        next.lastActivityAt = base.addingTimeInterval(59)
+        #expect(WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))
+
+        next.lastActivityAt = base.addingTimeInterval(60)
+        #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))
+
+        // nil transitions change the label source and stay render-relevant.
+        next = previous
+        next.lastActivityAt = nil
+        #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))
+
+        // Any non-timestamp field still decides by full equality.
+        next = previous
+        next.hasUnread = true
+        #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))
+        #expect(WorkspaceListTableCoordinator.workspaceRenderEquivalent(nil, nil))
+        previous.previewAt = nil
+        #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, nil))
+    }
+
     @Test func coordinatorKeepsWorkspaceRowSwipeAndContextMenuActionsAvailable() {
         let capabilities = MobileWorkspaceActionCapabilities(
             supportsWorkspaceActions: true,
@@ -115,6 +215,17 @@ import UIKit
         )
     }
 
+    private func preview(id: String, activityAt: Date) -> MobileWorkspacePreview {
+        MobileWorkspacePreview(
+            id: .init(rawValue: id),
+            name: id,
+            previewText: "Build succeeded",
+            previewAt: activityAt,
+            lastActivityAt: activityAt,
+            terminals: []
+        )
+    }
+
     private func configuration(
         workspaceIDs: [String],
         actionCapabilities: MobileWorkspaceActionCapabilities = .none,
@@ -134,6 +245,26 @@ import UIKit
             workspace.actionCapabilities = actionCapabilities
             return workspace
         }
+        return configuration(
+            workspaces: workspaces,
+            requestWorkspaceClose: requestWorkspaceClose,
+            closeWorkspace: closeWorkspace,
+            setUnread: setUnread,
+            setPinned: setPinned,
+            renameRequest: renameRequest,
+            customizeRequest: customizeRequest
+        )
+    }
+
+    private func configuration(
+        workspaces: [MobileWorkspacePreview],
+        requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? = nil,
+        closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil,
+        setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
+        setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
+        renameRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
+        customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil
+    ) -> WorkspaceListTable {
         return WorkspaceListTable(
             items: workspaces.map { .workspace($0.id, indented: false) },
             workspacesByID: Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) }),

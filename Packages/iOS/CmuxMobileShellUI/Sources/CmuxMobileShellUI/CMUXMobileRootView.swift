@@ -4,6 +4,7 @@ import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
@@ -18,6 +19,7 @@ struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(ToastCenter.self) private var toasts
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
@@ -468,9 +470,18 @@ struct CMUXMobileRootView: View {
         _ isAuthenticated: Bool,
         isRestoringSession: Bool? = nil
     ) {
+        let isRestoringSession = isRestoringSession ?? authManager.isRestoringSession
+        if !isAuthenticated, !isRestoringSession {
+            // Automatic auth loss (session expiry/revalidation) signs the
+            // shell out below, unmounting the connection presenter before it
+            // can dismiss anything; clear like the manual sign-out path so no
+            // actionable toast survives onto the sign-in screen. Mirrors the
+            // gate's own signOut condition.
+            toasts.dismissAll()
+        }
         MobileRootAuthGate.syncShellAuthentication(
             stackAuthenticated: isAuthenticated,
-            isRestoringSession: isRestoringSession ?? authManager.isRestoringSession,
+            isRestoringSession: isRestoringSession,
             store: store
         )
     }
@@ -628,6 +639,11 @@ struct CMUXMobileRootView: View {
             didAuthenticateWithAttachTicket = false
             didExceedStartupRestoringGate = false
             startupConnectionCoordinator.reset()
+            // Hard context switch: queued toasts must not outlive the
+            // session. The connection presenter also suppresses its capsule
+            // once isSignedIn flips, but that races the snapshot change
+            // store.signOut() makes; this clears everything up front.
+            toasts.dismissAll()
             store.signOut()
             let serverTeardown = signOutHook.begin()
             await authManager.signOut(onSignedOut: serverTeardown)
