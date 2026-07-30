@@ -104,6 +104,36 @@ pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> an
     Ok(())
 }
 
+/// Schema 6 and earlier stored raw interactive input in effect fingerprints
+/// and intents. Those rows cannot be re-keyed without retaining the secret,
+/// so the prelaunch migration discards them before the database is vacuumed.
+/// Browser navigation is deliberately excluded because its URL is public,
+/// durable browser topology rather than transient input.
+pub(super) fn delete_legacy_sensitive_effect_receipts(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    const SENSITIVE_EFFECTS: &str = "operation GLOB 'terminal.input.*'
+         OR operation GLOB 'browser.input.*'
+         OR operation = 'sidebar_view.input'";
+    transaction.execute(
+        "DELETE FROM resource_creation_receipts
+         WHERE EXISTS (
+           SELECT 1 FROM resource_effect_receipts AS effect
+           WHERE effect.idempotency_key = resource_creation_receipts.idempotency_key
+             AND effect.operation = resource_creation_receipts.operation
+             AND (
+               effect.operation GLOB 'terminal.input.*'
+               OR effect.operation GLOB 'browser.input.*'
+               OR effect.operation = 'sidebar_view.input'
+             )
+         )",
+        [],
+    )?;
+    transaction
+        .execute(&format!("DELETE FROM resource_effect_receipts WHERE {SENSITIVE_EFFECTS}"), [])?;
+    Ok(())
+}
+
 pub(super) fn recover_resource_effects(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute(
         "UPDATE resource_effect_receipts

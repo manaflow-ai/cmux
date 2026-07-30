@@ -14,9 +14,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use fs4::FileExt;
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::platform;
 use crate::resource::{
@@ -35,7 +37,8 @@ pub use effect_store::{
     ResourceEffectPreparation,
 };
 use effect_store::{
-    create_resource_effect_schema, prune_resource_events, recover_resource_effects,
+    create_resource_effect_schema, delete_legacy_sensitive_effect_receipts, prune_resource_events,
+    recover_resource_effects,
 };
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]
@@ -53,11 +56,104 @@ use resource_store::{
     migrate_resource_mutations_to_session_scope, validate_resource_invariants,
 };
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
 const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
 const MAX_LAUNCH_SPEC_BYTES: usize = 1024 * 1024;
+const RESOURCE_EFFECT_PEPPER_BYTES: usize = 32;
+const RESOURCE_EFFECT_PEPPER_FILE: &str = "resource-effect-pepper";
+const RESOURCE_EFFECT_PEPPER_LOCK_FILE: &str = "resource-effect-pepper.lock";
+const RESOURCE_EFFECT_PEPPER_META_KEY: &str = "resource_effect_pepper_id";
+const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cleanup_pending";
+const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
+const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
+const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+
+struct ResourceEffectPepper(Zeroizing<[u8; RESOURCE_EFFECT_PEPPER_BYTES]>);
+
+impl ResourceEffectPepper {
+    fn random() -> anyhow::Result<Self> {
+        let mut bytes = [0_u8; RESOURCE_EFFECT_PEPPER_BYTES];
+        getrandom::fill(&mut bytes)
+            .map_err(|_| crate::resource::ResourceError::allocation("resource receipt pepper"))?;
+        anyhow::ensure!(bytes.iter().any(|byte| *byte != 0), "resource receipt pepper is invalid");
+        Ok(Self(Zeroizing::new(bytes)))
+    }
+
+    fn from_bytes(mut bytes: Vec<u8>, path: &Path) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            bytes.len() == RESOURCE_EFFECT_PEPPER_BYTES,
+            "resource receipt pepper is corrupt: {}",
+            path.display()
+        );
+        let mut pepper = [0_u8; RESOURCE_EFFECT_PEPPER_BYTES];
+        pepper.copy_from_slice(&bytes);
+        bytes.zeroize();
+        anyhow::ensure!(
+            pepper.iter().any(|byte| *byte != 0),
+            "resource receipt pepper is corrupt: {}",
+            path.display()
+        );
+        Ok(Self(Zeroizing::new(pepper)))
+    }
+
+    fn identifier(&self) -> String {
+        let mut hasher = Sha256::new();
+        update_sha256_part(&mut hasher, RESOURCE_EFFECT_PEPPER_ID_DOMAIN);
+        update_sha256_part(&mut hasher, self.0.as_ref());
+        hex_sha256(hasher.finalize().into())
+    }
+
+    fn input_receipt_hmac(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        canonical_fields: &[u8],
+    ) -> [u8; 32] {
+        const BLOCK_BYTES: usize = 64;
+        let mut key_block = [0_u8; BLOCK_BYTES];
+        key_block[..RESOURCE_EFFECT_PEPPER_BYTES].copy_from_slice(self.0.as_ref());
+        let mut inner_pad = [0x36_u8; BLOCK_BYTES];
+        let mut outer_pad = [0x5c_u8; BLOCK_BYTES];
+        for index in 0..BLOCK_BYTES {
+            inner_pad[index] ^= key_block[index];
+            outer_pad[index] ^= key_block[index];
+        }
+
+        let mut inner = Sha256::new();
+        inner.update(inner_pad);
+        update_sha256_part(&mut inner, RESOURCE_INPUT_RECEIPT_DOMAIN);
+        update_sha256_part(&mut inner, idempotency_key.as_bytes());
+        update_sha256_part(&mut inner, operation.as_bytes());
+        update_sha256_part(&mut inner, canonical_fields);
+        let inner = inner.finalize();
+
+        let mut outer = Sha256::new();
+        outer.update(outer_pad);
+        outer.update(inner);
+        let digest = outer.finalize().into();
+        key_block.zeroize();
+        inner_pad.zeroize();
+        outer_pad.zeroize();
+        digest
+    }
+}
+
+fn update_sha256_part(hasher: &mut Sha256, value: &[u8]) {
+    hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+    hasher.update(value);
+}
+
+fn hex_sha256(digest: [u8; 32]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(64);
+    for byte in digest {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryWorkspace {
@@ -216,6 +312,7 @@ pub struct WorkspaceRegistry {
     session_name: String,
     machine_id: MachinePublicId,
     session_id: SessionPublicId,
+    resource_effect_pepper: ResourceEffectPepper,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
     _lease: Option<SessionLease>,
@@ -234,28 +331,42 @@ impl std::fmt::Debug for WorkspaceRegistry {
 impl WorkspaceRegistry {
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
-        Self::initialize(connection, session_name.to_string(), MachinePublicId::random()?, None)
+        Self::initialize(
+            connection,
+            session_name.to_string(),
+            MachinePublicId::random()?,
+            ResourceEffectPepper::random()?,
+            None,
+        )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
         let machine_id = load_or_create_machine_id(root)?;
+        let resource_effect_pepper = load_or_create_resource_effect_pepper(root)?;
         let session_dir = root.join(session_storage_component(session_name));
         fs::create_dir_all(&session_dir).with_context(|| {
             format!("create workspace state directory {}", session_dir.display())
         })?;
         platform::restrict_directory(&session_dir)?;
         let lease = SessionLease::acquire(&session_dir.join("writer.lock"))?;
-        let db_path = session_dir.join("workspace-registry.sqlite3");
+        let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
         let connection = Connection::open(&db_path)
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         platform::restrict_file(&db_path)?;
-        Self::initialize(connection, session_name.to_string(), machine_id, Some(lease))
+        Self::initialize(
+            connection,
+            session_name.to_string(),
+            machine_id,
+            resource_effect_pepper,
+            Some(lease),
+        )
     }
 
     fn initialize(
         connection: Connection,
         session_name: String,
         machine_id: MachinePublicId,
+        resource_effect_pepper: ResourceEffectPepper,
         lease: Option<SessionLease>,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -272,13 +383,30 @@ impl WorkspaceRegistry {
         )?;
 
         let stored_schema = meta_value(&connection, "schema_version")?;
+        let stored_schema = stored_schema
+            .as_deref()
+            .map(str::parse::<i64>)
+            .transpose()
+            .context("workspace registry schema is invalid")?;
+        let cleanup_pending =
+            match meta_value(&connection, RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY)?.as_deref() {
+                None => false,
+                Some("1") => true,
+                Some(_) => anyhow::bail!("resource receipt pepper cleanup state is invalid"),
+            };
+        let needs_sensitive_receipt_cleanup =
+            cleanup_pending || stored_schema.is_some_and(|schema| schema < SCHEMA_VERSION);
+        if needs_sensitive_receipt_cleanup {
+            connection.execute_batch("PRAGMA secure_delete=ON;")?;
+        }
+        let resource_effect_pepper_id = resource_effect_pepper.identifier();
         match stored_schema {
-            Some(value) if value.parse::<i64>()? > SCHEMA_VERSION => {
+            Some(value) if value > SCHEMA_VERSION => {
                 anyhow::bail!(
                     "unsupported workspace registry schema {value}; newest supported is {SCHEMA_VERSION}"
                 );
             }
-            Some(value) if value.parse::<i64>()? == SCHEMA_VERSION => {
+            Some(value) if value == SCHEMA_VERSION => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
@@ -294,46 +422,59 @@ impl WorkspaceRegistry {
                 )?;
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
+                require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(value) if value.parse::<i64>()? == 5 => {
+            Some(6) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
                 tx.execute(
-                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
-                    [SCHEMA_VERSION.to_string()],
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
+                    [],
                 )?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
+                    [],
+                )?;
+                ensure_session_public_id(&tx)?;
+                backfill_workspace_public_ids(&tx)?;
+                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(value) if value.parse::<i64>()? == 4 => {
+            Some(5) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
+                tx.commit()?;
+            }
+            Some(4) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
                 migrate_resource_browser_metadata(&tx)?;
-                tx.execute(
-                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
-                    [SCHEMA_VERSION.to_string()],
-                )?;
+                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(value) if value.parse::<i64>()? == 3 => {
+            Some(3) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
                 migrate_resource_mutations_to_session_scope(&tx)?;
                 migrate_resource_browser_metadata(&tx)?;
-                tx.execute(
-                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
-                    [SCHEMA_VERSION.to_string()],
-                )?;
+                create_resource_effect_schema(&tx)?;
+                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(value) if matches!(value.parse::<i64>()?, 1 | 2) => {
+            Some(1 | 2) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
@@ -350,15 +491,12 @@ impl WorkspaceRegistry {
                 )?;
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
-                tx.execute(
-                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
-                    [SCHEMA_VERSION.to_string()],
-                )?;
+                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
             Some(value) => {
                 anyhow::bail!(
-                    "unsupported workspace registry schema {value}; expected 1, 2, 3, 4, 5, or {SCHEMA_VERSION}"
+                    "unsupported workspace registry schema {value}; expected 1 through {SCHEMA_VERSION}"
                 );
             }
             None => {
@@ -381,9 +519,24 @@ impl WorkspaceRegistry {
                     "INSERT INTO meta(key, value) VALUES('registry_id', ?1)",
                     [try_new_uuid_v4()?],
                 )?;
+                tx.execute(
+                    "INSERT INTO meta(key, value) VALUES(?1, ?2)",
+                    params![RESOURCE_EFFECT_PEPPER_META_KEY, resource_effect_pepper_id],
+                )?;
                 ensure_session_public_id(&tx)?;
                 tx.commit()?;
             }
+        }
+        if needs_sensitive_receipt_cleanup {
+            checkpoint_and_truncate_wal(&connection)?;
+            connection.execute_batch("VACUUM;")?;
+            checkpoint_and_truncate_wal(&connection)?;
+            let tx = connection.unchecked_transaction()?;
+            tx.execute(
+                "DELETE FROM meta WHERE key = ?1",
+                [RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY],
+            )?;
+            tx.commit()?;
         }
         {
             let tx = connection.unchecked_transaction()?;
@@ -417,10 +570,20 @@ impl WorkspaceRegistry {
             session_name,
             machine_id,
             session_id,
+            resource_effect_pepper,
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
             _lease: lease,
         })
+    }
+
+    pub(crate) fn resource_input_receipt_hmac(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        canonical_fields: &[u8],
+    ) -> [u8; 32] {
+        self.resource_effect_pepper.input_receipt_hmac(idempotency_key, operation, canonical_fields)
     }
 
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
@@ -1428,6 +1591,55 @@ impl WorkspaceRegistry {
     }
 }
 
+fn require_resource_effect_pepper_id(
+    transaction: &Transaction<'_>,
+    expected: &str,
+) -> anyhow::Result<()> {
+    let stored = transaction
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [RESOURCE_EFFECT_PEPPER_META_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    anyhow::ensure!(
+        stored.as_deref() == Some(expected),
+        "resource receipt pepper does not match this registry"
+    );
+    Ok(())
+}
+
+fn migrate_resource_effect_pepper(
+    transaction: &Transaction<'_>,
+    identifier: &str,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY],
+    )?;
+    delete_legacy_sensitive_effect_receipts(transaction)?;
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![RESOURCE_EFFECT_PEPPER_META_KEY, identifier],
+    )?;
+    transaction.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+        [SCHEMA_VERSION.to_string()],
+    )?;
+    Ok(())
+}
+
+fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
+    let (busy, _, _): (i64, i64, i64) =
+        connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+    anyhow::ensure!(busy == 0, "resource receipt cleanup could not truncate the SQLite WAL");
+    Ok(())
+}
+
 fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspaces (
@@ -2326,6 +2538,95 @@ fn transaction_terminal_revision(transaction: &Transaction<'_>) -> anyhow::Resul
 
 const MACHINE_ID_FILE: &str = "machine-id";
 const MACHINE_ID_LOCK_FILE: &str = "machine-id.lock";
+
+fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<ResourceEffectPepper> {
+    fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
+    platform::restrict_directory(root)?;
+    let lock_path = root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE);
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .with_context(|| format!("open resource receipt pepper lock {}", lock_path.display()))?;
+    platform::restrict_file(&lock_path)?;
+    FileExt::lock(&lock)
+        .with_context(|| format!("lock resource receipt pepper {}", lock_path.display()))?;
+
+    let path = root.join(RESOURCE_EFFECT_PEPPER_FILE);
+    let result = match fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            anyhow::ensure!(
+                metadata.file_type().is_file(),
+                "resource receipt pepper is corrupt: {}",
+                path.display()
+            );
+            platform::restrict_file(&path)?;
+            let bytes = fs::read(&path)
+                .with_context(|| format!("read resource receipt pepper {}", path.display()))?;
+            ResourceEffectPepper::from_bytes(bytes, &path)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            ensure_missing_pepper_can_migrate(root, &path)?;
+            let pepper = ResourceEffectPepper::random()?;
+            let mut options = OpenOptions::new();
+            options.create_new(true).write(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options
+                .open(&path)
+                .with_context(|| format!("create resource receipt pepper {}", path.display()))?;
+            platform::restrict_file(&path)?;
+            file.write_all(pepper.0.as_ref())
+                .with_context(|| format!("write resource receipt pepper {}", path.display()))?;
+            file.sync_all()
+                .with_context(|| format!("sync resource receipt pepper {}", path.display()))?;
+            File::open(root)
+                .and_then(|directory| directory.sync_all())
+                .with_context(|| format!("sync state root {}", root.display()))?;
+            Ok(pepper)
+        }
+        Err(error) => {
+            Err(error).with_context(|| format!("read resource receipt pepper {}", path.display()))
+        }
+    };
+    let _ = FileExt::unlock(&lock);
+    result
+}
+
+fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow::Result<()> {
+    for entry in
+        fs::read_dir(root).with_context(|| format!("read state root {}", root.display()))?
+    {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let database = entry.path().join(WORKSPACE_REGISTRY_FILE);
+        if !database.try_exists()? {
+            continue;
+        }
+        let connection = Connection::open_with_flags(&database, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .with_context(|| {
+            format!("inspect registry before recreating missing pepper {}", database.display())
+        })?;
+        let schema = meta_value(&connection, "schema_version")?
+            .ok_or_else(|| anyhow::anyhow!("registry schema is missing: {}", database.display()))?;
+        let schema: i64 = schema
+            .parse()
+            .with_context(|| format!("registry schema is invalid: {}", database.display()))?;
+        anyhow::ensure!(
+            schema < SCHEMA_VERSION,
+            "resource receipt pepper is missing for an existing registry: {}",
+            pepper_path.display()
+        );
+    }
+    Ok(())
+}
 
 fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;

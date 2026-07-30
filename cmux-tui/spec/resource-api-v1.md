@@ -145,6 +145,15 @@ committed result. Reusing a key with different parameters returns
 `idempotency.conflict`. Replay lookup runs before selectors and revision
 checks. SDKs never retry mutations implicitly.
 
+Interactive terminal, browser, and sidebar input payloads never enter durable
+effect fingerprints or intents as plaintext. Their fingerprint uses
+HMAC-SHA256 with a random 32-byte state-root pepper, the idempotency key,
+operation, and canonical fields. SQLite stores only the digest, a redaction
+marker, and the pepper identifier. The owner-only pepper file is shared by
+sessions under one state root; a missing, corrupt, or mismatched pepper makes
+the registry fail closed. `browser.navigate` is excluded because browser URLs
+already persist as public browser topology, events, and outcomes.
+
 Requests are limited to 4 MiB. Server responses and stream envelopes are
 limited to 16 MiB. Newlines are framing and do not count toward either limit.
 Each stream queue holds at most 256 messages and 16 MiB, with a separate

@@ -239,8 +239,113 @@ fn machine_identity_files_are_owner_only() {
         fs::metadata(root.join(MACHINE_ID_LOCK_FILE)).unwrap().permissions().mode() & 0o777,
         0o600
     );
+    assert_eq!(
+        fs::metadata(root.join(RESOURCE_EFFECT_PEPPER_FILE)).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE)).unwrap().permissions().mode()
+            & 0o777,
+        0o600
+    );
     drop(registry);
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn resource_effect_pepper_is_stable_per_root_and_unlinkable_across_roots() {
+    let first_root = temp_root("receipt-pepper-first");
+    let second_root = temp_root("receipt-pepper-second");
+    let message = b"{\"text\":\"same secret\"}";
+    let first = {
+        let registry = WorkspaceRegistry::open(&first_root, "alpha").unwrap();
+        registry.resource_input_receipt_hmac("same-key", "terminal.input.write", message)
+    };
+    let same_root = {
+        let registry = WorkspaceRegistry::open(&first_root, "beta").unwrap();
+        registry.resource_input_receipt_hmac("same-key", "terminal.input.write", message)
+    };
+    let reopened = {
+        let registry = WorkspaceRegistry::open(&first_root, "alpha").unwrap();
+        registry.resource_input_receipt_hmac("same-key", "terminal.input.write", message)
+    };
+    let second = {
+        let registry = WorkspaceRegistry::open(&second_root, "alpha").unwrap();
+        registry.resource_input_receipt_hmac("same-key", "terminal.input.write", message)
+    };
+    let memory_one = WorkspaceRegistry::in_memory("one").unwrap().resource_input_receipt_hmac(
+        "same-key",
+        "terminal.input.write",
+        message,
+    );
+    let memory_two = WorkspaceRegistry::in_memory("two").unwrap().resource_input_receipt_hmac(
+        "same-key",
+        "terminal.input.write",
+        message,
+    );
+
+    assert_eq!(first, same_root);
+    assert_eq!(first, reopened);
+    assert_ne!(first, second);
+    assert_ne!(memory_one, memory_two);
+
+    let pepper = fs::read(first_root.join(RESOURCE_EFFECT_PEPPER_FILE)).unwrap();
+    assert_eq!(pepper.len(), RESOURCE_EFFECT_PEPPER_BYTES);
+    let session_dir = first_root.join(session_storage_component("alpha"));
+    for entry in fs::read_dir(session_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            let bytes = fs::read(&path).unwrap();
+            assert!(
+                !bytes.windows(pepper.len()).any(|window| window == pepper),
+                "raw receipt pepper persisted in {}",
+                path.display()
+            );
+        }
+    }
+
+    fs::remove_dir_all(first_root).unwrap();
+    fs::remove_dir_all(second_root).unwrap();
+}
+
+#[test]
+fn resource_effect_pepper_missing_corrupt_and_mismatch_fail_closed() {
+    let missing_root = temp_root("receipt-pepper-missing");
+    drop(WorkspaceRegistry::open(&missing_root, "session").unwrap());
+    fs::remove_file(missing_root.join(RESOURCE_EFFECT_PEPPER_FILE)).unwrap();
+    assert!(
+        WorkspaceRegistry::open(&missing_root, "session")
+            .unwrap_err()
+            .to_string()
+            .contains("resource receipt pepper is missing")
+    );
+    fs::remove_dir_all(missing_root).unwrap();
+
+    let corrupt_root = temp_root("receipt-pepper-corrupt");
+    drop(WorkspaceRegistry::open(&corrupt_root, "session").unwrap());
+    fs::write(corrupt_root.join(RESOURCE_EFFECT_PEPPER_FILE), b"short").unwrap();
+    assert!(
+        WorkspaceRegistry::open(&corrupt_root, "session")
+            .unwrap_err()
+            .to_string()
+            .contains("resource receipt pepper is corrupt")
+    );
+    fs::remove_dir_all(corrupt_root).unwrap();
+
+    let mismatch_root = temp_root("receipt-pepper-mismatch");
+    drop(WorkspaceRegistry::open(&mismatch_root, "session").unwrap());
+    fs::write(
+        mismatch_root.join(RESOURCE_EFFECT_PEPPER_FILE),
+        [0xa5; RESOURCE_EFFECT_PEPPER_BYTES],
+    )
+    .unwrap();
+    assert!(
+        WorkspaceRegistry::open(&mismatch_root, "session")
+            .unwrap_err()
+            .to_string()
+            .contains("resource receipt pepper does not match")
+    );
+    fs::remove_dir_all(mismatch_root).unwrap();
 }
 
 fn viewport_screen() -> RegistryScreen {
@@ -1764,6 +1869,125 @@ fn terminal_reserve_after_workspace_close_fails_referentially() {
 }
 
 #[test]
+fn schema_six_securely_discards_legacy_sensitive_input_receipts() {
+    let root = temp_root("schema-six-sensitive-receipts");
+    let session_dir = root.join(session_storage_component("session"));
+    let database = session_dir.join(WORKSPACE_REGISTRY_FILE);
+    let sentinel = "legacy-password-sentinel-do-not-retain";
+    let public_url = "https://example.test/public-browser-url";
+    drop(WorkspaceRegistry::open(&root, "session").unwrap());
+
+    {
+        let connection = Connection::open(&database).unwrap();
+        connection
+            .execute_batch(&format!(
+                "PRAGMA wal_autocheckpoint=0;
+                 BEGIN IMMEDIATE;
+                 UPDATE meta SET value = '6' WHERE key = 'schema_version';
+                 DELETE FROM meta WHERE key = '{RESOURCE_EFFECT_PEPPER_META_KEY}';
+                 INSERT INTO resource_effect_receipts(
+                   idempotency_key, operation, fingerprint, intent_json, state,
+                   outcome_json, committed_revision
+                 ) VALUES(
+                   'legacy-sensitive', 'terminal.input.write',
+                   '{{\"fields\":{{\"text\":\"{sentinel}\"}}}}',
+                   '{{\"terminal_id\":\"term_00000000000000000000000000000001\",\"fields\":{{\"text\":\"{sentinel}\"}}}}',
+                   'pending', NULL, NULL
+                 );
+                 INSERT INTO resource_effect_receipts(
+                   idempotency_key, operation, fingerprint, intent_json, state,
+                   outcome_json, committed_revision
+                 ) VALUES(
+                   'legacy-navigation', 'browser.navigate',
+                   '{{\"fields\":{{\"url\":\"{public_url}\"}}}}',
+                   '{{\"browser_id\":\"browser_00000000000000000000000000000001\",\"fields\":{{\"url\":\"{public_url}\"}}}}',
+                   'pending', NULL, NULL
+                 );
+                 COMMIT;"
+            ))
+            .unwrap();
+    }
+    fs::remove_file(root.join(RESOURCE_EFFECT_PEPPER_FILE)).unwrap();
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    let sensitive: i64 = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_effect_receipts
+             WHERE idempotency_key = 'legacy-sensitive'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let navigation: i64 = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_effect_receipts
+             WHERE idempotency_key = 'legacy-navigation'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(sensitive, 0);
+    assert_eq!(navigation, 1);
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    assert_eq!(
+        required_meta(&migrated.connection, RESOURCE_EFFECT_PEPPER_META_KEY).unwrap().len(),
+        64
+    );
+    assert!(
+        meta_value(&migrated.connection, RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY)
+            .unwrap()
+            .is_none()
+    );
+    drop(migrated);
+
+    for entry in fs::read_dir(&session_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if !path.is_file() {
+            continue;
+        }
+        let bytes = fs::read(&path).unwrap();
+        assert!(
+            !bytes.windows(sentinel.len()).any(|window| window == sentinel.as_bytes()),
+            "legacy sensitive receipt remained in {}",
+            path.display()
+        );
+        if path.file_name().and_then(|name| name.to_str()) == Some("workspace-registry.sqlite3-wal")
+        {
+            assert!(bytes.is_empty(), "migration did not truncate the SQLite WAL");
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_seven_resumes_interrupted_sensitive_receipt_cleanup() {
+    let root = temp_root("schema-seven-resume-sensitive-cleanup");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    drop(WorkspaceRegistry::open(&root, "session").unwrap());
+    Connection::open(&database)
+        .unwrap()
+        .execute(
+            "INSERT INTO meta(key, value) VALUES(?1, '1')",
+            [RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY],
+        )
+        .unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert!(
+        meta_value(&reopened.connection, RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY)
+            .unwrap()
+            .is_none()
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn schema_four_backfills_safe_browser_restart_metadata() {
     let root = temp_root("schema-four-browser");
     let browser = browser_id(1);
@@ -1871,6 +2095,7 @@ fn interrupted_transaction_and_newer_schema_fail_closed() {
     fs::remove_dir_all(&root).unwrap();
 
     let newer_root = temp_root("newer");
+    drop(load_or_create_resource_effect_pepper(&newer_root).unwrap());
     let session_dir = newer_root.join(session_storage_component("session"));
     fs::create_dir_all(&session_dir).unwrap();
     let db = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();

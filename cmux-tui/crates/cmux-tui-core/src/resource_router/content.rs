@@ -12,10 +12,7 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::effects::{self, EffectPreparation, PreparedEffect};
-use super::{
-    ParsedResourceRequest, find_snapshot, required_string, resource_operation_error,
-    validation_error,
-};
+use super::{ParsedResourceRequest, required_string, resource_operation_error, validation_error};
 use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::State;
 use crate::mux::ResourceEffectProjection;
@@ -23,6 +20,7 @@ use crate::resource::{
     BrowserPublicId, ContentPublicId, ResourceError, ResourceOperation, TerminalPublicId,
     WireDecimal,
 };
+#[cfg(test)]
 use crate::resource_api::public_session_snapshot;
 use crate::workspace_registry::{
     RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus, ResourceChange,
@@ -413,16 +411,8 @@ fn execute_terminal_effect(
         return finish_projection_commit(mux, prepared, commit);
     }
 
-    let snapshot = match public_session_snapshot(mux) {
-        Ok(snapshot) => snapshot,
-        Err(_) => return Err(effects::mark_indeterminate(mux, prepared)),
-    };
-    let terminal = match find_snapshot(&snapshot, "terminals", terminal_id.as_str()) {
-        Ok(terminal) => terminal,
-        Err(_) => return Err(effects::mark_indeterminate(mux, prepared)),
-    };
-    let changes = upsert_change("terminal", terminal_id.as_str(), terminal);
-    effects::commit_success(mux, prepared, json!({}), changes)
+    debug_assert!(effects::receipt_only_operation(&prepared.operation));
+    effects::commit_success_without_changes(mux, prepared, json!({}))
 }
 
 fn browser_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -528,6 +518,10 @@ fn execute_browser_effect(
             &prepared.fingerprint,
         );
         return finish_projection_commit(mux, prepared, commit);
+    }
+
+    if effects::receipt_only_operation(&prepared.operation) {
+        return effects::commit_success_without_changes(mux, prepared, json!({}));
     }
 
     let returns_browser = matches!(
@@ -1920,6 +1914,8 @@ mod tests {
     #[test]
     fn terminal_external_effect_replays_before_selector_resolution() {
         let (mux, _surface, selectors) = terminal_fixture(None);
+        let input_revision = mux.with_state(|state| state.resource_revision);
+        let input_terminal_revision = mux.terminal_registry_snapshot().unwrap().revision;
         let first = dispatch(
             &mux,
             parsed_request(
@@ -1932,6 +1928,10 @@ mod tests {
         .unwrap();
         assert_eq!(first["value"], json!({}));
         assert_eq!(first["replayed"], false);
+        assert_eq!(first["revision"], input_revision.to_string());
+        assert_eq!(mux.with_state(|state| state.resource_revision), input_revision);
+        assert!(mux.resource_events_after(input_revision).unwrap().batches.is_empty());
+        assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, input_terminal_revision);
 
         let second = dispatch(
             &mux,
@@ -1945,6 +1945,21 @@ mod tests {
         .unwrap();
         assert_eq!(second["replayed"], true);
         assert_eq!(second["revision"], first["revision"]);
+        assert_eq!(mux.with_state(|state| state.resource_revision), input_revision);
+        assert!(mux.resource_events_after(input_revision).unwrap().batches.is_empty());
+
+        let conflict = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.input.write",
+                &selectors,
+                json!({"text":"different payload\n"}),
+                Some("terminal-write-replay"),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(conflict.code, "idempotency.conflict");
+        assert_eq!(mux.with_state(|state| state.resource_revision), input_revision);
 
         let before_resource = first["revision"].as_str().unwrap().parse::<u64>().unwrap();
         let before_terminal = mux.terminal_registry_snapshot().unwrap().revision;

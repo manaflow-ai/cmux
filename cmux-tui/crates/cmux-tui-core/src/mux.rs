@@ -3294,6 +3294,19 @@ impl Mux {
         )
     }
 
+    pub(crate) fn resource_input_receipt_hmac(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        canonical_fields: &[u8],
+    ) -> [u8; 32] {
+        self.workspace_registry.lock().unwrap().resource_input_receipt_hmac(
+            idempotency_key,
+            operation,
+            canonical_fields,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_resource_effect(
         &self,
