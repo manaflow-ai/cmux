@@ -1,6 +1,7 @@
 public import CMUXMobileCore
 public import CmuxAgentChat
 internal import CmuxMobileDiagnostics
+public import CmuxMobileBrowserStream
 public import CmuxMobilePairedMac
 public import CmuxMobileRPC
 public import CmuxMobileShellModel
@@ -49,11 +50,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .hybrid:
-                return ["workspace.updated", "mobile.sync.delta", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
+                return [
+                    "workspace.updated", "mobile.sync.delta",
+                    "terminal.bytes", "terminal.render_grid", "terminal.set_font",
+                    "notification.dismissed", "notification.badge", "notification.feed.changed",
+                    "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
+                ]
             case .renderGrid:
-                return ["workspace.updated", "mobile.sync.delta", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
+                return [
+                    "workspace.updated", "mobile.sync.delta",
+                    "terminal.render_grid", "terminal.set_font",
+                    "notification.dismissed", "notification.badge", "notification.feed.changed",
+                    "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
+                ]
             case .rawBytes:
-                return ["workspace.updated", "mobile.sync.delta", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
+                return [
+                    "workspace.updated", "mobile.sync.delta",
+                    "terminal.bytes", "terminal.set_font",
+                    "notification.dismissed", "notification.badge", "notification.feed.changed",
+                    "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
+                ]
             }
         }
 
@@ -89,6 +105,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
     static let terminalScreenAnchorCapability = "terminal.render_grid.screen_anchor.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
+    static let browserStreamCapability = MobileBrowserStreamCapability.identifier
+    static let browserStreamViewportCapability = MobileBrowserStreamCapability.viewportIdentifier
+    static let browserStreamDialogCapability = MobileBrowserStreamCapability.dialogIdentifier
     static let terminalReplayCapability = "terminal.replay.v1"
     static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
@@ -154,6 +173,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard oldValue != connectionState else { return }
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
+                browserStreamEvents?.setBrowserStreamConnectionStatus(.connected)
+                restartActiveMobileBrowserStreams()
                 scheduleWorkspaceChangesSummaryRefresh()
                 #if DEBUG
                 startLatencyProbeIfReady()
@@ -161,6 +182,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 #endif
             } else {
                 deactivateAllTerminalLanes()
+                startedMobileBrowserPanelIDs.removeAll()
+                browserStreamEvents?.setBrowserStreamConnectionStatus(
+                    macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
+                )
                 resetWorkspaceChangesState()
                 #if DEBUG
                 cancelLatencyProbe()
@@ -410,6 +435,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangeChipsByWorkspaceID = chips
     }
 
+    /// Separate app-lifetime browser event sink; never stored in workspace preview state.
+    @ObservationIgnored let browserStreamEvents: (any BrowserStreamEventReceiving)?
+    @ObservationIgnored let mobileBrowserStreamLifecycle = MobileBrowserStreamLifecycleCoordinator()
+    @ObservationIgnored var startedMobileBrowserPanelIDs: Set<String> = []
     @ObservationIgnored var terminalThemeState = MobileTerminalThemeState()
     /// The selected surface's effective theme and iOS chrome source of truth.
     public internal(set) var activeTerminalTheme: TerminalTheme = .monokai
@@ -1207,6 +1236,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Create a mobile shell store with injectable runtime services for app
     /// composition, previews, and package tests.
+    /// - Parameter browserStreamEvents: App-lifetime browser stream state kept outside workspace previews.
     public init(
         runtime: (any MobileSyncRuntime)? = nil,
         isSignedIn: Bool = false,
@@ -1243,6 +1273,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionHandoffDrainTimeoutNanoseconds: UInt64 = 3_000_000_000,
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
         taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
+        browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
         storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
         self.runtime = runtime
@@ -1255,6 +1286,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionHandoffDrainTimeoutNanoseconds
         self.terminalInputAckResubscribeClock = terminalInputAckResubscribeClock
         self.taskTemplateStore = taskTemplateStore
+        self.browserStreamEvents = browserStreamEvents
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
@@ -1390,6 +1422,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.rawTerminalInputLatencyBatchNumber = 0
         #endif
         self.pairingAttemptID = UUID()
+        // The watchdog's re-arm must bypass the started-dedupe set: unanswered
+        // input means the Mac-side session is gone (or never took), whatever
+        // the phone's bookkeeping says.
+        browserStreamEvents?.configureBrowserStreamRestart { [weak self] panelID in
+            await self?.forceRestartMobileBrowserStream(panelID: panelID)
+        }
     }
 
     isolated deinit {
@@ -9675,6 +9713,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return .rawBytes
             }
             supportedHostCapabilities = Set(payload.capabilities)
+            restartActiveMobileBrowserStreams()
+            refreshVisibleMobileBrowserPanels()
             prepareTerminalThemeRevisionAuthority(
                 macInstanceTag: payload.macInstanceTag, producerEpoch: payload.terminalThemeRevisionEpoch,
                 connectionID: connectionGeneration.uuidString
@@ -9859,6 +9899,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
+                    self.refreshVisibleMobileBrowserPanels()
                 } else if event.topic == "mobile.sync.delta" {
                     self.handleStateSyncDeltaEvent(event)
                 } else if event.topic == "terminal.render_grid" {
@@ -9884,6 +9925,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             macDeviceID: macDeviceID
                         )
                     )
+                } else if event.topic == "browser.frame" {
+                    self.handleMobileBrowserFrameEvent(event)
+                } else if event.topic == "browser.state" {
+                    self.handleMobileBrowserStateEvent(event)
+                } else if event.topic == "browser.closed" {
+                    self.handleMobileBrowserClosedEvent(event)
+                } else if event.topic == "browser.dialog" {
+                    self.handleMobileBrowserDialogEvent(event)
+                } else if event.topic == "browser.dialog.resolved" {
+                    self.handleMobileBrowserDialogResolvedEvent(event)
                 }
             }
             guard let self else { return }
