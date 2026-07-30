@@ -42,9 +42,22 @@ if [ "$timeout_count" -ne 2 ]; then
 fi
 
 marker_count="$(grep -cx 'CMUX_TEST_PROCESS=1' "$TMP_DIR/xcodebuild-args.log" || true)"
-if [ "$marker_count" -ne 2 ]; then
+invocation_count="$(grep -cx 'test' "$TMP_DIR/xcodebuild-args.log" || true)"
+if [ "$marker_count" -eq 0 ] || [ "$marker_count" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/xcodebuild-args.log"
   echo "FAIL: expected every app-host build attempt to receive CMUX_TEST_PROCESS=1"
+  exit 1
+fi
+
+if ! grep -Fq '<key>CMUXTestProcess</key>' "$ROOT_DIR/Resources/Info.plist" || \
+   ! grep -Fq '<string>$(CMUX_TEST_PROCESS)</string>' "$ROOT_DIR/Resources/Info.plist"; then
+  echo "FAIL: app Info.plist must expand CMUX_TEST_PROCESS into CMUXTestProcess"
+  exit 1
+fi
+
+default_marker_count="$(grep -Fc 'CMUX_TEST_PROCESS = 0;' "$ROOT_DIR/cmux.xcodeproj/project.pbxproj")"
+if [ "$default_marker_count" -ne 2 ]; then
+  echo "FAIL: Debug and Release app builds must default CMUX_TEST_PROCESS to 0"
   exit 1
 fi
 

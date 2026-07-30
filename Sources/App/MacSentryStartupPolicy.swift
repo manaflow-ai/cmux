@@ -17,11 +17,17 @@ struct MacSentryStartupPolicy: Sendable {
 
     init(
         environment: [String: String],
-        telemetryEnabled: Bool
+        telemetryEnabled: Bool,
+        testProcessBuildMarker: String? = Bundle.main.object(
+            forInfoDictionaryKey: "CMUXTestProcess"
+        ) as? String
     ) {
         self.init(
             telemetryEnabled: telemetryEnabled,
-            isRunningUnderXCTest: Self.isRunningUnderXCTest(environment: environment),
+            isRunningUnderXCTest: Self.isRunningUnderXCTest(
+                environment: environment,
+                testProcessBuildMarker: testProcessBuildMarker
+            ),
             allowUnderXCTest: environment["CMUX_TEST_SENTRY_ENABLED"] == "1"
         )
     }
@@ -30,7 +36,15 @@ struct MacSentryStartupPolicy: Sendable {
         telemetryEnabled && (!isRunningUnderXCTest || allowUnderXCTest)
     }
 
-    static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
+    static func isRunningUnderXCTest(
+        environment: [String: String],
+        testProcessBuildMarker: String? = Bundle.main.object(
+            forInfoDictionaryKey: "CMUXTestProcess"
+        ) as? String
+    ) -> Bool {
+        // The CI app-host wrapper stamps this into Info.plist at build time, so
+        // it exists before XCTest injects its bundle or launch environment.
+        if testProcessBuildMarker == "1" { return true }
         if environment["XCTestConfigurationFilePath"] != nil { return true }
         if environment["XCTestBundlePath"] != nil { return true }
         if environment["XCTestSessionIdentifier"] != nil { return true }

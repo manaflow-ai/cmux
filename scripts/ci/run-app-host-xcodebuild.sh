@@ -63,7 +63,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
   kill_stale_app_host
   set +e
   CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
-    scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@"
+    scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@" CMUX_TEST_PROCESS=1
   status=$?
   set -e
 
