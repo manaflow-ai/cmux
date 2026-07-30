@@ -25252,12 +25252,53 @@ struct CMUXCLI {
                 // to the app so it can suppress the done-ping until work truly drains.
                 let backgroundWork = claudeBackgroundWorkState(parsedInput)
                 let hasPendingBackgroundWork = backgroundWork.keepsSessionRunning
+                let hookEventName = firstString(
+                    in: parsedInput.object ?? [:],
+                    keys: ["hook_event_name", "hookEventName", "event", "event_name"]
+                )
+                let normalizedHookEventName = normalizedHookValue(hookEventName)?
+                    .lowercased()
+                    .replacingOccurrences(of: "_", with: "")
+                    .replacingOccurrences(of: "-", with: "")
+                let isStopFailure = normalizedHookEventName == "stopfailure"
+                let claudeDisplayName = String(
+                    localized: "cli.claude-hook.notification.title",
+                    defaultValue: "Claude Code"
+                )
+                let failureSummary: AgentHookNotificationSummary?
+                if isStopFailure {
+                    let failureMessage = firstString(
+                        in: parsedInput.object ?? [:],
+                        keys: ["error", "message", "body", "additional_details", "additionalDetails", "description"]
+                    ) ?? parsedInput.rawFallback ?? ""
+                    failureSummary = AgentHookNotificationClassifier.classify(
+                        displayName: claudeDisplayName,
+                        signal: "StopFailure",
+                        message: failureMessage,
+                        isFallback: failureMessage.isEmpty
+                    )
+                } else {
+                    failureSummary = nil
+                }
+                let lifecycleAfterStop: AgentHibernationLifecycleState
+                if hasPendingBackgroundWork {
+                    lifecycleAfterStop = .running
+                } else if isStopFailure {
+                    lifecycleAfterStop = .needsInput
+                } else {
+                    lifecycleAfterStop = .idle
+                }
+                let runtimeStatusAfterStop: AgentHookRuntimeStatus = isStopFailure
+                    ? .error
+                    : (hasPendingBackgroundWork ? .running : .idle)
 
                 // Update session with transcript summary and send completion notification.
-                let completion = summarizeClaudeHookStop(
-                    parsedInput: parsedInput,
-                    sessionRecord: mappedSession
-                )
+                let completion = isStopFailure
+                    ? nil
+                    : summarizeClaudeHookStop(
+                        parsedInput: parsedInput,
+                        sessionRecord: mappedSession
+                    )
                 guard let sessionId = parsedInput.sessionId,
                       let acceptedUpsert = try? sessionStore.upsert(
                           sessionId: sessionId,
@@ -25271,9 +25312,13 @@ struct CMUXCLI {
                           // Pending background work keeps the pane out of the
                           // hibernatable .idle state so the planner cannot SIGTERM
                           // a live task (mirrors the antigravity fullyIdle flip).
-                          agentLifecycle: hasPendingBackgroundWork ? .running : .idle,
-                          lastSubtitle: completion?.subtitle,
-                          lastBody: completion?.body,
+                          agentLifecycle: lifecycleAfterStop,
+                          lastSubtitle: failureSummary?.subtitle ?? completion?.subtitle,
+                          lastBody: failureSummary?.body ?? completion?.body,
+                          lastNotificationStatus: failureSummary?.status,
+                          updateLastNotificationStatus: isStopFailure,
+                          runtimeStatus: runtimeStatusAfterStop,
+                          updateRuntimeStatus: true,
                           hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
                           hadSurvivingBackgroundWorkAtStop: backgroundWork.survivesClear,
                           markActive: true,
@@ -25289,7 +25334,7 @@ struct CMUXCLI {
                 let acceptedRecord = acceptedUpsert.session
                 let acceptedLifecycle =
                     acceptedRecord.agentLifecycle
-                    ?? (hasPendingBackgroundWork ? .running : .idle)
+                    ?? lifecycleAfterStop
                 sendClaudeFeedTelemetry(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -25315,7 +25360,19 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
-                if acceptedLifecycle == .running {
+                if isStopFailure {
+                    let statusValue = String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.generic.notification.status.error",
+                            defaultValue: "%@ error"
+                        ),
+                        claudeDisplayName
+                    )
+                    _ = try? sendV1Command(
+                        "set_status \(Self.claudeCodeStatusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                } else if acceptedLifecycle == .running {
                     // The turn ended but a background task or scheduled wakeup is
                     // still live, so the pane is not idle — show it as still
                     // running rather than the misleading "Idle". Reuse the shared
@@ -25338,13 +25395,22 @@ struct CMUXCLI {
                         color: "#8E8E93"
                     )
                 }
-                if let completion {
-                    let title = String(
-                        localized: "cli.claude-hook.notification.title",
-                        defaultValue: "Claude Code"
-                    )
+                if let failureSummary {
                     let payload = notificationPayload(
-                        title: title,
+                        title: claudeDisplayName,
+                        subtitle: failureSummary.subtitle,
+                        body: failureSummary.body,
+                        meta: failureSummary.notifyCategory.metaSegment(
+                            pending: hasPendingBackgroundWork
+                        )
+                    )
+                    _ = try? sendV1Command(
+                        "notify_target_async \(workspaceId) \(surfaceId) \(payload)",
+                        client: client
+                    )
+                } else if let completion {
+                    let payload = notificationPayload(
+                        title: claudeDisplayName,
                         subtitle: completion.subtitle,
                         body: completion.body,
                         meta: AgentHookNotifyCategory.turnComplete.metaSegment(pending: hasPendingBackgroundWork)
@@ -25414,6 +25480,10 @@ struct CMUXCLI {
                       lastPermissionMode: observedHookPermissionMode,
                       isRestorable: true,
                       agentLifecycle: .running,
+                      lastNotificationStatus: nil,
+                      updateLastNotificationStatus: true,
+                      runtimeStatus: .running,
+                      updateRuntimeStatus: true,
                       markActive: true,
                       turnId: parsedInput.turnId,
                       authorization: .turnStart(incomingPID: incomingClaudePid)
