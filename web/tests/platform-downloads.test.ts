@@ -13,6 +13,10 @@ import {
 } from "../app/lib/download";
 import sitemap from "../app/sitemap";
 import { locales } from "../i18n/routing";
+import {
+  browserNightlyContentLocales,
+  hasBrowserNightlyContent,
+} from "../i18n/locale-availability";
 import en from "../messages/en.json";
 import ja from "../messages/ja.json";
 
@@ -159,12 +163,18 @@ describe("Windows and Linux downloads", () => {
     }
   });
 
-  test("publishes the all-platform nightly status page in every locale", () => {
+  test("publishes the nightly status page only in authored locales", () => {
     expect(
       sitemap().filter((entry) =>
         new URL(entry.url).pathname.endsWith("/browser"),
       ),
-    ).toHaveLength(locales.length);
+    ).toHaveLength(browserNightlyContentLocales.length);
+    expect(browserNightlyContentLocales).toEqual(["en", "ja"]);
+    for (const locale of locales) {
+      expect(hasBrowserNightlyContent(locale)).toBe(
+        locale === "en" || locale === "ja",
+      );
+    }
   });
 
   test("wraps long localized installer labels on narrow screens", async () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu } from "@base-ui-components/react/menu";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import posthog from "posthog-js";
 import { useState } from "react";
 import { Link, usePathname } from "../../../i18n/navigation";
@@ -17,6 +17,7 @@ import {
 import { ctaButtonStyle } from "./cta-styles";
 import { PlatformIcon } from "./platform-icons";
 import { WaitlistDialog } from "./waitlist-dialog";
+import { hasBrowserNightlyContent } from "../../../i18n/locale-availability";
 
 // Per-size pill padding in px. downloadRight = gap LEFT of the divider,
 // caretLeft = gap RIGHT of it. Applied as inline styles (not Tailwind classes)
@@ -41,6 +42,8 @@ export function DownloadButton({
   const tp = useTranslations("platforms");
   const tw = useTranslations("waitlist");
   const pathname = usePathname();
+  const locale = useLocale();
+  const showBrowserNightly = hasBrowserNightlyContent(locale);
   const isSmall = size === "sm";
   const [waitlistPlatform, setWaitlistPlatform] =
     useState<WaitlistPlatform | null>(null);
@@ -212,20 +215,22 @@ export function DownloadButton({
                   <span className="flex-1 text-left">{tp("ios")}</span>
                   <ExternalLinkIcon />
                 </Menu.Item>
-                <Menu.Item
-                  render={<Link href="/browser" />}
-                  onClick={() =>
-                    posthog.capture("cmux_browser_nightly_page_clicked", {
-                      location,
-                    })
-                  }
-                  className={menuItemClass}
-                >
-                  <BrowserIcon />
-                  <span className="flex-1 text-left">
-                    {t("browserNightly")}
-                  </span>
-                </Menu.Item>
+                {showBrowserNightly && (
+                  <Menu.Item
+                    render={<Link href="/browser" />}
+                    onClick={() =>
+                      posthog.capture("cmux_browser_nightly_page_clicked", {
+                        location,
+                      })
+                    }
+                    className={menuItemClass}
+                  >
+                    <BrowserIcon />
+                    <span className="flex-1 text-left">
+                      {t("browserNightly")}
+                    </span>
+                  </Menu.Item>
+                )}
                 {DOWNLOAD_PLATFORMS.map((platform) => (
                   <Menu.Item
                     key={platform}

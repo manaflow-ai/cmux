@@ -11,6 +11,7 @@ import {
   fallbackContentLocales,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
+  browserNightlyContentLocales,
 } from "../../i18n/locale-availability";
 
 export type AgentPageFormat = "md" | "txt";
@@ -126,7 +127,11 @@ const agentReadableDownloadPages = DOWNLOAD_PLATFORMS.map((platform) => ({
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
-  { path: "/browser", title: "cmux Browser nightly downloads" },
+  {
+    path: "/browser",
+    title: "cmux Browser nightly downloads",
+    locales: browserNightlyContentLocales,
+  },
   ...agentReadableDownloadPages,
   { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
   { path: "/enterprise", title: "Enterprise" },
