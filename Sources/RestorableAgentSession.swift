@@ -790,7 +790,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         )
         let restoreCommand = resumeCommand(
             includeWorkingDirectoryPrefix: !allowLauncherScript,
-            restoringWorkingDirectory: allowLauncherScript ? nil : effectiveWorkingDirectory
+            restoringWorkingDirectory: effectiveWorkingDirectory
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
                 .applying(toStoredCommand: command) ?? command
