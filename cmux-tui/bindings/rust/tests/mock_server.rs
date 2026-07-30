@@ -1953,3 +1953,34 @@ fn cancellation_before_dispatch_is_not_mutation_uncertainty() {
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn mutation_send_revalidates_public_option_fields_before_transport() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        line
+    });
+
+    let client = connect(&path);
+    let error = client
+        .current_session()
+        .workspace(WorkspaceId::parse(WORKSPACE_A).unwrap())
+        .rename_with(
+            "renamed",
+            MutationOptions {
+                idempotency_key: " \u{00a0}\u{3000}".to_string(),
+                expected_revision: None,
+                request: RequestOptions::default(),
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(error, Error::InvalidArgument(_)));
+    client.close().unwrap();
+    assert_eq!(server.join().unwrap(), "");
+    std::fs::remove_file(path).unwrap();
+}

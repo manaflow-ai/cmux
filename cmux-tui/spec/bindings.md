@@ -32,7 +32,7 @@ Every high-level SDK must provide:
 | Routing | Session resources always carry machine and session selectors; direct opaque targets require no hidden lookup |
 | Names | Exact bytes, including empty, whitespace, and Unicode; duplicate names stay ambiguous |
 | Commands | Exact argument arrays, target-platform shell scripts, and explicitly selected shell executables |
-| Mutations | Secure 128-bit default idempotency keys, optional expected revision, one wire request, and no implicit retry |
+| Mutations | Secure 128-bit default idempotency keys; explicit keys use 1 to 128 UTF-8 bytes, contain non-whitespace, and exclude Unicode control scalars; optional expected revision, one wire request, and no implicit retry |
 | Results | Flat `value`, `generation`, decimal-string `revision`, and `replayed` fields |
 | Errors | Transport, timeout, decode, and structured resource errors retain code, message, details, and retryability |
 | Streams | Typed items, explicit cancellation, bounded unread queues, structured end state, and per-stream overflow isolation |

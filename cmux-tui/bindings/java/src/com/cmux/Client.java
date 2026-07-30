@@ -254,12 +254,9 @@ public final class Client implements AutoCloseable {
         }
         envelope.put("params", Wire.encode(encodedParams));
         if (mutation != null) {
-            mutationKey = mutation.idempotencyKey().orElseGet(idempotencyKeys);
-            if (mutationKey.isEmpty() || mutationKey.length() > 128) {
-                throw new IllegalArgumentException(
-                    "idempotency key must contain 1 to 128 characters"
-                );
-            }
+            mutationKey = Options.validateIdempotencyKey(
+                mutation.idempotencyKey().orElseGet(idempotencyKeys)
+            );
             envelope.put(Wire.IDEMPOTENCY_KEY, mutationKey);
         }
         CompletableFuture<Object> future = new CompletableFuture<>();

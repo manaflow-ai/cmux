@@ -20,6 +20,7 @@ public final class ResourceApiTest {
         decimalAndIdentifiers();
         sensitiveValuesAreRedacted();
         defaultIdempotencyKeysUseFixedWidthLowercaseHex();
+        idempotencyKeysMatchDurableIdentifierContract();
         exactCommandAndRouting();
         creationCorrelationIsFirstClass();
         nullableMetadata();
@@ -94,6 +95,44 @@ public final class ResourceApiTest {
                 key.matches("\\Aidem_[0-9a-f]{32}\\z"),
                 "default idempotency key is fixed-width lowercase hex"
             );
+        }
+    }
+
+    private static void idempotencyKeysMatchDurableIdentifierContract() {
+        for (String invalid : List.of(
+                "",
+                " \u00a0\u3000",
+                "key\ncontrol",
+                "key\u0085control",
+                "é".repeat(65),
+                "key\ud800")) {
+            expect(
+                IllegalArgumentException.class,
+                () -> Options.Mutation.keyed(invalid)
+            );
+        }
+        for (String valid : List.of(" key ", "\ufeff", "é".repeat(64))) {
+            require(
+                Options.Mutation.keyed(valid).idempotencyKey().orElseThrow()
+                    .equals(valid),
+                "valid idempotency key is preserved"
+            );
+        }
+
+        FakeTransport transport = new FakeTransport();
+        try (Client client = Client.builder()
+                .transport(transport)
+                .timeout(Duration.ofSeconds(1))
+                .idempotencyKeySource(() -> " \u00a0\u3000")
+                .build()) {
+            expect(
+                IllegalArgumentException.class,
+                () -> client.machine(Selector.current())
+                    .session(Selector.current())
+                    .workspace(Selector.current())
+                    .run(Options.Run.builder(ExactCommand.of("true")).build())
+            );
+            require(transport.sent.isEmpty(), "invalid generated key is not sent");
         }
     }
 

@@ -15,6 +15,14 @@
       "minLength": 1,
       "maxLength": 128
     },
+    "idempotencyKey": {
+      "type": "string",
+      "description": "Contains 1 to 128 UTF-8 bytes, at least one Unicode scalar outside the White_Space property, and no Unicode General_Category=Cc control scalar. Leading, trailing, and internal non-control whitespace is preserved.",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?=[\\s\\S]*[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000])[^\\u0000-\\u001F\\u007F-\\u009F]+$",
+      "x-cmux-max-utf8-bytes": 128
+    },
     "decimal": {
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)$",
@@ -274,11 +282,7 @@
         "id": {"$ref": "#/$defs/requestId"},
         "operation": {"$ref": "#/$defs/operation"},
         "params": {"type": "object"},
-        "idempotency_key": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        }
+        "idempotency_key": {"$ref": "#/$defs/idempotencyKey"}
       },
       "allOf": [
         {

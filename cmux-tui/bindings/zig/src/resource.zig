@@ -667,14 +667,19 @@ pub const MutationOptions = struct {
     expected_revision: ?u64 = null,
 
     pub fn withKey(provided_key: []const u8) !MutationOptions {
-        if (provided_key.len == 0 or provided_key.len > 128) {
-            return error.InvalidIdempotencyKey;
-        }
+        try validateIdempotencyKey(provided_key);
         var result: MutationOptions = .{
             .len = @intCast(provided_key.len),
         };
         @memcpy(result.bytes[0..provided_key.len], provided_key);
         return result;
+    }
+
+    fn validate(self: *const MutationOptions) !void {
+        if (self.len == 0 or self.len > self.bytes.len) {
+            return error.InvalidIdempotencyKey;
+        }
+        try validateIdempotencyKey(self.bytes[0..self.len]);
     }
 
     pub fn random() MutationOptions {
@@ -700,6 +705,39 @@ pub const MutationOptions = struct {
         return result;
     }
 };
+
+fn validateIdempotencyKey(provided_key: []const u8) !void {
+    if (provided_key.len == 0 or provided_key.len > 128) {
+        return error.InvalidIdempotencyKey;
+    }
+    var iterator = (std.unicode.Utf8View.init(provided_key) catch {
+        return error.InvalidIdempotencyKey;
+    }).iterator();
+    var has_non_whitespace = false;
+    while (iterator.nextCodepoint()) |codepoint| {
+        if (unicodeControl(codepoint)) {
+            return error.InvalidIdempotencyKey;
+        }
+        has_non_whitespace = has_non_whitespace or
+            !unicodeWhitespace(codepoint);
+    }
+    if (!has_non_whitespace) return error.InvalidIdempotencyKey;
+}
+
+fn unicodeWhitespace(codepoint: u21) bool {
+    return (codepoint >= 0x0009 and codepoint <= 0x000D) or
+        codepoint == 0x0020 or codepoint == 0x0085 or
+        codepoint == 0x00A0 or codepoint == 0x1680 or
+        (codepoint >= 0x2000 and codepoint <= 0x200A) or
+        codepoint == 0x2028 or codepoint == 0x2029 or
+        codepoint == 0x202F or codepoint == 0x205F or
+        codepoint == 0x3000;
+}
+
+fn unicodeControl(codepoint: u21) bool {
+    return codepoint <= 0x001F or
+        (codepoint >= 0x007F and codepoint <= 0x009F);
+}
 
 pub const ExactCommand = struct {
     argv: []const []const u8,
@@ -2115,6 +2153,7 @@ pub const Client = struct {
         mutation: ?MutationOptions,
     ) !void {
         if (self.closed) return error.ConnectionClosed;
+        if (mutation) |options| try options.validate();
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
         const allocator = arena.allocator();
@@ -13631,6 +13670,68 @@ test "mutation keys use independent cryptographic 128-bit values" {
     try std.testing.expectEqual(@as(usize, 36), first.key().len);
     try std.testing.expectEqual(@as(usize, 36), second.key().len);
     try std.testing.expect(!std.mem.eql(u8, first.key(), second.key()));
+}
+
+test "idempotency keys match the durable identifier contract" {
+    var exact_limit: [128]u8 = undefined;
+    for (0..64) |index| {
+        exact_limit[index * 2] = 0xC3;
+        exact_limit[index * 2 + 1] = 0xA9;
+    }
+    var over_limit: [130]u8 = undefined;
+    @memcpy(over_limit[0..128], &exact_limit);
+    over_limit[128] = 0xC3;
+    over_limit[129] = 0xA9;
+    const invalid_utf8 = [_]u8{ 'k', 'e', 'y', 0xFF };
+    for ([_][]const u8{
+        "",
+        " \u{00a0}\u{3000}",
+        "key\ncontrol",
+        "key\u{0085}control",
+        &over_limit,
+        &invalid_utf8,
+    }) |value| {
+        try std.testing.expectError(
+            error.InvalidIdempotencyKey,
+            MutationOptions.withKey(value),
+        );
+    }
+    for ([_][]const u8{
+        " key ",
+        "\u{feff}",
+        &exact_limit,
+    }) |value| {
+        const key = try MutationOptions.withKey(value);
+        try std.testing.expectEqualSlices(u8, value, key.key());
+    }
+}
+
+test "mutation send revalidates directly constructed options" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+    const id = try WorkspaceId.parse(
+        "ws_0123456789abcdef0123456789abcdef",
+    );
+
+    var whitespace: MutationOptions = .{ .len = 1 };
+    whitespace.bytes[0] = ' ';
+    try std.testing.expectError(
+        error.InvalidIdempotencyKey,
+        client.workspace(id).rename("renamed", whitespace),
+    );
+    var over_limit: MutationOptions = .{ .len = 129 };
+    @memset(&over_limit.bytes, 'x');
+    try std.testing.expectError(
+        error.InvalidIdempotencyKey,
+        client.workspace(id).rename("renamed", over_limit),
+    );
+    try std.testing.expectEqual(@as(usize, 0), shared.output.items.len);
 }
 
 test "workspace run encodes exact argv and one injected idempotency key" {

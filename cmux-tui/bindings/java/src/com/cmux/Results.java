@@ -180,9 +180,7 @@ public final class Results {
             generation = optional(generation);
             revision = optional(revision);
             operation.ifPresent(value -> bounded(value, "operation", 1, Integer.MAX_VALUE));
-            idempotencyKey.ifPresent(
-                value -> bounded(value, "idempotencyKey", 1, 128)
-            );
+            idempotencyKey.ifPresent(Options::validateIdempotencyKey);
             generation.ifPresent(
                 value -> bounded(value, "generation", 1, 128)
             );

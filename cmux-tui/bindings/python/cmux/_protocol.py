@@ -43,6 +43,53 @@ MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_STREAM_MESSAGES = 256
 MAX_STREAM_BYTES = 16 * 1024 * 1024
 ItemT = TypeVar("ItemT")
+
+
+def _is_unicode_whitespace(character: str) -> bool:
+    codepoint = ord(character)
+    return (
+        0x0009 <= codepoint <= 0x000D
+        or codepoint
+        in (
+            0x0020,
+            0x0085,
+            0x00A0,
+            0x1680,
+            0x2028,
+            0x2029,
+            0x202F,
+            0x205F,
+            0x3000,
+        )
+        or 0x2000 <= codepoint <= 0x200A
+    )
+
+
+def _is_unicode_control(character: str) -> bool:
+    codepoint = ord(character)
+    return codepoint <= 0x001F or 0x007F <= codepoint <= 0x009F
+
+
+def _validate_idempotency_key(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("idempotency_key must be a string")
+    try:
+        byte_length = len(value.encode("utf-8"))
+    except UnicodeEncodeError as error:
+        raise ValueError("idempotency_key must contain valid Unicode scalars") from error
+    if not 1 <= byte_length <= 128:
+        raise ValueError("idempotency_key must contain 1 to 128 UTF-8 bytes")
+    if all(_is_unicode_whitespace(character) for character in value):
+        raise ValueError(
+            "idempotency_key must contain at least one non-whitespace Unicode scalar"
+        )
+    if any(_is_unicode_control(character) for character in value):
+        raise ValueError(
+            "idempotency_key must not contain Unicode control characters"
+        )
+    return value
+
+
 _END = object()
 
 
@@ -240,9 +287,7 @@ class ProtocolConnection:
             "params": dict(params),
         }
         if idempotency_key is not None:
-            if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 128:
-                raise ValueError("idempotency_key must contain 1 to 128 characters")
-            envelope["idempotency_key"] = idempotency_key
+            envelope["idempotency_key"] = _validate_idempotency_key(idempotency_key)
         encoded = json.dumps(
             envelope,
             ensure_ascii=False,

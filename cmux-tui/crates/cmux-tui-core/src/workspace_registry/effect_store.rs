@@ -5,16 +5,17 @@ use serde_json::json;
 
 const RESOURCE_EVENT_CAPACITY: usize = 4096;
 const RESOURCE_EVENT_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
-/// Transient input keeps a finite exactly-once replay window. Cleanup runs in
-/// batches so mouse and keyboard traffic does not pay for a pruning query on
-/// every event. A running registry may temporarily retain this many extra
-/// committed rows; startup always removes the slack.
+/// Transient input and viewport interactions keep a finite exactly-once replay
+/// window. Cleanup runs in batches so high-frequency traffic does not pay for
+/// a pruning query on every event. A running registry may temporarily retain
+/// this many extra committed rows; startup always removes the slack.
 const RESOURCE_INPUT_RECEIPT_CAPACITY: usize = 4096;
 const RESOURCE_INPUT_RECEIPT_PRUNE_INTERVAL: usize = 128;
 const TRANSIENT_INPUT_EFFECT_SQL: &str = "(
   effect.operation GLOB 'terminal.input.*'
   OR effect.operation GLOB 'browser.input.*'
   OR effect.operation = 'sidebar_view.input'
+  OR effect.operation = 'terminal.viewport.scroll'
 )";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -123,7 +124,7 @@ pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> an
 
 /// Adds completion ordering for pre-retention databases and enforces the
 /// startup bound. `committed_revision` cannot provide this order because
-/// receipt-only input deliberately does not advance the public revision.
+/// receipt-only interactions deliberately do not advance the public revision.
 pub(super) fn initialize_resource_input_receipt_retention(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
@@ -1312,6 +1313,7 @@ fn is_transient_input_operation(operation: &str) -> bool {
     operation.starts_with("terminal.input.")
         || operation.starts_with("browser.input.")
         || operation == "sidebar_view.input"
+        || operation == "terminal.viewport.scroll"
 }
 
 fn record_resource_input_receipt_completion(
@@ -1397,6 +1399,9 @@ mod tests {
     use super::*;
 
     fn scale_input_operation(index: usize) -> &'static str {
+        if index == 0 {
+            return "terminal.viewport.scroll";
+        }
         match index % 3 {
             0 => "terminal.input.write",
             1 => "browser.input.mouse",

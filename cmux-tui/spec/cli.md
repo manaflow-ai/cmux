@@ -110,6 +110,11 @@ the caller supplies `--idempotency-key`. The CLI sends one request and never
 retries a mutation. Mutations that support optimistic concurrency expose
 `--expected-revision`.
 
+An explicit idempotency key contains 1 to 128 UTF-8 bytes, at least one
+Unicode scalar outside the Unicode `White_Space` property, and no Unicode
+`Cc` control scalar. Non-control whitespace is preserved when the key also
+contains a non-whitespace scalar.
+
 Repeating a committed key with the same canonical request returns the recorded
 result. Reusing it for another request returns `idempotency.conflict`.
 `mutation.indeterminate` means the server crashed during an external effect and
@@ -206,6 +211,9 @@ provider authority install
 ```
 
 Workspace creation starts with one terminal unless `--empty` is present.
+`client <selector> metadata set` leaves an omitted field unchanged and clears
+one passed as null. A non-null name or kind preserves its exact value, contains
+at most 64 Unicode scalars, and contains no Unicode `Cc` control scalar.
 `screen layout undo` requires `--confirm-close` when the recorded change would
 close created panes. The read-only response includes an opaque confirmation
 token, the current global revision, and pane IDs. A confirmed retry sends that

@@ -64,6 +64,34 @@ func TestIDsSelectorsAndDecimals(t *testing.T) {
 	}
 }
 
+func TestIdempotencyKeysMatchDurableIdentifierContract(t *testing.T) {
+	for name, value := range map[string]string{
+		"empty":           "",
+		"unicode spaces":  " \u00a0\u3000",
+		"ascii control":   "key\ncontrol",
+		"unicode control": "key\u0085control",
+		"over byte limit": strings.Repeat("é", 65),
+		"invalid UTF-8":   "key\xff",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateIdempotencyKey(value); !errors.Is(err, ErrInvalidArgument) {
+				t.Fatalf("error = %T %v", err, err)
+			}
+		})
+	}
+	for name, value := range map[string]string{
+		"surrounding spaces": " key ",
+		"format scalar":      "\ufeff",
+		"exact byte limit":   strings.Repeat("é", 64),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateIdempotencyKey(value); err != nil {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
 func TestBrowserFrameRequiresNullablePointerFrameSequence(t *testing.T) {
 	decode := func(pointerField string) (BrowserAttachmentItem, error) {
 		return decodeBrowserAttachment(json.RawMessage(

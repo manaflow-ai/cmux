@@ -953,6 +953,56 @@ class ResourceApiTests(unittest.TestCase):
         self.assertIsInstance(explicit.exception.cause, CmuxConnectionError)
         self.assertEqual(len(observed), 2)
 
+    def test_idempotency_keys_match_the_durable_identifier_contract(self) -> None:
+        observed = []
+
+        def handler(connection, _index):
+            for request in frames(connection):
+                observed.append(request)
+                send_frame(
+                    connection,
+                    {
+                        "protocol": "cmux.protocol/1",
+                        "type": "response",
+                        "id": request["id"],
+                        "ok": False,
+                        "error": {
+                            "code": "mutation.indeterminate",
+                            "message": "external effect may have completed",
+                            "details": {
+                                "idempotency_key": request["idempotency_key"],
+                                "operation": request["operation"],
+                                "recovery": "inspect_state_then_retry_with_new_key",
+                            },
+                            "retryable": False,
+                        },
+                    },
+                )
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path) as client:
+                rename = client.session(SESSION).workspace(WORKSPACE).rename
+                for invalid in (
+                    "",
+                    " \u00a0\u3000",
+                    "key\ncontrol",
+                    "key\u0085control",
+                    "\u00e9" * 65,
+                    "\ud800",
+                ):
+                    with self.subTest(invalid=repr(invalid)):
+                        with self.assertRaises(ValueError):
+                            rename("renamed", idempotency_key=invalid)
+                for valid in (" key ", "\ufeff", "\u00e9" * 64):
+                    with self.subTest(valid=repr(valid)):
+                        with self.assertRaises(MutationIndeterminateError):
+                            rename("renamed", idempotency_key=valid)
+
+        self.assertEqual(
+            [request["idempotency_key"] for request in observed],
+            [" key ", "\ufeff", "\u00e9" * 64],
+        )
+
     def test_creation_resolution_and_terminal_exit_wait_are_typed(self) -> None:
         def handler(connection, _index):
             requests = frames(connection)

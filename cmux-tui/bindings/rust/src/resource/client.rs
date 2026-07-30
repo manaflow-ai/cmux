@@ -1,6 +1,6 @@
 use super::id::StreamId;
 use super::ops;
-use super::options::{MutationOptions, RequestOptions};
+use super::options::{MutationOptions, RequestOptions, validate_idempotency_key};
 use super::stream::{ResourceStream, StreamParts};
 use super::wire::{Params, field};
 use crate::codec::JsonLineConnection;
@@ -477,6 +477,9 @@ impl Client {
             return Err(Error::InvalidArgument(format!(
                 "{operation} has invalid idempotency policy"
             )));
+        }
+        if let Some(idempotency_key) = idempotency_key.as_deref() {
+            validate_idempotency_key(idempotency_key)?;
         }
         let budget = CallBudget::new(request_options, self.shared.config.timeout)?;
         budget.check(operation)?;

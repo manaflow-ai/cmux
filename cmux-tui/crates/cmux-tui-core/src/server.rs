@@ -2581,17 +2581,26 @@ impl ClientRegistry {
         name: Option<Option<String>>,
         kind: Option<Option<String>>,
         daemon_handoff_pending: &AtomicBool,
-    ) -> anyhow::Result<(Option<String>, Option<String>)> {
+    ) -> Result<(Option<String>, Option<String>), ResourceError> {
+        let name = name.map(|name| validate_resource_client_label("name", name)).transpose()?;
+        let kind = kind.map(|kind| validate_resource_client_label("kind", kind)).transpose()?;
         let mut state = self.state.lock().unwrap();
         if kind.as_ref().and_then(|kind| kind.as_deref()) == Some("native-browser")
             && daemon_handoff_pending.load(Ordering::Acquire)
         {
-            anyhow::bail!("daemon handoff is already in progress");
+            return Err(ResourceError::operation_failed(
+                "client.metadata.update",
+                "daemon handoff is already in progress",
+                json!({}),
+            ));
         }
-        let record = state
-            .clients
-            .get_mut(&client)
-            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let record = state.clients.get_mut(&client).ok_or_else(|| {
+            ResourceError::operation_failed(
+                "client.metadata.update",
+                format!("unknown client {client}"),
+                json!({}),
+            )
+        })?;
         if let Some(name) = name {
             record.name = name;
         }
@@ -2659,6 +2668,7 @@ impl ClientRegistry {
         &self,
         requesting_client: u64,
         daemon_handoff_pending: &AtomicBool,
+        force: bool,
     ) -> anyhow::Result<()> {
         let state = self.state.lock().unwrap();
         let requester = state
@@ -2668,9 +2678,11 @@ impl ClientRegistry {
         if !matches!(requester.transport, ClientTransport::Unix) {
             anyhow::bail!("daemon shutdown requires a trusted local connection");
         }
-        if state.clients.iter().any(|(client, record)| {
-            *client != requesting_client && record.kind.as_deref() == Some("native-browser")
-        }) {
+        if !force
+            && state.clients.iter().any(|(client, record)| {
+                *client != requesting_client && record.kind.as_deref() == Some("native-browser")
+            })
+        {
             anyhow::bail!("another native-browser frontend still owns this daemon");
         }
         daemon_handoff_pending
@@ -2950,6 +2962,26 @@ impl ClientRegistry {
 
 fn clamp_client_label(value: String) -> String {
     sanitize_window_title(&value).chars().take(64).collect()
+}
+
+fn validate_resource_client_label(
+    field: &'static str,
+    value: Option<String>,
+) -> Result<Option<String>, ResourceError> {
+    let Some(value) = value else { return Ok(None) };
+    if value.chars().count() > 64 {
+        return Err(ResourceError::validation_invalid(
+            Some(field),
+            "client metadata labels cannot exceed 64 characters",
+        ));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(ResourceError::validation_invalid(
+            Some(field),
+            "client metadata labels cannot contain control characters",
+        ));
+    }
+    Ok(Some(value))
 }
 
 /// Bind the socket and serve connections on background threads.
@@ -3419,6 +3451,9 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
     matches!(
         operation,
         ResourceOperation::SessionEvents
+            | ResourceOperation::SessionShutdown
+            | ResourceOperation::PairingRequestList
+            | ResourceOperation::PairingRequestResolve
             | ResourceOperation::ClientList
             | ResourceOperation::ClientGet
             | ResourceOperation::ClientMetadataUpdate
@@ -3436,6 +3471,67 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
             | ResourceOperation::SidebarViewAttach
             | ResourceOperation::StreamCancel
     )
+}
+
+fn trusted_local_resource_client(
+    mux: &Mux,
+    client: u64,
+    operation: ResourceOperation,
+) -> Result<(), ResourceError> {
+    if mux.control_clients.is_unix(client) {
+        Ok(())
+    } else {
+        let operation = serde_json::to_value(operation)
+            .expect("resource operations serialize")
+            .as_str()
+            .expect("resource operations serialize as strings")
+            .to_string();
+        Err(ResourceError::operation_failed(
+            operation,
+            "operation requires a trusted local connection",
+            json!({"required_authority":"trusted_local"}),
+        ))
+    }
+}
+
+fn handle_resource_session_shutdown(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: crate::resource_router::ParsedResourceRequest,
+    id: ResourceRequestId,
+    writer: &MessageWriter,
+) -> bool {
+    let operation = ResourceOperation::SessionShutdown;
+    let force =
+        request.fields["force"].as_bool().expect("catalog validates the shutdown force flag");
+    let result = trusted_local_resource_client(mux, client, operation).and_then(|()| {
+        mux.begin_daemon_handoff(client, force).map_err(|error| {
+            ResourceError::operation_failed(
+                "session.shutdown",
+                error.to_string(),
+                json!({"force":force}),
+            )
+        })
+    });
+    if let Err(error) = result {
+        return send_resource_response(writer, id, operation, Err(error));
+    }
+
+    match crate::resource_router::commit_session_shutdown(mux, request) {
+        Ok(result) => {
+            let sent = send_resource_response(writer, id, operation, Ok(result));
+            if sent {
+                mux.request_daemon_shutdown();
+            } else {
+                mux.cancel_daemon_handoff();
+            }
+            sent
+        }
+        Err(error) => {
+            mux.cancel_daemon_handoff();
+            send_resource_response(writer, id, operation, Err(error))
+        }
+    }
 }
 
 fn handle_resource_connection_message(
@@ -3458,6 +3554,15 @@ fn handle_resource_connection_message(
         crate::resource_router::requires_connection_context(operation)
     );
     match operation {
+        ResourceOperation::SessionShutdown => {
+            handle_resource_session_shutdown(mux, client, request, id, writer)
+        }
+        ResourceOperation::PairingRequestList | ResourceOperation::PairingRequestResolve => {
+            let result = trusted_local_resource_client(mux, client, operation).and_then(|()| {
+                crate::resource_router::handle_trusted_local_auxiliary(mux, request)
+            });
+            send_resource_response(writer, id, operation, result)
+        }
         ResourceOperation::ClientList
         | ResourceOperation::ClientGet
         | ResourceOperation::ClientMetadataUpdate
@@ -4044,16 +4149,11 @@ fn resource_client_metadata_update(
     requesting_client: u64,
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let operation = "client.metadata.update";
     let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
     let name = request.fields.get("name").map(|value| value.as_str().map(str::to_string));
     let kind = request.fields.get("kind").map(|value| value.as_str().map(str::to_string));
-    let (name, kind) = mux
-        .control_clients
-        .set_resource_info(target, name, kind, &mux.daemon_handoff_pending)
-        .map_err(|error| {
-            ResourceError::operation_failed(operation, error.to_string(), json!({}))
-        })?;
+    let (name, kind) =
+        mux.control_clients.set_resource_info(target, name, kind, &mux.daemon_handoff_pending)?;
     mux.emit(MuxEvent::ClientChanged { client: target, name, kind });
     let record = mux
         .control_clients
@@ -6860,7 +6960,7 @@ fn handle_command_with_cancellation(
             if generation != actual_generation {
                 anyhow::bail!("daemon generation changed; identify again");
             }
-            mux.begin_daemon_handoff(client)?;
+            mux.begin_daemon_handoff(client, false)?;
             Ok(json!({
                 "accepted": true,
                 "pid": actual_pid,
@@ -9389,12 +9489,195 @@ mod tests {
     }
 
     #[test]
+    fn resource_shutdown_requires_local_authority_and_force_for_a_live_browser_owner() {
+        let mux = test_mux();
+        let owner_writer = test_writer();
+        let owner = mux.control_clients.register(ClientTransport::Unix, owner_writer.clone());
+        handle_command(
+            &mux,
+            owner,
+            Command::SetClientInfo {
+                name: Some("browser owner".to_string()),
+                kind: Some("native-browser".to_string()),
+                capabilities: None,
+            },
+            &owner_writer,
+        )
+        .unwrap();
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+
+        let (websocket_writer, websocket_outbound) = captured_writer();
+        let websocket =
+            mux.control_clients.register(ClientTransport::WebSocket, websocket_writer.clone());
+        let websocket_request = resource_request(
+            "websocket-shutdown",
+            "session.shutdown",
+            json!({"machine":"current","session":"current","force":true}),
+            Some("websocket-shutdown"),
+        );
+        assert!(handle_connection_message(
+            &mux,
+            websocket,
+            &websocket_request,
+            &websocket_writer,
+            &scheduler,
+        ));
+        let rejected = pop_json(&websocket_outbound);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+
+        let (local_writer, local_outbound) = captured_writer();
+        let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
+        let ordinary_request = resource_request(
+            "ordinary-shutdown",
+            "session.shutdown",
+            json!({"machine":"current","session":"current","force":false}),
+            Some("ordinary-shutdown"),
+        );
+        assert!(handle_connection_message(
+            &mux,
+            local,
+            &ordinary_request,
+            &local_writer,
+            &scheduler,
+        ));
+        let rejected = pop_json(&local_outbound);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("still owns"));
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(!mux.daemon_handoff_pending.load(Ordering::Acquire));
+
+        let forced_request = resource_request(
+            "forced-shutdown",
+            "session.shutdown",
+            json!({"machine":"current","session":"current","force":true}),
+            Some("forced-shutdown"),
+        );
+        assert!(
+            handle_connection_message(&mux, local, &forced_request, &local_writer, &scheduler,)
+        );
+        // Observing shutdown means the durable result was returned and queued
+        // before the owning loop was asked to exit.
+        assert!(mux.daemon_shutdown_requested());
+        assert!(mux.daemon_handoff_pending.load(Ordering::Acquire));
+        let accepted = pop_json(&local_outbound);
+        assert_eq!(accepted["ok"], true);
+        assert_eq!(accepted["result"]["value"]["accepted"], true);
+        assert_eq!(accepted["result"]["replayed"], false);
+    }
+
+    #[test]
+    fn resource_shutdown_replay_reserves_handoff_and_retries_the_post_ack_exit() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-resource-shutdown-replay-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let request = resource_request(
+            "shutdown-replay",
+            "session.shutdown",
+            json!({"machine":"current","session":"current","force":false}),
+            Some("shutdown-replay"),
+        );
+
+        let first =
+            Mux::open_persistent("shutdown-replay", SurfaceOptions::default(), &root).unwrap();
+        let (closed_writer, _) = captured_writer();
+        let client = first.control_clients.register(ClientTransport::Unix, closed_writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(first.surface_operation_admission.clone()));
+        closed_writer.close();
+        assert!(!handle_connection_message(&first, client, &request, &closed_writer, &scheduler,));
+        assert!(!first.daemon_shutdown_requested());
+        assert!(!first.daemon_handoff_pending.load(Ordering::Acquire));
+        drop(scheduler);
+        drop(first);
+
+        let reopened =
+            Mux::open_persistent("shutdown-replay", SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = reopened.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(reopened.surface_operation_admission.clone()));
+        assert!(handle_connection_message(&reopened, client, &request, &writer, &scheduler,));
+        assert!(reopened.daemon_shutdown_requested());
+        assert!(reopened.daemon_handoff_pending.load(Ordering::Acquire));
+        let replay = pop_json(&outbound);
+        assert_eq!(replay["ok"], true);
+        assert_eq!(replay["result"]["value"]["accepted"], true);
+        assert_eq!(replay["result"]["replayed"], true);
+        drop(scheduler);
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pairing_request_resources_require_a_trusted_local_connection() {
+        let mux = test_mux();
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let (websocket_writer, websocket_outbound) = captured_writer();
+        // Registered WebSocket clients are already authenticated or paired;
+        // pairing never upgrades their transport to trusted local authority.
+        let websocket =
+            mux.control_clients.register(ClientTransport::WebSocket, websocket_writer.clone());
+
+        let list = resource_request(
+            "pairing-list-websocket",
+            "pairing_request.list",
+            json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, websocket, &list, &websocket_writer, &scheduler,));
+        let rejected = pop_json(&websocket_outbound);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
+
+        let resolve = resource_request(
+            "pairing-resolve-websocket",
+            "pairing_request.resolve",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "pairing_request":format!("pairing_{:032x}", challenge.id),
+                "decision":"accept",
+            }),
+            Some("pairing-resolve-websocket"),
+        );
+        assert!(handle_connection_message(
+            &mux,
+            websocket,
+            &resolve,
+            &websocket_writer,
+            &scheduler,
+        ));
+        let rejected = pop_json(&websocket_outbound);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"]["message"].as_str().unwrap().contains("trusted local"));
+        assert_eq!(mux.pending_pairings().len(), 1);
+        assert!(matches!(decision.try_recv(), Err(TryRecvError::Empty)));
+
+        let (local_writer, local_outbound) = captured_writer();
+        let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
+        assert!(handle_connection_message(&mux, local, &list, &local_writer, &scheduler,));
+        let listed = pop_json(&local_outbound);
+        assert_eq!(listed["ok"], true);
+        assert_eq!(listed["result"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["result"][0]["code"], challenge.code);
+    }
+
+    #[test]
     fn resource_clients_use_opaque_ids_and_preserve_exact_nullable_metadata() {
         let mux = test_mux();
         let (first_writer, first_outbound) = captured_writer();
         let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
-        let (second_writer, _) = captured_writer();
-        let second = mux.control_clients.register(ClientTransport::WebSocket, second_writer);
+        let (second_writer, second_outbound) = captured_writer();
+        let second =
+            mux.control_clients.register(ClientTransport::WebSocket, second_writer.clone());
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
 
@@ -9470,6 +9753,88 @@ mod tests {
         );
         assert!(handle_connection_message(&mux, first, &clear, &first_writer, &scheduler));
         assert_eq!(pop_json(&first_outbound)["result"]["name"], Value::Null);
+
+        let websocket_update = resource_request(
+            "websocket-client-metadata",
+            "client.metadata.update",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "client":"current",
+                "name":"websocket exact α",
+                "kind":"web-client",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(
+            &mux,
+            second,
+            &websocket_update,
+            &second_writer,
+            &scheduler,
+        ));
+        let updated = pop_json(&second_outbound);
+        assert_eq!(updated["ok"], true);
+        assert_eq!(updated["result"]["transport"], "websocket");
+        assert_eq!(updated["result"]["name"], "websocket exact α");
+        assert_eq!(updated["result"]["client_kind"], "web-client");
+
+        for (id, field, value) in [
+            ("websocket-client-metadata-control", "name", "\u{1b}]0;evil\u{07}".to_string()),
+            ("websocket-client-metadata-c1-control", "name", "c1\u{0085}control".to_string()),
+            ("websocket-client-metadata-long", "kind", "k".repeat(65)),
+        ] {
+            let mut params = json!({
+                "machine":"current",
+                "session":"current",
+                "client":"current",
+            });
+            params[field] = json!(value);
+            let invalid = resource_request(id, "client.metadata.update", params, None);
+            assert!(handle_connection_message(&mux, second, &invalid, &second_writer, &scheduler,));
+            let rejected = pop_json(&second_outbound);
+            assert_eq!(rejected["ok"], false);
+            assert_eq!(rejected["error"]["code"], "validation.invalid");
+            assert_eq!(rejected["error"]["details"]["field"], field);
+        }
+
+        let unchanged = resource_request(
+            "websocket-client-metadata-unchanged",
+            "client.get",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "client":"current",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, second, &unchanged, &second_writer, &scheduler,));
+        let unchanged = pop_json(&second_outbound);
+        assert_eq!(unchanged["result"]["name"], "websocket exact α");
+        assert_eq!(unchanged["result"]["client_kind"], "web-client");
+
+        let websocket_clear = resource_request(
+            "websocket-client-metadata-clear",
+            "client.metadata.update",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "client":"current",
+                "name":null,
+                "kind":null,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(
+            &mux,
+            second,
+            &websocket_clear,
+            &second_writer,
+            &scheduler,
+        ));
+        let cleared = pop_json(&second_outbound);
+        assert_eq!(cleared["result"]["name"], Value::Null);
+        assert_eq!(cleared["result"]["client_kind"], Value::Null);
         disconnect_client(&mux, first, false);
         disconnect_client(&mux, second, false);
     }
@@ -9492,7 +9857,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 17);
+        assert_eq!(connection_operations, 20);
     }
 
     #[test]

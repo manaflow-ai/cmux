@@ -93,14 +93,29 @@ pub struct MutationOptions {
     pub request: RequestOptions,
 }
 
+pub(crate) fn validate_idempotency_key(idempotency_key: &str) -> Result<()> {
+    if idempotency_key.trim().is_empty() {
+        return Err(Error::InvalidArgument(
+            "idempotency key must contain at least one non-whitespace Unicode scalar".to_string(),
+        ));
+    }
+    if idempotency_key.len() > 128 {
+        return Err(Error::InvalidArgument(
+            "idempotency key must contain 1 to 128 UTF-8 bytes".to_string(),
+        ));
+    }
+    if idempotency_key.chars().any(char::is_control) {
+        return Err(Error::InvalidArgument(
+            "idempotency key must not contain Unicode control characters".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 impl MutationOptions {
     pub fn new(idempotency_key: impl Into<String>) -> Result<Self> {
         let idempotency_key = idempotency_key.into();
-        if idempotency_key.is_empty() || idempotency_key.len() > 128 {
-            return Err(Error::InvalidArgument(
-                "idempotency key must contain 1 to 128 UTF-8 bytes".to_string(),
-            ));
-        }
+        validate_idempotency_key(&idempotency_key)?;
         Ok(Self { idempotency_key, expected_revision: None, request: RequestOptions::default() })
     }
 

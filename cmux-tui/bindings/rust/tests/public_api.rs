@@ -67,6 +67,22 @@ fn idempotency_keys_are_injectable_and_random_defaults_do_not_reuse_a_counter_sp
 }
 
 #[test]
+fn idempotency_keys_match_the_durable_identifier_contract() {
+    for invalid in [
+        "".to_string(),
+        " \u{00a0}\u{3000}".to_string(),
+        "key\ncontrol".to_string(),
+        "key\u{0085}control".to_string(),
+        "\u{00e9}".repeat(65),
+    ] {
+        assert!(MutationOptions::new(invalid).is_err());
+    }
+    for valid in [" key ".to_string(), "\u{feff}".to_string(), "\u{00e9}".repeat(64)] {
+        assert_eq!(MutationOptions::new(&valid).unwrap().idempotency_key, valid);
+    }
+}
+
+#[test]
 fn sensitive_debug_output_is_redacted() {
     let grant = RendererGrant::new(
         "renderer-secret",

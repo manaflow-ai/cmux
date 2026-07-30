@@ -594,6 +594,34 @@ TEST("operation classes contain capability corrections") {
         std::string_view("tab.create_browser"));
 }
 
+TEST("idempotency keys match the durable identifier contract") {
+    std::string exact_limit;
+    for (std::size_t index = 0; index < 64U; ++index) {
+        exact_limit += "\xC3\xA9";
+    }
+    auto over_limit = exact_limit + "\xC3\xA9";
+    const std::vector<std::string> invalid{
+        "",
+        " \xC2\xA0\xE3\x80\x80",
+        "key\ncontrol",
+        "key\xC2\x85" "control",
+        over_limit,
+        std::string("key\xFF", 4),
+    };
+    for (const auto& value : invalid) {
+        CHECK(!cmux::MutationOptions::with_key(value));
+    }
+    for (const auto& value : std::vector<std::string>{
+             " key ",
+             "\xEF\xBB\xBF",
+             exact_limit,
+         }) {
+        auto key = cmux::MutationOptions::with_key(value);
+        CHECK(key);
+        CHECK_EQ(key.value().idempotency_key(), value);
+    }
+}
+
 TEST("mutation sends one stable injected idempotency key without retry") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);

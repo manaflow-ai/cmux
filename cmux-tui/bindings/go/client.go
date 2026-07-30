@@ -12,9 +12,12 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev1"
 )
@@ -199,8 +202,8 @@ func (c *Client) do(
 				return &TransportError{Operation: operation.Name, Err: err}
 			}
 		}
-		if len(idempotencyKey) > 128 {
-			return fmt.Errorf("%w: mutation idempotency key must contain at most 128 bytes", ErrInvalidArgument)
+		if err := validateIdempotencyKey(idempotencyKey); err != nil {
+			return err
 		}
 	default:
 		if idempotencyKey != "" {
@@ -288,6 +291,22 @@ func (c *Client) do(
 		}
 		return uncertain(c.connectionError())
 	}
+}
+
+func validateIdempotencyKey(value string) error {
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("%w: mutation idempotency key must contain valid Unicode scalars", ErrInvalidArgument)
+	}
+	if len(value) < 1 || len(value) > 128 {
+		return fmt.Errorf("%w: mutation idempotency key must contain 1 to 128 UTF-8 bytes", ErrInvalidArgument)
+	}
+	if strings.TrimFunc(value, unicode.IsSpace) == "" {
+		return fmt.Errorf("%w: mutation idempotency key must contain a non-whitespace Unicode scalar", ErrInvalidArgument)
+	}
+	if strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return fmt.Errorf("%w: mutation idempotency key must not contain Unicode control characters", ErrInvalidArgument)
+	}
+	return nil
 }
 
 func (c *Client) write(

@@ -652,6 +652,15 @@ impl WorkspaceRegistry {
         }
         Ok(())
     }
+
+    #[cfg(test)]
+    pub(crate) fn resource_mutation_count_for_test(&self) -> anyhow::Result<u64> {
+        let count =
+            self.connection.query_row("SELECT COUNT(*) FROM resource_mutations", [], |row| {
+                row.get::<_, i64>(0)
+            })?;
+        u64::try_from(count).context("resource mutation count is negative")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

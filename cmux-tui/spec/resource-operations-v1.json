@@ -5849,7 +5849,7 @@
                 "name": "string"
               }
             },
-            "description": "Omitted means no change, a string (including empty) sets exact bytes, and null clears the optional name."
+            "description": "Omitted means no change, null clears, and a non-null string preserves its exact value, including empty, whitespace, and Unicode. A non-null value contains at most 64 Unicode scalars and no Unicode General_Category=Cc control scalar."
           },
           "kind": {
             "required": false,
@@ -5860,12 +5860,14 @@
                 "name": "string"
               }
             },
-            "description": "Omitted means no change; string sets; null clears."
+            "description": "Omitted means no change, null clears, and a non-null string preserves its exact value, including empty, whitespace, and Unicode. A non-null value contains at most 64 Unicode scalars and no Unicode General_Category=Cc control scalar."
           }
         },
         "extra": false,
         "constraints": [
-          "At least one of name or kind is present."
+          "At least one of name or kind is present.",
+          "Each present non-null name or kind contains at most 64 Unicode scalars and no Unicode General_Category=Cc control scalar.",
+          "A constraint violation returns validation.invalid before either field mutates."
         ]
       },
       "result": {
@@ -7954,6 +7956,12 @@
           }
         ]
       },
+      "constraints": [
+        "Requires a trusted local Unix-socket connection and is unavailable over WebSocket.",
+        "With force=false, another connected native-browser owner rejects shutdown; force=true bypasses only that ownership check.",
+        "On success, the durable receipt is committed and its response is queued before process exit is requested.",
+        "A failed response queue cancels the shutdown handoff without requesting exit; same-key replay may reserve a new handoff and retry the post-response exit request."
+      ],
       "errors": [
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -10230,8 +10238,13 @@
           }
         ]
       },
+      "constraints": [
+        "Changes only the selected terminal's ephemeral viewport and does not advance the resource revision or emit a session delta.",
+        "Exactly-once replay uses the bounded transient interaction receipt window."
+      ],
       "errors": [
         "idempotency.conflict",
+        "mutation.indeterminate",
         "operation.failed",
         "revision.conflict",
         "selector.ambiguous",

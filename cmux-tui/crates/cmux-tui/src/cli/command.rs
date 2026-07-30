@@ -3,7 +3,9 @@ use std::io::{self, Read};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use cmux_tui_core::resource::{OperationClass, ResourceOperation, Selector};
+use cmux_tui_core::resource::{
+    OperationClass, ResourceOperation, Selector, validate_idempotency_key,
+};
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
@@ -1469,11 +1471,8 @@ fn finalize_request(
 ) -> Result<CommandPlan, UsageError> {
     let class = operation.class();
     let explicit_key = flags.take("idempotency-key");
-    if explicit_key.as_deref().is_some_and(str::is_empty) {
-        return Err(UsageError::new("--idempotency-key cannot be empty"));
-    }
-    if explicit_key.as_ref().is_some_and(|key| key.len() > 128) {
-        return Err(UsageError::new("--idempotency-key cannot exceed 128 UTF-8 bytes"));
+    if let Some(key) = explicit_key.as_deref() {
+        validate_idempotency_key(key).map_err(|error| UsageError::new(error.message))?;
     }
     if explicit_key.is_some() && class != OperationClass::Mutation {
         return Err(UsageError::new("--idempotency-key is accepted only for mutations"));
@@ -2530,6 +2529,20 @@ mod tests {
         assert_eq!(mutation.operation.class(), OperationClass::Mutation);
         let read = parse(&strings(&["workspace", "list", "--idempotency-key", "no"]));
         assert!(read.is_err());
+    }
+
+    #[test]
+    fn explicit_idempotency_keys_match_the_durable_identifier_contract() {
+        for invalid in ["", " ", "\u{00a0}\u{3000}", "key\ncontrol", &"\u{00e9}".repeat(65)] {
+            assert!(
+                parse(&strings(&["workspace", "create", "--idempotency-key", invalid])).is_err(),
+                "accepted invalid idempotency key {invalid:?}"
+            );
+        }
+        for valid in [" key ", "\u{feff}", &"\u{00e9}".repeat(64)] {
+            let plan = protocol(&["workspace", "create", "--idempotency-key", valid]);
+            assert_eq!(plan.idempotency_key.as_deref(), Some(valid));
+        }
     }
 
     #[test]

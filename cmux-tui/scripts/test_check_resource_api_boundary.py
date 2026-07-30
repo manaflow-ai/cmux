@@ -45,6 +45,21 @@ def matching_contract(tui: Path, operations: list[str] | None = None) -> None:
     mutation_operations: list[str] = []
     schema = {
         "$defs": {
+            "idempotencyKey": {
+                "type": "string",
+                "description": (
+                    "Contains 1 to 128 UTF-8 bytes, at least one Unicode scalar outside the "
+                    "White_Space property, and no Unicode General_Category=Cc control scalar. "
+                    "Leading, trailing, and internal non-control whitespace is preserved."
+                ),
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": (
+                    r"^(?=[\s\S]*[^\u0009-\u000D\u0020\u0085\u00A0\u1680\u2000-\u200A"
+                    r"\u2028\u2029\u202F\u205F\u3000])[^\u0000-\u001F\u007F-\u009F]+$"
+                ),
+                "x-cmux-max-utf8-bytes": 128,
+            },
             "resourceId": {"pattern": f"^({prefixes})_[0-9a-f]{{32}}$"},
             "streamId": {"pattern": r"^stream_[0-9a-f]{32}$"},
             "operation": {
@@ -57,6 +72,9 @@ def matching_contract(tui: Path, operations: list[str] | None = None) -> None:
                 },
             },
             "request": {
+                "properties": {
+                    "idempotency_key": {"$ref": "#/$defs/idempotencyKey"}
+                },
                 "allOf": [
                     {
                         "if": {
@@ -857,6 +875,91 @@ class ContractRegistryTests(unittest.TestCase):
 
             self.assertTrue(any("idempotency must be required" in item for item in messages), messages)
             self.assertTrue(any("descriptor has a schema hole" in item for item in messages), messages)
+
+    def test_catalog_rejects_client_metadata_label_contract_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            matching_contract(tui, ["client.metadata.update"])
+            catalog_path = tui / "spec/resource-operations-v1.json"
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+            operation = catalog["operations"]["client.metadata.update"]
+            description = (
+                "Omitted means no change, null clears, and a non-null string preserves "
+                "its exact value, including empty, whitespace, and Unicode. A non-null "
+                "value contains at most 64 Unicode scalars and no Unicode "
+                "General_Category=Cc control scalar."
+            )
+            nullable_string = {
+                "kind": "nullable",
+                "value": {"kind": "primitive", "name": "string"},
+            }
+            operation["params"]["fields"] = {
+                field: {
+                    "required": False,
+                    "type": nullable_string,
+                    "description": description,
+                }
+                for field in ("name", "kind")
+            }
+            operation["params"]["constraints"] = [
+                "At least one of name or kind is present.",
+                "Each present non-null name or kind contains at most 64 Unicode scalars "
+                "and no Unicode General_Category=Cc control scalar.",
+                "A constraint violation returns validation.invalid before either field mutates.",
+            ]
+            write(catalog_path, json.dumps(catalog, indent=2) + "\n")
+
+            diagnostics: list[CHECKER.Diagnostic] = []
+            CHECKER._operation_catalog(catalog_path, diagnostics)
+            self.assertFalse(
+                any("client.metadata.update name and kind" in item.message for item in diagnostics),
+                diagnostics,
+            )
+
+            catalog["operations"]["client.metadata.update"]["params"]["fields"]["kind"][
+                "description"
+            ] = "string sets"
+            write(catalog_path, json.dumps(catalog, indent=2) + "\n")
+            diagnostics = []
+            CHECKER._operation_catalog(catalog_path, diagnostics)
+            self.assertTrue(
+                any("client.metadata.update name and kind" in item.message for item in diagnostics),
+                diagnostics,
+            )
+
+    def test_catalog_rejects_session_shutdown_lifecycle_contract_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            matching_contract(tui, ["session.shutdown"])
+            catalog_path = tui / "spec/resource-operations-v1.json"
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+            operation = catalog["operations"]["session.shutdown"]
+            operation["constraints"] = [
+                "Requires a trusted local Unix-socket connection and is unavailable over WebSocket.",
+                "With force=false, another connected native-browser owner rejects shutdown; "
+                "force=true bypasses only that ownership check.",
+                "On success, the durable receipt is committed and its response is queued before "
+                "process exit is requested.",
+                "A failed response queue cancels the shutdown handoff without requesting exit; "
+                "same-key replay may reserve a new handoff and retry the post-response exit request.",
+            ]
+            write(catalog_path, json.dumps(catalog, indent=2) + "\n")
+
+            diagnostics: list[CHECKER.Diagnostic] = []
+            CHECKER._operation_catalog(catalog_path, diagnostics)
+            self.assertFalse(
+                any("session.shutdown must encode" in item.message for item in diagnostics),
+                diagnostics,
+            )
+
+            operation["constraints"].pop()
+            write(catalog_path, json.dumps(catalog, indent=2) + "\n")
+            diagnostics = []
+            CHECKER._operation_catalog(catalog_path, diagnostics)
+            self.assertTrue(
+                any("session.shutdown must encode" in item.message for item in diagnostics),
+                diagnostics,
+            )
 
     def test_catalog_rejects_external_effect_without_indeterminate_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

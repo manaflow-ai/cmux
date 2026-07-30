@@ -3618,6 +3618,11 @@ impl Mux {
         self.workspace_registry.lock().unwrap().resource_events_after(revision)
     }
 
+    #[cfg(test)]
+    pub(crate) fn resource_mutation_count_for_test(&self) -> anyhow::Result<u64> {
+        self.workspace_registry.lock().unwrap().resource_mutation_count_for_test()
+    }
+
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
         self.workspace_registry.lock().unwrap().terminal_snapshot()
     }
@@ -5882,11 +5887,15 @@ impl Mux {
         }
     }
 
-    /// Atomically reserve a daemon handoff while proving no other native
-    /// browser owns this mux. New owner announcements are rejected until the
-    /// response is queued or the reservation is cancelled.
-    pub fn begin_daemon_handoff(&self, requesting_client: u64) -> anyhow::Result<()> {
-        self.control_clients.begin_daemon_handoff(requesting_client, &self.daemon_handoff_pending)
+    /// Atomically reserve a daemon handoff. Unless forced, this proves no other
+    /// native browser owns the mux. New owner announcements are rejected until
+    /// the response is queued or the reservation is cancelled.
+    pub fn begin_daemon_handoff(&self, requesting_client: u64, force: bool) -> anyhow::Result<()> {
+        self.control_clients.begin_daemon_handoff(
+            requesting_client,
+            &self.daemon_handoff_pending,
+            force,
+        )
     }
 
     pub fn cancel_daemon_handoff(&self) {

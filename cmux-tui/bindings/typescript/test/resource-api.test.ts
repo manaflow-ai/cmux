@@ -48,6 +48,9 @@ const NOTIFICATION = notificationId(`notification_${HEX_A}`);
 const PAIRING_REQUEST = pairingRequestId(`pairing_${HEX_B}`);
 const PROJECTION = projectionId(`projection_${HEX_C}`);
 const SIDEBAR_VIEW = sidebarViewId(`sidebar_view_${HEX_A}`);
+const UTF8_128 = "🦀".repeat(32);
+const UTF8_129 = `${UTF8_128}a`;
+const ILL_FORMED_UNICODE = "\ud800";
 
 type Envelope = Record<string, unknown>;
 
@@ -161,6 +164,105 @@ test("resource root, raw boundary, exact commands, and idempotency keys", async 
     ...common,
     argv: ["/bin/zsh", "-lc", "echo $(uname)"],
   });
+  client.close();
+});
+
+test("request token bounds count UTF-8 bytes at every public boundary", async () => {
+  assert.equal(Buffer.byteLength(UTF8_128, "utf8"), 128);
+  assert.equal(Buffer.byteLength(UTF8_129, "utf8"), 129);
+  assert.ok(UTF8_129.length < 128);
+
+  const transport = new FakeTransport((request, current) => {
+    current.emit({
+      protocol: "cmux.protocol/1",
+      type: "response",
+      id: request.id,
+      ok: false,
+      error: {
+        code: "fixture.stop",
+        message: "boundary accepted",
+        details: {},
+        retryable: false,
+      },
+    });
+  });
+  const client = new Client({ transport });
+  const session = client.session(SESSION);
+  const workspace = session.workspace(WORKSPACE);
+  const screen = workspace.screen(SCREEN);
+
+  const accepted: Array<() => Promise<unknown>> = [
+    () => workspace.rename("accepted", { idempotencyKey: UTF8_128 }),
+    () => workspace.run(
+      { command: exact(["true"]) },
+      { correlationKey: UTF8_128 },
+    ),
+    () => session.creation.resolve(UTF8_128),
+    async () => await screen.undoLayout({ confirmationToken: UTF8_128 }),
+  ];
+  for (const call of accepted) await assert.rejects(call, ResourceError);
+
+  assert.equal(transport.requests[0]?.idempotency_key, UTF8_128);
+  assert.equal(
+    (transport.requests[1]?.params as Envelope).correlation_key,
+    UTF8_128,
+  );
+  assert.equal(
+    (transport.requests[2]?.params as Envelope).correlation_key,
+    UTF8_128,
+  );
+  assert.equal(
+    (transport.requests[3]?.params as Envelope).confirmation_token,
+    UTF8_128,
+  );
+
+  for (const invalid of [UTF8_129, ILL_FORMED_UNICODE]) {
+    const rejected: Array<() => Promise<unknown>> = [
+      () => workspace.rename("rejected", { idempotencyKey: invalid }),
+      () => workspace.run(
+        { command: exact(["true"]) },
+        { correlationKey: invalid },
+      ),
+      () => session.creation.resolve(invalid),
+      async () => await screen.undoLayout({ confirmationToken: invalid }),
+    ];
+    for (const call of rejected) await assert.rejects(call, TypeError);
+  }
+  assert.equal(transport.requests.length, accepted.length);
+  client.close();
+});
+
+test("idempotency keys require a non-whitespace scalar and reject controls", async () => {
+  const transport = new FakeTransport((request, current) => {
+    current.emit({
+      protocol: "cmux.protocol/1",
+      type: "response",
+      id: request.id,
+      ok: false,
+      error: {
+        code: "fixture.stop",
+        message: "boundary accepted",
+        details: {},
+        retryable: false,
+      },
+    });
+  });
+  const client = new Client({ transport });
+  const workspace = client.session(SESSION).workspace(WORKSPACE);
+
+  await assert.rejects(
+    () => workspace.rename("accepted", {
+      idempotencyKey: " \u00a0key\u2003 ",
+    }),
+    ResourceError,
+  );
+  for (const invalid of ["", " \u00a0\u2003 ", "key\u0000suffix", "key\u007fsuffix"]) {
+    await assert.rejects(
+      () => workspace.rename("rejected", { idempotencyKey: invalid }),
+      TypeError,
+    );
+  }
+  assert.equal(transport.requests.length, 1);
   client.close();
 });
 
@@ -511,6 +613,83 @@ test("confirmation errors expose typed preview details", async () => {
     },
   );
   client.close();
+});
+
+test("structured error token bounds use UTF-8 bytes", async () => {
+  const confirmation = async (token: string): Promise<void> => {
+    const transport = new FakeTransport((request, current) => {
+      current.emit({
+        protocol: "cmux.protocol/1",
+        type: "response",
+        id: request.id,
+        ok: false,
+        error: {
+          code: "confirmation.required",
+          message: "undo would close panes",
+          details: {
+            confirmation_token: token,
+            revision: "1",
+            closes_panes: [PANE],
+          },
+          retryable: false,
+        },
+      });
+    });
+    const client = new Client({ transport });
+    try {
+      await client.session(SESSION).workspace(WORKSPACE).screen(SCREEN).undoLayout();
+    } finally {
+      client.close();
+    }
+  };
+  await assert.rejects(
+    () => confirmation(UTF8_128),
+    ConfirmationRequiredError,
+  );
+  for (const invalid of [UTF8_129, ILL_FORMED_UNICODE]) {
+    await assert.rejects(() => confirmation(invalid), CmuxProtocolError);
+  }
+
+  const indeterminate = async (idempotencyKey: string): Promise<void> => {
+    const transport = new FakeTransport((request, current) => {
+      current.emit({
+        protocol: "cmux.protocol/1",
+        type: "response",
+        id: request.id,
+        ok: false,
+        error: {
+          code: "mutation.indeterminate",
+          message: "outcome is unknown",
+          details: {
+            idempotency_key: idempotencyKey,
+            operation: "workspace.rename",
+            recovery: "inspect_state_then_retry_with_new_key",
+          },
+          retryable: false,
+        },
+      });
+    });
+    const client = new Client({ transport });
+    try {
+      await client.session(SESSION).workspace(WORKSPACE).rename("renamed", {
+        idempotencyKey: "request-key",
+      });
+    } finally {
+      client.close();
+    }
+  };
+  await assert.rejects(
+    () => indeterminate(UTF8_128),
+    MutationIndeterminateError,
+  );
+  for (const invalid of [
+    UTF8_129,
+    ILL_FORMED_UNICODE,
+    " \u00a0\u2003 ",
+    "key\u0000suffix",
+  ]) {
+    await assert.rejects(() => indeterminate(invalid), CmuxProtocolError);
+  }
 });
 
 test("dropped mutation responses expose supplied and generated idempotency keys", async () => {
@@ -1270,6 +1449,183 @@ test("creation resolution and terminal exit reads expose strict typed variants",
     "250",
   );
   client.close();
+});
+
+test("all generation decoders enforce well-formed 128-byte UTF-8 bounds", async () => {
+  const cases: ReadonlyArray<{
+    readonly name: string;
+    readonly call: (generation: string) => Promise<unknown>;
+  }> = [
+    {
+      name: "ping cursor",
+      call: async (generation) => {
+        const transport = new FakeTransport((request, current) => {
+          current.ok(request, {
+            alive: true,
+            cursor: { generation, revision: "1" },
+          });
+        });
+        const client = new Client({ transport });
+        try {
+          return await client.session(SESSION).ping();
+        } finally {
+          client.close();
+        }
+      },
+    },
+    {
+      name: "stream cursor",
+      call: async (generation) => {
+        const transport = new FakeTransport((request, current) => {
+          current.ok(request, {
+            stream_id: (request.params as Envelope).stream_id,
+            cursor: { generation, revision: "1" },
+          });
+        });
+        const client = new Client({ transport, randomHex128: () => HEX_A });
+        try {
+          return await client.session(SESSION).events();
+        } finally {
+          client.close();
+        }
+      },
+    },
+    {
+      name: "session snapshot",
+      call: async (generation) => {
+        const transport = new FakeTransport((request, current) => {
+          current.ok(request, {
+            id: SESSION,
+            machine_id: `machine_${HEX_A}`,
+            generation,
+            revision: "1",
+            connected: true,
+          });
+        });
+        const client = new Client({ transport });
+        try {
+          return await client.session(SESSION).refresh();
+        } finally {
+          client.close();
+        }
+      },
+    },
+    {
+      name: "mutation result",
+      call: async (generation) => {
+        const transport = new FakeTransport((request, current) => {
+          current.ok(request, {
+            value: {
+              id: WORKSPACE,
+              session_id: SESSION,
+              name: "renamed",
+              index: 0,
+              focused: true,
+            },
+            generation,
+            revision: "1",
+            replayed: false,
+          });
+        });
+        const client = new Client({ transport });
+        try {
+          return await client.session(SESSION).workspace(WORKSPACE).rename(
+            "renamed",
+            { idempotencyKey: "generation-test" },
+          );
+        } finally {
+          client.close();
+        }
+      },
+    },
+    {
+      name: "creation resolution",
+      call: async (generation) => {
+        const transport = new FakeTransport((request, current) => {
+          current.ok(request, {
+            correlation_key: "generation-test",
+            state: "created",
+            recovery: "none",
+            idempotency_key: "creation-key",
+            created_path: {
+              kind: "workspace",
+              workspace_id: WORKSPACE,
+            },
+            generation,
+            revision: "1",
+          });
+        });
+        const client = new Client({ transport });
+        try {
+          return await client.session(SESSION).creation.resolve("generation-test");
+        } finally {
+          client.close();
+        }
+      },
+    },
+  ];
+
+  for (const current of cases) {
+    await assert.doesNotReject(
+      () => current.call(UTF8_128),
+      `${current.name} rejected an exact 128-byte generation`,
+    );
+    for (const invalid of [UTF8_129, ILL_FORMED_UNICODE]) {
+      await assert.rejects(
+        () => current.call(invalid),
+        CmuxProtocolError,
+        `${current.name} accepted an invalid generation`,
+      );
+    }
+  }
+});
+
+test("creation resolution validates UTF-8 correlation and idempotency fields", async () => {
+  const resolve = async (
+    requestedCorrelation: string,
+    responseCorrelation: string,
+    responseIdempotency: string,
+  ): Promise<unknown> => {
+    const transport = new FakeTransport((request, current) => {
+      current.ok(request, {
+        correlation_key: responseCorrelation,
+        state: "created",
+        recovery: "none",
+        idempotency_key: responseIdempotency,
+        created_path: {
+          kind: "workspace",
+          workspace_id: WORKSPACE,
+        },
+        generation: UTF8_128,
+        revision: "1",
+      });
+    });
+    const client = new Client({ transport });
+    try {
+      return await client.session(SESSION).creation.resolve(requestedCorrelation);
+    } finally {
+      client.close();
+    }
+  };
+
+  await assert.doesNotReject(() => resolve(UTF8_128, UTF8_128, UTF8_128));
+  for (const invalid of [UTF8_129, ILL_FORMED_UNICODE]) {
+    await assert.rejects(
+      () => resolve("request-correlation", invalid, "response-key"),
+      /correlation_key must contain 1 to 128 UTF-8 bytes/,
+    );
+  }
+  for (const invalid of [
+    UTF8_129,
+    ILL_FORMED_UNICODE,
+    " \u00a0\u2003 ",
+    "key\u0000suffix",
+  ]) {
+    await assert.rejects(
+      () => resolve("request-correlation", "request-correlation", invalid),
+      /idempotency_key is not a valid idempotency key/,
+    );
+  }
 });
 
 test("creation and exit discriminators reject malformed catalog variants", async () => {

@@ -28,8 +28,6 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::AgentReport
             | ResourceOperation::FrontendProjectionGet
             | ResourceOperation::FrontendProjectionPut
-            | ResourceOperation::PairingRequestList
-            | ResourceOperation::PairingRequestResolve
             | ResourceOperation::SidebarViewGet
             | ResourceOperation::SidebarViewEnsure
             | ResourceOperation::SidebarViewInput
@@ -48,8 +46,6 @@ pub(super) fn dispatch(
         ResourceOperation::AgentReport => report_agent(mux, request),
         ResourceOperation::FrontendProjectionGet => get_frontend_projection(mux, &request),
         ResourceOperation::FrontendProjectionPut => put_frontend_projection(mux, request),
-        ResourceOperation::PairingRequestList => list_pairing_requests(mux, &request),
-        ResourceOperation::PairingRequestResolve => resolve_pairing_request(mux, request),
         ResourceOperation::SidebarViewGet => get_sidebar_view(mux, &request),
         ResourceOperation::SidebarViewEnsure => ensure_sidebar_view(mux, request),
         ResourceOperation::SidebarViewInput => input_sidebar_view(mux, request),
@@ -58,6 +54,21 @@ pub(super) fn dispatch(
         operation => Err(ResourceError::operation_failed(
             operation_name(operation),
             "auxiliary router received an operation it does not own",
+            json!({}),
+        )),
+    }
+}
+
+pub(super) fn dispatch_trusted_local(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    match request.envelope.operation {
+        ResourceOperation::PairingRequestList => list_pairing_requests(mux, &request),
+        ResourceOperation::PairingRequestResolve => resolve_pairing_request(mux, request),
+        operation => Err(ResourceError::operation_failed(
+            operation_name(operation),
+            "trusted-local auxiliary router received an operation it does not own",
             json!({}),
         )),
     }
@@ -404,12 +415,22 @@ fn execute_sidebar_input(mux: &Arc<Mux>, prepared: PreparedEffect) -> Result<Val
             ResourceError::not_found("sidebar_view", sidebar_id.as_str()),
         );
     };
+    let before = match current_sidebar_snapshot(mux, &sidebar_id, &session_id) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return effects::commit_known_failure(mux, prepared, error),
+    };
     if surface.write_bytes(&data).is_err() {
         return Err(effects::mark_indeterminate(mux, prepared));
     }
     let value = json!({});
-    let snapshot = current_sidebar_snapshot(mux, &sidebar_id, &session_id)?;
-    effects::commit_success(mux, prepared, value, sidebar_upsert_delta(&sidebar_id, &snapshot))
+    let after = match current_sidebar_snapshot(mux, &sidebar_id, &session_id) {
+        Ok(snapshot) => snapshot,
+        Err(_) => return Err(effects::mark_indeterminate(mux, prepared)),
+    };
+    match sidebar_input_lifecycle_delta(&sidebar_id, &before, &after) {
+        Some(changes) => effects::commit_success(mux, prepared, value, changes),
+        None => effects::commit_success_without_changes(mux, prepared, value),
+    }
 }
 
 fn resize_sidebar_view(
@@ -511,6 +532,14 @@ fn sidebar_upsert_delta(id: &SidebarViewPublicId, value: &Value) -> Value {
         "id":id,
         "value":value,
     }])
+}
+
+fn sidebar_input_lifecycle_delta(
+    id: &SidebarViewPublicId,
+    before: &Value,
+    after: &Value,
+) -> Option<Value> {
+    (before != after).then(|| sidebar_upsert_delta(id, after))
 }
 
 fn intent_u16(operation: &str, intent: &Value, field: &str) -> Result<u16, ResourceError> {
@@ -632,6 +661,28 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_input_emits_a_delta_only_when_public_lifecycle_changes() {
+        let sidebar_id =
+            SidebarViewPublicId::parse(public_id("sidebar_view", 1)).expect("sidebar test id");
+        let before = json!({
+            "id":sidebar_id,
+            "session_id":public_id("session", 1),
+            "cols":80,
+            "rows":24,
+            "running":true,
+        });
+        assert!(sidebar_input_lifecycle_delta(&sidebar_id, &before, &before).is_none());
+
+        let mut after = before.clone();
+        after["running"] = json!(false);
+        let changes = sidebar_input_lifecycle_delta(&sidebar_id, &before, &after).unwrap();
+        assert_eq!(changes[0]["kind"], "upsert");
+        assert_eq!(changes[0]["resource"], "sidebar_view");
+        assert_eq!(changes[0]["id"], sidebar_id.as_str());
+        assert_eq!(changes[0]["value"], after);
+    }
+
+    #[test]
     fn pending_pairing_snapshots_use_public_ids_and_wire_decimals() {
         let mux = Mux::new_for_test("aux-pairing", SurfaceOptions::default());
         let (challenge, _response) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
@@ -730,14 +781,14 @@ mod tests {
                 json!({"decision":"accept"}),
             )
         };
-        let first = dispatch(&mux, resolve_request()).unwrap();
+        let first = dispatch_trusted_local(&mux, resolve_request()).unwrap();
         assert_eq!(first["replayed"], false);
         assert_eq!(first["value"]["pairing_request"]["status"], "accepted");
         assert!(matches!(
             response.recv_timeout(Duration::from_secs(1)).unwrap(),
             crate::PairingDecision::Approved { .. }
         ));
-        let replay = dispatch(&mux, resolve_request()).unwrap();
+        let replay = dispatch_trusted_local(&mux, resolve_request()).unwrap();
         assert_eq!(replay["replayed"], true);
         assert_eq!(replay["value"], first["value"]);
         assert!(mux.pending_pairings().is_empty());
@@ -803,6 +854,7 @@ mod tests {
         assert_eq!(ensured["value"]["rows"], 5);
         let sidebar_id = ensured["value"]["id"].as_str().unwrap().to_string();
         let first_surface = mux.sidebar_plugin_status().surface.unwrap();
+        let events_before_input = mux.resource_events_after(0).unwrap();
 
         let replay = dispatch(&mux, ensure_request()).unwrap();
         assert_eq!(replay["replayed"], true);
@@ -811,8 +863,7 @@ mod tests {
 
         let mut selected = session_selectors();
         selected.sidebar_view = Some(sidebar_id.clone());
-        let input = dispatch(
-            &mux,
+        let input_request = || {
             request(
                 ResourceOperation::SidebarViewInput,
                 Some("sidebar-input-once"),
@@ -821,10 +872,18 @@ mod tests {
                     "data_base64":base64::engine::general_purpose::STANDARD
                         .encode(b"resource-sidebar-input\n"),
                 }),
-            ),
-        )
-        .unwrap();
+            )
+        };
+        let input = dispatch(&mux, input_request()).unwrap();
         assert_eq!(input["value"], json!({}));
+        assert_eq!(input["revision"], ensured["revision"]);
+        let events_after_input = mux.resource_events_after(0).unwrap();
+        assert_eq!(events_after_input.head_revision, events_before_input.head_revision);
+        assert_eq!(events_after_input.batches.len(), events_before_input.batches.len());
+        let replay = dispatch(&mux, input_request()).unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["value"], input["value"]);
+        assert_eq!(replay["revision"], input["revision"]);
         let surface = mux.sidebar_plugin_surface().unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {

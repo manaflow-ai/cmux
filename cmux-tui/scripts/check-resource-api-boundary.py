@@ -220,6 +220,7 @@ EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
         "terminal.input.keys",
         "terminal.input.mouse",
         "terminal.input.write",
+        "terminal.viewport.scroll",
         "workspace.close",
         "workspace.create",
         "workspace.layout.apply",
@@ -1926,27 +1927,67 @@ def _operation_catalog(
                 parts[-1],
             )
 
-    client_name = (
-        operations.get("client.metadata.update", {})
-        .get("params", {})
-        .get("fields", {})
-        .get("name")
-    )
+    client_metadata = operations.get("client.metadata.update", {})
+    client_fields = client_metadata.get("params", {}).get("fields", {})
+    client_name = client_fields.get("name")
+    client_kind = client_fields.get("kind")
     expected_three_state = {
         "kind": "nullable",
         "value": {"kind": "primitive", "name": "string"},
     }
+    expected_client_description = (
+        "Omitted means no change, null clears, and a non-null string preserves its "
+        "exact value, including empty, whitespace, and Unicode. A non-null value "
+        "contains at most 64 Unicode scalars and no Unicode General_Category=Cc "
+        "control scalar."
+    )
+    expected_client_constraints = [
+        "At least one of name or kind is present.",
+        "Each present non-null name or kind contains at most 64 Unicode scalars "
+        "and no Unicode General_Category=Cc control scalar.",
+        "A constraint violation returns validation.invalid before either field mutates.",
+    ]
     if "client.metadata.update" in operations and (
         not isinstance(client_name, dict)
         or client_name.get("required") is not False
         or client_name.get("type") != expected_three_state
+        or client_name.get("description") != expected_client_description
+        or not isinstance(client_kind, dict)
+        or client_kind.get("required") is not False
+        or client_kind.get("type") != expected_three_state
+        or client_kind.get("description") != expected_client_description
+        or client_metadata.get("params", {}).get("constraints")
+        != expected_client_constraints
+        or "validation.invalid" not in client_metadata.get("errors", [])
     ):
         _catalog_diagnostic(
             diagnostics,
             path,
             text,
-            "client.metadata.update name must encode omitted/string/null distinctly",
+            "client.metadata.update name and kind must encode exact three-state values, "
+            "64-scalar/Cc validation, and pre-mutation validation.invalid semantics",
             "client.metadata.update",
+        )
+    expected_shutdown_constraints = [
+        "Requires a trusted local Unix-socket connection and is unavailable over WebSocket.",
+        "With force=false, another connected native-browser owner rejects shutdown; "
+        "force=true bypasses only that ownership check.",
+        "On success, the durable receipt is committed and its response is queued before "
+        "process exit is requested.",
+        "A failed response queue cancels the shutdown handoff without requesting exit; "
+        "same-key replay may reserve a new handoff and retry the post-response exit request.",
+    ]
+    if "session.shutdown" in operations and (
+        operations.get("session.shutdown", {}).get("constraints")
+        != expected_shutdown_constraints
+    ):
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "session.shutdown must encode trusted-local authority, owner-force scope, "
+            "and durable-receipt-before-exit ordering",
+            "session.shutdown",
         )
     for operation in ("workspace.rename",):
         if operation not in operations:
@@ -2729,6 +2770,40 @@ def _schema_operation_classes(
                 1,
                 "boundary.operation-class",
                 "request idempotency condition must use the exact mutation operation class",
+            )
+        )
+    expected_idempotency_key = {
+        "type": "string",
+        "description": (
+            "Contains 1 to 128 UTF-8 bytes, at least one Unicode scalar outside the "
+            "White_Space property, and no Unicode General_Category=Cc control scalar. "
+            "Leading, trailing, and internal non-control whitespace is preserved."
+        ),
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": (
+            r"^(?=[\s\S]*[^\u0009-\u000D\u0020\u0085\u00A0\u1680\u2000-\u200A"
+            r"\u2028\u2029\u202F\u205F\u3000])[^\u0000-\u001F\u007F-\u009F]+$"
+        ),
+        "x-cmux-max-utf8-bytes": 128,
+    }
+    try:
+        idempotency_key = document["$defs"]["idempotencyKey"]
+        request_key = document["$defs"]["request"]["properties"]["idempotency_key"]
+    except (KeyError, TypeError):
+        idempotency_key = None
+        request_key = None
+    if (
+        idempotency_key != expected_idempotency_key
+        or request_key != {"$ref": "#/$defs/idempotencyKey"}
+    ):
+        diagnostics.append(
+            Diagnostic(
+                path,
+                1,
+                1,
+                "boundary.idempotency-key",
+                "idempotency_key must use the canonical UTF-8, Unicode White_Space, and Cc contract",
             )
         )
     offsets = {

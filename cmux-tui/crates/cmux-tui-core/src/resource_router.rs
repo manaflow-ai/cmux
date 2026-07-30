@@ -734,6 +734,21 @@ pub(crate) fn handle_parsed_resource_request(
     })
 }
 
+pub(crate) fn commit_session_shutdown(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    debug_assert_eq!(request.envelope.operation, ResourceOperation::SessionShutdown);
+    session::commit_shutdown(mux, request)
+}
+
+pub(crate) fn handle_trusted_local_auxiliary(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    auxiliary::dispatch_trusted_local(mux, request)
+}
+
 pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -> Value {
     let request = serde_json::from_str::<Value>(message).ok();
     let id = request
@@ -847,8 +862,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SessionList
         | ResourceOperation::SessionOpen
         | ResourceOperation::SessionGet => OperationOwner::Machine,
-        ResourceOperation::SessionShutdown
-        | ResourceOperation::SessionCreationResolve
+        ResourceOperation::SessionCreationResolve
         | ResourceOperation::SessionReloadConfig
         | ResourceOperation::SessionTerminalDefaultsUpdate
         | ResourceOperation::SessionWindowTitleSet
@@ -929,14 +943,15 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::AgentReport
         | ResourceOperation::FrontendProjectionGet
         | ResourceOperation::FrontendProjectionPut
-        | ResourceOperation::PairingRequestList
-        | ResourceOperation::PairingRequestResolve
         | ResourceOperation::SidebarViewGet
         | ResourceOperation::SidebarViewEnsure
         | ResourceOperation::SidebarViewInput
         | ResourceOperation::SidebarViewResize
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
         ResourceOperation::SessionEvents
+        | ResourceOperation::SessionShutdown
+        | ResourceOperation::PairingRequestList
+        | ResourceOperation::PairingRequestResolve
         | ResourceOperation::ClientList
         | ResourceOperation::ClientGet
         | ResourceOperation::ClientMetadataUpdate

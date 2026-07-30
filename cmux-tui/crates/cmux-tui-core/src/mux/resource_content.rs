@@ -16,67 +16,6 @@ use crate::workspace_registry::{
 use crate::{ResourceSelectors, ResourceTarget};
 
 impl Mux {
-    pub(crate) fn resource_scroll_terminal_selected(
-        &self,
-        selectors: ResourceSelectors,
-        delta_rows: isize,
-        expected_revision: Option<u64>,
-        mutation: &WorkspaceMutation,
-    ) -> anyhow::Result<ResourcePatchCommit> {
-        let fingerprint = json!({
-            "operation": "terminal.viewport.scroll",
-            "selectors": selectors,
-            "delta_rows": delta_rows,
-        });
-        self.commit_resource_mutation_plan(
-            mutation,
-            "terminal.viewport.scroll",
-            &fingerprint,
-            None,
-            expected_revision,
-            move |state, registry| {
-                let resolved = self
-                    .resolve_resource_path_in_state(
-                        state,
-                        registry,
-                        ResourceTarget::Terminal,
-                        &selectors,
-                    )
-                    .map_err(anyhow::Error::new)?;
-                let slot =
-                    resolved.tab.context("terminal selector did not resolve a live surface")?;
-                let surface = state
-                    .surfaces
-                    .get(&slot)
-                    .cloned()
-                    .context("terminal selector resolved a missing surface")?;
-                anyhow::ensure!(
-                    surface.as_browser().is_none(),
-                    "selected terminal is not a PTY surface"
-                );
-                Ok(ResourceMutationPlan::new(
-                    ResourcePatch { changes: Vec::new() },
-                    json!({}),
-                    json!([]),
-                    move |_state| {
-                        // Resolution above proves this is a live PTY at the
-                        // commit boundary. Scrolling changes only renderer
-                        // viewport state, so the durable resource patch is
-                        // intentionally empty while its event revision still
-                        // fences replays.
-                        let _ = surface.scroll_delta(delta_rows);
-                    },
-                )
-                .with_metrics(ResourceMutationMetrics {
-                    touched_resources: 1,
-                    order_entries: 0,
-                    terminal_queries: 0,
-                    changed_rows: 0,
-                }))
-            },
-        )
-    }
-
     pub(crate) fn resource_move_terminal_selected(
         self: &std::sync::Arc<Self>,
         selectors: ResourceSelectors,

@@ -51,11 +51,7 @@ public final class Options {
         public Mutation {
             idempotencyKey = opt(idempotencyKey);
             expectedRevision = opt(expectedRevision);
-            idempotencyKey.ifPresent(key -> {
-                if (key.isEmpty() || key.length() > 128) {
-                    throw new IllegalArgumentException("idempotency key must contain 1 to 128 characters");
-                }
-            });
+            idempotencyKey.ifPresent(Options::validateIdempotencyKey);
             extra = copy(extra);
         }
         public static Mutation defaults() {
@@ -663,6 +659,68 @@ public final class Options {
         public SidebarResize { mutation = mut(mutation); nonnegative(columns, "columns"); nonnegative(rows, "rows"); }
     }
     private Options() {}
+
+    static String validateIdempotencyKey(String key) {
+        if (key == null) {
+            throw new IllegalArgumentException("idempotency key must be a string");
+        }
+        int bytes = 0;
+        boolean hasNonWhitespace = false;
+        for (int index = 0; index < key.length();) {
+            char first = key.charAt(index);
+            final int codepoint;
+            if (Character.isHighSurrogate(first)) {
+                if (index + 1 >= key.length() ||
+                        !Character.isLowSurrogate(key.charAt(index + 1))) {
+                    throw new IllegalArgumentException(
+                        "idempotency key must contain valid Unicode scalars"
+                    );
+                }
+                codepoint = Character.toCodePoint(first, key.charAt(index + 1));
+                index += 2;
+            } else if (Character.isLowSurrogate(first)) {
+                throw new IllegalArgumentException(
+                    "idempotency key must contain valid Unicode scalars"
+                );
+            } else {
+                codepoint = first;
+                index += 1;
+            }
+            bytes += codepoint <= 0x7F
+                ? 1
+                : codepoint <= 0x7FF
+                    ? 2
+                    : codepoint <= 0xFFFF ? 3 : 4;
+            if (codepoint <= 0x001F ||
+                    (codepoint >= 0x007F && codepoint <= 0x009F)) {
+                throw new IllegalArgumentException(
+                    "idempotency key must not contain Unicode control characters"
+                );
+            }
+            hasNonWhitespace |= !isUnicodeWhitespace(codepoint);
+        }
+        if (bytes < 1 || bytes > 128) {
+            throw new IllegalArgumentException(
+                "idempotency key must contain 1 to 128 UTF-8 bytes"
+            );
+        }
+        if (!hasNonWhitespace) {
+            throw new IllegalArgumentException(
+                "idempotency key must contain a non-whitespace Unicode scalar"
+            );
+        }
+        return key;
+    }
+
+    private static boolean isUnicodeWhitespace(int codepoint) {
+        return (codepoint >= 0x0009 && codepoint <= 0x000D) ||
+            codepoint == 0x0020 || codepoint == 0x0085 ||
+            codepoint == 0x00A0 || codepoint == 0x1680 ||
+            (codepoint >= 0x2000 && codepoint <= 0x200A) ||
+            codepoint == 0x2028 || codepoint == 0x2029 ||
+            codepoint == 0x202F || codepoint == 0x205F ||
+            codepoint == 0x3000;
+    }
 
     private static Mutation mut(Mutation value) { return value == null ? Mutation.defaults() : value; }
     private static Read read(Read value) { return value == null ? Read.defaults() : value; }

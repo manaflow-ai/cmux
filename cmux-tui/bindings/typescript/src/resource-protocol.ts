@@ -20,6 +20,10 @@ import type { MutationOptions, RequestOptions } from "./options.js";
 import type { Transport, Unsubscribe } from "./transport.js";
 import type { Operation } from "./internal/operations.js";
 import { operations } from "./internal/operations.js";
+import {
+  hasUtf8ByteLength,
+  isValidIdempotencyKey,
+} from "./internal/text.js";
 
 const PROTOCOL = "cmux.protocol/1";
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
@@ -27,7 +31,7 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 0x7fff_ffff;
 const TERMINAL_WAIT_CAPACITY = 8;
 // The server checks canceled/disconnected wait workers in 100 ms slices. Keep
-// the local slot through one final slice unless its response proves it exited.
+// the local lease through one final slice unless its response proves it exited.
 const TERMINAL_WAIT_RELEASE_GRACE_MS = 100;
 const MAX_TERMINAL_WAIT_TIMEOUT_MS =
   MAX_TIMEOUT_MS - TERMINAL_WAIT_RELEASE_GRACE_MS;
@@ -137,8 +141,10 @@ export class ResourceProtocol {
     let idempotencyKey: string | undefined;
     if (operation.class === "mutation") {
       idempotencyKey = options.idempotencyKey ?? `ts-${this.randomHex128()}`;
-      if (idempotencyKey.length < 1 || idempotencyKey.length > 128) {
-        throw new TypeError("idempotencyKey must contain 1 to 128 characters");
+      if (!isValidIdempotencyKey(idempotencyKey)) {
+        throw new TypeError(
+          "idempotencyKey must be valid Unicode, contain 1 to 128 UTF-8 bytes and a non-whitespace character, and contain no control characters",
+        );
       }
     } else if (options.idempotencyKey !== undefined) {
       throw new TypeError(`${operation.name} does not accept an idempotency key`);
@@ -771,9 +777,9 @@ function decodeCursor(value: unknown): Cursor {
     throw new CmuxProtocolError("cursor must contain only generation and revision");
   }
   const generation = requireString(value.generation, "cursor.generation");
-  if (generation.length < 1 || generation.length > 128) {
+  if (!hasUtf8ByteLength(generation, 1, 128)) {
     throw new CmuxProtocolError(
-      "cursor.generation must contain 1 to 128 characters",
+      "cursor.generation must contain 1 to 128 UTF-8 bytes",
     );
   }
   return Object.freeze({
@@ -797,9 +803,7 @@ function decodeResourceError(value: unknown): ResourceError {
       value.retryable
       || !isRecord(details)
       || Object.keys(details).length !== 3
-      || typeof details.confirmation_token !== "string"
-      || details.confirmation_token.length < 1
-      || details.confirmation_token.length > 128
+      || !hasUtf8ByteLength(details.confirmation_token, 1, 128)
       || typeof details.revision !== "string"
       || !Array.isArray(details.closes_panes)
       || details.closes_panes.length === 0
@@ -825,7 +829,7 @@ function decodeResourceError(value: unknown): ResourceError {
       value.retryable
       || !isRecord(details)
       || Object.keys(details).length !== 3
-      || typeof details.idempotency_key !== "string"
+      || !isValidIdempotencyKey(details.idempotency_key)
       || typeof details.operation !== "string"
       || details.recovery !== "inspect_state_then_retry_with_new_key"
     ) {

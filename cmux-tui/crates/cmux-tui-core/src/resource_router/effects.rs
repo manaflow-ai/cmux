@@ -119,7 +119,8 @@ pub(super) fn commit_success(
 
 /// Commits an exactly-once receipt for an effect that changed only ephemeral
 /// terminal or browser runtime state. No public topology revision or event is
-/// minted for keystrokes, pointer input, focus reports, or history clearing.
+/// minted for keystrokes, pointer input, focus reports, viewport scrolling,
+/// or history clearing.
 pub(super) fn commit_success_without_changes(
     mux: &Arc<Mux>,
     prepared: PreparedEffect,
@@ -218,6 +219,7 @@ pub(super) fn receipt_only_operation(operation: &str) -> bool {
             | "terminal.input.mouse"
             | "terminal.input.focus"
             | "terminal.history.clear"
+            | "terminal.viewport.scroll"
             | "browser.input.key"
             | "browser.input.text"
             | "browser.input.mouse"
@@ -440,13 +442,14 @@ mod tests {
     }
 
     #[test]
-    fn only_ephemeral_input_operations_are_receipt_only() {
+    fn only_ephemeral_interaction_operations_are_receipt_only() {
         for operation in [
             "terminal.input.write",
             "terminal.input.keys",
             "terminal.input.mouse",
             "terminal.input.focus",
             "terminal.history.clear",
+            "terminal.viewport.scroll",
             "browser.input.key",
             "browser.input.text",
             "browser.input.mouse",

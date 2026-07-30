@@ -15,7 +15,6 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
         operation,
         ResourceOperation::SessionCreationResolve
             | ResourceOperation::SessionReloadConfig
-            | ResourceOperation::SessionShutdown
             | ResourceOperation::SessionTerminalDefaultsUpdate
             | ResourceOperation::SessionWindowTitleSet
             | ResourceOperation::SessionWindowTitleClear
@@ -50,10 +49,6 @@ pub(super) fn dispatch(
             mux.emit(MuxEvent::ConfigReloadRequested);
             json!({"reloaded":true,"warnings":[]})
         }
-        ResourceOperation::SessionShutdown => {
-            mux.request_daemon_shutdown();
-            json!({"accepted":true})
-        }
         ResourceOperation::SessionWindowTitleSet => {
             let Some(title) = prepared.intent["fields"]["title"].as_str() else {
                 return Err(effects::mark_indeterminate(mux, prepared));
@@ -71,6 +66,24 @@ pub(super) fn dispatch(
         _ => unreachable!("handles guards every session operation"),
     };
     effects::commit_success(mux, prepared, value, json!([]))
+}
+
+pub(super) fn commit_shutdown(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    debug_assert_eq!(request.envelope.operation, ResourceOperation::SessionShutdown);
+    let prepared = effects::prepare(mux, &request, || {
+        mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
+        Ok(json!({"fields":request.fields}))
+    })?;
+    let prepared = match prepared {
+        EffectPreparation::Complete(result) => return result,
+        EffectPreparation::Execute(prepared) => prepared,
+    };
+    // The connection owner requests process shutdown only after this durable
+    // result commits and its response has been queued.
+    effects::commit_success(mux, prepared, json!({"accepted":true}), json!([]))
 }
 
 fn update_terminal_defaults(
@@ -257,6 +270,28 @@ mod tests {
         .unwrap();
         assert_eq!(replay["replayed"], true);
         assert!(events.recv_timeout(std::time::Duration::from_millis(10)).is_err());
+    }
+
+    #[test]
+    fn shutdown_receipt_commits_without_starting_process_shutdown() {
+        let mux = Mux::new_for_test("session-shutdown", SurfaceOptions::default());
+        let first = commit_shutdown(
+            &mux,
+            request(ResourceOperation::SessionShutdown, "shutdown-once", json!({"force":true})),
+        )
+        .unwrap();
+        assert_eq!(first["value"]["accepted"], true);
+        assert_eq!(first["replayed"], false);
+        assert!(!mux.daemon_shutdown_requested());
+
+        let replay = commit_shutdown(
+            &mux,
+            request(ResourceOperation::SessionShutdown, "shutdown-once", json!({"force":true})),
+        )
+        .unwrap();
+        assert_eq!(replay["value"]["accepted"], true);
+        assert_eq!(replay["replayed"], true);
+        assert!(!mux.daemon_shutdown_requested());
     }
 
     #[test]

@@ -13,6 +13,29 @@ pub const STREAM_EVENT_CAPACITY: usize = 256;
 pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const JOURNAL_CAPACITY: usize = 4096;
 pub const JOURNAL_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
+
+pub fn validate_idempotency_key(value: &str) -> Result<(), ResourceError> {
+    if value.trim().is_empty() {
+        return Err(ResourceError::validation_invalid(
+            Some("idempotency_key"),
+            "idempotency_key must contain at least one non-whitespace Unicode scalar",
+        ));
+    }
+    if value.len() > MAX_IDEMPOTENCY_KEY_BYTES {
+        return Err(ResourceError::validation_invalid(
+            Some("idempotency_key"),
+            "idempotency_key must contain 1 to 128 UTF-8 bytes",
+        ));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(ResourceError::validation_invalid(
+            Some("idempotency_key"),
+            "idempotency_key must not contain Unicode control characters",
+        ));
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
@@ -469,12 +492,7 @@ impl RequestEnvelope {
                     "only mutations accept idempotency_key",
                 ))
             }
-            (Some(key), OperationClass::Mutation) if key.is_empty() || key.len() > 128 => {
-                Err(ResourceError::validation_invalid(
-                    Some("idempotency_key"),
-                    "idempotency_key must contain 1 to 128 UTF-8 bytes",
-                ))
-            }
+            (Some(key), OperationClass::Mutation) => validate_idempotency_key(key),
             _ => Ok(()),
         }
     }
@@ -1611,6 +1629,45 @@ mod tests {
         let mut read_with_key = read;
         read_with_key.idempotency_key = Some("unexpected".into());
         assert_eq!(read_with_key.validate().unwrap_err().code, "validation.invalid");
+
+        for invalid in [
+            "".to_string(),
+            " \u{00a0}\u{3000}".to_string(),
+            "key\nwith-control".to_string(),
+            "key\u{0085}with-control".to_string(),
+            "\u{00e9}".repeat(65),
+        ] {
+            let invalid_request: RequestEnvelope = serde_json::from_value(json!({
+                "protocol": PROTOCOL,
+                "type": "request",
+                "id": "write-invalid",
+                "operation": "workspace.create",
+                "params": {"name":"api"},
+                "idempotency_key": invalid,
+            }))
+            .unwrap();
+            let error = invalid_request.validate().unwrap_err();
+            assert_eq!(error.code, "validation.invalid");
+            assert_eq!(error.details["field"], "idempotency_key");
+        }
+
+        for valid in [
+            "key".to_string(),
+            " \u{00a0}key\u{3000} ".to_string(),
+            "\u{feff}".to_string(),
+            "\u{00e9}".repeat(64),
+        ] {
+            let request: RequestEnvelope = serde_json::from_value(json!({
+                "protocol": PROTOCOL,
+                "type": "request",
+                "id": "write-valid",
+                "operation": "workspace.create",
+                "params": {"name":"api"},
+                "idempotency_key": valid,
+            }))
+            .unwrap();
+            request.validate().unwrap();
+        }
     }
 
     #[test]

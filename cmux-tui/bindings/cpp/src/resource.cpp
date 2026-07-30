@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <deque>
 #include <initializer_list>
 #include <limits>
@@ -521,6 +522,91 @@ void inject_routing(
     return {};
 }
 
+[[nodiscard]] bool unicode_whitespace(std::uint32_t codepoint) noexcept {
+    return (codepoint >= 0x0009U && codepoint <= 0x000DU) ||
+           codepoint == 0x0020U || codepoint == 0x0085U ||
+           codepoint == 0x00A0U || codepoint == 0x1680U ||
+           (codepoint >= 0x2000U && codepoint <= 0x200AU) ||
+           codepoint == 0x2028U || codepoint == 0x2029U ||
+           codepoint == 0x202FU || codepoint == 0x205FU ||
+           codepoint == 0x3000U;
+}
+
+[[nodiscard]] bool unicode_control(std::uint32_t codepoint) noexcept {
+    return codepoint <= 0x001FU ||
+           (codepoint >= 0x007FU && codepoint <= 0x009FU);
+}
+
+[[nodiscard]] Result<void> validate_idempotency_key(
+    std::string_view value) {
+    if (value.empty() || value.size() > 128U) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "idempotency key must contain 1 to 128 UTF-8 bytes");
+    }
+    bool has_non_whitespace = false;
+    for (std::size_t index = 0; index < value.size();) {
+        const auto first = static_cast<unsigned char>(value[index]);
+        std::size_t length = 0;
+        std::uint32_t codepoint = 0;
+        std::uint32_t minimum = 0;
+        if (first <= 0x7FU) {
+            length = 1;
+            codepoint = first;
+        } else if (first >= 0xC2U && first <= 0xDFU) {
+            length = 2;
+            codepoint = first & 0x1FU;
+            minimum = 0x80U;
+        } else if (first >= 0xE0U && first <= 0xEFU) {
+            length = 3;
+            codepoint = first & 0x0FU;
+            minimum = 0x800U;
+        } else if (first >= 0xF0U && first <= 0xF4U) {
+            length = 4;
+            codepoint = first & 0x07U;
+            minimum = 0x10000U;
+        } else {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "idempotency key must contain valid Unicode scalars");
+        }
+        if (index + length > value.size()) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "idempotency key must contain valid Unicode scalars");
+        }
+        for (std::size_t offset = 1; offset < length; ++offset) {
+            const auto next = static_cast<unsigned char>(value[index + offset]);
+            if ((next & 0xC0U) != 0x80U) {
+                return make_error(
+                    ErrorCode::invalid_argument,
+                    "idempotency key must contain valid Unicode scalars");
+            }
+            codepoint = (codepoint << 6U) | (next & 0x3FU);
+        }
+        if (codepoint < minimum || codepoint > 0x10FFFFU ||
+            (codepoint >= 0xD800U && codepoint <= 0xDFFFU)) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "idempotency key must contain valid Unicode scalars");
+        }
+        if (unicode_control(codepoint)) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "idempotency key must not contain Unicode control characters");
+        }
+        has_non_whitespace =
+            has_non_whitespace || !unicode_whitespace(codepoint);
+        index += length;
+    }
+    if (!has_non_whitespace) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "idempotency key must contain a non-whitespace Unicode scalar");
+    }
+    return {};
+}
+
 }  // namespace
 
 std::string_view operation_name(Operation operation) noexcept {
@@ -533,10 +619,9 @@ OperationClass operation_class(Operation operation) noexcept {
 
 
 Result<MutationOptions> MutationOptions::with_key(std::string key) {
-    if (key.empty() || key.size() > 128) {
-        return make_error(
-            ErrorCode::invalid_argument,
-            "idempotency key must contain 1 to 128 UTF-8 bytes");
+    auto validated = validate_idempotency_key(key);
+    if (!validated) {
+        return std::move(validated).error();
     }
     return MutationOptions(std::move(key));
 }

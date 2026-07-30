@@ -94,6 +94,8 @@ check cannot partially mutate.
 
 Unix sockets use one UTF-8 JSON object per line. WebSockets use one UTF-8 JSON
 object per text frame. Both transports carry identical envelopes.
+`pairing_request.list` and `pairing_request.resolve` require a trusted local
+Unix-socket connection and are unavailable over WebSocket.
 
 Request:
 
@@ -139,7 +141,10 @@ Failure:
 }
 ```
 
-Reads omit `idempotency_key`. Every mutation requires a non-empty key.
+Reads omit `idempotency_key`. Every mutation requires a key containing 1 to
+128 UTF-8 bytes, at least one Unicode scalar outside the Unicode `White_Space`
+property, and no Unicode `Cc` control scalar. Leading, trailing, and internal
+non-control whitespace is preserved.
 Repeating the same key, operation, and canonical parameters returns the
 committed result. Reusing a key with different parameters returns
 `idempotency.conflict`. Replay lookup runs before selectors and revision
@@ -154,14 +159,40 @@ sessions under one state root; a missing, corrupt, or mismatched pepper makes
 the registry fail closed. `browser.navigate` is excluded because browser URLs
 already persist as public browser topology, events, and outcomes.
 
-Committed `terminal.input.*`, `browser.input.*`, and `sidebar_view.input`
-receipts have a bounded replay window. The registry retains the newest 4096
-uncorrelated committed receipts, with at most 127 additional rows between
-batched pruning passes; startup removes that batching slack. Pending,
-executing, indeterminate, and creation-correlated receipts are never evicted.
-After a committed receipt leaves this window, reuse of its idempotency key is
-treated as a new mutation. This finite window is the only exception to the
-mutation replay guarantee above.
+Committed `terminal.input.*`, `terminal.viewport.scroll`, `browser.input.*`,
+and `sidebar_view.input` receipts have a bounded replay window. The registry
+retains the newest 4096 uncorrelated committed receipts, with at most 127
+additional rows between batched pruning passes; startup removes that batching
+slack. Pending, executing, indeterminate, and creation-correlated receipts are
+never evicted. After a committed receipt leaves this window, reuse of its
+idempotency key is treated as a new mutation. This finite window is the only
+exception to the mutation replay guarantee above.
+
+`terminal.viewport.scroll` changes only the selected terminal's ephemeral
+viewport. Its first success returns the existing resource revision, inserts no
+resource mutation or event, and neither advances nor wakes `session.events`.
+A real viewport change still emits the ordinary `scroll` item on
+`terminal.attach`. Same-key, same-request replay returns the original value,
+generation, and revision with `replayed: true` without applying the delta
+again. After bounded receipt eviction, the key executes as a new mutation.
+
+`sidebar_view.input` compares the complete public sidebar lifecycle snapshot
+immediately before and after the PTY write. If the snapshot is unchanged,
+success and replay return the current resource revision without inserting a
+resource event or waking `session.events`. If `running`, `cols`, or `rows`
+changes during the effect, the commit advances revision once and emits one
+`sidebar_view` upsert containing the post-write snapshot. Failure to observe
+the post-write snapshot returns `mutation.indeterminate`.
+
+`session.shutdown` requires a trusted local Unix-socket connection and is
+unavailable over WebSocket. With `force: false`, another connected client whose
+kind is `native-browser` blocks shutdown. `force: true` bypasses only that
+ownership check; it does not bypass transport, selector, revision, or
+idempotency validation. On success, the server commits the durable receipt,
+queues its response, and requests process exit only after the queue succeeds.
+If queueing fails, the server cancels the shutdown handoff and does not request
+exit. Repeating the same key replays the durable receipt, reserves a new
+handoff, and may request exit after the replay response is queued.
 
 Requests are limited to 4 MiB. Server responses and stream envelopes are
 limited to 16 MiB. Newlines are framing and do not count toward either limit.
@@ -269,8 +300,11 @@ unique. Workspace names are required strings. Screen, pane, tab, and client
 snapshots always carry `name`, using null for unnamed. Their rename parameter
 uses null to clear and a string, including empty, whitespace, or Unicode, to
 set that exact value. Create operations keep an optional non-null string.
-Client metadata updates use omission for no change, null to clear, and a string
-to set.
+Client metadata updates use omission for no change and null to clear. A
+non-null `name` or `kind` preserves its exact value, including empty,
+whitespace, and Unicode, and contains at most 64 Unicode scalars with no
+Unicode `Cc` control scalar. Validation runs before mutation, so rejection
+leaves both fields unchanged.
 
 `Cursor` contains a generation string and decimal-string revision.
 `MutationResult<T>` is the flat

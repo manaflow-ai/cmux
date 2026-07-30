@@ -76,12 +76,12 @@ pub(super) fn dispatch(
         ResourceOperation::TerminalCopy => terminal_copy(mux, &request),
         ResourceOperation::TerminalProcessGet => terminal_process_get(mux, &request),
         ResourceOperation::TerminalMove => terminal_move(mux, request),
-        ResourceOperation::TerminalViewportScroll => terminal_viewport_scroll(mux, request),
         ResourceOperation::TerminalInputWrite
         | ResourceOperation::TerminalInputKeys
         | ResourceOperation::TerminalInputMouse
         | ResourceOperation::TerminalInputFocus
         | ResourceOperation::TerminalHistoryClear
+        | ResourceOperation::TerminalViewportScroll
         | ResourceOperation::TerminalClose => terminal_effect(mux, request),
         ResourceOperation::BrowserNavigate
         | ResourceOperation::BrowserBack
@@ -390,6 +390,7 @@ fn execute_terminal_effect(
         "terminal.history.clear" => {
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
+        "terminal.viewport.scroll" => terminal_scroll_viewport(&surface, &fields),
         "terminal.close" => Ok(()),
         operation => Err(ActionFailure::Known(ResourceError::operation_failed(
             operation,
@@ -707,28 +708,6 @@ fn terminal_move(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value
     super::mutation_result(mux, value, commit.revision, commit.replayed)
 }
 
-fn terminal_viewport_scroll(
-    mux: &Arc<Mux>,
-    request: ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    let mutation = resource_mutation(&request)?;
-    let delta_rows = required_i64(&request.fields, "delta_rows")?;
-    let commit = mux
-        .resource_scroll_terminal_selected(
-            request.selectors,
-            isize::try_from(delta_rows).map_err(|_| {
-                validation_error(
-                    "terminal scroll delta exceeds platform isize",
-                    json!({"delta_rows":delta_rows}),
-                )
-            })?,
-            super::expected_revision(&request.fields)?,
-            &mutation,
-        )
-        .map_err(resource_operation_error)?;
-    super::mutation_result(mux, json!({}), commit.revision, commit.replayed)
-}
-
 fn terminal_write(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
     let bytes = match (fields.get("text"), fields.get("bytes_base64")) {
         (Some(Value::String(text)), None) => text.as_bytes().to_vec(),
@@ -748,6 +727,22 @@ fn terminal_write(surface: &Surface, fields: &Map<String, Value>) -> Result<(), 
         }
     };
     surface.write_bytes(&bytes).map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+}
+
+fn terminal_scroll_viewport(
+    surface: &Surface,
+    fields: &Map<String, Value>,
+) -> Result<(), ActionFailure> {
+    let delta_rows = required_i64_action(fields, "delta_rows")?;
+    let delta_rows = isize::try_from(delta_rows).map_err(|_| {
+        ActionFailure::Known(validation_error(
+            "terminal scroll delta exceeds platform isize",
+            json!({"delta_rows":delta_rows}),
+        ))
+    })?;
+    surface
+        .scroll_delta(delta_rows)
+        .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
 }
 
 fn terminal_keys(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
@@ -1987,6 +1982,117 @@ mod tests {
         assert_eq!(replay["revision"], closed["revision"]);
         assert_eq!(mux.resource_events_after(before_resource).unwrap().batches.len(), 1);
         assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal + 1);
+    }
+
+    #[test]
+    fn terminal_viewport_scroll_uses_one_bounded_receipt_without_session_journal_churn() {
+        let (mux, surface, selectors) = terminal_fixture(None);
+        let bottom = surface
+            .try_with_terminal(|terminal| {
+                for index in 0..20 {
+                    terminal.vt_write(format!("line-{index}\r\n").as_bytes());
+                }
+                terminal.scrollbar().expect("fixture has scrollback")
+            })
+            .unwrap();
+        assert!(!bottom.scrolled_back());
+
+        let revision = mux.with_state(|state| state.resource_revision);
+        let terminal_revision = mux.terminal_registry_snapshot().unwrap().revision;
+        let event_epoch = mux.resource_event_epoch();
+        let mutation_count = mux.resource_mutation_count_for_test().unwrap();
+        let request = || {
+            parsed_request(
+                "terminal.viewport.scroll",
+                &selectors,
+                json!({
+                    "delta_rows":-2,
+                    "expected_revision":revision.to_string(),
+                }),
+                Some("terminal-scroll-receipt"),
+            )
+        };
+
+        let first = dispatch(&mux, request()).unwrap();
+        assert_eq!(first["value"], json!({}));
+        assert_eq!(first["revision"], revision.to_string());
+        assert_eq!(first["replayed"], false);
+        let after_first = surface
+            .try_with_terminal(|terminal| terminal.scrollbar().expect("fixture has scrollback"))
+            .unwrap();
+        assert!(after_first.scrolled_back());
+        assert!(after_first.offset < bottom.offset);
+        assert_eq!(mux.with_state(|state| state.resource_revision), revision);
+        assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, terminal_revision);
+        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
+        assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
+
+        let replay = dispatch(&mux, request()).unwrap();
+        assert_eq!(replay["value"], first["value"]);
+        assert_eq!(replay["generation"], first["generation"]);
+        assert_eq!(replay["revision"], first["revision"]);
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(
+            surface
+                .try_with_terminal(|terminal| {
+                    terminal.scrollbar().expect("fixture has scrollback")
+                })
+                .unwrap(),
+            after_first,
+            "receipt replay must not apply the viewport delta twice"
+        );
+        assert_eq!(mux.with_state(|state| state.resource_revision), revision);
+        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
+
+        let closed = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("terminal-scroll-close-target"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(closed["revision"], (revision + 1).to_string());
+
+        let replay_after_close = dispatch(&mux, request()).unwrap();
+        assert_eq!(replay_after_close["value"], first["value"]);
+        assert_eq!(replay_after_close["generation"], first["generation"]);
+        assert_eq!(replay_after_close["revision"], first["revision"]);
+        assert_eq!(replay_after_close["replayed"], true);
+
+        let conflict = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.viewport.scroll",
+                &selectors,
+                json!({
+                    "delta_rows":-3,
+                    "expected_revision":revision.to_string(),
+                }),
+                Some("terminal-scroll-receipt"),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(conflict.code, "idempotency.conflict");
+
+        let missing_before_stale_revision = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.viewport.scroll",
+                &selectors,
+                json!({
+                    "delta_rows":-2,
+                    "expected_revision":revision.to_string(),
+                }),
+                Some("terminal-scroll-new-receipt"),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(missing_before_stale_revision.code, "selector.not_found");
     }
 
     #[test]

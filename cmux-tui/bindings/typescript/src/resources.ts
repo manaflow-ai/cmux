@@ -41,6 +41,10 @@ import {
 } from "./ids.js";
 import { operations, type Operation } from "./internal/operations.js";
 import {
+  hasUtf8ByteLength,
+  isValidIdempotencyKey,
+} from "./internal/text.js";
+import {
   RendererGrant,
   PairingCode,
   type AgentSnapshot,
@@ -406,10 +410,21 @@ function requiredGeneration(
   key: string,
 ): string {
   const value = requiredString(payload, key);
-  if (value.length < 1 || value.length > 128) {
+  if (!hasUtf8ByteLength(value, 1, 128)) {
     throw new CmuxProtocolError(
-      `resource field ${key} must contain 1 to 128 characters`,
+      `resource field ${key} must contain 1 to 128 UTF-8 bytes`,
     );
+  }
+  return value;
+}
+
+function requiredIdempotencyKey(
+  payload: Record<string, unknown>,
+  key: string,
+): string {
+  const value = requiredString(payload, key);
+  if (!isValidIdempotencyKey(value)) {
+    throw new CmuxProtocolError(`resource field ${key} is not a valid idempotency key`);
   }
   return value;
 }
@@ -2260,12 +2275,9 @@ export class Client {
   ): Promise<MutationResult<CreatedPath>> {
     if (
       options.correlationKey !== undefined
-      && (
-        options.correlationKey.length < 1
-        || options.correlationKey.length > 128
-      )
+      && !hasUtf8ByteLength(options.correlationKey, 1, 128)
     ) {
-      throw new TypeError("correlationKey must contain 1 to 128 characters");
+      throw new TypeError("correlationKey must contain 1 to 128 UTF-8 bytes");
     }
     const requestParams = options.correlationKey === undefined
       ? params
@@ -2296,8 +2308,8 @@ export class Client {
     correlationKey: string,
     options: RequestOptions = {},
   ): Promise<CreationResolution> {
-    if (correlationKey.length < 1 || correlationKey.length > 128) {
-      throw new TypeError("correlation key must contain 1 to 128 characters");
+    if (!hasUtf8ByteLength(correlationKey, 1, 128)) {
+      throw new TypeError("correlation key must contain 1 to 128 UTF-8 bytes");
     }
     const requestParams = { ...params, correlation_key: correlationKey };
     const value = await this[readOperation](
@@ -2432,7 +2444,7 @@ export class Client {
       throw new CmuxProtocolError("creation resolution operation must be non-empty");
     }
     const idempotencyKey = Object.hasOwn(payload, "idempotency_key")
-      ? requiredGeneration(payload, "idempotency_key")
+      ? requiredIdempotencyKey(payload, "idempotency_key")
       : undefined;
     const createdPath = Object.hasOwn(payload, "created_path")
       ? this.createdPath(payload.created_path, requestParams)
@@ -3031,12 +3043,9 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
   ): Promise<MutationResult<Screen>> {
     if (
       options.confirmationToken !== undefined
-      && (
-        options.confirmationToken.length < 1
-        || options.confirmationToken.length > 128
-      )
+      && !hasUtf8ByteLength(options.confirmationToken, 1, 128)
     ) {
-      throw new TypeError("confirmationToken must contain 1 to 128 characters");
+      throw new TypeError("confirmationToken must contain 1 to 128 UTF-8 bytes");
     }
     if (options.confirmClose && options.confirmationToken === undefined) {
       throw new TypeError("confirmClose requires confirmationToken");
