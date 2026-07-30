@@ -414,6 +414,19 @@ final class cmuxUITests: XCTestCase {
             "MobileWorkspaceGroupRenameButton-seed-group-1"
         ]
         XCTAssertTrue(rename.waitForExistence(timeout: 3))
+        let anchorWorkspaceID = "workspace-seed-4"
+        for identifier in [
+            "MobileWorkspacePinButton-\(anchorWorkspaceID)",
+            "MobileWorkspaceCustomizeButton-\(anchorWorkspaceID)",
+            "MobileWorkspaceRenameButton-\(anchorWorkspaceID)",
+            "MobileWorkspaceReadStateMenuButton-\(anchorWorkspaceID)",
+            "MobileWorkspaceDeleteMenuButton-\(anchorWorkspaceID)",
+        ] {
+            XCTAssertTrue(
+                app.descendants(matching: .any)[identifier].exists,
+                "Group context menu must preserve anchor workspace action \(identifier)."
+            )
+        }
         guard rename.exists else { return }
         rename.tap()
 

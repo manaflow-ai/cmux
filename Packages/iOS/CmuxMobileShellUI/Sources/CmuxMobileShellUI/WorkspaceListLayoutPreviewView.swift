@@ -126,6 +126,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 // swipes, context menus, rename, and delete are
                 // dogfoodable against local state without a paired Mac.
                 workspace.actionCapabilities.supportsWorkspaceActions = true
+                workspace.actionCapabilities.supportsWorkspaceMetadata = true
                 workspace.actionCapabilities.supportsReadStateActions = true
                 workspace.actionCapabilities.supportsCloseActions = true
                 workspace.actionCapabilities.supportsGroupActions = true
@@ -332,6 +333,17 @@ public struct WorkspaceListLayoutPreviewView: View {
                 if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
                     model.workspaces[index].name = newName
                 }
+            } : nil,
+            customizeWorkspace: reorderEnabled ? { id, _, submittedDraft in
+                guard let index = model.workspaces.firstIndex(where: { $0.id == id }) else {
+                    return .failure()
+                }
+                model.workspaces[index].name = submittedDraft.name
+                model.workspaces[index].customDescription = submittedDraft.customDescription
+                model.workspaces[index].customDescriptionIsTruncated = false
+                model.workspaces[index].customColorHex = submittedDraft.customColorHex
+                model.workspaces[index].isPinned = submittedDraft.isPinned
+                return .success
             } : nil,
             setPinned: reorderEnabled ? { id, pinned in
                 if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
