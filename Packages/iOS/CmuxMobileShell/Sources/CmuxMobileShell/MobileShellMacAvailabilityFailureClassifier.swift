@@ -12,7 +12,7 @@ struct MobileShellMacAvailabilityFailureClassifier {
         switch shellError {
         case .connectionClosed, .transportWriteTimedOut:
             return true
-        case .invalidResponse, .requestTimedOut, .insecureManualRoute,
+        case .invalidResponse, .requestTimedOut, .connectAttemptGated, .insecureManualRoute,
              .attachTicketExpired, .authorizationFailed, .accountMismatch, .rpcError:
             // .accountMismatch means the Mac is reachable but signed in to a
             // different account; that is an auth problem, not a Mac-availability one.
