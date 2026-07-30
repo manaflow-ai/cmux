@@ -4889,8 +4889,6 @@
         "label": "Operating system",
         "unix": "macOS & Linux",
         "windows": "Windows",
-        "unixNote": "Installs to ~/.cmux/bin and updates your shell PATH.",
-        "windowsNote": "Installs the x64 build to %USERPROFILE%\\.cmux\\bin and updates your user PATH. Windows on Arm uses x64 emulation.",
         "viewScript": "View install script",
         "copy": "Copy install command",
         "copied": "Copied"
@@ -4912,8 +4910,6 @@
         "label": "Operating system",
         "unix": "macOS & Linux",
         "windows": "Windows",
-        "unixNote": "Installs to ~/.cmux/bin and updates your shell PATH.",
-        "windowsNote": "Installs the x64 build to %USERPROFILE%\\.cmux\\bin and updates your user PATH. Windows on Arm uses x64 emulation.",
         "viewScript": "View install script",
         "copy": "Copy install command",
         "copied": "Copied"
