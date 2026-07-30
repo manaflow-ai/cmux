@@ -428,9 +428,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         guard case .groupHeader(let id) = item else { return false }
         let previousAnchorID = previous.groupsByID[id]?.anchorWorkspaceID
         let nextAnchorID = next.groupsByID[id]?.anchorWorkspaceID
+        let previousAnchor = previousAnchorID.flatMap { previous.workspacesByID[$0] }
+        let nextAnchor = nextAnchorID.flatMap { next.workspacesByID[$0] }
         return previousAnchorID != nextAnchorID
-            || previousAnchorID.flatMap { previous.workspacesByID[$0]?.hasUnread }
-                != nextAnchorID.flatMap { next.workspacesByID[$0]?.hasUnread }
+            || previousAnchor?.hasUnread != nextAnchor?.hasUnread
+            || previousAnchor?.actionCapabilities.supportsReadStateActions
+                != nextAnchor?.actionCapabilities.supportsReadStateActions
+            || previousAnchor?.actionCapabilities.supportsCloseActions
+                != nextAnchor?.actionCapabilities.supportsCloseActions
+            || nativeActionAvailabilityChanged(previous: previous, next: next)
     }
 
     @objc private func refreshRequested(_ refreshControl: UIRefreshControl) {
@@ -843,6 +849,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     != nextAnchorID.map { next.workspacesByID[$0]?.actionCapabilities }
                 || wasAnchorSelected != isAnchorSelected
                 || previous.unreadIndicatorLeftShift != next.unreadIndicatorLeftShift
+                || nativeActionAvailabilityChanged(previous: previous, next: next)
                 || groupActionAvailabilityChanged(previous: previous, next: next)
         case .groupFooter(let id):
             return previous.groupsByID[id]?.name != next.groupsByID[id]?.name
@@ -917,6 +924,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             || (previous.renameRequest != nil) != (next.renameRequest != nil)
             || (previous.openWorkspaceChanges != nil) != (next.openWorkspaceChanges != nil)
             || (previous.customizeRequest != nil) != (next.customizeRequest != nil)
+    }
+
+    private func nativeActionAvailabilityChanged(
+        previous: WorkspaceListTable,
+        next: WorkspaceListTable
+    ) -> Bool {
+        (previous.setUnread != nil) != (next.setUnread != nil)
+            || (previous.requestWorkspaceClose != nil) != (next.requestWorkspaceClose != nil)
     }
 
     private func groupActionAvailabilityChanged(
