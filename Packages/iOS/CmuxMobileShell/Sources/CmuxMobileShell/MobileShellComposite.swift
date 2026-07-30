@@ -8010,6 +8010,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             : resolvedForegroundMacID,
                         newTag: resolvedInstanceTag
                     )
+                    // Mirror of the promotion path: the foreground refetches
+                    // its feed under the bare device key, so a secondary-era
+                    // pairing-keyed snapshot for THIS target would linger as a
+                    // duplicate source that bulk mutations cannot clear.
+                    if !resolvedForegroundMacID.isEmpty {
+                        let takeoverPairingID = MobilePairedMac.pairingID(
+                            macDeviceID: resolvedForegroundMacID,
+                            instanceTag: resolvedInstanceTag
+                        )
+                        if takeoverPairingID != resolvedForegroundMacID {
+                            removeNotificationFeedSnapshot(
+                                macDeviceID: takeoverPairingID
+                            )
+                        }
+                    }
                     prepareTerminalThemeRevisionAuthority(
                         macInstanceTag: resolvedInstanceTag, producerEpoch: status.terminalThemeRevisionEpoch,
                         connectionID: liveConnectionGeneration.uuidString

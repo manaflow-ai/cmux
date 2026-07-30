@@ -58,11 +58,11 @@ extension MobileShellComposite {
         // Entries are bare device ids or pairing ids. Every availability signal
         // matches the exact pairing so a build-scoped selection never reads
         // ready/connected off its sibling.
+        let parsedScopeEntries =
+            MobileWorkspaceListFilter.parsedMachineEntries(scopeEntries)
         func matches(deviceID: String, tag: String?) -> Bool {
-            scopeEntries.contains { entry in
-                MobileWorkspaceListFilter.machineEntryMatches(
-                    entry, deviceID: deviceID, rowTag: tag
-                )
+            parsedScopeEntries.contains {
+                $0.matches(deviceID: deviceID, rowTag: tag)
             }
         }
         func ownerKeyMatches(_ ownerKey: String) -> Bool {
@@ -108,15 +108,15 @@ extension MobileShellComposite {
         // per ITEM (each carries its stamped tag) so a build-scoped selection
         // excludes the sibling's rows even inside the foreground's
         // device-keyed snapshot.
+        let parsedScopeEntries =
+            MobileWorkspaceListFilter.parsedMachineEntries(macDeviceIDs)
         let projected = notificationFeedSnapshotsByMac.compactMap {
             entry -> MobileNotificationFeedSourceSnapshot? in
             let ownerKey = entry.key
             let items = entry.value.items.filter { item in
-                macDeviceIDs.contains(where: { scopeEntry in
-                    MobileWorkspaceListFilter.machineEntryMatches(
-                        scopeEntry, deviceID: item.macDeviceID, rowTag: item.macInstanceTag
-                    )
-                })
+                parsedScopeEntries.contains {
+                    $0.matches(deviceID: item.macDeviceID, rowTag: item.macInstanceTag)
+                }
             }
             guard !items.isEmpty else { return nil }
             return MobileNotificationFeedSourceSnapshot(
@@ -187,11 +187,12 @@ extension MobileShellComposite {
     /// the user without deriving mutation targets from the capped visible rows.
     public func markNotificationFeedItemsRead(scopedTo macDeviceIDs: Set<String>?) async {
         if macDeviceIDs?.isEmpty == true { return }
+        let parsedScopeEntries = macDeviceIDs.map(
+            MobileWorkspaceListFilter.parsedMachineEntries
+        )
         let targets = notificationFeedTargets().filter { target in
-            (macDeviceIDs?.contains(where: { scopeEntry in
-                MobileWorkspaceListFilter.machineEntryMatches(
-                    scopeEntry, deviceID: target.macDeviceID, rowTag: target.instanceTag
-                )
+            (parsedScopeEntries?.contains(where: {
+                $0.matches(deviceID: target.macDeviceID, rowTag: target.instanceTag)
             }) ?? true)
                 && notificationFeedSnapshotsByMac[target.ownerKey]?.items.contains(where: { !$0.isRead }) == true
         }
