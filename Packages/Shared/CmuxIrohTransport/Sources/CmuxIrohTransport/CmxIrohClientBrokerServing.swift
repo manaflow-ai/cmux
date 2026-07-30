@@ -16,8 +16,10 @@ public protocol CmxIrohClientBrokerServing: CmxIrohRegistryServing,
 }
 
 public extension CmxIrohClientBrokerServing {
+    /// Accepts the operation when a conformer does not impose a local broker floor.
     func preflight(operation _: CmxIrohBrokerOperation) async throws {}
 
+    /// Falls back to ordinary revocation for conformers without a management route.
     func forgetMac(bindingID: String) async throws {
         try await revoke(bindingID: bindingID)
     }

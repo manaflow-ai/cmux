@@ -68,6 +68,7 @@ public struct CmxIrohBackpressuredClientBroker: CmxIrohClientBrokerServing, Send
         }
     }
 
+    /// Revokes one same-build Mac through the wrapped account-management path.
     public func forgetMac(bindingID: String) async throws {
         try await gate.perform(accountID: accountID, operation: .revocation) {
             try await broker.forgetMac(bindingID: bindingID)

@@ -87,10 +87,6 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 /// Authenticated client for endpoint registration, discovery, grants, and relay tokens.
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private struct BindingRequest: Encodable { let bindingId: String }
-    private struct MacForgetRequest: Encodable {
-        let bindingId: String
-        let intent = "forget_mac"
-    }
     private struct EndpointRequest: Encodable { let endpointId: String }
     private struct RelayAccessCredential: Decodable, Sendable {
         let relayUrl: String
@@ -259,6 +255,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         return response
     }
 
+    /// Discovers account bindings visible to this client's exact build namespace.
     public func discover() async throws -> CmxIrohDiscoveryResponse {
         try await sendWithoutBody(
             path: "api/devices/iroh",
@@ -364,6 +361,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         )
     }
 
+    /// Revokes the caller's own binding.
     public func revoke(bindingID: String) async throws {
         let response: RevokeResponse = try await send(
             path: "api/devices/iroh",
@@ -376,11 +374,12 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
     }
 
+    /// Revokes one same-build Mac through the explicit account-management path.
     public func forgetMac(bindingID: String) async throws {
         let response: RevokeResponse = try await send(
             path: "api/devices/iroh",
             method: "DELETE",
-            body: MacForgetRequest(bindingId: bindingID),
+            body: CmxIrohMacForgetRequest(bindingId: bindingID),
             operation: .revocation
         )
         guard response.revoked, response.lanRendezvousRotated else {
