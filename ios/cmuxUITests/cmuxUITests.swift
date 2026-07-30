@@ -366,6 +366,16 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(firstRow.waitForExistence(timeout: 8))
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 3))
         XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        XCTAssertLessThan(
+            table.frame.minY,
+            settingsButton.frame.maxY,
+            "The workspace table must underlap the top toolbar so its native scroll-edge effect can render."
+        )
+        XCTAssertGreaterThan(
+            table.frame.maxY,
+            workspacesTab.frame.minY,
+            "The workspace table must underlap the bottom toolbar so its native scroll-edge effect can render."
+        )
         XCTAssertTrue(
             firstRow.isHittable,
             "The first workspace row must be tappable at the top scroll position."
