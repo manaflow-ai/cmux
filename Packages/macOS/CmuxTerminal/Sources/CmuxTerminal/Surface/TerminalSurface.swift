@@ -91,7 +91,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Presentation state for the current runtime renderer. This distinguishes a
     /// renderer Ghostty created from one cmux has actually presented in a real
-    /// window, while preserving strict native unrealize/realize alternation.
+    /// window, while preserving Ghostty's native rebuild transaction.
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
 
     /// Wall-clock time (epoch seconds) this surface was last made visible in the

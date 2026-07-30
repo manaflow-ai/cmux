@@ -9182,11 +9182,50 @@ struct CMUXCLI {
     ) throws {
         var sshOptions = inputSSHOptions
         let sharingOptions = SSHConnectionSharingOptions()
+        let usesImplicitManagedInteractiveShell =
+            !sshOptions.skipDaemonBootstrap &&
+            sshOptions.extraArguments.isEmpty &&
+            sshOptions.initialCommand == nil &&
+            sshOptions.terminalProfile.kind == .shell
+        // This lookup determines which program the user expects to run, but it
+        // remains best-effort: a broken or slow ssh_config rule must not block
+        // an otherwise-working managed SSH launch.
+        let configurationTimeout: TimeInterval = 2
+        let configurationResult = resolvedSSHConfigurationResult(
+            for: sshOptions,
+            timeout: configurationTimeout
+        )
+        let resolvedUserSSHConfiguration =
+            configurationResult.status == 0 ? configurationResult.stdout : nil
+        let fallsBackToOpenSSHInteractiveSession =
+            usesImplicitManagedInteractiveShell && resolvedUserSSHConfiguration == nil
+        let effectiveTerminalTransport: WorkspaceRemoteTerminalTransport =
+            fallsBackToOpenSSHInteractiveSession ? .ssh : sshOptions.terminalTransport
+        if configurationResult.status != 0 {
+            cliDebugLog(
+                "cli.ssh.config_resolution unavailable target=\(sshOptions.displayDestination) " +
+                "timedOut=\(configurationResult.timedOut ? 1 : 0) status=\(configurationResult.status) " +
+                "fallback=\(fallsBackToOpenSSHInteractiveSession ? "unmanaged" : "managed")"
+            )
+        }
         sshOptions.sshOptions = sharingOptions.mergingDefaults(
             into: inputSSHOptions.sshOptions,
-            userConfiguredControlOptions: resolvedUserSSHControlOptions(for: inputSSHOptions)
+            userConfiguredControlOptions: resolvedUserSSHConfiguration.flatMap {
+                sharingOptions.userConfiguredControlOptions(fromSSHConfigOutput: $0)
+            }
         )
-        sshOptions.sshOptions = resolvedCmuxControlPathOptions(for: sshOptions)
+        if resolvedUserSSHConfiguration != nil {
+            sshOptions.sshOptions = resolvedCmuxControlPathOptions(for: sshOptions)
+        }
+        // Treat the OpenSSH setting as the host's default interactive
+        // program. Explicit cmux commands and terminal profiles continue to
+        // take precedence over that default.
+        let configuredInteractiveRemoteCommand =
+            usesImplicitManagedInteractiveShell
+                ? resolvedUserSSHConfiguration.flatMap {
+                    SSHHostConfiguredRemoteCommand().configuredCommand(fromSSHConfigOutput: $0)
+                }
+                : nil
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
             let elapsedMs = Int(Date().timeIntervalSince(sshStartedAt) * 1000)
@@ -9216,7 +9255,7 @@ struct CMUXCLI {
         // script is only meaningful if cmuxd-remote is participating. Let ssh open a plain
         // interactive shell instead.
         let remoteTerminalBootstrapScript: String?
-        if sshOptions.skipDaemonBootstrap {
+        if sshOptions.skipDaemonBootstrap || fallsBackToOpenSSHInteractiveSession {
             remoteTerminalBootstrapScript = nil
         } else {
             remoteTerminalBootstrapScript = sshOptions.extraArguments.isEmpty
@@ -9224,6 +9263,7 @@ struct CMUXCLI {
                     remoteRelayPort: sshOptions.remoteRelayPort,
                     shellFeatures: shellFeaturesValue,
                     initialCommand: sshOptions.initialCommand,
+                    configuredRemoteCommand: configuredInteractiveRemoteCommand,
                     terminfoSource: terminfoSource,
                     terminalProfile: sshOptions.terminalProfile
                 )
@@ -9251,7 +9291,7 @@ struct CMUXCLI {
             vmIDForSplitAttach != nil
         let usesPersistentSSHPTY =
             !sshOptions.skipDaemonBootstrap &&
-            sshOptions.terminalTransport == .ssh &&
+            effectiveTerminalTransport == .ssh &&
             sshOptions.extraArguments.isEmpty &&
             remoteTerminalBootstrapScript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
             deferredRemoteReconnectCommandScript != nil
@@ -9339,7 +9379,7 @@ struct CMUXCLI {
             initialSSHStartupCommand = ptyStartupCommand
             remoteTerminalSSHStartupCommand = ptyStartupCommand
         }
-        if sshOptions.terminalTransport == .mosh {
+        if effectiveTerminalTransport == .mosh {
             initialSSHStartupCommand = buildMoshTerminalStartupCommand(
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
@@ -9391,7 +9431,7 @@ struct CMUXCLI {
             "relayPort=\(sshOptions.remoteRelayPort) localSocket=\(sshOptions.localSocketPath) " +
             "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
             "workspaceName=\(sshOptions.workspaceName?.replacingOccurrences(of: " ", with: "_") ?? "nil") " +
-            "terminalTransport=\(sshOptions.terminalTransport.rawValue) " +
+            "terminalTransport=\(effectiveTerminalTransport.rawValue) " +
             "extraArgs=\(sshOptions.extraArguments.count)"
         )
 
@@ -9483,12 +9523,18 @@ struct CMUXCLI {
             var configureParams: [String: Any] = [
                 "workspace_id": workspaceId,
                 "destination": sshOptions.destination,
-                "terminal_transport": sshOptions.terminalTransport.rawValue,
+                // Persist the transport these startup commands actually use;
+                // config-resolution failure turns an implicit Mosh request
+                // into an unmanaged OpenSSH terminal.
+                "terminal_transport": effectiveTerminalTransport.rawValue,
                 "terminal_profile": sshOptions.terminalProfile.kind.rawValue,
                 "auto_connect": deferredRemoteReconnectCommandScript == nil,
             ]
             if let tmuxSessionName = sshOptions.terminalProfile.tmuxSessionName {
                 configureParams["terminal_tmux_session"] = tmuxSessionName
+            }
+            if let configuredInteractiveRemoteCommand {
+                configureParams["configured_remote_command"] = configuredInteractiveRemoteCommand
             }
             if let configuredForegroundAuthToken {
                 configureParams["foreground_auth_token"] = configuredForegroundAuthToken
@@ -9607,7 +9653,7 @@ struct CMUXCLI {
             "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
         ]
         payload["remote_relay_port"] = sshOptions.remoteRelayPort
-        payload["terminal_transport"] = sshOptions.terminalTransport.rawValue
+        payload["terminal_transport"] = effectiveTerminalTransport.rawValue
         payload["terminal_profile"] = sshOptions.terminalProfile.kind.rawValue
         if let tmuxSessionName = sshOptions.terminalProfile.tmuxSessionName {
             payload["terminal_tmux_session"] = tmuxSessionName
@@ -9924,9 +9970,18 @@ struct CMUXCLI {
         remoteBootstrapScript: String? = nil,
         localCommandScript: String? = nil
     ) -> [String] {
-        var parts = baseSSHArguments(options, localCommandScript: localCommandScript)
         let trimmedRemoteBootstrap = remoteBootstrapScript?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let suppliesRemoteCommand =
+            !options.extraArguments.isEmpty ||
+            trimmedRemoteBootstrap?.isEmpty == false
+        let invocationOptions = suppliesRemoteCommand
+            ? sshCommandOptionsWithoutRemoteCommand(options)
+            : options
+        var parts = baseSSHArguments(
+            invocationOptions,
+            localCommandScript: localCommandScript
+        )
 
         if options.extraArguments.isEmpty {
             if let trimmedRemoteBootstrap, !trimmedRemoteBootstrap.isEmpty {
@@ -10002,9 +10057,10 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         localCommandScript: String? = nil
     ) -> String {
+        let invocationOptions = sshCommandOptionsWithoutRemoteCommand(options)
         guard let staging = RemoteBootstrapStagingCommandBuilder(
             installerSSHArguments: sshArgumentsOverridingHostRemoteCommand(
-                baseSSHArguments(options, localCommandScript: localCommandScript)
+                baseSSHArguments(invocationOptions, localCommandScript: localCommandScript)
             ),
             destination: options.destination,
             remoteRelayPort: options.remoteRelayPort,
@@ -10012,7 +10068,9 @@ struct CMUXCLI {
         ) else {
             return ""
         }
-        let sessionSSHPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
+        let sessionSSHPrefix = baseSSHArguments(invocationOptions)
+            .map(shellQuote)
+            .joined(separator: " ")
         let remoteCommandTemplate = openSSHRemoteCommandValue(
             shellScript: stagedRemoteBootstrapCommandShell(
                 remoteRelayPort: options.remoteRelayPort
@@ -10208,6 +10266,7 @@ struct CMUXCLI {
         remoteRelayPort: Int,
         shellFeatures: String,
         initialCommand: String? = nil,
+        configuredRemoteCommand: String? = nil,
         terminfoSource: String? = nil,
         terminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) -> String {
@@ -10215,6 +10274,7 @@ struct CMUXCLI {
             remoteRelayPort: remoteRelayPort,
             shellFeatures: shellFeatures,
             initialCommand: initialCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
             terminfoSource: terminfoSource,
             bundledZshIntegration: bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
             bundledBashIntegration: bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
@@ -10297,7 +10357,7 @@ struct CMUXCLI {
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
         )
-        var parts: [String] = ["ssh"]
+        var parts: [String] = ["/usr/bin/ssh"]
         if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
             parts += ["-o", "ConnectTimeout=6"]
         }
@@ -10377,7 +10437,10 @@ struct CMUXCLI {
         passwordCredential: String?,
         controlPathPreflightShellFunction: String?
     ) -> String {
-        var authArguments = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options))
+        let invocationOptions = sshCommandOptionsWithoutRemoteCommand(options)
+        var authArguments = sshArgumentsOverridingHostRemoteCommand(
+            baseSSHArguments(invocationOptions)
+        )
         authArguments += ["-T", options.destination, "true"]
         let authCommand = authArguments.map(shellQuote).joined(separator: " ")
         let attachAttemptScript = buildSSHPTYAttachScriptBody(
@@ -10426,18 +10489,23 @@ struct CMUXCLI {
             "cmux_auth_status=$?",
             "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
         ]
-        if let localCommandScript = localCommandScript?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !localCommandScript.isEmpty {
-            authScriptLines.append(localCommandScript)
-        }
         if authenticationLockPath != nil {
             authScriptLines += sharingOptions.successfulForegroundAuthenticationCleanupShellLines()
         }
-        let authScriptBody = authScriptLines.joined(separator: "\n")
-        let authScript = authenticationLockPath == nil
-            ? authScriptBody
-            : "/bin/zsh -fc \(shellQuote(authScriptBody))"
+        authScriptLines.append("exit 0")
+        let authScript = SSHForegroundAuthenticationRetryPolicy().classifyingTransientFailure(
+            in: authScriptLines.joined(separator: "\n")
+        )
+        var foregroundAuthScriptLines = [
+            authScript,
+            "cmux_auth_status=$?",
+            "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
+        ]
+        if let localCommandScript = localCommandScript?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !localCommandScript.isEmpty {
+            foregroundAuthScriptLines.append(localCommandScript)
+        }
         return buildReusableSSHStartupCommand(
             sshCommand: attachScript,
             shellFeatures: "",
@@ -10445,7 +10513,7 @@ struct CMUXCLI {
             isShellSnippet: true,
             passwordCredential: passwordCredential,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
-            oneTimeCommand: authScript,
+            oneTimeCommand: foregroundAuthScriptLines.joined(separator: "\n"),
             retryPTYAttachStatus: true
         )
     }
@@ -12549,16 +12617,17 @@ struct CMUXCLI {
             "cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1",
             "cmux_ssh_attach_lifecycle_ended=0",
             "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --terminal-lifecycle-id \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" --session-id \(quotedSessionID) --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
-            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
+            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; cmux_ssh_attach_signal_name=\"$2\"; if [ -n \"${cmux_ssh_attach_backoff_pid:-}\" ]; then /bin/kill -TERM \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true; wait \"$cmux_ssh_attach_backoff_pid\" 2>/dev/null || true; cmux_ssh_attach_backoff_pid=; elif [ \"${cmux_ssh_attach_backoff_launching:-0}\" = 1 ]; then cmux_ssh_attach_pending_signal=\"$cmux_ssh_attach_signal_status\"; cmux_ssh_attach_pending_signal_name=\"$cmux_ssh_attach_signal_name\"; return; fi; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
             "trap 'cmux_ssh_attach_lifecycle_end' EXIT",
-            "trap 'cmux_ssh_attach_signal_exit 129' HUP",
-            "trap 'cmux_ssh_attach_signal_exit 130' INT",
-            "trap 'cmux_ssh_attach_signal_exit 143' TERM",
-        ] + SSHPTYAttachExitCode.retryLoopLines(
-            command: "cmux_ssh_attach_attempt",
-            reauthenticates: false
-        )).joined(separator: "\n")
+            "trap 'cmux_ssh_attach_signal_exit 129 HUP' HUP",
+            "trap 'cmux_ssh_attach_signal_exit 130 INT' INT",
+            "trap 'cmux_ssh_attach_signal_exit 143 TERM' TERM",
+        ] + sshPTYAttachRetryLoopLines(command: "cmux_ssh_attach_attempt")).joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(script))"
+    }
+
+    private func sshPTYAttachRetryLoopLines(command: String) -> [String] {
+        SSHPTYAttachRetryScriptBuilder().lines(command: command, reauthenticates: false)
     }
 
     private func sshSessionTargetParams(

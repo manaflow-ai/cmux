@@ -566,6 +566,8 @@ extension TerminalController: ControlWorkspaceContext {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let configuredRemoteCommand = v2RawString(params, "configured_remote_command")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let managedCloudVMID = v2RawString(params, "managed_cloud_vm_id")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
@@ -682,6 +684,7 @@ extension TerminalController: ControlWorkspaceContext {
             localSocketPath: localSocketPath,
             managedCloudVMID: managedCloudVMID?.isEmpty == true ? nil : managedCloudVMID,
             terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
+            configuredRemoteCommand: configuredRemoteCommand?.isEmpty == true ? nil : configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
                 sshOptions: sshOptions,

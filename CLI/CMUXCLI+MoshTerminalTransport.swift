@@ -26,11 +26,12 @@ extension CMUXCLI {
         localCommandScript: String?,
         sshFallbackCommand: String
     ) -> String {
+        let invocationOptions = sshCommandOptionsWithoutRemoteCommand(options)
         let capabilityProbeSSHArguments = sshArgumentsOverridingHostRemoteCommand(
-            baseSSHArguments(options)
+            baseSSHArguments(invocationOptions)
         )
         let sessionSSHArguments = sshArgumentsOverridingHostRemoteCommand(
-            baseSSHArguments(options)
+            baseSSHArguments(invocationOptions)
         )
         let remoteCommandArguments: [String]
         let preparationShellScript: String?
